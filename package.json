@@ -1,0 +1,32 @@
+{
+  "name": "tradetool-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "type-check": "turbo type-check",
+    "clean": "turbo clean",
+    "dev:public": "npm run dev --workspace=@tradetool/public-site",
+    "dev:saas": "npm run dev --workspace=@tradetool/saas-web",
+    "build:public": "npm run build --workspace=@tradetool/public-site",
+    "build:saas": "npm run build --workspace=@tradetool/saas-web"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "packageManager": "npm@10.2.4",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.2"
+  }
+}

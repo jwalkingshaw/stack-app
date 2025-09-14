@@ -1,0 +1,152 @@
+@import "tailwindcss";
+
+/* SaaS App - Light Theme Globals */
+/* Clean, content-focused design for the SaaS application */
+
+:root {
+  /* Primary colors - SaaS Blue Theme */
+  --color-primary: #0052ff;
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-primary-hover: #0041cc;
+  --color-primary-active: #003399;
+  --color-primary-subtle: hsl(217 91% 97%);
+
+  /* Status colors */
+  --color-success: hsl(142 76% 36%);
+  --color-warning: hsl(38 92% 50%);
+  --color-error: hsl(0 84% 60%);
+  --color-success-foreground: hsl(0 0% 98%);
+  --color-warning-foreground: hsl(0 0% 98%);
+  --color-error-foreground: hsl(0 0% 98%);
+
+  /* Light theme backgrounds */
+  --color-background: hsl(0 0% 100%);
+  --color-background-secondary: hsl(210 20% 98%);
+  --color-background-tertiary: hsl(210 20% 96%);
+  --color-background-elevated: hsl(0 0% 100%);
+  --color-background-sunken: hsl(210 20% 98%);
+  --color-background-overlay: hsl(0 0% 0% / 0.5);
+
+  /* Light theme text hierarchy */
+  --color-foreground: hsl(220 9% 9%);
+  --color-foreground-secondary: hsl(220 9% 46%);
+  --color-foreground-tertiary: hsl(220 9% 56%);
+  --color-foreground-muted: hsl(220 9% 66%);
+  --color-foreground-subtle: hsl(220 9% 76%);
+
+  /* Light theme borders */
+  --color-border: hsl(220 8% 94%);
+  --color-border-secondary: hsl(220 8% 90%);
+  --color-border-strong: hsl(220 8% 84%);
+  --color-border-focus: hsl(217 100% 50%);
+  --color-border-hover: hsl(220 8% 88%);
+
+  /* Interactive states */
+  --color-interactive-hover: hsl(210 20% 96%);
+  --color-interactive-pressed: hsl(220 14% 92%);
+  --color-interactive-selected: hsl(217 91% 97%);
+  --color-interactive-disabled: hsl(220 13% 91%);
+  --color-interactive-focus: hsl(217 91% 94%);
+
+  /* Typography */
+  --font-family-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-family-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Legacy Tailwind compatibility */
+  --background: 0 0% 100%;
+  --foreground: 220 9% 9%;
+  --primary: 217 100% 50%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 210 20% 98%;
+  --secondary-foreground: 220 9% 9%;
+  --muted: 210 20% 98%;
+  --muted-foreground: 220 9% 46%;
+  --accent: 210 20% 96%;
+  --accent-foreground: 220 9% 9%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 220 8% 94%;
+  --input: 220 8% 94%;
+  --ring: 217 100% 50%;
+  --radius: 0.5rem;
+
+  /* Sidebar colors for SaaS app */
+  --sidebar-background: hsl(0 0% 98%);
+  --sidebar-foreground: hsl(220 9% 9%);
+  --sidebar-primary: hsl(220 9% 9%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(210 20% 96%);
+  --sidebar-accent-foreground: hsl(220 9% 9%);
+  --sidebar-border: hsl(220 8% 94%);
+  --sidebar-ring: hsl(217 100% 50%);
+}
+
+/* Base styles */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-background);
+}
+
+body {
+  font-family: var(--font-family-sans);
+  font-weight: 400;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--color-foreground);
+  background-color: var(--color-background);
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Focus styles */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-border-focus);
+}
+
+/* Selection styles */
+::selection {
+  background-color: var(--color-primary-subtle);
+  color: var(--color-foreground);
+}
+
+/* Typography hierarchy */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-family-sans);
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-foreground);
+  margin: 0;
+  letter-spacing: -0.025em;
+}
+
+h1 { font-size: 2.25rem; font-weight: 700; }
+h2 { font-size: 1.875rem; font-weight: 600; }
+h3 { font-size: 1.5rem; font-weight: 600; }
+h4 { font-size: 1.25rem; font-weight: 600; }
+h5 { font-size: 1.125rem; font-weight: 600; }
+h6 { font-size: 1rem; font-weight: 600; }
+
+p {
+  color: var(--color-foreground-secondary);
+  line-height: 1.75;
+  margin: 0;
+}
+
+/* Tailwind base layer */
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

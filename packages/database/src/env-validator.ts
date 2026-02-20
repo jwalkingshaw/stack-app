@@ -49,6 +49,7 @@ export function validateEnvironmentVariables(): EnvValidationResult {
   // Optional but recommended
   const optionalVars = {
     'NEXT_PUBLIC_APP_URL': process.env.NEXT_PUBLIC_APP_URL,
+    'NEXT_PUBLIC_TENANT_BASE_DOMAIN': process.env.NEXT_PUBLIC_TENANT_BASE_DOMAIN,
   };
 
   // Check required variables

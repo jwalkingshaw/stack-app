@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { 
   Plus, 
-  Search, 
   Filter, 
   Folder,
   FolderOpen,
@@ -21,6 +20,8 @@ import {
   Users
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SearchInput } from "@/components/ui/search-input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@tradetool/ui";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -296,54 +297,38 @@ export default function FoldersClient({ tenantSlug }: FoldersClientProps) {
     <div className="space-y-6">
       <PageHeader
         title="Folders"
-        actions={[
-          {
-            label: "Create Folder",
-            onClick: () => setShowCreateDialog(true),
-            icon: FolderPlus
-          }
-        ]}
       />
-      
+      <div className="p-6 space-y-6">
       {/* Search Section */}
-      <div className="bg-background border-b border-border px-4 py-4 shadow-soft">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-background px-4 py-4 shadow-soft">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             {/* Search Bar */}
             <div className="flex-1 max-w-2xl">
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-muted-foreground w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Search folders by name or path..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-12 pr-6 py-3.5 text-base border border-input bg-background rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all duration-200 placeholder:text-muted-foreground shadow-soft hover:shadow-medium hover:border-ring/50"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors w-5 h-5 rounded-full hover:bg-muted flex items-center justify-center"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
+              <SearchInput
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search folders by name or path..."
+                className="max-w-none"
+              />
               {searchQuery && (
                 <p className="text-sm text-muted-foreground mt-2 ml-1">
                   {filteredFolders.length} {filteredFolders.length === 1 ? 'result' : 'results'} for "{searchQuery}"
                 </p>
               )}
             </div>
-            
+
+          <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => setShowCreateDialog(true)} className="gap-2">
+              <FolderPlus className="w-4 h-4" />
+              Create Folder
+            </Button>
           </div>
         </div>
       </div>
 
       {/* Toolbar */}
       <div className="bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3 shadow-soft">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-3">
                 <span className="text-lg font-semibold text-foreground">
@@ -353,15 +338,16 @@ export default function FoldersClient({ tenantSlug }: FoldersClientProps) {
               
               {/* Filters */}
               <div className="flex items-center gap-4">
-                <select 
-                  value={sortBy} 
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="text-sm border border-input rounded-xl px-4 h-8 bg-background shadow-soft hover:border-ring/50 hover:shadow-medium focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-200 min-w-[140px]"
-                >
-                  <option value="name">Sort by name</option>
-                  <option value="date">Sort by date</option>
-                  <option value="path">Sort by path</option>
-                </select>
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="min-w-[140px]">
+                    <SelectValue placeholder="Sort by name" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="name">Sort by name</SelectItem>
+                    <SelectItem value="date">Sort by date</SelectItem>
+                    <SelectItem value="path">Sort by path</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -388,13 +374,11 @@ export default function FoldersClient({ tenantSlug }: FoldersClientProps) {
                 <List className="w-4 h-4" />
               </button>
             </div>
-          </div>
         </div>
       </div>
 
       {/* Content Area */}
-      <main className="flex-1 overflow-auto p-4 bg-background">
-        <div className="max-w-7xl mx-auto">
+      <div className="flex-1 overflow-auto bg-background">
           {loading ? (
             <div className={getGridClasses()}>
               {Array.from({ length: 8 }).map((_, i) => (
@@ -447,17 +431,10 @@ export default function FoldersClient({ tenantSlug }: FoldersClientProps) {
                 <Folder className="w-10 h-10 text-muted-foreground opacity-60" />
               </div>
               <h3 className="text-xl font-semibold text-foreground mb-3">No folders found</h3>
-              <p className="text-muted-foreground text-base max-w-md mx-auto leading-relaxed mb-8">
-                {searchQuery ? 'Try adjusting your search terms to find what you\'re looking for.' : 'Create your first folder to organize your assets.'}
-              </p>
-              <Button size="lg" onClick={() => setShowCreateDialog(true)}>
-                <FolderPlus className="w-5 h-5" />
-                Create Folder
-              </Button>
             </div>
           )}
-        </div>
-      </main>
+      </div>
+      </div>
 
       {/* Create Folder Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>

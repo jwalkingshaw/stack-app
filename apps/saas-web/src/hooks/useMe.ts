@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-// Simple in-memory cache to prevent duplicate API calls
+// Enhanced cache with Redis fallback awareness
 let cachedMe: MeData | undefined;
 let cacheTimestamp = 0;
-const CACHE_DURATION = 30000; // 30 seconds
+const CACHE_DURATION = 30000; // 30 seconds (short for immediate UX)
 let pendingRequest: Promise<MeData> | null = null;
 
 export type SafeUser = {
@@ -21,6 +21,8 @@ export type SafeOrganization = {
   id: string;
   name: string;
   slug: string;
+  type: "brand" | "partner";
+  partnerCategory: "retailer" | "distributor" | "wholesaler" | null;
   storageUsed: number;
   storageLimit: number;
 };

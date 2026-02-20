@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthService } from "@tradetool/auth";
+import { AuthService, ScopedPermission } from "@tradetool/auth";
 import { DatabaseQueries } from "@tradetool/database";
 import { supabaseServer } from "@/lib/supabase";
+import { enforceMarketScopedAccess } from "@/lib/market-scope";
+import { enforceCollectionScope } from "@/lib/collection-scope";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const resolvedParams = await params;
+
     // DEVELOPMENT MODE: Return mock data for demo tenants
-    if (params.slug === "demo-org" || params.slug === "test-company") {
+    if (resolvedParams.slug === "demo-org" || resolvedParams.slug === "test-company") {
       const mockAssets = [
         {
           id: "mock-asset-1",
-          organizationId: `mock-${params.slug}`,
+          organizationId: `mock-${resolvedParams.slug}`,
           folderId: null,
           filename: "sample-image.jpg",
           originalFilename: "sample-image.jpg",
@@ -36,7 +40,7 @@ export async function GET(
         },
         {
           id: "mock-asset-2",
-          organizationId: `mock-${params.slug}`,
+          organizationId: `mock-${resolvedParams.slug}`,
           folderId: null,
           filename: "document.pdf",
           originalFilename: "sample-document.pdf",
@@ -73,27 +77,55 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const organization = await authService.getCurrentOrganization(params.slug);
+    const organization = await authService.getCurrentOrganization(resolvedParams.slug);
     if (!organization) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
     const hasAccess = await authService.hasOrganizationAccess(user.id, organization.id);
-    if (!hasAccess) {
+    const url = new URL(request.url);
+    const marketId = url.searchParams.get("marketId");
+    const locale = url.searchParams.get("locale");
+    const channelId = url.searchParams.get("channelId");
+    const collectionId = url.searchParams.get("collectionId");
+
+    const scopeCheck = await enforceMarketScopedAccess({
+      authService,
+      supabase: supabaseServer as any,
+      userId: user.id,
+      organizationId: organization.id,
+      permissionKey: ScopedPermission.AssetDownloadDerivative,
+      marketId,
+      localeCode: locale,
+      channelId,
+      collectionId,
+    });
+    if (!hasAccess && !scopeCheck.ok) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const url = new URL(request.url);
     const folderId = url.searchParams.get('folderId');
     const limit = parseInt(url.searchParams.get('limit') || '50');
     const offset = parseInt(url.searchParams.get('offset') || '0');
 
-    const assets = await db.getAssetsByOrganization(
+    const collectionScope = await enforceCollectionScope({
+      supabase: supabaseServer as any,
+      organizationId: organization.id,
+      collectionId,
+    });
+    if (!collectionScope.ok) {
+      return collectionScope.response;
+    }
+
+    const rawAssets = await db.getAssetsByOrganization(
       organization.id,
       folderId || undefined,
       limit,
       offset
     );
+    const assets = collectionScope.assetIds
+      ? rawAssets.filter((asset) => collectionScope.assetIds!.includes(asset.id))
+      : rawAssets;
 
     return NextResponse.json({
       data: assets,
@@ -114,9 +146,11 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const resolvedParams = await params;
+
     const db = new DatabaseQueries(supabaseServer);
     const authService = new AuthService(db);
     
@@ -125,13 +159,30 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const organization = await authService.getCurrentOrganization(params.slug);
+    const organization = await authService.getCurrentOrganization(resolvedParams.slug);
     if (!organization) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
     const hasAccess = await authService.hasOrganizationAccess(user.id, organization.id);
-    if (!hasAccess) {
+    const url = new URL(request.url);
+    const marketId = url.searchParams.get("marketId");
+    const locale = url.searchParams.get("locale");
+    const channelId = url.searchParams.get("channelId");
+    const collectionId = url.searchParams.get("collectionId");
+
+    const scopeCheck = await enforceMarketScopedAccess({
+      authService,
+      supabase: supabaseServer as any,
+      userId: user.id,
+      organizationId: organization.id,
+      permissionKey: ScopedPermission.AssetUpload,
+      marketId,
+      localeCode: locale,
+      channelId,
+      collectionId,
+    });
+    if (!hasAccess && !scopeCheck.ok) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

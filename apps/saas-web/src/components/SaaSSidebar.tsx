@@ -1,46 +1,61 @@
 'use client'
 
-import React, { ReactNode, useState } from 'react'
+import React, { ReactNode, useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { 
-  Menu, 
-  BarChart3, 
-  Files, 
-  Folder, 
-  Settings, 
-  Star,
-  Clock,
-  Share2,
-  Trash2,
+import { useSearchParams } from 'next/navigation'
+import {
+  BarChart3,
+  Files,
   Database,
-  Plus,
-  ChevronRight,
-  Users,
-  TrendingUp,
-  Activity,
-  Archive,
   Package,
-  Map
+  ChevronDown,
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@tradetool/ui'
 import { Button } from './ui/button'
-import { WorkspaceSwitcher } from './WorkspaceSwitcher'
+import type { WorkspaceSummary } from '@/hooks/useWorkspaces'
+import { WorkspaceRail } from './WorkspaceRail'
+import {
+  buildTenantPathForScope,
+  extractPartnerScopeFromPath,
+  resolvePartnerSelectedBrandSlug,
+} from '@/lib/tenant-view-scope'
 
 export interface Organization {
   id: string
   name: string
   slug: string
+  organizationType?: 'brand' | 'partner'
+  partnerCategory?: 'retailer' | 'distributor' | 'wholesaler' | null
   plan?: 'free' | 'pro' | 'enterprise'
+}
+
+export interface SidebarUser {
+  id: string
+  email: string
+  firstName?: string
+  lastName?: string
+  picture?: string
 }
 
 export interface SaaSSidebarProps {
   organization?: Organization | null
   currentPath?: string
   orgSlug?: string
+  workspaces?: WorkspaceSummary[]
   onNavigate?: (url: string) => void
   storageUsed?: number
   storageLimit?: number
   onCollapseChange?: (collapsed: boolean) => void
   defaultCollapsed?: boolean
+  user?: SidebarUser | null
+  onLogout?: () => void
   children?: ReactNode
 }
 
@@ -49,28 +64,51 @@ function formatFileSize(bytes: number): string {
   const k = 1024
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
 export function SaaSSidebar({
   organization,
-  currentPath = "",
+  currentPath = '',
   orgSlug,
+  workspaces,
   onNavigate,
   storageUsed = 0,
   storageLimit = 0,
   onCollapseChange,
   defaultCollapsed = false,
-  children
+  user,
+  onLogout,
+  children,
 }: SaaSSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
-  
-  const toggleSidebar = () => {
-    const newCollapsed = !isCollapsed
-    setIsCollapsed(newCollapsed)
-    onCollapseChange?.(newCollapsed)
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false)
+  const searchParams = useSearchParams()
+  const fallbackBrandSlug = (searchParams.get('brand') || '').trim().toLowerCase()
+
+  const currentWorkspaceSlug = orgSlug ?? organization?.slug ?? ''
+
+  const organizationName = organization?.name ?? ''
+  const organizationSlug = organization?.slug ?? ''
+  const showWorkspaceRail = organization?.organizationType === 'partner'
+  const userFirstName = user?.firstName ?? ''
+  const userLastName = user?.lastName ?? ''
+  const userEmail = user?.email ?? ''
+  const pathScope = extractPartnerScopeFromPath(currentPath, currentWorkspaceSlug)
+  const selectedBrandSlug = resolvePartnerSelectedBrandSlug({
+    pathname: currentPath,
+    tenantSlug: currentWorkspaceSlug,
+    fallbackBrandSlug,
+    organizationType: organization?.organizationType,
+  })
+  const activeScope = pathScope || selectedBrandSlug
+
+  const expandSidebar = () => {
+    if (!isCollapsed) return
+    setIsCollapsed(false)
+    onCollapseChange?.(false)
   }
-  
+
   const handleNavigation = (url: string) => {
     if (onNavigate) {
       onNavigate(url)
@@ -78,151 +116,236 @@ export function SaaSSidebar({
       window.location.href = url
     }
   }
-  
+
+  const buildPath = useCallback((suffix = '') => {
+    if (!currentWorkspaceSlug) return '/'
+    if (organization?.organizationType !== 'partner') {
+      return suffix ? `/${currentWorkspaceSlug}${suffix}` : `/${currentWorkspaceSlug}`
+    }
+    return buildTenantPathForScope({
+      tenantSlug: currentWorkspaceSlug,
+      scope: activeScope,
+      suffix,
+    })
+  }, [activeScope, currentWorkspaceSlug, organization?.organizationType])
+
   const isActive = (path: string) => {
-    return currentPath === path || currentPath?.startsWith(path + '/')
+    if (!path || path === '#') return false
+    const normalizedPath = path.split('?')[0]
+    return currentPath === normalizedPath || currentPath.startsWith(`${normalizedPath}/`)
   }
-  
+
   const storagePercentage = storageLimit > 0 ? (storageUsed / storageLimit) * 100 : 0
 
+  const userFullName = useMemo(() => {
+    const parts = [userFirstName, userLastName].filter(Boolean)
+    return parts.join(' ')
+  }, [userFirstName, userLastName])
+
+  const workspaceInitial = useMemo(() => {
+    const basis = organizationName || organizationSlug || userFullName || userEmail || '?'
+    return basis.charAt(0).toUpperCase()
+  }, [organizationName, organizationSlug, userEmail, userFullName])
+
+  const navGroups = useMemo(() => {
+    const groups = [
+      {
+        label: 'Primary',
+        items: [
+          {
+            label: 'Dashboard',
+            path: buildPath(),
+            icon: BarChart3,
+          },
+        ],
+      },
+      {
+        label: 'Library',
+        items: [
+          {
+            label: 'Assets',
+            path: buildPath('/assets'),
+            icon: Files,
+          },
+          {
+            label: 'Products',
+            path: buildPath('/products'),
+            icon: Package,
+          },
+        ],
+      },
+    ]
+
+    return groups.filter((group) => group.items.length > 0)
+  }, [buildPath])
+
+  const handleLogout = () => {
+    onLogout?.()
+  }
+
   return (
-    <div className={`bg-sidebar h-full flex flex-col transition-all duration-300 ease-out ${
-      isCollapsed ? 'w-16' : 'w-48'
-    }`}>
-      {/* Minimal Header */}
-      <div className="flex items-center justify-between px-4 h-14">
-        <div className="flex-1 min-w-0">
-          {organization && !isCollapsed && (
-            <div className="text-sm font-medium text-foreground truncate">
-              {organization.name}
-            </div>
-          )}
-          {organization && isCollapsed && (
-            <div className="w-8 h-8 bg-primary text-primary-foreground rounded flex items-center justify-center text-sm font-medium">
-              {organization.name.charAt(0).toUpperCase()}
-            </div>
-          )}
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggleSidebar}
-          className="h-8 w-8 text-muted-foreground hover:text-foreground transition-colors ml-2"
-        >
-          <Menu className="h-4 w-4" />
-        </Button>
-      </div>
+    <div
+      onMouseEnter={() => {
+        expandSidebar()
+      }}
+      onFocusCapture={expandSidebar}
+      className="bg-[#f5f5f5] h-full flex"
+    >
+      {showWorkspaceRail ? (
+        <WorkspaceRail
+          currentWorkspaceSlug={currentWorkspaceSlug}
+          currentWorkspaceName={organizationName}
+          currentPath={currentPath}
+          initialWorkspaces={workspaces}
+        />
+      ) : null}
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2">
-        {/* Main Navigation */}
-        <div className="space-y-0.5">
-          <Link 
-            href={`/${orgSlug}`}
-            className={`flex items-center gap-3 px-3 py-2 text-sm font-normal rounded-md transition-colors ${
-              isActive(`/${orgSlug}`) && currentPath === `/${orgSlug}`
-                ? 'bg-muted text-foreground' 
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-            }`}
-          >
-            <BarChart3 className="h-4 w-4 flex-shrink-0" />
-            {!isCollapsed && <span className="flex-1">Dashboard</span>}
-          </Link>
-          
-          <Link 
-            href={`/${orgSlug}/assets`}
-            className={`flex items-center gap-3 px-3 py-2 text-sm font-normal rounded-md transition-colors ${
-              isActive(`/${orgSlug}/assets`)
-                ? 'bg-muted text-foreground' 
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-            }`}
-          >
-            <Files className="h-4 w-4 flex-shrink-0" />
-            {!isCollapsed && <span className="flex-1">Assets</span>}
-          </Link>
-          
-          <Link 
-            href={`/${orgSlug}/products`}
-            className={`flex items-center gap-3 px-3 py-2 text-sm font-normal rounded-md transition-colors ${
-              isActive(`/${orgSlug}/products`)
-                ? 'bg-muted text-foreground' 
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-            }`}
-          >
-            <Package className="h-4 w-4 flex-shrink-0" />
-            {!isCollapsed && <span className="flex-1">Products</span>}
-          </Link>
-          
-          <Link 
-            href={`/${orgSlug}/roadmap`}
-            className={`flex items-center gap-3 px-3 py-2 text-sm font-normal rounded-md transition-colors ${
-              isActive(`/${orgSlug}/roadmap`)
-                ? 'bg-muted text-foreground' 
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-            }`}
-          >
-            <Map className="h-4 w-4 flex-shrink-0" />
-            {!isCollapsed && <span className="flex-1">RoadMap</span>}
-          </Link>
-          
-          <Link 
-            href={`/${orgSlug}/folders`}
-            className={`flex items-center gap-3 px-3 py-2 text-sm font-normal rounded-md transition-colors ${
-              isActive(`/${orgSlug}/folders`)
-                ? 'bg-muted text-foreground' 
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-            }`}
-          >
-            <Folder className="h-4 w-4 flex-shrink-0" />
-            {!isCollapsed && <span className="flex-1">Folders</span>}
-          </Link>
-          
-          <Link 
-            href={`/${orgSlug}/settings`}
-            className={`flex items-center gap-3 px-3 py-2 text-sm font-normal rounded-md transition-colors ${
-              isActive(`/${orgSlug}/settings`)
-                ? 'bg-muted text-foreground' 
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-            }`}
-          >
-            <Settings className="h-4 w-4 flex-shrink-0" />
-            {!isCollapsed && <span className="flex-1">Settings</span>}
-          </Link>
-        </div>
-
-      </nav>
-
-      {/* Minimal Storage Stats */}
-      {!isCollapsed && storageLimit > 0 && (
-        <div className="p-4">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 mb-2">
-              <Database className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium text-foreground">Storage</span>
-            </div>
-            
-            <div className="flex justify-between text-xs text-muted-foreground mb-1">
-              <span>{formatFileSize(storageUsed)}</span>
-              <span>{formatFileSize(storageLimit)}</span>
-            </div>
-            
-            <div className="w-full bg-muted rounded-sm h-1.5 overflow-hidden">
-              <div
-                className="bg-primary h-1.5 rounded-sm transition-all duration-300"
-                style={{ width: `${Math.min(storagePercentage, 100)}%` }}
-              />
-            </div>
-            
-            {storagePercentage > 90 && (
-              <Button variant="outline" size="sm" className="w-full mt-2 text-xs">
-                Upgrade
-              </Button>
-            )}
+      <div
+        className={`h-full flex flex-col overflow-hidden transition-all duration-300 ease-out ${
+          isCollapsed ? 'w-0 opacity-0 pointer-events-none' : 'w-56 opacity-100'
+        }`}
+      >
+        <div className="flex items-center justify-between px-3 h-14">
+          <div className="flex flex-1 items-center gap-2">
+            <DropdownMenu
+              open={isWorkspaceMenuOpen}
+      onOpenChange={(open) => {
+        setIsWorkspaceMenuOpen(open)
+      }}
+            >
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Open account menu"
+                  className="workspace-menu-trigger flex flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left text-foreground hover:bg-muted/60 focus:outline-none focus:!shadow-none focus-visible:outline-none focus-visible:!shadow-none"
+                >
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-foreground truncate">
+                      {organizationName || 'Workspace'}
+                    </div>
+                  </div>
+                  <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-150" aria-hidden="true" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                alignOffset={-28}
+                side="bottom"
+                onMouseEnter={() => setIsWorkspaceMenuOpen(true)}
+                onMouseLeave={() => {
+                  setIsWorkspaceMenuOpen(false)
+                }}
+                className="w-72 rounded-md border border-border/60 bg-white shadow-none"
+              >
+                <DropdownMenuLabel className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-semibold">
+                    {workspaceInitial}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-foreground truncate">
+                      {organizationName || 'Workspace'}
+                    </div>
+                    {user && (
+                      <div className="text-xs text-muted-foreground truncate">
+                        Signed in as {userFullName || userEmail}
+                      </div>
+                    )}
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={() => handleNavigation(`/${currentWorkspaceSlug}/settings`)}
+                  className="cursor-pointer"
+                >
+                  Settings
+                </DropdownMenuItem>
+                {organization?.organizationType === 'brand' ? (
+                  <DropdownMenuItem
+                    onSelect={() => handleNavigation(buildPath('/settings/team'))}
+                    className="cursor-pointer"
+                  >
+                    Invite &amp; manage members
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={handleLogout}
+                  disabled={!onLogout}
+                  className="cursor-pointer text-destructive focus:text-destructive"
+                >
+                  Log out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
+          <div className="h-8 w-8 ml-2" aria-hidden="true" />
         </div>
-      )}
 
-      {children}
+        <nav className="flex-1 overflow-y-auto py-3 px-2">
+          <div className="space-y-4">
+            {navGroups.map((group) => (
+              <div key={group.label}>
+                <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  {group.label}
+                </div>
+                <div className="space-y-0.5">
+                  {group.items.map((item) => {
+                    const Icon = item.icon
+                    const active = isActive(item.path)
+                    return (
+                      <Link
+                        key={item.label}
+                        href={item.path}
+                        prefetch={false}
+                        aria-label={item.label}
+                        className={`flex items-center rounded-md transition-colors ${
+                          active
+                            ? 'bg-muted text-foreground'
+                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                        } gap-2 px-3 py-2 text-sm font-normal`}
+                      >
+                        <Icon className="h-4 w-4 flex-shrink-0" />
+                        <span className="flex-1 truncate">{item.label}</span>
+                      </Link>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </nav>
+
+        {storageLimit > 0 && (
+          <div className="p-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 mb-2">
+                <Database className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium text-foreground">Storage</span>
+              </div>
+
+              <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                <span>{formatFileSize(storageUsed)}</span>
+                <span>{formatFileSize(storageLimit)}</span>
+              </div>
+
+              <div className="w-full bg-muted rounded-sm h-1.5 overflow-hidden">
+                <div
+                  className="bg-primary h-1.5 rounded-sm transition-all duration-300"
+                  style={{ width: `${Math.min(storagePercentage, 100)}%` }}
+                />
+              </div>
+
+              {storagePercentage > 90 && (
+                <Button variant="outline" size="sm" className="w-full mt-2 text-xs">
+                  Upgrade
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {children}
+      </div>
     </div>
   )
 }

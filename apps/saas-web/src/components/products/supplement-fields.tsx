@@ -12,7 +12,7 @@ export interface SupplementProduct {
   sku: string;
   upc?: string;
   brandLine?: string;
-  status: 'Draft' | 'Development' | 'Active' | 'Pending Launch' | 'Discontinued';
+  status: 'Draft' | 'Enrichment' | 'Review' | 'Active' | 'Discontinued' | 'Archived';
   
   // Category classification
   category: SupplementCategory;

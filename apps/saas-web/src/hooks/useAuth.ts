@@ -28,6 +28,9 @@ export function useAuth() {
       id: organization.id,
       name: organization.name,
       slug: organization.slug,
+      type: organization.type,
+      organizationType: organization.type,
+      partnerCategory: organization.partnerCategory,
       kindeOrgId: organization.id, // Note: This mapping may need adjustment
       storageUsed: organization.storageUsed,
       storageLimit: organization.storageLimit,

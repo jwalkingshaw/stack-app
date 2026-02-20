@@ -3,6 +3,8 @@ import { getAuthSession } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase";
 import { DatabaseQueries } from "@tradetool/database";
 import type { Organization } from "@tradetool/types";
+import { evaluateTenantAccessDecision } from "@/lib/tenant-access-decision";
+import { getActiveWorkspaceMemberships } from "@/lib/workspace-notifications";
 
 export interface TenantAuthResult {
   success: boolean;
@@ -11,11 +13,45 @@ export interface TenantAuthResult {
   error?: NextResponse;
 }
 
+export type TenantAccessResult =
+  | { ok: true; organization: Organization; userId?: string }
+  | { ok: false; response: NextResponse };
+
+/**
+ * Enforce tenant access and return a consistent result for route handlers.
+ */
+export async function requireTenantAccess(
+  request: NextRequest,
+  tenantSlug: string
+): Promise<TenantAccessResult> {
+  const authResult = await verifyTenantAccess(request, tenantSlug);
+  if (!authResult.success) {
+    return { ok: false, response: authResult.error! };
+  }
+
+  if (!authResult.organization) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Organization not found" },
+        { status: 404 }
+      ),
+    };
+  }
+
+  return {
+    ok: true,
+    organization: authResult.organization,
+    userId: authResult.userId,
+  };
+}
+
 /**
  * Secure multi-tenant authorization
  * 1. Lookup organization by user-friendly slug
- * 2. Verify user's Kinde org ID matches organization's Kinde org ID
- * This prevents unauthorized access even if someone guesses a slug
+ * 2. Allow access only if user has direct active workspace membership.
+ *    Partner brand relationships are for shared-content visibility in partner context,
+ *    not for cross-tenant workspace access.
  */
 export async function verifyTenantAccess(
   request: NextRequest,
@@ -52,16 +88,28 @@ export async function verifyTenantAccess(
     console.log('Tenant access verification:', {
       tenantSlug,
       organizationKindeId: organization.kindeOrgId,
-      sessionOrgCode: session.orgCode,
       userId: session.user?.id
     });
     
-    // Step 2: Verify user has access - try Kinde org context first, fallback to database
-    if (session.orgCode && session.orgCode !== organization.kindeOrgId) {
-      console.error('Access denied - Kinde org mismatch:', {
-        sessionOrgCode: session.orgCode,
+    const accessibleWorkspaces = await getActiveWorkspaceMemberships(
+      supabaseServer,
+      session.user?.id || "",
+      session.user?.email || null,
+      { includePartnerBrandAccess: false, includeEmailLookup: false }
+    );
+    const hasWorkspaceAccess = accessibleWorkspaces.some(
+      (workspace) => workspace.organization.id === organization.id
+    );
+
+    // Step 2: Verify user has explicit workspace access (membership-based only).
+    const preDecision = evaluateTenantAccessDecision({
+      hasMembership: hasWorkspaceAccess,
+    });
+    if (!preDecision.allow) {
+      console.error('Access denied - membership missing:', {
         organizationKindeId: organization.kindeOrgId,
-        requestedTenant: tenantSlug
+        requestedTenant: tenantSlug,
+        reason: preDecision.reason
       });
       return {
         success: false,
@@ -72,37 +120,10 @@ export async function verifyTenantAccess(
       };
     }
     
-    // Fallback: If no Kinde org context, verify through database membership
-    if (!session.orgCode) {
-      console.log('⚠️ No Kinde org context, using database verification for user:', session.user.id);
-      
-      const membership = await db.getOrganizationMembership(organization.id, session.user.id);
-      if (!membership) {
-        console.error('Access denied - no database membership:', {
-          userId: session.user.id,
-          organizationId: organization.id,
-          requestedTenant: tenantSlug
-        });
-        return {
-          success: false,
-          error: NextResponse.json(
-            { error: "Access denied to this tenant" },
-            { status: 403 }
-          )
-        };
-      }
-      
-      console.log('✅ Database verification successful - user has access:', {
-        userId: session.user.id,
-        orgId: organization.id,
-        role: membership.role
-      });
-    }
-
     return {
       success: true,
       organization,
-      userId: session.user.id
+      userId: session.user?.id
     };
 
   } catch (error) {
@@ -116,3 +137,6 @@ export async function verifyTenantAccess(
     };
   }
 }
+
+
+

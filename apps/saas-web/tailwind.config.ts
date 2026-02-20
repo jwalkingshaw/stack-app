@@ -1,5 +1,4 @@
 import type { Config } from "tailwindcss";
-import { tailwindConfig } from "@tradetool/design-tokens";
 
 const config: Config = {
   content: [
@@ -10,7 +9,26 @@ const config: Config = {
   ],
   theme: {
     extend: {
-      ...tailwindConfig,
+      // Typography scale - compact fixed sizes for data-dense SaaS
+      fontSize: {
+        'xs': ['var(--text-xs)', { lineHeight: '1.4' }],        // 12px - metadata
+        'sm': ['var(--text-sm)', { lineHeight: '1.5' }],        // 13px - secondary text
+        'base': ['var(--text-base)', { lineHeight: '1.6' }],    // 15px - primary text
+        'lg': ['var(--text-lg)', { lineHeight: '1.5' }],        // 16px - titles
+        // Legacy responsive sizes
+        'responsive-xs': ['var(--font-size-xs)', { lineHeight: '1.4' }],
+        'responsive-sm': ['var(--font-size-sm)', { lineHeight: '1.5' }],
+        'responsive-base': ['var(--font-size-base)', { lineHeight: '1.6' }],
+        'responsive-lg': ['var(--font-size-lg)', { lineHeight: '1.5' }],
+        'xl': ['var(--font-size-xl)', { lineHeight: '1.4' }],
+        '2xl': ['var(--font-size-2xl)', { lineHeight: '1.3' }],
+      },
+      // Font weights
+      fontWeight: {
+        'normal': 'var(--font-weight-normal)',
+        'medium': 'var(--font-weight-medium)',
+        'semibold': 'var(--font-weight-semibold)',
+      },
       // Enhanced color system with CSS variables
       colors: {
         border: "hsl(var(--border))",
@@ -46,6 +64,13 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        "accent-blue": {
+          DEFAULT: "var(--color-accent-blue)",
+          foreground: "var(--color-accent-blue-foreground)",
+          hover: "var(--color-accent-blue-hover)",
+          active: "var(--color-accent-blue-active)",
+          subtle: "var(--color-accent-blue-subtle)",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -79,15 +104,5 @@ const config: Config = {
     },
   },
   plugins: [],
-  safelist: [
-    // Keep arbitrary values that might not be detected
-    'bg-black',
-    'border-gray-800',
-    'h-[67px]',
-    'pt-[67px]',
-    'z-[60]',
-    'text-white',
-    'hover:bg-gray-800',
-  ],
 };
 export default config;

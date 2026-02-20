@@ -4,6 +4,7 @@ import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient } from "@tradetool/database";
 import type { User, Organization } from "@tradetool/types";
 import { cache } from 'react';
+import { cache as redisCache, CacheKeys, CacheTTL } from './redis';
 
 /**
  * Get the current user if authenticated, null otherwise
@@ -40,39 +41,37 @@ export const requireOrganization = cache(async () => {
 
 /**
  * Get current user's organization details from Supabase
- * Cached for performance during request lifecycle
+ * Cached with Redis for performance across requests
  * @returns Promise<Organization | null>
  */
 export const getCurrentOrganization = cache(async () => {
   try {
     const kindeOrg = await requireOrganization();
-    console.log('🔍 Kinde organization from session:', {
-      orgCode: kindeOrg?.orgCode,
-      name: kindeOrg?.name
-    });
-    
+
     if (!kindeOrg?.orgCode) {
-      console.log('❌ No Kinde org code found');
       return null;
+    }
+
+    // Check Redis cache first
+    const cacheKey = CacheKeys.organizationByKindeId(kindeOrg.orgCode);
+    const cached = await redisCache.get<Organization>(cacheKey);
+    if (cached) {
+      return cached;
     }
 
     const supabase = createServerClient();
     const db = new DatabaseQueries(supabase);
-    
+
     // Get organization from Supabase using Kinde org ID
     const organization = await db.getOrganizationByKindeId(kindeOrg.orgCode);
-    console.log('🔍 Supabase organization lookup:', {
-      kindeOrgId: kindeOrg.orgCode,
-      foundOrg: organization ? {
-        id: organization.id,
-        name: organization.name,
-        slug: organization.slug
-      } : null
-    });
-    
+
+    // Cache the result
+    if (organization) {
+      await redisCache.set(cacheKey, organization, CacheTTL.ORGANIZATION);
+    }
+
     return organization;
   } catch (error) {
-    console.error('Failed to get current organization:', error);
     return null;
   }
 });
@@ -94,27 +93,39 @@ export async function hasAccessToTenant(tenantSlug: string): Promise<boolean> {
     
     return orgCodeValue === tenantSlug;
   } catch (error) {
-    console.error('Failed to check tenant access:', error);
     return false;
   }
 }
 
 /**
  * Get safe user data for client consumption
- * Cached for performance during request lifecycle
+ * Cached with Redis for performance across requests
  * @returns Promise<SafeUser | null>
  */
 export const getSafeUserData = cache(async () => {
   const user = await requireUser();
   if (!user) return null;
 
-  return {
+  // Check Redis cache first
+  const cacheKey = CacheKeys.user(user.id);
+  const cached = await redisCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const safeUser = {
     id: user.id,
     email: user.email || '',
     given_name: user.given_name || null,
     family_name: user.family_name || null,
     picture: user.picture || null,
+    name: `${user.given_name || ''} ${user.family_name || ''}`.trim() || user.email || '',
   };
+
+  // Cache the safe user data
+  await redisCache.set(cacheKey, safeUser, CacheTTL.USER_SESSION);
+
+  return safeUser;
 });
 
 /**
@@ -130,6 +141,8 @@ export const getSafeOrganizationData = cache(async () => {
     id: organization.id,
     name: organization.name,
     slug: organization.slug,
+    type: (organization.organizationType || organization.type || 'brand') as 'brand' | 'partner',
+    partnerCategory: organization.partnerCategory ?? null,
     storageUsed: organization.storageUsed,
     storageLimit: organization.storageLimit,
   };
@@ -142,5 +155,5 @@ export const getSafeOrganizationData = cache(async () => {
  */
 export const isAuthenticated = cache(async (): Promise<boolean> => {
   const { isAuthenticated } = getKindeServerSession();
-  return await isAuthenticated();
+  return (await isAuthenticated()) || false;
 });

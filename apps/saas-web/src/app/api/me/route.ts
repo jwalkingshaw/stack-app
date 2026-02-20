@@ -17,8 +17,8 @@ export async function GET() {
     const organization = await getSafeOrganizationData();
     
     console.log('🔍 /api/me Debug:', {
-      userId: user.id,
-      userEmail: user.email,
+      userId: (user as any)?.id,
+      userEmail: (user as any)?.email,
       organizationId: organization?.id,
       organizationSlug: organization?.slug,
       organizationName: organization?.name
@@ -27,19 +27,21 @@ export async function GET() {
     // Return minimal safe user data with cache headers
     const response = NextResponse.json({
       user: {
-        id: user.id,
-        email: user.email,
-        given_name: user.given_name,
-        family_name: user.family_name,
-        picture: user.picture,
-        name: user.given_name && user.family_name 
-          ? `${user.given_name} ${user.family_name}` 
-          : user.email,
+        id: (user as any)?.id,
+        email: (user as any)?.email,
+        given_name: (user as any)?.given_name,
+        family_name: (user as any)?.family_name,
+        picture: (user as any)?.picture,
+        name: (user as any)?.given_name && (user as any)?.family_name
+          ? `${(user as any)?.given_name} ${(user as any)?.family_name}`
+          : (user as any)?.email,
       },
       organization: organization ? {
         id: organization.id,
         name: organization.name,
         slug: organization.slug,
+        type: organization.type,
+        partnerCategory: organization.partnerCategory,
         storageUsed: organization.storageUsed,
         storageLimit: organization.storageLimit,
       } : null,

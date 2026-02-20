@@ -62,9 +62,11 @@ const PLANS = [
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const resolvedParams = await params;
+
     const db = new DatabaseQueries(supabaseServer);
     const authService = new AuthService(db);
     
@@ -73,7 +75,7 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const organization = await authService.getCurrentOrganization(params.slug);
+    const organization = await authService.getCurrentOrganization(resolvedParams.slug);
     if (!organization) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }

@@ -39,7 +39,7 @@ export function FixedHeader({ tenantSlug, product, completeness = 0 }: FixedHead
         {/* Left section - Navigation & Product Info */}
         <div className="flex items-center gap-4">
           <Link href={`/${tenantSlug}/products`}>
-            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-gray-900">
+            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-[#c1c5c7]">
               <ArrowLeft className="w-4 h-4 mr-1" />
               Back
             </Button>
@@ -96,27 +96,27 @@ export function FixedHeader({ tenantSlug, product, completeness = 0 }: FixedHead
           
           {/* Quick Actions */}
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-gray-900">
+            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-[#c1c5c7]">
               <Copy className="w-4 h-4 mr-1" />
               Duplicate
             </Button>
             
-            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-gray-900">
+            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-[#c1c5c7]">
               <Download className="w-4 h-4 mr-1" />
               Export
             </Button>
             
-            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-gray-900">
+            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-[#c1c5c7]">
               <History className="w-4 h-4 mr-1" />
               History
             </Button>
             
-            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-gray-900">
+            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-[#c1c5c7]">
               <UserPlus className="w-4 h-4 mr-1" />
               Assign
             </Button>
             
-            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-gray-900">
+            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-[#c1c5c7]">
               <MoreHorizontal className="w-4 h-4" />
             </Button>
           </div>

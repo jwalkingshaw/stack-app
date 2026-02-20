@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { 
-  Upload, 
+import {
+  Upload,
   ArrowLeft,
   CheckCircle,
   AlertCircle,
@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FileUpload, AssetMetadataTable, AssetMetadata, validateAssetMetadata, ProductLinkSuggestions } from "@tradetool/ui";
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 // Upload workflow steps
 type UploadStep = 'select' | 'metadata' | 'uploading' | 'complete';
@@ -191,7 +192,7 @@ export default function UploadPage() {
   }, [selectedFiles]);
 
   // Handle upload process
-  const handleStartUpload = useCallback(async () => {
+  const handleStartUpload = async () => {
     if (!canProceedToUpload()) return;
 
     console.log('🚀 Starting background upload process...');
@@ -288,7 +289,7 @@ export default function UploadPage() {
     } else {
       setUploadStep('complete');
     }
-  }, [selectedFiles, canProceedToUpload, tenantSlug, productLinks]);
+  };
 
   // Handle product linking
   const handleLinkProduct = useCallback(async (assetId: string, productId: string, linkContext: string, confidence: number) => {
@@ -481,7 +482,7 @@ export default function UploadPage() {
             <div className="max-w-2xl mx-auto">
               <div className="text-center mb-8">
                 <div className="w-16 h-16 mx-auto mb-4 bg-primary/10 rounded-full flex items-center justify-center">
-                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  <LoadingSpinner size="lg" color="primary" />
                 </div>
                 <h2 className="text-xl font-semibold mb-2">Processing Uploads</h2>
                 <p className="text-muted-foreground">

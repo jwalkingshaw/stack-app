@@ -11,6 +11,7 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "type-check": "turbo type-check",
+    "perf:authz": "node scripts/perf/authz-load-test.mjs",
     "clean": "turbo clean",
     "dev:public": "npm run dev --workspace=@tradetool/public-site",
     "dev:saas": "npm run dev --workspace=@tradetool/saas-web",
@@ -27,6 +28,8 @@
     "npm": ">=8.0.0"
   },
   "dependencies": {
-    "dotenv": "^17.2.2"
+    "@supabase/supabase-js": "^2.57.4",
+    "dotenv": "^17.2.2",
+    "node-fetch": "^3.3.2"
   }
 }

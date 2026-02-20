@@ -202,7 +202,10 @@ async function handleOrganizationCreated(db: DatabaseQueries, orgData: any) {
       kindeOrgId: orgData.id,
       storageUsed: 0,
       storageLimit: 5368709120, // 5GB default
-    });
+      type: "brand",
+      organizationType: "brand",
+      partnerCategory: null,
+    } as any);
     
     console.log(`✅ Organization created: ${orgData.name} (${orgData.code})`);
   } catch (error) {
@@ -218,7 +221,7 @@ async function handleOrganizationUpdated(db: DatabaseQueries, orgData: any) {
       id: orgData.id,
     });
 
-    const { error } = await supabaseServer
+    const { error } = await (supabaseServer as any)
       .from("organizations")
       .update({
         name: orgData.name,

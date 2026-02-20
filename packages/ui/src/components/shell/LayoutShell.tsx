@@ -57,6 +57,20 @@ export function LayoutShell({
   
   
   
+  // Wrapper background based on surface
+  const getSurfaceWrapperClasses = () => {
+    switch (surface) {
+      case 'auth':
+        return "min-h-screen bg-[#f5f5f5]"
+      case 'marketing':
+        return "min-h-screen bg-background"
+      case 'app':
+        return "min-h-screen bg-background"
+      default:
+        return "min-h-screen"
+    }
+  }
+  
   // Get content padding based on surface and sidebar
   const getContentClasses = () => {
     let classes = "w-full flex flex-col"
@@ -69,7 +83,7 @@ export function LayoutShell({
         
       case 'auth':
         // Auth flows are simple, just header
-        classes += " pt-16" // Header height (64px)
+        classes += " pt-[67px]" // Align with unified header height
         break
         
       case 'app':
@@ -84,7 +98,7 @@ export function LayoutShell({
   // Render without sidebar
   if (!forcedSidebarShow) {
     return (
-      <div className="min-h-screen">
+      <div className={getSurfaceWrapperClasses()}>
         {announcementBar}
         
         <UnifiedHeader
@@ -106,7 +120,7 @@ export function LayoutShell({
   
   // Render with sidebar
   return (
-    <div className="min-h-screen">
+    <div className={getSurfaceWrapperClasses()}>
       {announcementBar}
       
       <div>

@@ -36,10 +36,14 @@ export function useTenant() {
         id: `mock-${tenantSlug}`,
         name: tenantSlug === "demo-org" ? "Demo Organization" : "Test Company",
         slug: tenantSlug,
+        type: 'brand',
+        organizationType: 'brand',
+        partnerCategory: null,
         kindeOrgId: `mock-${tenantSlug}`,
         storageUsed: 0,
         storageLimit: 5368709120, // 5GB
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       setTenantState({
@@ -101,7 +105,14 @@ export function useTenant() {
       
       setTenantState({
         tenantSlug,
-        organization: isValidTenant ? userOrg : null,
+        organization: isValidTenant && userOrg
+          ? {
+              ...userOrg,
+              type: (userOrg.organizationType || userOrg.type || 'brand') as 'brand' | 'partner',
+              organizationType: (userOrg.organizationType || userOrg.type || 'brand') as 'brand' | 'partner',
+              partnerCategory: userOrg.partnerCategory ?? null,
+            }
+          : null,
         isValidTenant,
         isLoading: false,
         error: isValidTenant ? null : "Access denied to this organization",

@@ -5,9 +5,11 @@ import { DatabaseQueries } from "@tradetool/database";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const resolvedParams = await params;
+
     const session = await getAuthSession(request);
     
     if (!session.isAuthenticated) {
@@ -17,7 +19,7 @@ export async function GET(
       );
     }
 
-    const { slug } = params;
+    const { slug } = resolvedParams;
     
     // Verify user has access to this organization
     if ((session.organization as any)?.code !== slug) {

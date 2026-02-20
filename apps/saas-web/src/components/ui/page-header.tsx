@@ -18,12 +18,12 @@ export interface PageHeaderProps {
 
 export function PageHeader({ title, actions = [], className }: PageHeaderProps) {
   return (
-    <div className={cn("sticky top-0 z-10 bg-background border-b border-sidebar-border px-4 pt-1 pb-1", className)}>
+    <div className={cn("sticky top-0 z-10 bg-white px-4 py-3", className)}>
       <div className="flex items-center justify-between w-full">
         <div>
-          <h1 className="text-[15px] font-medium text-foreground">{title}</h1>
+          <h1 className="text-sm font-medium text-foreground">{title}</h1>
         </div>
-        
+
         {actions.length > 0 && (
           <div className="flex items-center gap-2">
             {actions.map((action, index) => (
@@ -31,7 +31,7 @@ export function PageHeader({ title, actions = [], className }: PageHeaderProps) 
                 key={index}
                 variant="ghost"
                 onClick={action.onClick}
-                className="gap-2 text-foreground hover:!bg-[hsl(var(--primary))] hover:!text-white"
+                className="gap-2 text-foreground hover:bg-muted/50 hover:text-foreground"
               >
                 {action.icon && <action.icon className="w-4 h-4" />}
                 {action.label}

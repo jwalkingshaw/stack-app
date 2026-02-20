@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient } from "@tradetool/database";
 import { kindeAPI } from "@/lib/kinde-management";
+import { ensureCoreBasicInformationFields } from "@/lib/pim-bootstrap";
 import { randomUUID } from "crypto";
 
 const supabase = createServerClient();
@@ -71,13 +72,18 @@ export async function POST(request: NextRequest) {
         storageLimit: 5368709120, // 5GB default
         industry,
         teamSize,
-      });
+        type: "brand",
+        organizationType: "brand",
+        partnerCategory: null,
+      } as any);
 
       console.log('Supabase organization created:', organization);
 
       if (!organization) {
         throw new Error('Failed to create organization in Supabase - returned null');
       }
+
+      await ensureCoreBasicInformationFields(supabase as any, organization.id);
 
       // Step 3: Add user to new organization in Kinde
       kindeOrgId = kindeOrg.code || kindeOrg.id;
@@ -103,27 +109,27 @@ export async function POST(request: NextRequest) {
         console.log('Adding user to organization_members table as owner (self-invited)');
         
         // Set database context for RLS
-        await supabase.rpc('set_config', {
+        await (supabase as any).rpc('set_config', {
           setting_name: 'app.current_user_id',
-          new_value: user.id,
+          new_value: (user as any).id,
           is_local: true
         });
         
-        await supabase.rpc('set_config', {
+        await (supabase as any).rpc('set_config', {
           setting_name: 'app.current_org_code',
           new_value: kindeOrgId,
           is_local: true
         });
 
-        const { data: memberData, error: memberError } = await supabase
+        const { data: memberData, error: memberError } = await (supabase as any)
           .from('organization_members')
           .insert({
             organization_id: organization.id,
-            kinde_user_id: user.id,
-            email: user.email,
+            kinde_user_id: (user as any).id,
+            email: (user as any).email,
             role: 'owner',
             status: 'active',
-            invited_by: user.id  // Self-reference: organization owner invited themselves
+            invited_by: (user as any).id  // Self-reference: organization owner invited themselves
           })
           .select()
           .single();
@@ -187,7 +193,7 @@ export async function POST(request: NextRequest) {
         name: organization.name,
         slug: organization.slug,
         kindeOrgId: kindeOrgId || kindeOrg.code || kindeOrg.id,
-        domain: `${slug}.stackcess.com`,
+        domain: `${slug}.${process.env.NEXT_PUBLIC_TENANT_BASE_DOMAIN || "stackcess.com"}`,
       }
     });
 

@@ -20,6 +20,7 @@ export * from './components/product-context-panel';
 export * from './components/unified-header';
 export * from './components/shell/Sidebar';
 export * from './components/shell/LayoutShell';
+export { AuthLayoutShell, AppLayoutShell, MarketingLayoutShell } from './components/shell/LayoutShell';
 
 // Navigation system
 export * from './lib/nav.config';

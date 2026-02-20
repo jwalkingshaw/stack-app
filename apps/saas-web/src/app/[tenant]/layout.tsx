@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
-import { getSafeUserData, getSafeOrganizationData, isAuthenticated, requireOrganization, requireUser } from '@/lib/auth-server'
-import { createServerClient, DatabaseQueries } from "@tradetool/database"
+import { getSafeUserData, isAuthenticated, requireUser } from '@/lib/auth-server'
+import { createServerClient, DatabaseQueries } from '@tradetool/database'
+import { evaluateTenantAccessDecision } from '@/lib/tenant-access-decision'
+import { getActiveWorkspaceMemberships } from '@/lib/workspace-notifications'
 import TenantLayoutClient from './TenantLayoutClient'
 
 interface TenantLayoutProps {
@@ -12,106 +14,126 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
   const resolvedParams = await params
   const tenantSlug = resolvedParams.tenant
 
-
-  // Server-side auth check - fast and cached
   const authenticated = await isAuthenticated()
-  
   if (!authenticated) {
     redirect('/api/auth/login')
   }
 
-
-  // Get user's Kinde organization
-  const kindeOrg = await requireOrganization()
   const user = await requireUser()
-
   if (!user?.id) {
     redirect('/unauthorized')
   }
 
-  // Check if user has access to this specific tenant
   try {
     const supabase = createServerClient()
     const db = new DatabaseQueries(supabase)
-    
-    // Get organization by slug
+
     const organization = await db.getOrganizationBySlug(tenantSlug)
-    
     if (!organization) {
-      console.log('❌ Organization not found for slug:', tenantSlug)
       redirect('/unauthorized')
     }
 
-    // HYBRID APPROACH: Try Kinde first, fallback to database verification
-    if (kindeOrg?.orgCode) {
-      // ✅ Normal Kinde flow (most common case)
-      console.log('✅ Using Kinde session verification for org:', kindeOrg.orgCode)
-      
-      if (kindeOrg.orgCode !== organization.kindeOrgId) {
-        console.log('❌ Kinde org mismatch:', { 
-          sessionOrg: kindeOrg.orgCode, 
-          dbOrg: organization.kindeOrgId 
-        })
-        redirect('/unauthorized')
-      }
-    } else {
-      // 🔄 Fallback: Direct database verification (edge case after creation)
-      console.log('⚠️ No Kinde org context, using database verification for user:', user.id)
-      
-      // Check if user is a member of this organization
-      const { data: membership } = await supabase
-        .from('organization_members')
-        .select('role, status')
-        .eq('organization_id', organization.id)
-        .eq('kinde_user_id', user.id)
-        .eq('status', 'active')
-        .single()
+    const directWorkspaces = await getActiveWorkspaceMemberships(
+      supabase,
+      user.id,
+      user.email,
+      { includePartnerBrandAccess: false, includeEmailLookup: false }
+    )
+    const accessibleWorkspaces = await getActiveWorkspaceMemberships(
+      supabase,
+      user.id,
+      user.email,
+      { includeEmailLookup: false }
+    )
+    const hasDirectAccess = directWorkspaces.some(
+      (workspace) => workspace.organization.id === organization.id
+    )
 
-      if (!membership) {
-        console.log('❌ User not found in organization members:', { 
-          userId: user.id, 
-          orgId: organization.id 
-        })
-        redirect('/unauthorized')
-      }
+    const accessDecision = evaluateTenantAccessDecision({
+      hasMembership: hasDirectAccess,
+    })
 
-      console.log('✅ Database verification successful - user has access:', {
-        userId: user.id,
-        orgId: organization.id,
-        role: membership.role
-      })
+    if (!accessDecision.allow) {
+      redirect('/unauthorized')
     }
 
+    const effectiveWorkspaces = accessibleWorkspaces
 
-    // Update last accessed timestamp for smart routing
     try {
-      await supabase.rpc('update_workspace_access', {
+      await (supabase as any).rpc('update_workspace_access', {
         user_id: user.id,
-        workspace_id: organization.id
+        workspace_id: organization.id,
       })
-      console.log('✅ Updated workspace access timestamp for user:', user.id)
-    } catch (updateError) {
-      console.warn('⚠️ Failed to update workspace access timestamp:', updateError)
-      // Don't fail the request for this
+    } catch {
+      // non-blocking analytics update
     }
 
-    // Pre-fetch all required data server-side
-    const [userData, organizationData] = await Promise.all([
-      getSafeUserData(),
-      getSafeOrganizationData()
-    ])
+    const userData = await getSafeUserData()
 
-    // All auth checks passed and data is ready - render immediately
+    const workspaceIds = effectiveWorkspaces.map((workspace) => workspace.organization.id)
+    const recentSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const unreadCountByWorkspace = new Map<string, number>()
+
+    await Promise.all(
+      workspaceIds.map(async (workspaceId) => {
+        const [{ count: recentAssetCount }, { count: recentProductCount }] = await Promise.all([
+          supabase
+            .from('dam_assets')
+            .select('id', { count: 'exact', head: true })
+            .eq('organization_id', workspaceId)
+            .gte('created_at', recentSince),
+          supabase
+            .from('products')
+            .select('id', { count: 'exact', head: true })
+            .eq('organization_id', workspaceId)
+            .gte('created_at', recentSince),
+        ])
+
+        unreadCountByWorkspace.set(
+          workspaceId,
+          (recentAssetCount ?? 0) + (recentProductCount ?? 0)
+        )
+      })
+    )
+
+    const workspaces = effectiveWorkspaces.map((workspace) => ({
+      id: workspace.organization.id,
+      name: workspace.organization.name,
+      slug: workspace.organization.slug,
+      role: workspace.role,
+      organizationType: workspace.organization.organizationType,
+      partnerCategory: workspace.organization.partnerCategory,
+      lastAccessed: workspace.lastAccessedAt ?? undefined,
+      unreadCount: unreadCountByWorkspace.get(workspace.organization.id) ?? 0,
+    }))
+
+    const safeUserData = userData as {
+      id: string
+      email: string
+      given_name: string | null
+      family_name: string | null
+      picture: string | null
+    } | null
+
     return (
       <TenantLayoutClient
-        user={userData}
-        organization={organizationData}
+        user={safeUserData}
+        organization={{
+          id: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+          type: (organization.organizationType || organization.type || 'brand') as 'brand' | 'partner',
+          partnerCategory: organization.partnerCategory ?? null,
+          storageUsed: organization.storageUsed,
+          storageLimit: organization.storageLimit,
+        }}
         tenantSlug={tenantSlug}
+        workspaces={workspaces}
       >
         {children}
       </TenantLayoutClient>
     )
-  } catch (error) {
+  } catch {
     redirect('/unauthorized')
   }
 }

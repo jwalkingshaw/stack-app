@@ -5,6 +5,27 @@ import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { NextRequest } from "next/server";
 import { requireUser, requireOrganization, hasAccessToTenant } from "./auth-server";
 
+const RESERVED_SUBDOMAINS = new Set(["app", "www", "localhost", "dev"]);
+
+function getTenantFromHost(
+  host: string | null,
+  baseDomain: string,
+  appHost: string | null
+): string | null {
+  if (!host) return null;
+  if (appHost && host === appHost) return null;
+  if (host === baseDomain) return null;
+  if (!host.endsWith(`.${baseDomain}`)) return null;
+
+  const subdomain = host.slice(0, -1 * (baseDomain.length + 1));
+  if (!subdomain) return null;
+
+  const tenant = subdomain.split(".")[0];
+  if (!tenant || RESERVED_SUBDOMAINS.has(tenant)) return null;
+
+  return tenant;
+}
+
 /**
  * @deprecated Use functions from auth-server.ts instead
  * Get auth session using secure server-side verification (no JWT parsing)
@@ -59,10 +80,14 @@ export function extractTenantSlug(request: NextRequest): string | null {
   const url = new URL(request.url);
   
   // Try subdomain first (tenant.domain.com)
+  const baseDomain = process.env.NEXT_PUBLIC_TENANT_BASE_DOMAIN || "stackcess.com";
+  const appHost = process.env.NEXT_PUBLIC_APP_URL
+    ? new URL(process.env.NEXT_PUBLIC_APP_URL).host
+    : null;
   const host = request.headers.get("host") || url.host;
-  const subdomain = host.split(".")[0];
-  
-  if (subdomain && subdomain !== "localhost" && subdomain !== "www") {
+  const subdomain = getTenantFromHost(host, baseDomain, appHost);
+
+  if (subdomain) {
     return subdomain;
   }
   

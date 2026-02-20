@@ -10,7 +10,15 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(npm install:*)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(node:*)",
+      "WebFetch(domain:help.akeneo.com)",
+      "WebFetch(domain:help.plytix.com)",
+      "Bash(npm run type-check:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(sed:*)"
     ],
     "deny": [],
     "ask": []

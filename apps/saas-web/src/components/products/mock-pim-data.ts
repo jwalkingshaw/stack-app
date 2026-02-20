@@ -27,12 +27,13 @@ export interface PIMProduct {
   
   // Core product data
   productName: string;
-  sku: string;
+  scin?: string;
+  sku: string | null;
   upc?: string;
   brandLine?: string;
   family?: string; // Sports nutrition product family (Protein, Pre-Workout, Creatine, etc.)
   category?: string[];
-  status: 'Development' | 'Active' | 'Pending Launch' | 'Discontinued';
+  status: 'Draft' | 'Enrichment' | 'Review' | 'Active' | 'Discontinued' | 'Archived';
   launchDate?: string;
   msrp?: number;
   costOfGoods?: number;
@@ -144,7 +145,7 @@ export const MOCK_PIM_PRODUCTS: PIMProduct[] = [
     upc: "123456789014",
     brandLine: "Elite Series",
     category: ["Protein", "Sports Nutrition", "Limited Edition"],
-    status: "Development",
+    status: "Draft",
     launchDate: "2024-03-01",
     msrp: 54.99,
     costOfGoods: 24.00,
@@ -285,7 +286,7 @@ export const MOCK_PIM_PRODUCTS: PIMProduct[] = [
     upc: "123456789021",
     brandLine: "Elite Series",
     category: ["Protein", "Sports Nutrition"],
-    status: "Development",
+    status: "Draft",
     launchDate: "2024-03-15",
     msrp: 52.99,
     costOfGoods: 24.00,
@@ -307,7 +308,7 @@ export const MOCK_PIM_PRODUCTS: PIMProduct[] = [
     upc: "123456789022",
     brandLine: "Elite Series",
     category: ["Protein", "Sports Nutrition"],
-    status: "Development",
+    status: "Draft",
     launchDate: "2024-04-01",
     msrp: 54.99,
     costOfGoods: 25.00,
@@ -395,7 +396,7 @@ export const MOCK_PIM_PRODUCTS: PIMProduct[] = [
     upc: "123456789026",
     brandLine: "Elite Series",
     category: ["Protein", "Sports Nutrition"],
-    status: "Development",
+    status: "Draft",
     launchDate: "2024-05-01",
     msrp: 53.99,
     costOfGoods: 24.50,
@@ -461,7 +462,7 @@ export const MOCK_PIM_PRODUCTS: PIMProduct[] = [
     upc: "123456789029",
     brandLine: "Elite Series",
     category: ["Protein", "Sports Nutrition"],
-    status: "Development",
+    status: "Draft",
     launchDate: "2024-06-01",
     msrp: 55.99,
     costOfGoods: 25.50,
@@ -536,8 +537,10 @@ export const MOCK_PIM_PRODUCTS: PIMProduct[] = [
 ];
 
 export const STATUS_COLORS = {
-  "Development": "bg-blue-100 text-blue-800 border-blue-200",
-  "Active": "bg-green-100 text-green-800 border-green-200",
-  "Discontinued": "bg-red-100 text-red-800 border-red-200",
-  "Pending Launch": "bg-yellow-100 text-yellow-800 border-yellow-200"
+  "Draft": "bg-blue-100 text-blue-800 border-0",
+  "Enrichment": "bg-indigo-100 text-indigo-800 border-0",
+  "Review": "bg-amber-100 text-amber-800 border-0",
+  "Active": "bg-green-100 text-green-800 border-0",
+  "Discontinued": "bg-red-100 text-red-800 border-0",
+  "Archived": "bg-slate-100 text-slate-700 border-0"
 };

@@ -1,15 +1,19 @@
-import SettingsClient from "./SettingsClient";
+import { Suspense } from 'react';
+import SettingsClient from './SettingsClient';
+import { PageLoader } from '@/components/ui/loading-spinner';
 
 interface SettingsPageProps {
-  params: Promise<{ tenant: string }>
+  params: Promise<{ tenant: string }>;
 }
 
 export default async function SettingsPage({ params }: SettingsPageProps) {
-  const resolvedParams = await params
-  const tenantSlug = resolvedParams.tenant
+  const { tenant } = await params;
 
-  // Server component - auth and organization data is already available from layout
   return (
-    <SettingsClient tenantSlug={tenantSlug} />
+    <Suspense fallback={
+      <PageLoader text="Loading settings..." size="lg" />
+    }>
+      <SettingsClient tenantSlug={tenant} />
+    </Suspense>
   );
 }

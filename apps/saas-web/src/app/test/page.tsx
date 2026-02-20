@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 interface TestResult {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -53,7 +54,7 @@ export default function TestPage() {
       case 'unhealthy':
         return 'text-red-600 bg-red-50 border-red-200';
       default:
-        return 'text-gray-600 bg-gray-50 border-gray-200';
+        return 'text-gray-600 bg-gray-50 border-muted/20';
     }
   };
 
@@ -107,7 +108,7 @@ export default function TestPage() {
             >
               {isLoading ? (
                 <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <LoadingSpinner size="sm" color="white" />
                   <span>Testing...</span>
                 </>
               ) : (

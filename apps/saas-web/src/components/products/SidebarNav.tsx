@@ -152,13 +152,10 @@ export function SidebarNav({
                   </div>
                 </div>
                 
-                {/* Completeness indicator */}
+                {/* Completeness indicator - hidden */}
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <div className="text-xs text-gray-500 min-w-[2rem] text-right">
-                    {section.completeness}%
-                  </div>
                   <div className="w-2 h-2 rounded-full bg-gray-200">
-                    <div 
+                    <div
                       className={cn(
                         "h-full rounded-full transition-all",
                         section.completeness >= 80 ? "bg-green-500" :

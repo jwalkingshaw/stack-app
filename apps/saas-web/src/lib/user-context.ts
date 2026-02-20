@@ -93,7 +93,7 @@ export const getUserContext = cache(async (): Promise<UserContext | null> => {
       .eq('kinde_user_id', user.id)
       .eq('status', 'active');
 
-    const memberOrganizations = (memberOrgs || []).map(m => ({
+    const memberOrganizations = (memberOrgs || []).map((m: any) => ({
       orgId: m.organization_id,
       orgName: m.organizations.name,
       orgSlug: m.organizations.slug,
@@ -118,7 +118,7 @@ export const getUserContext = cache(async (): Promise<UserContext | null> => {
       .eq('is_active', true)
       .or('expires_at.is.null,expires_at.gt.now()');
 
-    const partnerAccess = (partnerOrgs || []).map(p => ({
+    const partnerAccess = (partnerOrgs || []).map((p: any) => ({
       orgId: p.organization_id,
       orgName: p.organizations.name,
       orgSlug: p.organizations.slug,
@@ -246,14 +246,14 @@ export async function invalidateUserContext(kindeUserId: string) {
  */
 export async function setDatabaseUserContext(kindeUserId: string, orgCode?: string) {
   // Set the user context for RLS policies
-  await supabase.rpc('set_config', {
+  await supabase.rpc('set_rls_setting', {
     setting_name: 'app.current_user_id',
     new_value: kindeUserId,
     is_local: true
   });
 
   if (orgCode) {
-    await supabase.rpc('set_config', {
+    await supabase.rpc('set_rls_setting', {
       setting_name: 'app.current_org_code', 
       new_value: orgCode,
       is_local: true

@@ -1,168 +1,191 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from '@supabase/supabase-js';
-import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
+import { createClient } from "@supabase/supabase-js";
+import { AuthService, ScopedPermission } from "@tradetool/auth";
+import { DatabaseQueries } from "@tradetool/database";
+import { requireTenantAccess } from "@/lib/tenant-auth";
+import { evaluateScopedPermission } from "@/lib/security-permissions";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+function isCrossTenantWrite(tenantSlug: string, selectedBrandSlug: string | null): boolean {
+  const selected = (selectedBrandSlug || "").trim().toLowerCase();
+  if (!selected) return false;
+  return selected !== tenantSlug.trim().toLowerCase();
+}
+
+async function requireAssetWritePermission(params: {
+  userId: string;
+  organizationId: string;
+  permissionKey: string;
+}) {
+  const db = new DatabaseQueries(supabase as any);
+  const authService = new AuthService(db);
+  return evaluateScopedPermission({
+    authService,
+    userId: params.userId,
+    organizationId: params.organizationId,
+    permissionKey: params.permissionKey,
+  });
+}
+
+// PATCH /api/[tenant]/assets/[assetId]
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { tenant: string; assetId: string } }
+  { params }: { params: Promise<{ tenant: string; assetId: string }> }
 ) {
   try {
-    console.log('🔵 PATCH /assets/[assetId] - Starting asset update:', { 
-      tenant: params.tenant, 
-      assetId: params.assetId 
-    });
-    
-    // Get authenticated user
-    const { getUser } = getKindeServerSession();
-    const user = await getUser();
-    
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const resolvedParams = await params;
+    const tenantSlug = resolvedParams.tenant;
+    const assetId = resolvedParams.assetId;
+    const selectedBrandSlug = new URL(request.url).searchParams.get("brand");
+
+    if (isCrossTenantWrite(tenantSlug, selectedBrandSlug)) {
+      return NextResponse.json(
+        { error: "Cross-tenant writes are blocked in shared brand view." },
+        { status: 403 }
+      );
     }
 
-    // Get organization by slug/tenant
-    const { data: organization, error: orgError } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('slug', params.tenant)
-      .single();
-
-    if (orgError || !organization) {
-      return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    const tenantAccess = await requireTenantAccess(request, tenantSlug);
+    if (!tenantAccess.ok) {
+      return tenantAccess.response;
     }
-    
-    console.log('🔵 PATCH /assets/[assetId] - Auth success:', { 
-      orgId: organization.id, 
-      userId: user.id 
-    });
 
-    // Parse request body
+    const { organization, userId } = tenantAccess;
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const canEdit = await requireAssetWritePermission({
+      userId,
+      organizationId: organization.id,
+      permissionKey: ScopedPermission.AssetMetadataEdit,
+    });
+    if (!canEdit) {
+      return NextResponse.json(
+        { error: "Access denied. You do not have permission to edit asset metadata." },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
-    const { filename, description, tags } = body;
+    const filename = typeof body.filename === "string" ? body.filename.trim() : "";
+    const description =
+      typeof body.description === "string" ? body.description.trim() : null;
+    const tags = Array.isArray(body.tags) ? body.tags : [];
 
-    console.log('🔵 PATCH /assets/[assetId] - Update data:', { 
-      filename, 
-      description, 
-      tagsCount: tags?.length 
-    });
-
-    // Verify asset exists and belongs to this organization
-    const { data: existingAsset, error: assetCheckError } = await supabase
-      .from('dam_assets')
-      .select('id, organization_id')
-      .eq('id', params.assetId)
-      .eq('organization_id', organization.id)
-      .single();
-
-    if (assetCheckError || !existingAsset) {
-      console.log('🔴 PATCH /assets/[assetId] - Asset not found or access denied');
-      return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
+    if (!filename) {
+      return NextResponse.json({ error: "filename is required" }, { status: 400 });
     }
 
-    // Update asset
-    const { data: updatedAsset, error: updateError } = await supabase
-      .from('dam_assets')
+    const { data: existingAsset, error: existingAssetError } = await (supabase as any)
+      .from("dam_assets")
+      .select("id")
+      .eq("id", assetId)
+      .eq("organization_id", organization.id)
+      .single();
+
+    if (existingAssetError || !existingAsset) {
+      return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+    }
+
+    const { data: updatedAsset, error: updateError } = await (supabase as any)
+      .from("dam_assets")
       .update({
-        filename: filename?.trim(),
-        description: description?.trim() || null,
-        tags: tags || [],
+        filename,
+        description,
+        tags,
       })
-      .eq('id', params.assetId)
+      .eq("id", assetId)
+      .eq("organization_id", organization.id)
       .select()
       .single();
 
     if (updateError) {
-      console.error('🔴 PATCH /assets/[assetId] - Database error:', updateError);
-      return NextResponse.json({ error: 'Failed to update asset' }, { status: 500 });
+      console.error("PATCH /assets/[assetId] DB update failed:", updateError);
+      return NextResponse.json({ error: "Failed to update asset" }, { status: 500 });
     }
 
-    console.log('🟢 PATCH /assets/[assetId] - Asset updated successfully:', updatedAsset.id);
-    
     return NextResponse.json({
       data: updatedAsset,
-      message: "Asset updated successfully"
+      message: "Asset updated successfully",
     });
-
   } catch (error) {
-    console.error("🔴 PATCH /assets/[assetId] - Update failed:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    console.error("PATCH /assets/[assetId] failed:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
+// DELETE /api/[tenant]/assets/[assetId]
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { tenant: string; assetId: string } }
+  { params }: { params: Promise<{ tenant: string; assetId: string }> }
 ) {
   try {
-    console.log('🔵 DELETE /assets/[assetId] - Starting asset deletion:', { 
-      tenant: params.tenant, 
-      assetId: params.assetId 
+    const resolvedParams = await params;
+    const tenantSlug = resolvedParams.tenant;
+    const assetId = resolvedParams.assetId;
+    const selectedBrandSlug = new URL(request.url).searchParams.get("brand");
+
+    if (isCrossTenantWrite(tenantSlug, selectedBrandSlug)) {
+      return NextResponse.json(
+        { error: "Cross-tenant writes are blocked in shared brand view." },
+        { status: 403 }
+      );
+    }
+
+    const tenantAccess = await requireTenantAccess(request, tenantSlug);
+    if (!tenantAccess.ok) {
+      return tenantAccess.response;
+    }
+
+    const { organization, userId } = tenantAccess;
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const canDelete = await requireAssetWritePermission({
+      userId,
+      organizationId: organization.id,
+      permissionKey: ScopedPermission.AssetVersionManage,
     });
-    
-    // Get authenticated user
-    const { getUser } = getKindeServerSession();
-    const user = await getUser();
-    
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!canDelete) {
+      return NextResponse.json(
+        { error: "Access denied. You do not have permission to delete assets." },
+        { status: 403 }
+      );
     }
 
-    // Get organization by slug/tenant
-    const { data: organization, error: orgError } = await supabase
-      .from('organizations')
-      .select('id')
-      .eq('slug', params.tenant)
+    const { data: existingAsset, error: existingAssetError } = await (supabase as any)
+      .from("dam_assets")
+      .select("id")
+      .eq("id", assetId)
+      .eq("organization_id", organization.id)
       .single();
 
-    if (orgError || !organization) {
-      return NextResponse.json({ error: 'Organization not found' }, { status: 404 });
+    if (existingAssetError || !existingAsset) {
+      return NextResponse.json({ error: "Asset not found" }, { status: 404 });
     }
 
-    // Verify asset exists and belongs to this organization
-    const { data: existingAsset, error: assetCheckError } = await supabase
-      .from('dam_assets')
-      .select('id, organization_id, s3_key')
-      .eq('id', params.assetId)
-      .eq('organization_id', organization.id)
-      .single();
-
-    if (assetCheckError || !existingAsset) {
-      console.log('🔴 DELETE /assets/[assetId] - Asset not found or access denied');
-      return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
-    }
-
-    // Delete from database (S3 cleanup can be done via lifecycle policies or background job)
-    const { error: deleteError } = await supabase
-      .from('dam_assets')
+    const { error: deleteError } = await (supabase as any)
+      .from("dam_assets")
       .delete()
-      .eq('id', params.assetId);
+      .eq("id", assetId)
+      .eq("organization_id", organization.id);
 
     if (deleteError) {
-      console.error('🔴 DELETE /assets/[assetId] - Database error:', deleteError);
-      return NextResponse.json({ error: 'Failed to delete asset' }, { status: 500 });
+      console.error("DELETE /assets/[assetId] DB delete failed:", deleteError);
+      return NextResponse.json({ error: "Failed to delete asset" }, { status: 500 });
     }
 
-    console.log('🟢 DELETE /assets/[assetId] - Asset deleted successfully:', params.assetId);
-    
-    // TODO: Optionally delete from S3 here or use background job
-    
     return NextResponse.json({
-      message: "Asset deleted successfully"
+      message: "Asset deleted successfully",
     });
-
   } catch (error) {
-    console.error("🔴 DELETE /assets/[assetId] - Deletion failed:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    console.error("DELETE /assets/[assetId] failed:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

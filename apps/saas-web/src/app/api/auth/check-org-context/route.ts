@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
       userId: user?.id,
       userEmail: user?.email,
       orgCode: organization?.orgCode,
-      orgName: organization?.name
+      orgName: (organization as any)?.name
     });
     
     return NextResponse.json({
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       } : null,
       organization: organization ? {
         orgCode: organization.orgCode,
-        name: organization.name
+        name: (organization as any).name
       } : null
     });
 

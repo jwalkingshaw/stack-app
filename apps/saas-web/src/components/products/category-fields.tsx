@@ -1,11 +1,13 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
-import { 
-  SupplementProduct, 
-  ProteinFields, 
-  PreWorkoutFields, 
-  HydrationFields, 
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  SupplementProduct,
+  ProteinFields,
+  PreWorkoutFields,
+  HydrationFields,
   CreatineFields,
   SupplementCategory
 } from "./supplement-fields";
@@ -123,29 +125,37 @@ export function PreWorkoutFieldsComponent({ product, isEditing, onChange }: Cate
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-3">Stimulant Type</label>
-        <select
+        <Select
           value={preWorkoutFields.stimulantType || 'stim-free'}
-          onChange={(e) => updatePreWorkoutFields({ stimulantType: e.target.value as any })}
-          className="w-full px-0 py-1 text-base bg-transparent border-none shadow-none focus:outline-none focus:ring-0 focus:border-transparent hover:bg-gray-50 focus:bg-white transition-colors h-auto"
+          onValueChange={(value) => updatePreWorkoutFields({ stimulantType: value as any })}
         >
-          <option value="stim-free">Stim-Free</option>
-          <option value="low-stim">Low Stim</option>
-          <option value="high-stim">High Stim</option>
-        </select>
+          <SelectTrigger className="h-auto px-0 py-1 text-base bg-transparent border-none shadow-none focus:ring-0 focus:border-transparent hover:bg-gray-50 focus:bg-white">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="stim-free">Stim-Free</SelectItem>
+            <SelectItem value="low-stim">Low Stim</SelectItem>
+            <SelectItem value="high-stim">High Stim</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-3">Formula Type</label>
-        <select
+        <Select
           value={preWorkoutFields.formulationType || 'hybrid'}
-          onChange={(e) => updatePreWorkoutFields({ formulationType: e.target.value as any })}
-          className="w-full px-0 py-1 text-base bg-transparent border-none shadow-none focus:outline-none focus:ring-0 focus:border-transparent hover:bg-gray-50 focus:bg-white transition-colors h-auto"
+          onValueChange={(value) => updatePreWorkoutFields({ formulationType: value as any })}
         >
-          <option value="energy">Energy Focus</option>
-          <option value="pump">Pump Focus</option>
-          <option value="focus">Cognitive Focus</option>
-          <option value="hybrid">Hybrid (All-in-One)</option>
-        </select>
+          <SelectTrigger className="h-auto px-0 py-1 text-base bg-transparent border-none shadow-none focus:ring-0 focus:border-transparent hover:bg-gray-50 focus:bg-white">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="energy">Energy Focus</SelectItem>
+            <SelectItem value="pump">Pump Focus</SelectItem>
+            <SelectItem value="focus">Cognitive Focus</SelectItem>
+            <SelectItem value="hybrid">Hybrid (All-in-One)</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div>
@@ -353,16 +363,20 @@ export function CreatineFieldsComponent({ product, isEditing, onChange }: Catego
           <div>
             <label className="text-sm font-medium">Creatine Type</label>
             {isEditing ? (
-              <select
+              <Select
                 value={creatineFields.creatineType || 'monohydrate'}
-                onChange={(e) => updateCreatineFields({ creatineType: e.target.value as any })}
-                className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onValueChange={(value) => updateCreatineFields({ creatineType: value as any })}
               >
-                <option value="monohydrate">Monohydrate</option>
-                <option value="hcl">HCl (Hydrochloride)</option>
-                <option value="buffered">Buffered</option>
-                <option value="blend">Blend</option>
-              </select>
+                <SelectTrigger className="h-9">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monohydrate">Monohydrate</SelectItem>
+                  <SelectItem value="hcl">HCl (Hydrochloride)</SelectItem>
+                  <SelectItem value="buffered">Buffered</SelectItem>
+                  <SelectItem value="blend">Blend</SelectItem>
+                </SelectContent>
+              </Select>
             ) : (
               <div className="text-sm capitalize">{creatineFields.creatineType || 'Not set'}</div>
             )}

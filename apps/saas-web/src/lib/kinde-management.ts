@@ -54,7 +54,7 @@ class KindeManagementAPI {
         client_id: this.clientId,
         client_secret: this.clientSecret,
         audience: this.audience,
-        scope: 'create:organizations read:organizations create:organization_users',
+        scope: 'create:organizations read:organizations create:organization_users read:users create:users update:users',
       }),
     });
 
@@ -229,18 +229,129 @@ class KindeManagementAPI {
    */
   async transferUserToOrganization(userId: string, fromOrgId: string, toOrgId: string): Promise<void> {
     console.log(`Transferring user ${userId} from ${fromOrgId} to ${toOrgId}`);
-    
+
     try {
       // Step 1: Add user to new organization
       await this.addUserToOrganization(toOrgId, userId);
       console.log('✅ User added to new organization');
-      
+
       // Step 2: Remove user from old organization
       await this.removeUserFromOrganization(fromOrgId, userId);
       console.log('✅ User removed from old organization');
-      
+
     } catch (error) {
       console.error('❌ User transfer failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update an existing user's profile information
+   */
+  async updateUserProfile(
+    userId: string,
+    profile: { given_name?: string; family_name?: string; picture?: string }
+  ): Promise<void> {
+    console.log(`dY-^ Updating Kinde user profile for ${userId}:`, profile);
+
+    await this.makeRequest(`/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ profile }),
+    });
+  }
+
+  /**
+   * Create a new user in Kinde
+   */
+  async createUser(email: string, givenName?: string, familyName?: string): Promise<any> {
+    console.log('👤 Creating user in Kinde:', email);
+
+    const payload = {
+      profile: {
+        given_name: givenName || email.split('@')[0],
+        family_name: familyName || '',
+      },
+      identities: [
+        {
+          type: 'email',
+          details: {
+            email: email,
+          },
+        },
+      ],
+      // No password needed - Kinde will send one-time code for passwordless auth
+    };
+
+    try {
+      const result = await this.makeRequest('/user', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      console.log('✅ User created in Kinde:', result.id || result.user?.id);
+      return result.user || result;
+    } catch (error) {
+      // Check if user already exists
+      if (error instanceof Error && (error.message.includes('409') || error.message.includes('already exists'))) {
+        console.log('User already exists in Kinde, fetching user details');
+        return await this.getUserByEmail(email);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get user by email
+   */
+  async getUserByEmail(email: string): Promise<any> {
+    console.log('🔍 Fetching user by email:', email);
+
+    try {
+      const result = await this.makeRequest(`/users?email=${encodeURIComponent(email)}`);
+
+      if (result.users && result.users.length > 0) {
+        console.log('✅ User found in Kinde:', result.users[0].id);
+        return result.users[0];
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Failed to fetch user from Kinde:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Complete invitation flow: Create user and add to organization
+   */
+  async inviteUserToOrganization(
+    email: string,
+    kindeOrgId: string
+  ): Promise<{ userId: string; isNewUser: boolean }> {
+    try {
+      console.log(`🎯 Inviting ${email} to organization ${kindeOrgId}`);
+
+      // Try to get existing user first
+      let user = await this.getUserByEmail(email);
+      let isNewUser = false;
+
+      if (!user) {
+        // Create new user
+        user = await this.createUser(email);
+        isNewUser = true;
+      }
+
+      // Add user to organization
+      await this.addUserToOrganization(kindeOrgId, user.id);
+
+      console.log(`✅ User ${user.id} successfully added to organization`);
+
+      return {
+        userId: user.id,
+        isNewUser,
+      };
+    } catch (error) {
+      console.error('Error in inviteUserToOrganization:', error);
       throw error;
     }
   }

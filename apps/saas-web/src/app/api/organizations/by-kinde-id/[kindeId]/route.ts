@@ -7,9 +7,11 @@ const db = new DatabaseQueries(supabase);
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { kindeId: string } }
+  { params }: { params: Promise<{ kindeId: string }> }
 ) {
   try {
+    const resolvedParams = await params;
+
     const { getUser } = getKindeServerSession();
     const user = await getUser();
 
@@ -20,7 +22,7 @@ export async function GET(
       );
     }
 
-    const { kindeId } = params;
+    const { kindeId } = resolvedParams;
 
     if (!kindeId) {
       return NextResponse.json(

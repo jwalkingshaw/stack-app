@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     const organization = await getOrganization();
     console.log('🏢 Current organization in session:', {
       orgCode: organization?.orgCode,
-      name: organization?.name
+      name: (organization as any)?.name
     });
 
     // Create response with fresh session data
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       user: user?.email,
       organization: organization ? {
         orgCode: organization.orgCode,
-        name: organization.name
+        name: (organization as any).name
       } : null
     });
 

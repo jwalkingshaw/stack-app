@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { X, Save, Loader2, Tag, FileText, FolderIcon, Calendar, AlertCircle, Check } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { X, Save, Loader2, Tag, FileText, AlertCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import type { AssetTag } from "@tradetool/types";
 
 interface Asset {
   id: string;
@@ -29,20 +31,19 @@ interface BulkEditorPanelProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (updates: BulkUpdateData) => Promise<void>;
-  tenantSlug: string;
+  availableTags: AssetTag[];
 }
 
 interface BulkUpdateData {
   updateFields: {
     tags?: {
       mode: 'replace' | 'add' | 'remove';
-      values: string[];
+      tagIds: string[];
     };
     description?: {
       mode: 'replace' | 'append';
       value: string;
     };
-    // Add more field types as needed
   };
 }
 
@@ -56,7 +57,7 @@ export function BulkEditorPanel({
   isOpen, 
   onClose, 
   onSave, 
-  tenantSlug 
+  availableTags,
 }: BulkEditorPanelProps) {
   const [fieldStates, setFieldStates] = useState<Record<string, FieldState>>({
     tags: { enabled: false, mode: 'add' },
@@ -64,11 +65,10 @@ export function BulkEditorPanel({
   });
   
   const [formData, setFormData] = useState({
-    tags: [] as string[],
+    tagIds: [] as string[],
     description: '',
   });
-  
-  const [newTag, setNewTag] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveProgress, setSaveProgress] = useState<{
     total: number;
@@ -84,9 +84,10 @@ export function BulkEditorPanel({
         description: { enabled: false, mode: 'replace' },
       });
       setFormData({
-        tags: [],
+        tagIds: [],
         description: '',
       });
+      setTagFilter("");
       setSaveProgress(null);
     }
   }, [isOpen]);
@@ -111,39 +112,29 @@ export function BulkEditorPanel({
     }));
   };
 
-  const handleAddTag = useCallback(() => {
-    const tag = newTag.trim().toLowerCase();
-    if (tag && !formData.tags.includes(tag)) {
-      setFormData(prev => ({
-        ...prev,
-        tags: [...prev.tags, tag]
-      }));
-      setNewTag("");
-    }
-  }, [newTag, formData.tags]);
+  const filteredTags = useMemo(() => {
+    const query = tagFilter.trim().toLowerCase();
+    if (!query) return availableTags;
+    return availableTags.filter((tag) => tag.name.toLowerCase().includes(query));
+  }, [availableTags, tagFilter]);
 
-  const handleRemoveTag = useCallback((tagToRemove: string) => {
+  const toggleTag = useCallback((tagId: string) => {
     setFormData(prev => ({
       ...prev,
-      tags: prev.tags.filter(tag => tag !== tagToRemove)
+      tagIds: prev.tagIds.includes(tagId)
+        ? prev.tagIds.filter(id => id !== tagId)
+        : [...prev.tagIds, tagId]
     }));
   }, []);
-
-  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && newTag.trim()) {
-      e.preventDefault();
-      handleAddTag();
-    }
-  }, [newTag, handleAddTag]);
 
   const handleSave = useCallback(async () => {
     const enabledFields = Object.entries(fieldStates)
       .filter(([_, state]) => state.enabled)
       .reduce((acc, [field, state]) => {
-        if (field === 'tags' && formData.tags.length > 0) {
+        if (field === 'tags') {
           acc.tags = {
             mode: state.mode as 'replace' | 'add' | 'remove',
-            values: formData.tags
+            tagIds: formData.tagIds
           };
         } else if (field === 'description' && formData.description.trim()) {
           acc.description = {
@@ -181,18 +172,22 @@ export function BulkEditorPanel({
     const previews: string[] = [];
     
     enabledFields.forEach(([field, state]) => {
-      if (field === 'tags' && formData.tags.length > 0) {
-        const modeText = {
+      if (field === 'tags') {
+        const modeText = ({
           add: 'Add tags',
           replace: 'Replace all tags with',
           remove: 'Remove tags'
-        }[state.mode];
-        previews.push(`${modeText}: ${formData.tags.join(', ')}`);
+        } as any)[state.mode];
+        const names = formData.tagIds
+          .map((id) => availableTags.find((tag) => tag.id === id)?.name)
+          .filter(Boolean)
+          .join(', ');
+        previews.push(`${modeText}: ${names || '(none)'}`);
       } else if (field === 'description' && formData.description.trim()) {
-        const modeText = {
+        const modeText = ({
           replace: 'Set description to',
           append: 'Append to description'
-        }[state.mode];
+        } as any)[state.mode];
         previews.push(`${modeText}: "${formData.description.trim()}"`);
       }
     });
@@ -202,7 +197,10 @@ export function BulkEditorPanel({
 
   const hasChangesToApply = Object.entries(fieldStates).some(([field, state]) => {
     if (!state.enabled) return false;
-    if (field === 'tags') return formData.tags.length > 0;
+    if (field === 'tags') {
+      if (state.mode === 'replace') return true;
+      return formData.tagIds.length > 0;
+    }
     if (field === 'description') return formData.description.trim().length > 0;
     return false;
   });
@@ -283,51 +281,47 @@ export function BulkEditorPanel({
 
               {fieldStates.tags.enabled && (
                 <div className="ml-7 space-y-3">
-                  {/* Mode Selection */}
-                  <select
+                  <Select
                     value={fieldStates.tags.mode}
-                    onChange={(e) => handleModeChange('tags', e.target.value)}
-                    className="w-full text-xs border border-input rounded-md px-2 py-1 bg-white"
+                    onValueChange={(value) => handleModeChange('tags', value)}
                   >
-                    <option value="add">Add to existing tags</option>
-                    <option value="replace">Replace all tags</option>
-                    <option value="remove">Remove these tags</option>
-                  </select>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="add">Add to existing tags</SelectItem>
+                      <SelectItem value="replace">Replace all tags</SelectItem>
+                      <SelectItem value="remove">Remove these tags</SelectItem>
+                    </SelectContent>
+                  </Select>
 
-                  {/* Current Tags */}
-                  {formData.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {formData.tags.map((tag) => (
+                  <Input
+                    value={tagFilter}
+                    onChange={(e) => setTagFilter(e.target.value)}
+                    placeholder="Search tags..."
+                    className="text-sm"
+                  />
+
+                  <div className="flex flex-wrap gap-2">
+                    {filteredTags.length === 0 && (
+                      <span className="text-xs text-gray-500">No tags found</span>
+                    )}
+                    {filteredTags.map((tag) => {
+                      const isSelected = formData.tagIds.includes(tag.id);
+                      return (
                         <Badge
-                          key={tag}
-                          variant="secondary"
-                          className="text-xs px-2 py-1 cursor-pointer hover:bg-gray-200"
-                          onClick={() => handleRemoveTag(tag)}
+                          key={tag.id}
+                          variant={isSelected ? "default" : "secondary"}
+                          className={cn(
+                            "text-xs px-2 py-1 cursor-pointer transition-colors",
+                            isSelected ? "bg-blue-600 hover:bg-blue-700 text-white" : ""
+                          )}
+                          onClick={() => toggleTag(tag.id)}
                         >
-                          {tag}
-                          <X className="w-3 h-3 ml-1" />
+                          {tag.name}
                         </Badge>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Add New Tag */}
-                  <div className="flex gap-2">
-                    <Input
-                      value={newTag}
-                      onChange={(e) => setNewTag(e.target.value)}
-                      onKeyPress={handleKeyPress}
-                      placeholder="Add tag..."
-                      className="flex-1 text-sm"
-                    />
-                    <Button
-                      onClick={handleAddTag}
-                      disabled={!newTag.trim()}
-                      size="sm"
-                      variant="outline"
-                    >
-                      Add
-                    </Button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -352,14 +346,18 @@ export function BulkEditorPanel({
               {fieldStates.description.enabled && (
                 <div className="ml-7 space-y-3">
                   {/* Mode Selection */}
-                  <select
+                  <Select
                     value={fieldStates.description.mode}
-                    onChange={(e) => handleModeChange('description', e.target.value)}
-                    className="w-full text-xs border border-input rounded-md px-2 py-1 bg-white"
+                    onValueChange={(value) => handleModeChange('description', value)}
                   >
-                    <option value="replace">Replace description</option>
-                    <option value="append">Append to description</option>
-                  </select>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="replace">Replace description</SelectItem>
+                      <SelectItem value="append">Append to description</SelectItem>
+                    </SelectContent>
+                  </Select>
 
                   {/* Description Textarea */}
                   <Textarea

@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     
     if (existing) {
       // Update existing organization
-      const { error } = await supabaseServer
+      const { error } = await (supabaseServer as any)
         .from("organizations")
         .update({
           name: (kindeOrg as any)?.name || existing.name,
@@ -52,7 +52,10 @@ export async function POST(request: NextRequest) {
       kindeOrgId: (kindeOrg as any)?.id || "",
       storageUsed: 0,
       storageLimit: 5368709120, // 5GB default
-    });
+      type: "brand",
+      organizationType: "brand",
+      partnerCategory: null,
+    } as any);
 
     if (!newOrg) {
       return NextResponse.json(

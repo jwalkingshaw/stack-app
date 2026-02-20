@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthService } from "@tradetool/auth";
+import { AuthService, ScopedPermission } from "@tradetool/auth";
 import { DatabaseQueries } from "@tradetool/database";
 import { S3Service, UploadService, ThumbnailService } from "@tradetool/storage";
 import { supabaseServer } from "@/lib/supabase";
+import { enforceMarketScopedAccess } from "@/lib/market-scope";
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const resolvedParams = await params;
+
     const db = new DatabaseQueries(supabaseServer);
     const authService = new AuthService(db);
     
@@ -17,13 +20,25 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const organization = await authService.getCurrentOrganization(params.slug);
+    const organization = await authService.getCurrentOrganization(resolvedParams.slug);
     if (!organization) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
     const hasAccess = await authService.hasOrganizationAccess(user.id, organization.id);
-    if (!hasAccess) {
+    const searchParams = new URL(request.url).searchParams;
+    const scopeCheck = await enforceMarketScopedAccess({
+      authService,
+      supabase: supabaseServer as any,
+      userId: user.id,
+      organizationId: organization.id,
+      permissionKey: ScopedPermission.AssetUpload,
+      marketId: searchParams.get("marketId"),
+      localeCode: searchParams.get("locale"),
+      channelId: searchParams.get("channelId"),
+      collectionId: searchParams.get("collectionId"),
+    });
+    if (!hasAccess && !scopeCheck.ok) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -77,9 +92,11 @@ export async function POST(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const resolvedParams = await params;
+
     const db = new DatabaseQueries(supabaseServer);
     const authService = new AuthService(db);
     
@@ -88,13 +105,25 @@ export async function PUT(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const organization = await authService.getCurrentOrganization(params.slug);
+    const organization = await authService.getCurrentOrganization(resolvedParams.slug);
     if (!organization) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
     const hasAccess = await authService.hasOrganizationAccess(user.id, organization.id);
-    if (!hasAccess) {
+    const searchParams = new URL(request.url).searchParams;
+    const scopeCheck = await enforceMarketScopedAccess({
+      authService,
+      supabase: supabaseServer as any,
+      userId: user.id,
+      organizationId: organization.id,
+      permissionKey: ScopedPermission.AssetUpload,
+      marketId: searchParams.get("marketId"),
+      localeCode: searchParams.get("locale"),
+      channelId: searchParams.get("channelId"),
+      collectionId: searchParams.get("collectionId"),
+    });
+    if (!hasAccess && !scopeCheck.ok) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -138,13 +167,17 @@ export async function PUT(
       fileType,
       fileSize,
       mimeType: contentType,
+      filePath: s3Key,
       s3Key,
       s3Url,
+      assetType: fileType,
+      assetScope: 'internal',
+      productIdentifiers: [],
       thumbnailUrls,
       metadata: {},
       tags: [],
-      description: null,
-      createdBy: user.id,
+      description: undefined,
+      createdBy: (user as any).id,
     });
 
     if (!asset) {

@@ -1,17 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronDown, Building2, Plus, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-
-interface Workspace {
-  id: string
-  name: string
-  slug: string
-  role: string
-  lastAccessed?: string
-}
+import { useWorkspaces, WorkspaceSummary } from '@/hooks/useWorkspaces'
 
 interface WorkspaceSwitcherProps {
   currentWorkspace: {
@@ -20,35 +13,22 @@ interface WorkspaceSwitcherProps {
     slug: string
   }
   isCollapsed?: boolean
+  initialWorkspaces?: WorkspaceSummary[]
 }
 
-export function WorkspaceSwitcher({ currentWorkspace, isCollapsed = false }: WorkspaceSwitcherProps) {
+export function WorkspaceSwitcher({
+  currentWorkspace,
+  isCollapsed = false,
+  initialWorkspaces
+}: WorkspaceSwitcherProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
-  const [loading, setLoading] = useState(false)
+  const { workspaces, sortedWorkspaces, loading } = useWorkspaces({
+    currentWorkspaceSlug: currentWorkspace.slug,
+    initialWorkspaces,
+  })
   const router = useRouter()
 
-  // Fetch user's workspaces
-  useEffect(() => {
-    async function fetchWorkspaces() {
-      try {
-        setLoading(true)
-        const response = await fetch('/api/me/workspaces')
-        if (response.ok) {
-          const data = await response.json()
-          setWorkspaces(data.workspaces || [])
-        }
-      } catch (error) {
-        console.error('Failed to fetch workspaces:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchWorkspaces()
-  }, [])
-
-  const handleWorkspaceSelect = (workspace: Workspace) => {
+  const handleWorkspaceSelect = (workspace: WorkspaceSummary) => {
     if (workspace.slug !== currentWorkspace.slug) {
       router.push(`/${workspace.slug}`)
     }
@@ -60,21 +40,43 @@ export function WorkspaceSwitcher({ currentWorkspace, isCollapsed = false }: Wor
     setIsOpen(false)
   }
 
-  // Sort workspaces: current first, then by last accessed, then alphabetically
-  const sortedWorkspaces = workspaces.sort((a, b) => {
-    if (a.slug === currentWorkspace.slug) return -1
-    if (b.slug === currentWorkspace.slug) return 1
-    
-    // Sort by last accessed if available
-    if (a.lastAccessed && b.lastAccessed) {
-      return new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime()
+  const renderWorkspaceList = () => {
+    if (loading) {
+      return (
+        <div className="px-3 py-2.5 text-sm text-muted-foreground">
+          Loading workspaces...
+        </div>
+      )
     }
-    if (a.lastAccessed && !b.lastAccessed) return -1
-    if (!a.lastAccessed && b.lastAccessed) return 1
-    
-    // Fallback to alphabetical
-    return a.name.localeCompare(b.name)
-  })
+
+    if (sortedWorkspaces.length === 0) {
+      return (
+        <div className="px-3 py-2.5 text-sm text-muted-foreground">
+          No other workspaces
+        </div>
+      )
+    }
+
+    return sortedWorkspaces.map((workspace) => (
+      <button
+        key={workspace.id}
+        onClick={() => handleWorkspaceSelect(workspace)}
+        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-muted/50 transition-colors"
+      >
+        <Building2 className="h-4 w-4 text-muted-foreground" />
+        <div className="flex-1 text-left">
+          <div className="font-medium">{workspace.name}</div>
+          <div className="text-xs text-muted-foreground capitalize">
+            {workspace.role}
+            {workspace.slug === currentWorkspace.slug && ' (current)'}
+          </div>
+        </div>
+        {workspace.slug === currentWorkspace.slug && (
+          <Check className="h-4 w-4 text-primary" />
+        )}
+      </button>
+    ))
+  }
 
   if (isCollapsed) {
     return (
@@ -87,7 +89,7 @@ export function WorkspaceSwitcher({ currentWorkspace, isCollapsed = false }: Wor
         >
           <Building2 className="h-4 w-4" />
         </Button>
-        
+
         {isOpen && (
           <div className="absolute left-12 top-0 z-50 w-64 bg-white border border-border rounded-lg shadow-lg">
             <div className="p-2 border-b border-border">
@@ -96,25 +98,7 @@ export function WorkspaceSwitcher({ currentWorkspace, isCollapsed = false }: Wor
               </div>
             </div>
             <div className="p-1">
-              {sortedWorkspaces.map((workspace) => (
-                <button
-                  key={workspace.id}
-                  onClick={() => handleWorkspaceSelect(workspace)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  <Building2 className="h-4 w-4 text-muted-foreground" />
-                  <div className="flex-1 text-left">
-                    <div className="font-medium">{workspace.name}</div>
-                    <div className="text-xs text-muted-foreground capitalize">
-                      {workspace.role}
-                      {workspace.slug === currentWorkspace.slug && " • Current"}
-                    </div>
-                  </div>
-                  {workspace.slug === currentWorkspace.slug && (
-                    <Check className="h-4 w-4 text-primary" />
-                  )}
-                </button>
-              ))}
+              {renderWorkspaceList()}
               <button
                 onClick={handleCreateWorkspace}
                 className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-muted/50 transition-colors border-t border-border mt-1 pt-3"
@@ -142,7 +126,9 @@ export function WorkspaceSwitcher({ currentWorkspace, isCollapsed = false }: Wor
             {workspaces.length > 1 ? `${workspaces.length} workspaces` : 'Workspace'}
           </div>
         </div>
-        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown
+          className={`h-4 w-4 text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {isOpen && (
@@ -153,29 +139,7 @@ export function WorkspaceSwitcher({ currentWorkspace, isCollapsed = false }: Wor
             </div>
           </div>
           <div className="p-1 max-h-64 overflow-y-auto">
-            {loading ? (
-              <div className="px-3 py-2.5 text-sm text-muted-foreground">Loading workspaces...</div>
-            ) : (
-              sortedWorkspaces.map((workspace) => (
-                <button
-                  key={workspace.id}
-                  onClick={() => handleWorkspaceSelect(workspace)}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  <Building2 className="h-4 w-4 text-muted-foreground" />
-                  <div className="flex-1 text-left">
-                    <div className="font-medium">{workspace.name}</div>
-                    <div className="text-xs text-muted-foreground capitalize">
-                      {workspace.role}
-                      {workspace.slug === currentWorkspace.slug && " • Current"}
-                    </div>
-                  </div>
-                  {workspace.slug === currentWorkspace.slug && (
-                    <Check className="h-4 w-4 text-primary" />
-                  )}
-                </button>
-              ))
-            )}
+            {renderWorkspaceList()}
             <button
               onClick={handleCreateWorkspace}
               className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-muted/50 transition-colors border-t border-border mt-1 pt-3"
@@ -187,7 +151,6 @@ export function WorkspaceSwitcher({ currentWorkspace, isCollapsed = false }: Wor
         </div>
       )}
 
-      {/* Backdrop to close dropdown */}
       {isOpen && (
         <div
           className="fixed inset-0 z-40"

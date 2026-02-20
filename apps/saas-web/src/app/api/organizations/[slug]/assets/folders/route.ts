@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthService } from "@tradetool/auth";
+import { AuthService, ScopedPermission } from "@tradetool/auth";
 import { DatabaseQueries } from "@tradetool/database";
 import { supabaseServer } from "@/lib/supabase";
+import { enforceMarketScopedAccess } from "@/lib/market-scope";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const resolvedParams = await params;
+
     // DEVELOPMENT MODE: Return mock folders for demo tenants
-    if (params.slug === "demo-org" || params.slug === "test-company") {
+    if (resolvedParams.slug === "demo-org" || resolvedParams.slug === "test-company") {
       const mockFolders = [
         {
           id: "mock-folder-1",
-          organizationId: `mock-${params.slug}`,
+          organizationId: `mock-${resolvedParams.slug}`,
           name: "Marketing Assets",
           parentId: null,
           path: "/Marketing Assets",
@@ -22,7 +25,7 @@ export async function GET(
         },
         {
           id: "mock-folder-2",
-          organizationId: `mock-${params.slug}`,
+          organizationId: `mock-${resolvedParams.slug}`,
           name: "Brand Guidelines",
           parentId: "mock-folder-1",
           path: "/Marketing Assets/Brand Guidelines",
@@ -31,7 +34,7 @@ export async function GET(
         },
         {
           id: "mock-folder-3",
-          organizationId: `mock-${params.slug}`,
+          organizationId: `mock-${resolvedParams.slug}`,
           name: "Product Photos",
           parentId: null,
           path: "/Product Photos",
@@ -53,13 +56,25 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const organization = await authService.getCurrentOrganization(params.slug);
+    const organization = await authService.getCurrentOrganization(resolvedParams.slug);
     if (!organization) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
     const hasAccess = await authService.hasOrganizationAccess(user.id, organization.id);
-    if (!hasAccess) {
+    const searchParams = new URL(request.url).searchParams;
+    const scopeCheck = await enforceMarketScopedAccess({
+      authService,
+      supabase: supabaseServer as any,
+      userId: user.id,
+      organizationId: organization.id,
+      permissionKey: ScopedPermission.AssetDownloadDerivative,
+      marketId: searchParams.get("marketId"),
+      localeCode: searchParams.get("locale"),
+      channelId: searchParams.get("channelId"),
+      collectionId: searchParams.get("collectionId"),
+    });
+    if (!hasAccess && !scopeCheck.ok) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
@@ -79,9 +94,11 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { slug: string } }
+  { params }: { params: Promise<{ slug: string }> }
 ) {
   try {
+    const resolvedParams = await params;
+
     const db = new DatabaseQueries(supabaseServer);
     const authService = new AuthService(db);
     
@@ -90,13 +107,25 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const organization = await authService.getCurrentOrganization(params.slug);
+    const organization = await authService.getCurrentOrganization(resolvedParams.slug);
     if (!organization) {
       return NextResponse.json({ error: "Organization not found" }, { status: 404 });
     }
 
     const hasAccess = await authService.hasOrganizationAccess(user.id, organization.id);
-    if (!hasAccess) {
+    const searchParams = new URL(request.url).searchParams;
+    const scopeCheck = await enforceMarketScopedAccess({
+      authService,
+      supabase: supabaseServer as any,
+      userId: user.id,
+      organizationId: organization.id,
+      permissionKey: ScopedPermission.AssetMetadataEdit,
+      marketId: searchParams.get("marketId"),
+      localeCode: searchParams.get("locale"),
+      channelId: searchParams.get("channelId"),
+      collectionId: searchParams.get("collectionId"),
+    });
+    if (!hasAccess && !scopeCheck.ok) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

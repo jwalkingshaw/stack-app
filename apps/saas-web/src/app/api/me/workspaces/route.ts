@@ -1,107 +1,123 @@
 import { NextResponse } from "next/server";
-import { requireUser } from "@/lib/auth-server";
-import { createServerClient, DatabaseQueries } from "@tradetool/database";
+import { getCurrentOrganization, requireUser } from "@/lib/auth-server";
+import { createServerClient } from "@tradetool/database";
+import {
+  getActiveWorkspaceMemberships,
+  getWorkspaceNotificationStateMap,
+  getWorkspaceUnreadCounts,
+} from "@/lib/workspace-notifications";
 
 // GET /api/me/workspaces
-// Returns all workspaces the authenticated user belongs to
+// Returns all workspaces the authenticated user can access (direct membership + partner brand access).
 export async function GET() {
   try {
     const user = await requireUser();
-    
+
     if (!user?.id) {
-      console.log('❌ /api/me/workspaces: No user authenticated');
-      return NextResponse.json(
-        { error: "unauthorized" }, 
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
 
     const supabase = createServerClient();
+    const memberships = await getActiveWorkspaceMemberships(
+      supabase,
+      user.id,
+      user.email,
+      { includeEmailLookup: false }
+    );
 
-    // Get all organizations user is a member of
-    const { data: memberships, error } = await supabase
-      .from('organization_members')
-      .select(`
-        id,
-        role,
-        created_at,
-        last_accessed_at,
-        organization:organizations (
-          id,
-          name,
-          slug,
-          kinde_org_id,
-          storage_used,
-          storage_limit
-        )
-      `)
-      .eq('kinde_user_id', user.id)
-      .eq('status', 'active');
+    if (memberships.length === 0) {
+      const currentOrganization = await getCurrentOrganization();
+      if (currentOrganization?.slug) {
+        const fallbackWorkspace = {
+          id: currentOrganization.id,
+          name: currentOrganization.name,
+          slug: currentOrganization.slug,
+          role: "member",
+          organizationType: (currentOrganization.organizationType ||
+            currentOrganization.type ||
+            "brand") as "brand" | "partner",
+          partnerCategory: currentOrganization.partnerCategory ?? null,
+          storageUsed: currentOrganization.storageUsed,
+          storageLimit: currentOrganization.storageLimit,
+          lastAccessed: undefined,
+          joinedAt: undefined,
+          unreadCount: 0,
+        };
 
-    if (error) {
-      console.error('❌ Database error fetching user workspaces:', error);
-      return NextResponse.json(
-        { error: "database_error" },
-        { status: 500 }
-      );
-    }
+        return NextResponse.json({
+          user: {
+            id: user.id,
+            email: user.email,
+          },
+          workspaces: [fallbackWorkspace],
+          lastUsedWorkspace: fallbackWorkspace,
+        });
+      }
 
-    if (!memberships || memberships.length === 0) {
-      console.log('ℹ️ User has no workspace memberships:', user.id);
       return NextResponse.json({
         user: {
           id: user.id,
           email: user.email,
         },
         workspaces: [],
-        lastUsedWorkspace: null
+        lastUsedWorkspace: null,
       });
     }
 
-    // Transform memberships into workspace data
-    const workspaces = memberships.map(membership => ({
+    const organizationIds = memberships.map((membership) => membership.organization.id);
+    const stateByWorkspace = await getWorkspaceNotificationStateMap(
+      supabase,
+      user.id,
+      organizationIds
+    );
+    const unreadByWorkspace = await getWorkspaceUnreadCounts(
+      supabase,
+      memberships,
+      stateByWorkspace
+    );
+
+    const workspaces = memberships.map((membership) => ({
       id: membership.organization.id,
       name: membership.organization.name,
       slug: membership.organization.slug,
       role: membership.role,
-      storageUsed: membership.organization.storage_used || 0,
-      storageLimit: membership.organization.storage_limit || 1073741824, // 1GB default
-      lastAccessed: membership.last_accessed_at,
-      joinedAt: membership.created_at
+      organizationType: membership.organization.organizationType,
+      partnerCategory: membership.organization.partnerCategory,
+      storageUsed: membership.organization.storageUsed,
+      storageLimit: membership.organization.storageLimit,
+      lastAccessed: membership.lastAccessedAt ?? undefined,
+      joinedAt: membership.createdAt ?? undefined,
+      unreadCount: unreadByWorkspace.get(membership.organization.id) ?? 0,
     }));
 
-    // Find most recently accessed workspace (for smart routing)
-    const lastUsedWorkspace = workspaces
-      .filter(w => w.lastAccessed)
-      .sort((a, b) => new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime())[0] 
-      || workspaces[0]; // Fallback to first workspace if no access tracking
+    const lastUsedWorkspace =
+      workspaces
+        .filter((workspace) => workspace.lastAccessed)
+        .sort(
+          (a, b) =>
+            new Date(b.lastAccessed as string).getTime() -
+            new Date(a.lastAccessed as string).getTime()
+        )[0] || workspaces[0];
 
-    console.log('✅ User workspaces retrieved:', {
-      userId: user.id,
-      workspaceCount: workspaces.length,
-      lastUsed: lastUsedWorkspace?.slug
-    });
-
-    return NextResponse.json({
+    const response = NextResponse.json({
       user: {
         id: user.id,
         email: user.email,
         given_name: user.given_name,
         family_name: user.family_name,
         picture: user.picture,
-        name: user.given_name && user.family_name 
-          ? `${user.given_name} ${user.family_name}` 
-          : user.email,
+        name:
+          user.given_name && user.family_name
+            ? `${user.given_name} ${user.family_name}`
+            : user.email,
       },
       workspaces,
-      lastUsedWorkspace
+      lastUsedWorkspace,
     });
-
+    response.headers.set("Cache-Control", "private, max-age=30, s-maxage=30");
+    return response;
   } catch (error) {
-    console.error('❌ Error in /api/me/workspaces:', error);
-    return NextResponse.json(
-      { error: "internal_server_error" },
-      { status: 500 }
-    );
+    console.error("Error in /api/me/workspaces:", error);
+    return NextResponse.json({ error: "internal_server_error" }, { status: 500 });
   }
 }

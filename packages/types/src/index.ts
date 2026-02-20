@@ -11,6 +11,8 @@ export interface Organization {
   name: string;
   slug: string;
   type: string;
+  organizationType?: 'brand' | 'partner';
+  partnerCategory?: 'retailer' | 'distributor' | 'wholesaler' | null;
   kindeOrgId: string;
   storageUsed: number;
   storageLimit: number;
@@ -46,6 +48,36 @@ export interface OrganizationWithRelationship extends Organization {
 }
 
 // User membership types
+export type UserRole = 'owner' | 'admin' | 'editor' | 'viewer' | 'partner';
+
+export interface OrganizationMember {
+  id: string;
+  organizationId: string;
+  kindeUserId: string;
+  email: string;
+  role: UserRole;
+  canDownloadAssets: boolean;
+  canEditProducts: boolean;
+  canManageTeam: boolean;
+  permissions: Record<string, any>;
+  joinedAt: string;
+  status: 'active' | 'suspended' | 'left';
+  invitedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserPermissions {
+  role: UserRole | null;
+  can_download_assets: boolean;
+  can_edit_products: boolean;
+  can_manage_team: boolean;
+  is_owner: boolean;
+  is_admin: boolean;
+  is_partner: boolean;
+}
+
+// Legacy - kept for backward compatibility
 export interface OrganizationMembership {
   id: string;
   userId: string;
@@ -75,8 +107,11 @@ export interface DamAsset {
   filename: string;
   originalFilename: string;
   fileType: string;
+   assetType?: string;
+   assetScope?: string;
   fileSize: number;
   mimeType: string;
+   filePath?: string;
   s3Key: string;
   s3Url: string;
   thumbnailUrls?: {
@@ -87,6 +122,7 @@ export interface DamAsset {
   metadata?: Record<string, any>;
   tags: string[];
   description?: string;
+   productIdentifiers?: string[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -100,6 +136,50 @@ export interface DamCollection {
   assetIds: string[];
   createdBy: string;
   createdAt: string;
+}
+
+export interface AssetTag {
+  id: string;
+  organizationId: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  color?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AssetCategory {
+  id: string;
+  organizationId: string;
+  name: string;
+  slug: string;
+  parentId?: string | null;
+  path: string;
+  description?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AssetTagAssignment {
+  id: string;
+  assetId: string;
+  tagId: string;
+  assignedBy?: string | null;
+  assignedAt: string;
+  tag?: AssetTag;
+}
+
+export interface AssetCategoryAssignment {
+  id: string;
+  assetId: string;
+  categoryId: string;
+  isPrimary: boolean;
+  assignedBy?: string | null;
+  assignedAt: string;
+  category?: AssetCategory;
 }
 
 // API types
@@ -141,3 +221,5 @@ export interface FileUploadProgress {
 
 // Billing types
 export * from './billing';
+export * from './product';
+export * from './product-table';

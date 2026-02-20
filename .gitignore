@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.npm
+.pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# Turbo
+.turbo/
+
+# Database
+*.db
+*.sqlite
+
+# Local files
+.local/
+*.tsbuildinfo
+nul
+
+apps/saas-web/nul

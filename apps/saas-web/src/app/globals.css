@@ -1,0 +1,298 @@
+@import "tailwindcss";
+
+/* SaaS App - Light Theme Globals */
+/* Clean, content-focused design for the SaaS application */
+
+:root {
+  /* Primary colors - Dark Monochrome Theme */
+  --color-primary: #0f172a;
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-primary-hover: #1e293b;
+  --color-primary-active: #334155;
+  --color-primary-subtle: hsl(217 91% 97%);
+
+  /* Status colors */
+  --color-success: hsl(142 76% 36%);
+  --color-warning: hsl(38 92% 50%);
+  --color-error: hsl(0 84% 60%);
+  --color-success-foreground: hsl(0 0% 98%);
+  --color-warning-foreground: hsl(0 0% 98%);
+  --color-error-foreground: hsl(0 0% 98%);
+
+  /* Light theme backgrounds */
+  --color-background: hsl(0 0% 100%);
+  --color-background-secondary: hsl(210 20% 98%);
+  --color-background-tertiary: hsl(210 20% 96%);
+  --color-background-elevated: hsl(0 0% 100%);
+  --color-background-sunken: hsl(210 20% 98%);
+  --color-background-overlay: hsl(0 0% 0% / 0.5);
+
+  /* Light theme text hierarchy */
+  --color-foreground: hsl(220 9% 9%);
+  --color-foreground-secondary: hsl(220 9% 46%);
+  --color-foreground-tertiary: hsl(220 9% 56%);
+  --color-foreground-muted: hsl(220 9% 66%);
+  --color-foreground-subtle: hsl(220 9% 76%);
+
+  /* Light theme borders - Soft and subtle */
+  --color-border: hsl(220 13% 91%);
+  --color-border-secondary: hsl(220 13% 91%);
+  --color-border-strong: hsl(220 9% 76%);
+  --color-border-focus: hsl(216 100% 50%);
+  --color-border-hover: hsl(220 9% 76%);
+
+  /* Interactive states */
+  --color-interactive-hover: hsl(210 20% 96%);
+  --color-interactive-pressed: hsl(220 14% 92%);
+  --color-interactive-selected: hsl(217 91% 97%);
+  --color-interactive-disabled: hsl(220 13% 91%);
+  --color-interactive-focus: hsl(217 91% 94%);
+
+  /* Blue accent system */
+  --color-accent-blue: hsl(216 100% 50%);        /* Muted blue-gray */
+  --color-accent-blue-foreground: hsl(0 0% 98%);
+  --color-accent-blue-hover: hsl(220 100% 50%);
+  --color-accent-blue-active: hsl(220 100% 45%);
+  --color-accent-blue-subtle: hsl(217 12% 97%);
+
+  /* Typography */
+  --font-family-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-family-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Consistent font weights */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;  /* Use for UI labels */
+  --font-weight-semibold: 600; /* Use for headings */
+
+  /* Compact text size scale - optimized for dense SaaS interfaces */
+  --text-xs: 0.75rem;      /* 12px - metadata */
+  --text-sm: 0.8125rem;    /* 13px - secondary text */
+  --text-base: 0.9375rem;  /* 15px - primary text */
+  --text-lg: 1rem;         /* 16px - titles */
+
+  /* Responsive sizes for mixed screens: compact desktop, readable mobile */
+  --font-size-xs: clamp(0.75rem, 0.73rem + 0.1vw, 0.8125rem);      /* 12px-13px */
+  --font-size-sm: clamp(0.8125rem, 0.79rem + 0.12vw, 0.875rem);    /* 13px-14px */
+  --font-size-base: clamp(0.875rem, 0.84rem + 0.18vw, 0.9375rem);  /* 14px-15px */
+  --font-size-lg: clamp(0.9375rem, 0.9rem + 0.2vw, 1rem);          /* 15px-16px */
+  --font-size-xl: clamp(1rem, 0.95rem + 0.3vw, 1.125rem);          /* 16px-18px */
+  --font-size-2xl: clamp(1.125rem, 1.05rem + 0.35vw, 1.25rem);     /* 18px-20px */
+
+  /* Legacy Tailwind compatibility */
+  --background: 0 0% 100%;
+  --foreground: 220 9% 9%;
+  --primary: 222 84% 5%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 210 20% 98%;
+  --secondary-foreground: 220 9% 9%;
+  --muted: 210 20% 98%;
+  --muted-foreground: 220 9% 46%;
+  --accent: 210 20% 96%;
+  --accent-foreground: 220 9% 9%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 220 13% 91%;
+  --input: 220 13% 91%;
+  --ring: 217 100% 50%;
+  --radius: 0.5rem;
+
+  /* Sidebar colors for SaaS app */
+  --sidebar-background: #f5f5f5;
+  --sidebar-foreground: hsl(220 9% 9%);
+  --sidebar-primary: hsl(220 9% 9%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(210 20% 96%);
+  --sidebar-accent-foreground: hsl(220 9% 9%);
+  --sidebar-border: hsl(220 13% 91%);
+  --sidebar-ring: hsl(216 100% 50%);
+}
+
+/* Base styles */
+* {
+  box-sizing: border-box;
+}
+
+/* Force reload - modern borders */
+
+/* Override UI package borders with higher specificity */
+* {
+  --tw-border-opacity: 1;
+}
+
+.border-border,
+[class*="border-border"] {
+  border-color: hsl(220 13% 91% / var(--tw-border-opacity)) !important;
+}
+
+.border {
+  border-color: hsl(220 13% 91% / var(--tw-border-opacity)) !important;
+}
+
+/* Input specific overrides */
+.border-input,
+[class*="border-input"] {
+  border-color: hsl(220 13% 91% / var(--tw-border-opacity)) !important;
+}
+
+/* Card and component overrides */
+.bg-card,
+.border-border {
+  border-color: hsl(220 13% 91% / var(--tw-border-opacity)) !important;
+}
+
+html {
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-background);
+}
+
+body {
+  font-family: var(--font-family-sans);
+  font-weight: 400;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--color-foreground);
+  background-color: var(--color-background);
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Consistent interactive cursor affordance across the app */
+:where(
+  a[href],
+  button,
+  [role="button"],
+  [role="link"],
+  summary,
+  label[for],
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="submit"],
+  input[type="reset"],
+  input[type="button"],
+  select
+) {
+  cursor: pointer;
+}
+
+:where(
+  button:disabled,
+  [aria-disabled="true"],
+  [data-disabled],
+  input:disabled,
+  select:disabled
+) {
+  cursor: not-allowed;
+}
+
+select,
+option,
+optgroup {
+  font-family: var(--font-family-sans) !important;
+}
+
+select {
+  background-color: hsl(0 0% 100%);
+  color: var(--color-foreground);
+}
+
+/* Boolean controls: consistent tone and borders */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--color-accent-blue);
+  border: 1px solid var(--color-border);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+input[type="checkbox"]:hover,
+input[type="radio"]:hover {
+  border-color: var(--color-accent-blue-hover);
+}
+
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+  border-color: var(--color-accent-blue);
+}
+
+input[type="checkbox"]:active,
+input[type="radio"]:active {
+  filter: brightness(0.95);
+}
+
+/* Focus styles */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-border-focus);
+}
+
+/* Menus: keep item focus behavior, remove container halo */
+[role="menu"]:focus-visible,
+[role="listbox"]:focus-visible,
+[data-radix-popper-content-wrapper] > div:focus-visible {
+  box-shadow: none !important;
+}
+
+[role="menuitem"]:focus-visible,
+[role="menuitemcheckbox"]:focus-visible,
+[role="menuitemradio"]:focus-visible {
+  box-shadow: none !important;
+}
+
+[role="menuitem"]:focus,
+[role="menuitemcheckbox"]:focus,
+[role="menuitemradio"]:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+[role="menuitem"][data-highlighted],
+[role="menuitemcheckbox"][data-highlighted],
+[role="menuitemradio"][data-highlighted] {
+  box-shadow: none !important;
+}
+
+.workspace-menu-trigger:focus,
+.workspace-menu-trigger:focus-visible {
+  box-shadow: none !important;
+}
+
+/* Selection styles */
+::selection {
+  background-color: var(--color-primary-subtle);
+  color: var(--color-foreground);
+}
+
+/* Typography hierarchy - clean SaaS headers */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-family-sans);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.2;
+  color: var(--color-foreground);
+  margin: 0;
+  letter-spacing: -0.025em;
+}
+
+/* Smaller, cleaner headers for SaaS interfaces */
+h1 { font-size: var(--text-lg); font-weight: var(--font-weight-semibold); }    /* 16px - page titles */
+h2 { font-size: var(--text-base); font-weight: var(--font-weight-semibold); }  /* 15px - section headers */
+h3 { font-size: var(--text-sm); font-weight: var(--font-weight-semibold); }    /* 13px - card headers */
+h4 { font-size: var(--text-sm); font-weight: var(--font-weight-medium); }      /* 13px - sub-headers */
+h5 { font-size: var(--text-xs); font-weight: var(--font-weight-medium); }      /* 12px - labels */
+h6 { font-size: var(--text-xs); font-weight: var(--font-weight-medium); }      /* 12px - metadata */
+
+p {
+  color: var(--color-foreground-secondary);
+  line-height: 1.75;
+  margin: 0;
+}
+
+/* Workspace rail active view tint (brand-aligned blue) */
+.rail-view-active {
+  background-color: hsl(216 100% 50% / 0.14) !important;
+  color: hsl(216 100% 40%) !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+}

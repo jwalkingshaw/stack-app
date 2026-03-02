@@ -15,6 +15,7 @@ import {
   Grid3X3,
   Layers,
   Globe,
+  Languages,
   ArrowLeft,
   Link2
 } from 'lucide-react';
@@ -90,11 +91,25 @@ const settingsSections: SettingsSection[] = [
     description: "Define markets (countries) and languages"
   },
   {
+    id: "localization",
+    label: "Localization",
+    icon: "Languages",
+    href: "/localization",
+    description: "Configure translation defaults and review localization jobs"
+  },
+  {
     id: "channels",
     label: "Channels",
     icon: "Layers",
     href: "/channels",
     description: "Define where product content is distributed"
+  },
+  {
+    id: "destinations",
+    label: "Destinations",
+    icon: "Globe",
+    href: "/destinations",
+    description: "Define market and platform-specific publish endpoints"
   },
   {
     id: "team",
@@ -159,6 +174,7 @@ const iconMap = {
   Grid3X3,
   Layers,
   Globe,
+  Languages,
   Link2
 };
 
@@ -194,12 +210,7 @@ export default function SettingsNavigation({
     ? (organization.storageUsed / organization.storageLimit) * 100
     : 0;
   const showWorkspaceRail = organization?.type === "partner";
-  const visibleSections =
-    organization?.type === "partner"
-      ? settingsSections.filter((section) =>
-          ["organization", "notifications", "security"].includes(section.id)
-        )
-      : settingsSections;
+  const visibleSections = settingsSections;
 
   return (
     <div className="bg-[#f5f5f5] h-full flex">

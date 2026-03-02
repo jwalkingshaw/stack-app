@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
 import { kindeAPI } from '@/lib/kinde-management';
+import { syncKindeBillingRoleForMember } from '@/lib/kinde-billing-role-sync';
 import { enforceRateLimit, rateLimitExceededResponse } from '@/lib/rate-limit';
 import { logRateLimitSecurityEvent } from '@/lib/security-audit';
 import {
@@ -13,6 +14,7 @@ import {
   applyInvitePermissions,
   normalizeInvitePermissions,
 } from '@/lib/invite-permissions';
+import { assertBillingCapacity } from '@/lib/billing-policy';
 import {
   applyInvitationShareSetGrants,
   loadInvitationShareSetAssignments,
@@ -132,6 +134,10 @@ function buildWelcomeRedirect(slug?: string | null) {
   return `/welcome?next=${encodeURIComponent(`/${slug}`)}`;
 }
 
+function isValidOrganizationId(id: string) {
+  return /^[0-9a-fA-F-]{36}$/.test(id);
+}
+
 function jsonWithClear<T extends Record<string, unknown>>(
   payload: T,
   init?: ResponseInit
@@ -148,10 +154,23 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const invitationToken = String(body?.invitation_token || '').trim();
+    const requestedPartnerOrganizationId = String(
+      body?.partner_organization_id || ''
+    ).trim();
 
     if (!invitationToken) {
       return NextResponse.json(
         { error: 'Invitation token is required' },
+        { status: 400 }
+      );
+    }
+
+    if (
+      requestedPartnerOrganizationId &&
+      !isValidOrganizationId(requestedPartnerOrganizationId)
+    ) {
+      return NextResponse.json(
+        { error: 'partner_organization_id is invalid' },
         { status: 400 }
       );
     }
@@ -362,6 +381,48 @@ export async function POST(request: NextRequest) {
       console.warn('[invitations] Unable to verify session age:', error);
     }
 
+    // Team seats are hard-capped. Re-check at acceptance time in case limits changed
+    // after invite creation or legacy invites bypassed create-time checks.
+    if (invitation.invitation_type === 'team_member') {
+      const { data: existingMembership, error: membershipLookupError } = await supabase
+        .from('organization_members')
+        .select('id')
+        .eq('organization_id', invitation.organization_id)
+        .eq('kinde_user_id', user.id)
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle();
+
+      if (membershipLookupError) {
+        console.error('Failed to verify active membership before invitation acceptance:', membershipLookupError);
+        return NextResponse.json(
+          { error: 'Unable to verify membership status' },
+          { status: 500 }
+        );
+      }
+
+      if (!existingMembership) {
+        const seatCapacity = await assertBillingCapacity({
+          organizationId: invitation.organization_id,
+          meter: 'internalUserCount',
+        });
+
+        if (!seatCapacity.allowed) {
+          return jsonWithClear(
+            {
+              error:
+                seatCapacity.message ||
+                `You have reached your internal user limit (${seatCapacity.usage}/${seatCapacity.limit}). Upgrade your plan or purchase a seat add-on to continue.`,
+              code: 'INTERNAL_USER_LIMIT_REACHED',
+              limit: seatCapacity.limit,
+              usage: seatCapacity.usage,
+            },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
     // Accept invitation in Supabase
     const { data: acceptResult, error: acceptError } = await supabase.rpc(
       'accept_invitation',
@@ -419,127 +480,219 @@ export async function POST(request: NextRequest) {
       console.warn('[invitations] Failed to write invitation accept audit event:', auditError);
     }
 
+    const finalizePartnerInviteToOrganization = async (partnerOrg: {
+      id: string;
+      name?: string | null;
+      slug?: string | null;
+    }) => {
+      const resolvedAccessLevel =
+        invitation.role_or_access_level === 'edit' ? 'edit' : 'view';
+
+      const { error: relationshipError } = await supabase
+        .from('brand_partner_relationships')
+        .upsert(
+          {
+            brand_organization_id: invitation.organization_id,
+            partner_organization_id: partnerOrg.id,
+            access_level: resolvedAccessLevel,
+            invited_by: invitation.invited_by || user.id,
+            status: 'active',
+            status_updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'brand_organization_id,partner_organization_id,status' }
+        );
+
+      if (relationshipError) {
+        console.error(
+          '[invitations] Failed to upsert partner relationship during invite acceptance:',
+          relationshipError
+        );
+        return NextResponse.json(
+          { error: 'Failed to establish brand-partner relationship' },
+          { status: 500 }
+        );
+      }
+
+      const { error: invitationFinalizeError } = await supabase
+        .from('invitations')
+        .update({
+          partner_organization_id: partnerOrg.id,
+          requires_onboarding: false,
+          accepted_at: new Date().toISOString(),
+        })
+        .eq('id', invitation.id)
+        .is('accepted_at', null)
+        .is('declined_at', null)
+        .is('revoked_at', null);
+
+      if (invitationFinalizeError) {
+        console.error(
+          '[invitations] Failed to finalize partner invitation onboarding:',
+          invitationFinalizeError
+        );
+        return NextResponse.json(
+          { error: 'Failed to finalize invitation onboarding' },
+          { status: 500 }
+        );
+      }
+
+      const appliedPartnerPermissions = await applyInvitePermissions({
+        supabase,
+        organizationId: invitation.organization_id,
+        userId: user.id,
+        userEmail: user.email || invitation.email,
+        invitedBy: invitation.invited_by,
+        defaultRole: 'partner',
+        permissions: invitation.invite_permissions || {},
+      });
+
+      if (!appliedPartnerPermissions.applied) {
+        return NextResponse.json(
+          { error: appliedPartnerPermissions.error || 'Failed to apply invite permissions' },
+          { status: 500 }
+        );
+      }
+
+      const shareSetGrantResult = await applyInvitationSetsOrFail({
+        invitation,
+        partnerOrganizationId: partnerOrg.id,
+        userId: user.id,
+      });
+      if (!shareSetGrantResult.ok) {
+        return shareSetGrantResult.response;
+      }
+
+      const partnerProfileRedirect = buildWelcomeRedirect(partnerOrg.slug);
+
+      return jsonWithClear({
+        success: true,
+        data: {
+          invitation_type: 'partner',
+          requires_onboarding: false,
+          invitation_token: invitationToken,
+          invitation_id: invitation.id,
+          permission_bundle_id: invitation.permission_bundle_id,
+          invite_permissions: normalizeInvitePermissions(invitation.invite_permissions),
+          invite_share_set_count: invitationShareSetSnapshot.data.shareSetIds.length,
+          applied_share_set_grants: shareSetGrantResult.appliedCount,
+          brand_organization_id: invitation.organization_id,
+          partner_organization: {
+            id: partnerOrg.id,
+            name: partnerOrg.name,
+            slug: partnerOrg.slug,
+          },
+          access_level: invitation.role_or_access_level,
+          needs_profile: userNeedsProfile,
+          profile_redirect_url: partnerProfileRedirect,
+          redirect_url: partnerOrg.slug ? `/${partnerOrg.slug}/products` : undefined,
+        },
+        message: `You can now access this brand's content from your ${partnerOrg.name ?? 'partner'} dashboard.`,
+      });
+    };
+
     // Partner onboarding flow
     if (invitation.invitation_type === 'partner' && invitation.requires_onboarding) {
-      // Recovery path: if the user already has exactly one active partner org,
-      // finalize the relationship immediately instead of forcing another onboarding pass.
       const { data: membershipRows, error: membershipError } = await supabase
         .from('organization_members')
         .select('organization_id, joined_at')
         .eq('kinde_user_id', user.id)
         .eq('status', 'active');
 
-      if (!membershipError && Array.isArray(membershipRows) && membershipRows.length > 0) {
-        const candidateOrgIds = Array.from(
-          new Set(
-            membershipRows
-              .map((row: any) => row.organization_id)
-              .filter((orgId: unknown): orgId is string => typeof orgId === 'string')
-          )
+      if (membershipError) {
+        console.error(
+          '[invitations] Failed to load active memberships for partner onboarding recovery:',
+          membershipError
         );
+        return NextResponse.json(
+          { error: 'Failed to resolve your partner workspace memberships' },
+          { status: 500 }
+        );
+      }
 
-        if (candidateOrgIds.length > 0) {
-          const { data: partnerOrgs, error: partnerOrgsError } = await supabase
-            .from('organizations')
-            .select('id, name, slug, organization_type')
-            .in('id', candidateOrgIds)
-            .eq('organization_type', 'partner');
+      const candidateOrgIds = Array.from(
+        new Set(
+          (membershipRows || [])
+            .map((row: any) => row.organization_id)
+            .filter((orgId: unknown): orgId is string => typeof orgId === 'string')
+        )
+      );
 
-          if (!partnerOrgsError && Array.isArray(partnerOrgs) && partnerOrgs.length === 1) {
-            const existingPartnerOrg = partnerOrgs[0] as any;
-            const resolvedAccessLevel =
-              invitation.role_or_access_level === 'edit' ? 'edit' : 'view';
+      let partnerOrgs: Array<{ id: string; name: string | null; slug: string | null }> = [];
+      if (candidateOrgIds.length > 0) {
+        const { data: partnerOrgRows, error: partnerOrgsError } = await supabase
+          .from('organizations')
+          .select('id, name, slug, organization_type')
+          .in('id', candidateOrgIds)
+          .eq('organization_type', 'partner');
 
-            const { error: relationshipError } = await supabase
-              .from('brand_partner_relationships')
-              .upsert(
-                {
-                  brand_organization_id: invitation.organization_id,
-                  partner_organization_id: existingPartnerOrg.id,
-                  access_level: resolvedAccessLevel,
-                  invited_by: invitation.invited_by || user.id,
-                  status: 'active',
-                  status_updated_at: new Date().toISOString(),
-                },
-                { onConflict: 'brand_organization_id,partner_organization_id,status' }
-              );
-
-            if (!relationshipError) {
-              const { error: invitationFinalizeError } = await supabase
-                .from('invitations')
-                .update({
-                  partner_organization_id: existingPartnerOrg.id,
-                  requires_onboarding: false,
-                  accepted_at: new Date().toISOString(),
-                })
-                .eq('id', invitation.id)
-                .is('accepted_at', null)
-                .is('declined_at', null)
-                .is('revoked_at', null);
-
-              if (!invitationFinalizeError) {
-                const appliedPartnerPermissions = await applyInvitePermissions({
-                  supabase,
-                  organizationId: invitation.organization_id,
-                  userId: user.id,
-                  userEmail: user.email || invitation.email,
-                  invitedBy: invitation.invited_by,
-                  defaultRole: 'partner',
-                  permissions: invitation.invite_permissions || {},
-                });
-
-                if (!appliedPartnerPermissions.applied) {
-                  return NextResponse.json(
-                    { error: appliedPartnerPermissions.error || 'Failed to apply invite permissions' },
-                    { status: 500 }
-                  );
-                }
-
-                const shareSetGrantResult = await applyInvitationSetsOrFail({
-                  invitation,
-                  partnerOrganizationId: existingPartnerOrg.id,
-                  userId: user.id,
-                });
-                if (!shareSetGrantResult.ok) {
-                  return shareSetGrantResult.response;
-                }
-
-                const partnerProfileRedirect = buildWelcomeRedirect(existingPartnerOrg.slug);
-
-                return jsonWithClear({
-                  success: true,
-                  data: {
-                    invitation_type: 'partner',
-                    requires_onboarding: false,
-                    invitation_token: invitationToken,
-                    invitation_id: invitation.id,
-                    permission_bundle_id: invitation.permission_bundle_id,
-                    invite_permissions: normalizeInvitePermissions(invitation.invite_permissions),
-                    invite_share_set_count: invitationShareSetSnapshot.data.shareSetIds.length,
-                    applied_share_set_grants: shareSetGrantResult.appliedCount,
-                    brand_organization_id: invitation.organization_id,
-                    partner_organization: {
-                      id: existingPartnerOrg.id,
-                      name: existingPartnerOrg.name,
-                      slug: existingPartnerOrg.slug,
-                    },
-                    access_level: invitation.role_or_access_level,
-                    needs_profile: userNeedsProfile,
-                    profile_redirect_url: partnerProfileRedirect,
-                    redirect_url: existingPartnerOrg.slug
-                      ? `/${existingPartnerOrg.slug}/products`
-                      : undefined,
-                  },
-                  message: `You can now access this brand's content from your ${existingPartnerOrg.name ?? 'partner'} dashboard.`,
-                });
-              }
-            }
-          }
+        if (partnerOrgsError) {
+          console.error(
+            '[invitations] Failed to load partner organizations during onboarding recovery:',
+            partnerOrgsError
+          );
+          return NextResponse.json(
+            { error: 'Failed to resolve your partner organizations' },
+            { status: 500 }
+          );
         }
+
+        partnerOrgs = Array.isArray(partnerOrgRows)
+          ? partnerOrgRows.map((org: any) => ({
+              id: org.id,
+              name: org.name ?? null,
+              slug: org.slug ?? null,
+            }))
+          : [];
+      }
+
+      if (requestedPartnerOrganizationId) {
+        const selectedPartnerOrg = partnerOrgs.find(
+          (org) => org.id === requestedPartnerOrganizationId
+        );
+        if (!selectedPartnerOrg) {
+          return NextResponse.json(
+            {
+              error:
+                'You do not have active access to the selected partner organization.',
+            },
+            { status: 403 }
+          );
+        }
+
+        return finalizePartnerInviteToOrganization(selectedPartnerOrg);
+      }
+
+      if (partnerOrgs.length === 1) {
+        return finalizePartnerInviteToOrganization(partnerOrgs[0]);
       }
 
       const onboardingRedirect = `/onboarding?type=partner&brand_id=${invitation.organization_id}&access_level=${invitation.role_or_access_level}&token=${invitationToken}`;
       const profileRedirect = buildWelcomeRedirect(brandOrg.slug);
+
+      if (partnerOrgs.length > 1) {
+        return jsonWithClear({
+          success: true,
+          data: {
+            invitation_type: 'partner',
+            requires_onboarding: true,
+            requires_partner_organization_selection: true,
+            partner_organization_options: partnerOrgs,
+            brand_organization_id: invitation.organization_id,
+            brand_organization_slug: brandOrg.slug,
+            access_level: invitation.role_or_access_level,
+            permission_bundle_id: invitation.permission_bundle_id,
+            invite_permissions: normalizeInvitePermissions(invitation.invite_permissions),
+            invite_share_set_count: invitationShareSetSnapshot.data.shareSetIds.length,
+            invitation_token: invitationToken,
+            invitation_id: invitation.id,
+            needs_profile: userNeedsProfile,
+            profile_redirect_url: profileRedirect,
+            redirect_url: onboardingRedirect,
+          },
+          message:
+            'Select which partner workspace should receive this brand relationship, or create a new partner workspace.',
+        });
+      }
 
       return jsonWithClear({
         success: true,
@@ -671,6 +824,14 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    await syncKindeBillingRoleForMember({
+      kindeOrgId: invitation.brand_org?.kinde_org_id,
+      kindeUserId: user.id,
+      appRole: member?.role || defaultRole,
+      status: 'active',
+      context: 'invitation_accept_team_member',
+    });
 
     if (memberError || !member) {
       console.error('Unable to load member record after acceptance:', memberError);

@@ -36,7 +36,7 @@ export default function MultiSelectField({
 }: MultiSelectFieldProps) {
   const [fieldOptions, setFieldOptions] = useState<MultiSelectFieldOptions>({
     allowEmpty: true,
-    placeholder: 'Select options...',
+    placeholder: 'Select one or more options...',
     defaultValue: [],
     max_selections: undefined,
     min_selections: undefined,
@@ -149,7 +149,7 @@ export default function MultiSelectField({
             <Input
               value={fieldOptions.placeholder}
               onChange={(e) => updateOptions({ placeholder: e.target.value })}
-              placeholder="Select options..."
+              placeholder="Select one or more options..."
               className="h-11"
             />
           </div>
@@ -328,7 +328,7 @@ export default function MultiSelectField({
             }))}
             value={previewValues}
             onChange={setPreviewValues}
-            placeholder="Select options"
+            placeholder="Select one or more options"
             className="mt-4"
           />
 

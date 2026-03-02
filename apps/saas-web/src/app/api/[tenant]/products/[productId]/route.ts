@@ -9,6 +9,8 @@ import {
   resolveTenantBrandViewContext,
 } from '@/lib/partner-brand-view';
 import { getChannelScopedProductIds } from '@/lib/product-channel-scope';
+import { assertBillingCapacity, isBillableSkuRecord } from '@/lib/billing-policy';
+import { validateAuthoringScope } from '@/lib/authoring-scope';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -17,6 +19,7 @@ const supabase = createClient(
 
 const PRODUCT_SELECT_WITH_BARCODE = `
   id,
+  scin,
   type,
   parent_id,
   has_variants,
@@ -62,6 +65,7 @@ const PRODUCT_SELECT_WITH_UPC =
 
 const PRODUCT_VARIANT_SELECT_WITH_BARCODE = `
   id,
+  scin,
   type,
   product_name,
   sku,
@@ -82,6 +86,7 @@ const PRODUCT_VARIANT_SELECT_WITH_UPC =
 
 const PRODUCT_RETURN_SELECT_WITH_BARCODE = `
   id,
+  scin,
   type,
   parent_id,
   has_variants,
@@ -112,6 +117,10 @@ const PRODUCT_RETURN_SELECT_WITH_UPC =
   PRODUCT_RETURN_SELECT_WITH_BARCODE.replace("barcode", "upc");
 
 const UPC_MISSING_COLUMN_ERROR = "42703";
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PREFIX_PATTERN =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-.+)?$/i;
 
 function withNormalizedBarcode<T extends Record<string, any>>(
   row: T
@@ -170,21 +179,27 @@ async function getProductByIdentifier(params: {
   productIdOrSku: string;
   selectClause: string;
 }) {
-  const byId = await supabase
-    .from('products')
-    .select(params.selectClause)
-    .eq('id', params.productIdOrSku)
-    .eq('organization_id', params.organizationId)
-    .maybeSingle();
+  const normalizedIdentifier = (params.productIdOrSku || "").trim();
+  const uuidPrefixMatch = normalizedIdentifier.match(UUID_PREFIX_PATTERN);
+  const candidateId = uuidPrefixMatch?.[1] || normalizedIdentifier;
 
-  if (byId.data || byId.error) {
-    return byId;
+  if (UUID_PATTERN.test(candidateId)) {
+    const byId = await supabase
+      .from('products')
+      .select(params.selectClause)
+      .eq('id', candidateId)
+      .eq('organization_id', params.organizationId)
+      .maybeSingle();
+
+    if (byId.data || byId.error) {
+      return byId;
+    }
   }
 
   return await supabase
     .from('products')
     .select(params.selectClause)
-    .ilike('sku', params.productIdOrSku)
+    .ilike('sku', normalizedIdentifier)
     .eq('organization_id', params.organizationId)
     .limit(1)
     .maybeSingle();
@@ -352,16 +367,134 @@ export async function PUT(
         { status: 403 }
       );
     }
+    const organizationId = access.organizationId;
+    if (!organizationId) {
+      return NextResponse.json({ error: 'Organization context is missing.' }, { status: 500 });
+    }
 
     await setDatabaseUserContext(user.id, kindeOrg?.orgCode);
 
     const body = await request.json();
     const updateData = { ...body };
 
+    const hasInitialScope = Object.prototype.hasOwnProperty.call(updateData, 'initialScope');
+    const hasMarketplaceContent = Object.prototype.hasOwnProperty.call(updateData, 'marketplace_content');
+    let normalizedMarketplaceContent: Record<string, unknown> | null = null;
+
+    if (hasMarketplaceContent) {
+      if (
+        updateData.marketplace_content !== null &&
+        (typeof updateData.marketplace_content !== 'object' ||
+          Array.isArray(updateData.marketplace_content))
+      ) {
+        return NextResponse.json(
+          { error: 'marketplace_content must be an object or null' },
+          { status: 400 }
+        );
+      }
+      normalizedMarketplaceContent =
+        updateData.marketplace_content &&
+        typeof updateData.marketplace_content === 'object' &&
+        !Array.isArray(updateData.marketplace_content)
+          ? { ...(updateData.marketplace_content as Record<string, unknown>) }
+          : {};
+    }
+
+    if (hasMarketplaceContent && normalizedMarketplaceContent) {
+      const hasMarketplaceAuthoringScope = Object.prototype.hasOwnProperty.call(
+        normalizedMarketplaceContent,
+        'authoringScope'
+      );
+
+      if (hasMarketplaceAuthoringScope) {
+        const validatedMarketplaceScope = await validateAuthoringScope({
+          supabase,
+          organizationId,
+          rawScope: (normalizedMarketplaceContent as Record<string, unknown>).authoringScope ?? null,
+        });
+
+        if (!validatedMarketplaceScope.ok) {
+          return NextResponse.json(
+            { error: validatedMarketplaceScope.error },
+            { status: validatedMarketplaceScope.status }
+          );
+        }
+
+        normalizedMarketplaceContent.authoringScope = validatedMarketplaceScope.scope;
+      }
+    }
+
+    if (hasInitialScope) {
+      const validatedInitialScope = await validateAuthoringScope({
+        supabase,
+        organizationId,
+        rawScope: updateData.initialScope ?? null,
+      });
+
+      if (!validatedInitialScope.ok) {
+        return NextResponse.json(
+          { error: validatedInitialScope.error },
+          { status: validatedInitialScope.status }
+        );
+      }
+
+      normalizedMarketplaceContent = normalizedMarketplaceContent || {};
+      normalizedMarketplaceContent.authoringScope = validatedInitialScope.scope;
+    }
+
+    if (normalizedMarketplaceContent) {
+      updateData.marketplace_content = normalizedMarketplaceContent;
+    }
+
+    const { data: existingProduct, error: existingProductError } = await supabase
+      .from('products')
+      .select('id,type,status')
+      .eq('id', productId)
+      .eq('organization_id', access.organizationId)
+      .maybeSingle();
+
+    if (existingProductError) {
+      return NextResponse.json({ error: 'Failed to load existing product' }, { status: 500 });
+    }
+    if (!existingProduct) {
+      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    }
+
+    // UI system field "title" maps to products.product_name.
+    if (typeof updateData.title !== 'undefined' && typeof updateData.product_name === 'undefined') {
+      updateData.product_name = updateData.title;
+    }
+
     updateData.last_modified_by = user.id;
 
     if (typeof updateData.upc !== 'undefined' && typeof updateData.barcode === 'undefined') {
       updateData.barcode = updateData.upc;
+    }
+
+    const nextType = typeof updateData.type === 'string' ? updateData.type : existingProduct.type;
+    const nextStatus =
+      typeof updateData.status === 'string' ? updateData.status : existingProduct.status;
+
+    const becomesBillable =
+      !isBillableSkuRecord({ type: existingProduct.type, status: existingProduct.status }) &&
+      isBillableSkuRecord({ type: nextType, status: nextStatus });
+
+    if (becomesBillable) {
+      const skuCapacity = await assertBillingCapacity({
+        organizationId,
+        meter: 'activeSkuCount',
+      });
+      if (!skuCapacity.allowed) {
+        return NextResponse.json(
+          {
+            error: skuCapacity.message,
+            code: 'ACTIVE_SKU_LIMIT_REACHED',
+            limit: skuCapacity.limit,
+            usage: skuCapacity.usage,
+          },
+          { status: 403 }
+        );
+      }
     }
 
     delete updateData.id;
@@ -372,12 +505,15 @@ export async function PUT(
     delete updateData.variant_count;
     delete updateData.has_variants;
     delete updateData.upc;
+    delete updateData.title;
+    delete updateData.scin;
+    delete updateData.initialScope;
 
     let updateResult = await supabase
       .from('products')
       .update(updateData)
       .eq('id', productId)
-      .eq('organization_id', access.organizationId)
+      .eq('organization_id', organizationId)
       .select(PRODUCT_RETURN_SELECT_WITH_BARCODE)
       .single();
 
@@ -390,7 +526,7 @@ export async function PUT(
         .from('products')
         .update(legacyUpdateData)
         .eq('id', productId)
-        .eq('organization_id', access.organizationId)
+        .eq('organization_id', organizationId)
         .select(PRODUCT_RETURN_SELECT_WITH_UPC)
         .single();
     }

@@ -41,6 +41,8 @@ AWS_ACCESS_KEY_ID=your_aws_access_key
 AWS_SECRET_ACCESS_KEY=your_aws_secret_key
 AWS_REGION=us-east-1
 AWS_S3_BUCKET=your-dam-bucket
+# Optional: CloudFront domain for CDN delivery (no protocol)
+AWS_CLOUDFRONT_DOMAIN=dxxxxxx.cloudfront.net
 ```
 
 ### Application URLs

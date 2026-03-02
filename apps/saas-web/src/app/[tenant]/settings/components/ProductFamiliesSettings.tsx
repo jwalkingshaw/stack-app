@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DataTable, Column, createTableActions } from '@/components/ui/data-table';
+import { PageContentContainer } from '@/components/ui/page-content-container';
 import AttributeWorkflowChecklist from './AttributeWorkflowChecklist';
 
 interface ProductFamily {
@@ -263,7 +264,7 @@ export default function ProductFamiliesSettings({ tenantSlug }: ProductFamiliesS
   ];
 
   return (
-    <div className="space-y-6">
+    <PageContentContainer mode="fluid" className="space-y-6">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Product Models</h2>
@@ -467,7 +468,7 @@ export default function ProductFamiliesSettings({ tenantSlug }: ProductFamiliesS
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContentContainer>
   );
 }
 

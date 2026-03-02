@@ -33,23 +33,39 @@ interface MarketLocaleAssignment {
   is_active: boolean
 }
 
+interface MarketDestination {
+  id: string
+  code: string
+  name: string
+  description: string | null
+  is_active: boolean
+  channel_id: string | null
+  market_id: string | null
+  sort_order: number
+}
+
 interface MarketContextValue {
   channels: MarketChannel[]
   locales: MarketLocale[]
   markets: Market[]
+  destinations: MarketDestination[]
   marketLocales: MarketLocaleAssignment[]
   selectedChannelId: string | null
   selectedMarketId: string | null
   selectedLocaleId: string | null
+  selectedDestinationId: string | null
   selectedChannel: MarketChannel | null
   selectedMarket: Market | null
   selectedLocale: MarketLocale | null
+  selectedDestination: MarketDestination | null
+  availableDestinations: MarketDestination[]
   availableLocaleIdsForMarket: Set<string>
   shouldFilterLocalesByMarket: boolean
   isLoading: boolean
   setSelectedChannelId: (id: string | null) => void
   setSelectedMarketId: (id: string | null) => void
   setSelectedLocaleId: (id: string | null) => void
+  setSelectedDestinationId: (id: string | null) => void
 }
 
 const MarketContext = createContext<MarketContextValue | null>(null)
@@ -59,25 +75,39 @@ interface MarketContextProviderProps {
   children: React.ReactNode
 }
 
+const parseJsonSafely = async (response: Response): Promise<any | null> => {
+  const text = await response.text()
+  if (!text) return null
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
 export function MarketContextProvider({ tenantSlug, children }: MarketContextProviderProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const [channels, setChannels] = useState<MarketChannel[]>([])
   const [locales, setLocales] = useState<MarketLocale[]>([])
   const [markets, setMarkets] = useState<Market[]>([])
+  const [destinations, setDestinations] = useState<MarketDestination[]>([])
   const [marketLocales, setMarketLocales] = useState<MarketLocaleAssignment[]>([])
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null)
   const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null)
   const [selectedLocaleId, setSelectedLocaleId] = useState<string | null>(null)
+  const [selectedDestinationId, setSelectedDestinationId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [persistedCodes, setPersistedCodes] = useState<{
     channelCode: string | null
     marketCode: string | null
     localeCode: string | null
+    destinationCode: string | null
   }>({
     channelCode: null,
     marketCode: null,
     localeCode: null,
+    destinationCode: null,
   })
 
   const storageKey = useMemo(() => `market-context:${tenantSlug}`, [tenantSlug])
@@ -115,15 +145,26 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
     try {
       const stored = window.localStorage.getItem(storageKey)
       if (stored) {
-        const parsed = JSON.parse(stored)
-        setSelectedChannelId(parsed.channelId ?? null)
-        setSelectedMarketId(parsed.marketId ?? null)
-        setSelectedLocaleId(parsed.localeId ?? null)
-        setPersistedCodes({
-          channelCode: parsed.channelCode ?? null,
-          marketCode: parsed.marketCode ?? null,
-          localeCode: parsed.localeCode ?? null,
-        })
+        let parsed: any = null
+        try {
+          parsed = JSON.parse(stored)
+        } catch {
+          // Corrupt persisted context should not keep failing page loads.
+          window.localStorage.removeItem(storageKey)
+        }
+
+        if (parsed && typeof parsed === 'object') {
+          setSelectedChannelId(parsed.channelId ?? null)
+          setSelectedMarketId(parsed.marketId ?? null)
+          setSelectedLocaleId(parsed.localeId ?? null)
+          setSelectedDestinationId(parsed.destinationId ?? null)
+          setPersistedCodes({
+            channelCode: parsed.channelCode ?? null,
+            marketCode: parsed.marketCode ?? null,
+            localeCode: parsed.localeCode ?? null,
+            destinationCode: parsed.destinationCode ?? null,
+          })
+        }
       }
     } catch (error) {
       console.warn('Failed to load market context selection', error)
@@ -135,29 +176,51 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
       if (!tenantSlug) return
       try {
         setIsLoading(true)
-        const [channelsRes, localesRes, marketsRes, assignmentsRes] = await Promise.all([
+        const contextRes = await fetch(`/api/${tenantSlug}/market-context${scopeQuery}`)
+        const contextData = await parseJsonSafely(contextRes)
+
+        if (contextRes.ok && contextData && typeof contextData === 'object') {
+          setChannels((Array.isArray((contextData as any).channels) ? (contextData as any).channels : []).filter((item: any) => item.is_active))
+          setLocales((Array.isArray((contextData as any).locales) ? (contextData as any).locales : []).filter((item: any) => item.is_active))
+          setMarkets((Array.isArray((contextData as any).markets) ? (contextData as any).markets : []).filter((item: any) => item.is_active))
+          setMarketLocales((Array.isArray((contextData as any).marketLocales) ? (contextData as any).marketLocales : []).filter((item: any) => item.is_active !== false))
+          setDestinations((Array.isArray((contextData as any).destinations) ? (contextData as any).destinations : []).filter((item: any) => item.is_active !== false))
+          return
+        }
+
+        // Fallback: keep legacy multi-endpoint flow for compatibility.
+        const [channelsRes, localesRes, marketsRes, assignmentsRes, destinationsRes] = await Promise.all([
           fetch(`/api/${tenantSlug}/channels${scopeQuery}`),
           fetch(`/api/${tenantSlug}/locales${scopeQuery}`),
           fetch(`/api/${tenantSlug}/markets${scopeQuery}`),
-          fetch(`/api/${tenantSlug}/market-locales${scopeQuery}`)
+          fetch(`/api/${tenantSlug}/market-locales${scopeQuery}`),
+          fetch(`/api/${tenantSlug}/destinations${scopeQuery}`)
         ])
 
-        if (!channelsRes.ok || !localesRes.ok || !marketsRes.ok || !assignmentsRes.ok) {
+        if (
+          !channelsRes.ok ||
+          !localesRes.ok ||
+          !marketsRes.ok ||
+          !assignmentsRes.ok ||
+          !destinationsRes.ok
+        ) {
           console.warn('Failed to fetch markets settings')
           return
         }
 
-        const [channelsData, localesData, marketsData, assignmentsData] = await Promise.all([
-          channelsRes.json(),
-          localesRes.json(),
-          marketsRes.json(),
-          assignmentsRes.json()
+        const [channelsData, localesData, marketsData, assignmentsData, destinationsData] = await Promise.all([
+          parseJsonSafely(channelsRes),
+          parseJsonSafely(localesRes),
+          parseJsonSafely(marketsRes),
+          parseJsonSafely(assignmentsRes),
+          parseJsonSafely(destinationsRes)
         ])
 
-        setChannels((channelsData || []).filter((item: any) => item.is_active))
-        setLocales((localesData || []).filter((item: any) => item.is_active))
-        setMarkets((marketsData || []).filter((item: any) => item.is_active))
-        setMarketLocales((assignmentsData || []).filter((item: any) => item.is_active !== false))
+        setChannels((Array.isArray(channelsData) ? channelsData : []).filter((item: any) => item.is_active))
+        setLocales((Array.isArray(localesData) ? localesData : []).filter((item: any) => item.is_active))
+        setMarkets((Array.isArray(marketsData) ? marketsData : []).filter((item: any) => item.is_active))
+        setMarketLocales((Array.isArray(assignmentsData) ? assignmentsData : []).filter((item: any) => item.is_active !== false))
+        setDestinations((Array.isArray(destinationsData) ? destinationsData : []).filter((item: any) => item.is_active !== false))
       } catch (error) {
         console.warn('Failed to load markets settings', error)
       } finally {
@@ -180,6 +243,22 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
     if (!selectedMarketId) return false
     return marketLocales.some((item) => item.market_id === selectedMarketId)
   }, [marketLocales, selectedMarketId])
+
+  const availableDestinations = useMemo(() => {
+    if (destinations.length === 0) return []
+
+    return destinations.filter((destination) => {
+      const matchesChannel =
+        !destination.channel_id ||
+        !selectedChannelId ||
+        destination.channel_id === selectedChannelId
+      const matchesMarket =
+        !destination.market_id ||
+        !selectedMarketId ||
+        destination.market_id === selectedMarketId
+      return matchesChannel && matchesMarket
+    })
+  }, [destinations, selectedChannelId, selectedMarketId])
 
   useEffect(() => {
     if (channels.length > 0) {
@@ -250,6 +329,27 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
   ])
 
   useEffect(() => {
+    if (availableDestinations.length === 0) {
+      if (selectedDestinationId) setSelectedDestinationId(null)
+      return
+    }
+
+    const hasSelected =
+      selectedDestinationId &&
+      availableDestinations.some((destination) => destination.id === selectedDestinationId)
+
+    if (!hasSelected) {
+      const byCode = persistedCodes.destinationCode
+        ? availableDestinations.find(
+            (destination) =>
+              destination.code.toLowerCase() === persistedCodes.destinationCode?.toLowerCase()
+          )
+        : null
+      setSelectedDestinationId(byCode?.id || availableDestinations[0].id)
+    }
+  }, [availableDestinations, persistedCodes.destinationCode, selectedDestinationId])
+
+  useEffect(() => {
     if (typeof window === 'undefined') return
     const selectedChannelCode =
       channels.find((channel) => channel.id === selectedChannelId)?.code ??
@@ -263,13 +363,19 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
       locales.find((locale) => locale.id === selectedLocaleId)?.code ??
       persistedCodes.localeCode ??
       null
+    const selectedDestinationCode =
+      destinations.find((destination) => destination.id === selectedDestinationId)?.code ??
+      persistedCodes.destinationCode ??
+      null
     const payload = {
       channelId: selectedChannelId,
       marketId: selectedMarketId,
       localeId: selectedLocaleId,
+      destinationId: selectedDestinationId,
       channelCode: selectedChannelCode,
       marketCode: selectedMarketCode,
       localeCode: selectedLocaleCode,
+      destinationCode: selectedDestinationCode,
     }
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(payload))
@@ -277,18 +383,22 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
         channelCode: selectedChannelCode,
         marketCode: selectedMarketCode,
         localeCode: selectedLocaleCode,
+        destinationCode: selectedDestinationCode,
       })
     } catch (error) {
       console.warn('Failed to persist market context selection', error)
     }
   }, [
     channels,
+    destinations,
     locales,
     markets,
     persistedCodes.channelCode,
+    persistedCodes.destinationCode,
     persistedCodes.marketCode,
     persistedCodes.localeCode,
     selectedChannelId,
+    selectedDestinationId,
     selectedMarketId,
     selectedLocaleId,
     storageKey,
@@ -309,23 +419,33 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
     [locales, selectedLocaleId]
   )
 
+  const selectedDestination = useMemo(
+    () => destinations.find((destination) => destination.id === selectedDestinationId) || null,
+    [destinations, selectedDestinationId]
+  )
+
   const value: MarketContextValue = {
     channels,
     locales,
     markets,
+    destinations,
     marketLocales,
     selectedChannelId,
     selectedMarketId,
     selectedLocaleId,
+    selectedDestinationId,
     selectedChannel,
     selectedMarket,
     selectedLocale,
+    selectedDestination,
+    availableDestinations,
     availableLocaleIdsForMarket,
     shouldFilterLocalesByMarket,
     isLoading,
     setSelectedChannelId,
     setSelectedMarketId,
-    setSelectedLocaleId
+    setSelectedLocaleId,
+    setSelectedDestinationId
   }
 
   return <MarketContext.Provider value={value}>{children}</MarketContext.Provider>

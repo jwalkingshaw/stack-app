@@ -23,6 +23,12 @@ type LinkReadConstraints = {
   restrictToSharedAssetScope: boolean;
 };
 
+function normalizeOptionalText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function isCrossTenantWrite(params: { tenantSlug: string; selectedBrandSlug: string | null }): boolean {
   const selected = (params.selectedBrandSlug || "").trim().toLowerCase();
   if (!selected) return false;
@@ -182,6 +188,15 @@ export async function POST(
       confidence,
       match_reason,
       link_type = "auto",
+      product_field_id,
+      channel_id,
+      market_id,
+      destination_id,
+      locale_id,
+      document_slot_code,
+      is_primary,
+      document_expiry_date,
+      replace_existing_slot = true,
     } = body;
 
     if (!product_id || !asset_id || !link_context) {
@@ -215,6 +230,56 @@ export async function POST(
       return NextResponse.json({ error: "Asset not found or access denied" }, { status: 404 });
     }
 
+    const cleanDocumentSlotCode = normalizeOptionalText(document_slot_code);
+    const cleanProductFieldId = normalizeOptionalText(product_field_id);
+    const cleanChannelId = normalizeOptionalText(channel_id);
+    const cleanMarketId = normalizeOptionalText(market_id);
+    const cleanDestinationId = normalizeOptionalText(destination_id);
+    const cleanLocaleId = normalizeOptionalText(locale_id);
+    const cleanDocumentExpiryDate = normalizeOptionalText(document_expiry_date);
+
+    if (cleanDocumentSlotCode && replace_existing_slot) {
+      let replaceQuery = supabase
+        .from("product_asset_links")
+        .update({
+          is_active: false,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("organization_id", targetOrganizationId)
+        .eq("product_id", product_id)
+        .eq("document_slot_code", cleanDocumentSlotCode)
+        .eq("is_active", true);
+
+      if (cleanChannelId) {
+        replaceQuery = replaceQuery.eq("channel_id", cleanChannelId);
+      } else {
+        replaceQuery = replaceQuery.is("channel_id", null);
+      }
+      if (cleanMarketId) {
+        replaceQuery = replaceQuery.eq("market_id", cleanMarketId);
+      } else {
+        replaceQuery = replaceQuery.is("market_id", null);
+      }
+      if (cleanDestinationId) {
+        replaceQuery = replaceQuery.eq("destination_id", cleanDestinationId);
+      } else {
+        replaceQuery = replaceQuery.is("destination_id", null);
+      }
+      if (cleanLocaleId) {
+        replaceQuery = replaceQuery.eq("locale_id", cleanLocaleId);
+      } else {
+        replaceQuery = replaceQuery.is("locale_id", null);
+      }
+
+      const { error: replaceError } = await replaceQuery;
+      if (replaceError) {
+        return NextResponse.json(
+          { error: "Failed to replace existing slot assignment" },
+          { status: 500 }
+        );
+      }
+    }
+
     const { data: productLink, error: linkError } = await supabase
       .from("product_asset_links")
       .insert({
@@ -226,11 +291,19 @@ export async function POST(
         confidence: confidence || 0.5,
         match_reason: match_reason || "Manual link",
         link_type,
+        product_field_id: cleanProductFieldId,
+        channel_id: cleanChannelId,
+        market_id: cleanMarketId,
+        destination_id: cleanDestinationId,
+        locale_id: cleanLocaleId,
+        document_slot_code: cleanDocumentSlotCode,
+        is_primary: Boolean(is_primary),
+        document_expiry_date: cleanDocumentExpiryDate,
         is_active: true,
         created_by: user.id,
       })
       .select(
-        "id,asset_type,link_context,confidence,match_reason,link_type,is_active,created_at"
+        "id,asset_type,link_context,confidence,match_reason,link_type,product_field_id,channel_id,market_id,destination_id,locale_id,document_slot_code,is_primary,document_expiry_date,is_active,created_at"
       )
       .single();
 
@@ -316,6 +389,7 @@ export async function GET(
     const productId = requestUrl.searchParams.get("product_id");
     const assetId = requestUrl.searchParams.get("asset_id");
     const linkContext = requestUrl.searchParams.get("link_context");
+    const documentSlotCode = requestUrl.searchParams.get("document_slot_code");
 
     let constraints: LinkReadConstraints = {
       allowedProductIds: null,
@@ -350,10 +424,31 @@ export async function GET(
           confidence,
           match_reason,
           link_type,
+          product_field_id,
+          channel_id,
+          market_id,
+          destination_id,
+          locale_id,
+          document_slot_code,
+          is_primary,
+          document_expiry_date,
           is_active,
           created_at,
           products!inner(id, sku, product_name, brand:brand_line),
-          dam_assets!inner(id, filename, file_type, mime_type, asset_scope)
+          dam_assets!inner(
+            id,
+            filename,
+            original_filename,
+            file_type,
+            mime_type,
+            thumbnail_urls,
+            s3_url,
+            file_path,
+            asset_scope,
+            updated_at,
+            current_version_changed_at,
+            current_version_number
+          )
         `
       )
       .eq("organization_id", targetOrganizationId)
@@ -367,6 +462,9 @@ export async function GET(
     }
     if (linkContext) {
       query = query.eq("link_context", linkContext);
+    }
+    if (documentSlotCode) {
+      query = query.eq("document_slot_code", documentSlotCode);
     }
     if (constraints.allowedProductIds) {
       query = query.in("product_id", Array.from(constraints.allowedProductIds));

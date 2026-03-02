@@ -17,6 +17,9 @@ interface ContentInheritance {
 // Core PIM data structure with variant support
 export interface PIMProduct {
   id: string;
+  organizationId?: string;
+  organizationSlug?: string;
+  organizationName?: string;
   
   // Product hierarchy
   type: 'parent' | 'variant' | 'standalone';

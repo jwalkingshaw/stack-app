@@ -22,9 +22,13 @@ export default async function OnboardingPage({
   const typeParam = resolvedSearchParams.type;
   const tokenParam = resolvedSearchParams.token;
   const brandIdParam = resolvedSearchParams.brand_id;
+  const createParam = resolvedSearchParams.create;
   const onboardingType = Array.isArray(typeParam) ? typeParam[0] : typeParam;
   const onboardingToken = Array.isArray(tokenParam) ? tokenParam[0] : tokenParam;
   const onboardingBrandId = Array.isArray(brandIdParam) ? brandIdParam[0] : brandIdParam;
+  const createMode = Array.isArray(createParam) ? createParam[0] : createParam;
+  const isExplicitWorkspaceCreate =
+    createMode === "1" || createMode?.toLowerCase() === "true";
   const hasPartnerInviteContext =
     typeof onboardingToken === "string" &&
     onboardingToken.trim().length > 0 &&
@@ -35,7 +39,7 @@ export default async function OnboardingPage({
     typeof onboardingToken === "string" &&
     onboardingToken.trim().length > 0;
 
-  if (!isPartnerInviteOnboarding) {
+  if (!isPartnerInviteOnboarding && !isExplicitWorkspaceCreate) {
     const supabase = createServerClient();
     const memberships = await getActiveWorkspaceMemberships(
       supabase,

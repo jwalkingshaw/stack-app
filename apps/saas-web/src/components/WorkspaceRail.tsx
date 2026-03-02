@@ -207,7 +207,7 @@ export function WorkspaceRail({
       <button
         type="button"
         title="Create workspace"
-        onClick={() => router.push('/onboarding')}
+        onClick={() => router.push('/onboarding?create=1')}
         className="mt-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
       >
         <Plus className="h-5 w-5" />

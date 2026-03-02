@@ -8,6 +8,7 @@ import { enforceRateLimit, rateLimitExceededResponse } from '@/lib/rate-limit';
 import { requireTenantAccess } from '@/lib/tenant-auth';
 import { logRateLimitSecurityEvent } from '@/lib/security-audit';
 import { canRevokeInvite, canSendInvite } from '@/lib/security-permissions';
+import { assertBillingCapacity } from '@/lib/billing-policy';
 import {
   normalizeInvitePermissions,
   validateInvitePermissionsForOrganization,
@@ -17,6 +18,77 @@ import {
   replaceInvitationShareSetAssignments,
   validateShareSetIdsForOrganization,
 } from '@/lib/invitation-share-sets';
+
+function isMissingColumnError(error: any): boolean {
+  return error?.code === '42703';
+}
+
+function normalizeRelationshipAccessLevel(row: any): 'view' | 'edit' {
+  const direct = typeof row?.access_level === 'string' ? row.access_level.toLowerCase() : '';
+  if (direct === 'edit' || direct === 'view') {
+    return direct;
+  }
+
+  const permissions = row?.permissions;
+  if (permissions && typeof permissions === 'object') {
+    const fromPermissions =
+      typeof permissions.access_level === 'string'
+        ? permissions.access_level.toLowerCase()
+        : '';
+    if (fromPermissions === 'edit' || fromPermissions === 'view') {
+      return fromPermissions;
+    }
+    if (permissions.edit === true || permissions.can_edit === true || permissions.write === true) {
+      return 'edit';
+    }
+  }
+
+  return 'view';
+}
+
+function normalizeOrganizationType(organization: any): 'brand' | 'partner' {
+  const raw =
+    organization?.organizationType ??
+    organization?.type ??
+    organization?.organization_type ??
+    'brand';
+  return String(raw).toLowerCase() === 'partner' ? 'partner' : 'brand';
+}
+
+async function countPendingInvitesForType(
+  organizationId: string,
+  invitationType: 'team_member' | 'partner'
+): Promise<number> {
+  const nowIso = new Date().toISOString();
+
+  let result = await (supabaseServer as any)
+    .from('invitations')
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', organizationId)
+    .eq('invitation_type', invitationType)
+    .is('accepted_at', null)
+    .is('declined_at', null)
+    .is('revoked_at', null)
+    .gt('expires_at', nowIso);
+
+  // Backward compatibility for schemas before revoked_at.
+  if (result.error?.code === '42703') {
+    result = await (supabaseServer as any)
+      .from('invitations')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', organizationId)
+      .eq('invitation_type', invitationType)
+      .is('accepted_at', null)
+      .is('declined_at', null)
+      .gt('expires_at', nowIso);
+  }
+
+  if (result.error) {
+    console.error('Error counting pending invites:', result.error);
+    return 0;
+  }
+  return result.count || 0;
+}
 
 // GET /api/[tenant]/team - List team members
 export async function GET(
@@ -42,7 +114,10 @@ export async function GET(
     const members = await db.getOrganizationMembers(organization.id);
 
     let invitations: any[] = [];
-    if (permissions.is_admin || permissions.is_owner) {
+    let partnerRelationships: any[] = [];
+    const canManageInvites = permissions.is_admin || permissions.is_owner;
+
+    if (canManageInvites) {
       const { data: pendingInvites, error: invitesError } = await (supabaseServer as any)
         .from('invitations')
         .select(`
@@ -67,6 +142,183 @@ export async function GET(
       }
     }
 
+    const organizationType = normalizeOrganizationType(organization);
+
+    if (organizationType === 'brand') {
+      let rawRelationships: Array<any> = [];
+      let rpcPartnerRows: Array<any> = [];
+      const relationshipQueryAttempts: Array<{
+        select: string;
+        brandColumn: string;
+        partnerColumn: string;
+      }> = [
+        {
+          select: 'id,partner_organization_id,status,access_level,created_at,updated_at',
+          brandColumn: 'brand_organization_id',
+          partnerColumn: 'partner_organization_id',
+        },
+        {
+          select:
+            'id,partner_organization_id,status,access_level,created_at,status_updated_at',
+          brandColumn: 'brand_organization_id',
+          partnerColumn: 'partner_organization_id',
+        },
+        {
+          select: 'id,partner_organization_id,status,permissions,created_at,updated_at',
+          brandColumn: 'brand_organization_id',
+          partnerColumn: 'partner_organization_id',
+        },
+        {
+          select:
+            'id,partner_organization_id,status,permissions,created_at,status_updated_at',
+          brandColumn: 'brand_organization_id',
+          partnerColumn: 'partner_organization_id',
+        },
+        {
+          select: 'id,partner_id,status,access_level,created_at,updated_at',
+          brandColumn: 'brand_id',
+          partnerColumn: 'partner_id',
+        },
+        {
+          select: 'id,partner_id,status,permissions,created_at,updated_at',
+          brandColumn: 'brand_id',
+          partnerColumn: 'partner_id',
+        },
+      ];
+
+      for (const attempt of relationshipQueryAttempts) {
+        const result = await (supabaseServer as any)
+          .from('brand_partner_relationships')
+          .select(attempt.select)
+          .eq(attempt.brandColumn, organization.id)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false });
+
+        if (!result.error) {
+          rawRelationships = ((result.data || []) as Array<any>)
+            .map((row) => ({
+              id: row.id,
+              partner_organization_id: row[attempt.partnerColumn],
+              status: row.status || 'active',
+              access_level: normalizeRelationshipAccessLevel(row),
+              created_at: row.created_at || null,
+              updated_at: row.updated_at || row.status_updated_at || row.created_at || null,
+            }))
+            .filter((row) => Boolean(row.partner_organization_id));
+          break;
+        }
+
+        if (!isMissingColumnError(result.error)) {
+          console.error('Error loading partner relationships:', result.error);
+          break;
+        }
+      }
+
+      if (rawRelationships.length === 0) {
+        const rpcPartners = await (supabaseServer as any).rpc('get_brand_partners', {
+          brand_org_id: organization.id,
+        });
+        if (!rpcPartners.error && Array.isArray(rpcPartners.data)) {
+          rpcPartnerRows = rpcPartners.data as Array<any>;
+          rawRelationships = rpcPartnerRows
+            .map((row) => ({
+              id: row.partner_id || crypto.randomUUID(),
+              partner_organization_id: row.partner_id,
+              status: row.relationship_status || 'active',
+              access_level: normalizeRelationshipAccessLevel({
+                access_level: row.access_level,
+                permissions: row.permissions,
+              }),
+              created_at: row.relationship_created_at || null,
+              updated_at: row.relationship_created_at || null,
+            }))
+            .filter((row) => Boolean(row.partner_organization_id));
+        }
+      }
+
+      const partnerOrgIds = Array.from(
+        new Set(
+          rawRelationships
+            .map((row) => row.partner_organization_id)
+            .filter((id): id is string => Boolean(id))
+        )
+      );
+
+      let partnersById = new Map<string, any>();
+      if (rpcPartnerRows.length > 0) {
+        partnersById = new Map(
+          rpcPartnerRows
+            .filter((row) => Boolean(row.partner_id))
+            .map((row) => [
+              row.partner_id,
+              {
+                id: row.partner_id,
+                name: row.partner_name || row.partner_id,
+                slug: row.partner_slug || null,
+                partner_category: null,
+                organization_type: 'partner',
+              },
+            ])
+        );
+      }
+      if (partnerOrgIds.length > 0) {
+        const { data: partnerRows } = await (supabaseServer as any)
+          .from('organizations')
+          .select('id,name,slug,partner_category,organization_type')
+          .in('id', partnerOrgIds);
+
+        partnersById = new Map(
+          ((partnerRows || []) as Array<any>).map((row) => [row.id, row])
+        );
+      }
+
+      let setCountByPartner = new Map<string, number>();
+      if (partnerOrgIds.length > 0) {
+        const grants = await (supabaseServer as any)
+          .from('partner_share_set_grants')
+          .select('partner_organization_id,share_set_id')
+          .eq('organization_id', organization.id)
+          .eq('status', 'active')
+          .in('partner_organization_id', partnerOrgIds);
+
+        if (!grants.error) {
+          const setIdsByPartner = new Map<string, Set<string>>();
+          for (const row of (grants.data || []) as Array<any>) {
+            const partnerId = row.partner_organization_id;
+            const shareSetId = row.share_set_id;
+            if (!partnerId || !shareSetId) continue;
+            const current = setIdsByPartner.get(partnerId) || new Set<string>();
+            current.add(shareSetId);
+            setIdsByPartner.set(partnerId, current);
+          }
+          setCountByPartner = new Map(
+            Array.from(setIdsByPartner.entries()).map(([partnerId, setIds]) => [
+              partnerId,
+              setIds.size,
+            ])
+          );
+        }
+      }
+
+      partnerRelationships = rawRelationships.map((relationship) => {
+        const partner = partnersById.get(relationship.partner_organization_id) || null;
+        return {
+          ...relationship,
+          partner_organization: partner
+            ? {
+                id: partner.id,
+                name: partner.name,
+                slug: partner.slug,
+                partner_category: partner.partner_category || null,
+                organization_type: partner.organization_type || null,
+              }
+            : null,
+          share_set_count:
+            setCountByPartner.get(relationship.partner_organization_id) || 0,
+        };
+      });
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -76,9 +328,10 @@ export async function GET(
           id: organization.id,
           name: organization.name,
           slug: organization.slug,
-          organization_type: organization.organizationType || organization.type || 'brand',
+          organization_type: organizationType,
           partner_category: organization.partnerCategory ?? null,
         },
+        partner_relationships: partnerRelationships,
         user_permissions: permissions,
       },
     });
@@ -138,15 +391,7 @@ export async function POST(
       );
     }
 
-    if ((organization.organizationType || organization.type) !== 'brand') {
-      return NextResponse.json(
-        {
-          error:
-            'Only brand organizations can send invitations. Partner access is managed by the brand.',
-        },
-        { status: 403 }
-      );
-    }
+    const organizationType = normalizeOrganizationType(organization);
 
     const currentUser = await authService.getCurrentUser();
     const inviterDisplayName = currentUser?.name || currentUser?.email || userId;
@@ -208,6 +453,16 @@ export async function POST(
       );
     }
 
+    if (invitation_type === 'partner' && organizationType !== 'brand') {
+      return NextResponse.json(
+        {
+          error:
+            'Only brand organizations can invite partner organizations. Partner workspaces can invite internal team members only.',
+        },
+        { status: 403 }
+      );
+    }
+
     if (invitation_type === 'team_member') {
       const validRoles = ['admin', 'editor', 'viewer'];
       if (!validRoles.includes(role)) {
@@ -224,6 +479,51 @@ export async function POST(
         return NextResponse.json(
           { error: 'Access level must be one of: view, edit' },
           { status: 400 }
+        );
+      }
+    }
+
+    if (invitation_type === 'team_member') {
+      const [seatCapacity, pendingTeamInvites] = await Promise.all([
+        assertBillingCapacity({
+          organizationId: organization.id,
+          meter: 'internalUserCount',
+        }),
+        countPendingInvitesForType(organization.id, 'team_member'),
+      ]);
+
+      if (seatCapacity.limit < Number.MAX_SAFE_INTEGER) {
+        const projectedTotal = seatCapacity.usage + pendingTeamInvites + 1;
+        if (projectedTotal > seatCapacity.limit) {
+          return NextResponse.json(
+            {
+              error: `You have reached your internal user limit (${seatCapacity.usage}/${seatCapacity.limit}) including pending team invites. Upgrade your plan or purchase a seat add-on to continue.`,
+              code: 'INTERNAL_USER_LIMIT_REACHED',
+              limit: seatCapacity.limit,
+              usage: seatCapacity.usage,
+              pendingInvites: pendingTeamInvites,
+            },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
+    if (invitation_type === 'partner') {
+      const partnerInviteCapacity = await assertBillingCapacity({
+        organizationId: organization.id,
+        meter: 'partnerInviteCount',
+      });
+
+      if (!partnerInviteCapacity.allowed) {
+        return NextResponse.json(
+          {
+            error: partnerInviteCapacity.message,
+            code: 'EXTERNAL_INVITE_LIMIT_REACHED',
+            limit: partnerInviteCapacity.limit,
+            usage: partnerInviteCapacity.usage,
+          },
+          { status: 403 }
         );
       }
     }

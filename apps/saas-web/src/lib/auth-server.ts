@@ -6,15 +6,41 @@ import type { User, Organization } from "@tradetool/types";
 import { cache } from 'react';
 import { cache as redisCache, CacheKeys, CacheTTL } from './redis';
 
+type KindeSessionSnapshot = {
+  user: Awaited<ReturnType<ReturnType<typeof getKindeServerSession>["getUser"]>> | null;
+  organization: Awaited<ReturnType<ReturnType<typeof getKindeServerSession>["getOrganization"]>> | null;
+};
+
+const getSessionSnapshot = cache(async (): Promise<KindeSessionSnapshot> => {
+  const { getUser, getOrganization } = getKindeServerSession();
+  try {
+    // Avoid explicit isAuthenticated() to prevent repeated JWKS fetches on parallel API boot calls.
+    const user = await getUser();
+    if (!user) {
+      return { user: null, organization: null };
+    }
+
+    const organization = await getOrganization().catch(() => null);
+    return { user, organization };
+  } catch (error: any) {
+    const isAbort = error?.name === "AbortError" || error?.code === 20;
+    if (isAbort) {
+      console.warn("Auth snapshot aborted while resolving Kinde session.");
+    } else {
+      console.error("Auth snapshot failed:", error);
+    }
+    return { user: null, organization: null };
+  }
+});
+
 /**
  * Get the current user if authenticated, null otherwise
  * Cached for performance during request lifecycle
  * @returns Promise<KindeUser | null>
  */
 export const requireUser = cache(async () => {
-  const { getUser, isAuthenticated } = getKindeServerSession();
-  if (!(await isAuthenticated())) return null;
-  return await getUser();
+  const snapshot = await getSessionSnapshot();
+  return snapshot.user;
 });
 
 /**
@@ -34,9 +60,8 @@ export async function assertUser() {
  * @returns Promise<KindeOrganization | null>
  */
 export const requireOrganization = cache(async () => {
-  const { getOrganization, isAuthenticated } = getKindeServerSession();
-  if (!(await isAuthenticated())) return null;
-  return await getOrganization();
+  const snapshot = await getSessionSnapshot();
+  return snapshot.organization;
 });
 
 /**
@@ -154,6 +179,6 @@ export const getSafeOrganizationData = cache(async () => {
  * @returns Promise<boolean>
  */
 export const isAuthenticated = cache(async (): Promise<boolean> => {
-  const { isAuthenticated } = getKindeServerSession();
-  return (await isAuthenticated()) || false;
+  const user = await requireUser();
+  return Boolean(user);
 });

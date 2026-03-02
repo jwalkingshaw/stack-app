@@ -44,6 +44,10 @@ Progress checklist:
   - `POST /api/[tenant]/sharing/sets/[setId]/items` now validates scoped IDs against tenant-owned markets/channels/locales.
 - [~] Phase 5 runtime enforcement started:
   - Partner asset/product reads are being moved to set-grant filtering first, with legacy scoped-permission fallback only when set foundation tables are unavailable.
+- [~] Phase 8 URL + PIM template alignment started:
+  - Product and variant detail routes now resolve canonical `id` / `id-slug` identifiers.
+  - Product list and detail surfaces use the shared container system (centered content for form-heavy sections, fluid width for table-heavy sections).
+  - Remaining: finish parity sweep for all product attribute rendering surfaces and add server-side canonical redirect coverage where needed.
 - [~] Phase 4 invite + assignment integration started:
   - Invite API now accepts partner `share_set_ids` and validates them against tenant-owned sets.
   - Invitation snapshot persistence added via `invitation_share_set_assignments` (new migration).
@@ -74,6 +78,10 @@ Next in build sequence:
 4. Keep market context as a first-class filter:
    - Share Set decides `what` can be seen.
    - Market scope decides `which localized variant/view` is shown.
+5. Use canonical, scalable product URLs:
+   - Canonical identity remains immutable resource ID.
+   - Human-readable slug can be appended for readability.
+   - Sharing/deep links must continue to resolve even when title changes.
 
 ## Market Relevance Model
 Use a hybrid model, not an either/or choice:
@@ -172,11 +180,17 @@ Scope:
 - Remove/disable legacy fallback based on `asset_scope='shared'` for partner visibility.
 - Keep optional org-wide grant path explicit (not implicit).
 - Apply market/channel/locale filtering after set membership filtering in every read endpoint.
+- Add dynamic Asset Set rules (tag/folder/folder-tag driven) with explicit include/exclude overrides.
+- Support folder-tag inheritance for membership resolution (recursive), without mutating child tags.
+
+Reference:
+- `PHASE_5_SET_RULES_SPEC.md`
 
 Acceptance:
 - Partner sees only content from assigned sets.
 - Exclusive products/assets are reliably isolated per partner.
 - Partner sees the most relevant localized data for their active/default market.
+- Rule-driven sets stay accurate when tags/folders change.
 
 ### Phase 6: Market-Aware UX + Fallbacks
 Scope:
@@ -202,6 +216,33 @@ Acceptance:
 - No regression in partner visibility after migration.
 - Operational audit trail for every share decision.
 
+### Phase 8: Product URL Canonicalization + PIM Page Template Review
+Scope:
+- Finalize product URL contract for enterprise scale:
+  - canonical format: `/{tenant}/products/{id}-{slug}` (slug optional for resolution, required for canonical rendering),
+  - API resolves by immutable ID first, never by mutable title,
+  - stale/missing slug redirects to canonical URL shape.
+- Keep share links and partner links stable:
+  - existing `/{id}` and `/{id}-{slug}` links continue to resolve,
+  - title changes do not break old links.
+- Review and align layout templates for:
+  - `/products`,
+  - product detail page,
+  - variant detail page,
+  - attribute pages and attribute field rendering surfaces used by these pages.
+- Enforce large-screen content behavior parity with Settings pages:
+  - non-table/form-heavy content centered with constrained width,
+  - table-heavy and matrix-heavy surfaces remain full-width,
+  - consistent container behavior across breakpoints and scoped brand views.
+- Validate IA/UX consistency:
+  - section headers, field grouping, and attribute metadata presentation are consistent across product and variant surfaces.
+
+Acceptance:
+- URL model is stable and documented; no regressions to existing deep links.
+- Product, product detail, variant detail, and attribute-driven surfaces follow the same container system as Settings.
+- Large-screen readability is improved without reducing usability of table-heavy workflows.
+- Shared brand/partner views preserve the same layout and canonical URL behavior.
+
 ## Immediate Build Sequence
 1. Finish Phase 0 hardening patch.
 2. Keep current Phase 1 scaffolding and expand Set summary metrics.
@@ -209,3 +250,4 @@ Acceptance:
 4. Wire invite assignment with default/allowed market context (Phase 4).
 5. Enforce runtime order: set membership first, market relevance second (Phase 5).
 6. Deliver market persistence/fallback UX behavior (Phase 6).
+7. Implement product URL canonicalization and cross-page template/container alignment for PIM surfaces (Phase 8).

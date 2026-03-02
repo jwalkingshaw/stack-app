@@ -1,4 +1,4 @@
-import TeamClient from '../../../team/TeamClient';
+import { redirect } from 'next/navigation';
 
 export default async function TeamPermissionsPage({
   params,
@@ -6,5 +6,5 @@ export default async function TeamPermissionsPage({
   params: Promise<{ tenant: string }>;
 }) {
   const resolvedParams = await params;
-  return <TeamClient tenantSlug={resolvedParams.tenant} view="permissions" />;
+  redirect(`/${resolvedParams.tenant}/settings/team`);
 }

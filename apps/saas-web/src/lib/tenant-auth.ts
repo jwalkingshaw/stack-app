@@ -4,7 +4,6 @@ import { supabaseServer } from "@/lib/supabase";
 import { DatabaseQueries } from "@tradetool/database";
 import type { Organization } from "@tradetool/types";
 import { evaluateTenantAccessDecision } from "@/lib/tenant-access-decision";
-import { getActiveWorkspaceMemberships } from "@/lib/workspace-notifications";
 
 export interface TenantAuthResult {
   success: boolean;
@@ -85,21 +84,16 @@ export async function verifyTenantAccess(
       };
     }
 
-    console.log('Tenant access verification:', {
-      tenantSlug,
-      organizationKindeId: organization.kindeOrgId,
-      userId: session.user?.id
-    });
-    
-    const accessibleWorkspaces = await getActiveWorkspaceMemberships(
-      supabaseServer,
-      session.user?.id || "",
-      session.user?.email || null,
-      { includePartnerBrandAccess: false, includeEmailLookup: false }
-    );
-    const hasWorkspaceAccess = accessibleWorkspaces.some(
-      (workspace) => workspace.organization.id === organization.id
-    );
+    const userId = session.user?.id || "";
+    const { data: membershipRows, error: membershipError } = await (supabaseServer as any)
+      .from("organization_members")
+      .select("id")
+      .eq("organization_id", organization.id)
+      .eq("kinde_user_id", userId)
+      .eq("status", "active")
+      .limit(1);
+    const hasWorkspaceAccess =
+      !membershipError && Array.isArray(membershipRows) && membershipRows.length > 0;
 
     // Step 2: Verify user has explicit workspace access (membership-based only).
     const preDecision = evaluateTenantAccessDecision({

@@ -2,63 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@tradetool/auth";
 import { DatabaseQueries } from "@tradetool/database";
 import { supabaseServer } from "@/lib/supabase";
-
-const PLANS = [
-  {
-    id: 'starter',
-    name: 'Starter',
-    description: 'Perfect for small teams getting started',
-    price: 29,
-    currency: 'USD',
-    interval: 'month' as const,
-    features: [
-      '5GB Storage',
-      'Up to 5 users',
-      'Basic Assets features',
-      'Email support'
-    ],
-    storageLimit: 5 * 1024 * 1024 * 1024, // 5GB
-    userLimit: 5,
-  },
-  {
-    id: 'professional',
-    name: 'Professional',
-    description: 'For growing teams with advanced needs',
-    price: 99,
-    currency: 'USD',
-    interval: 'month' as const,
-    features: [
-      '50GB Storage',
-      'Up to 25 users',
-      'Advanced Assets features',
-      'API Access',
-      'Priority support',
-      'Custom metadata fields'
-    ],
-    storageLimit: 50 * 1024 * 1024 * 1024, // 50GB
-    userLimit: 25,
-    popular: true,
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    description: 'For large organizations with custom requirements',
-    price: 299,
-    currency: 'USD',
-    interval: 'month' as const,
-    features: [
-      '500GB Storage',
-      'Unlimited users',
-      'All features',
-      'Dedicated support',
-      'SSO integration',
-      'Custom integrations',
-      'Advanced analytics'
-    ],
-    storageLimit: 500 * 1024 * 1024 * 1024, // 500GB
-    userLimit: -1, // unlimited
-  },
-];
+import { BILLING_PLAN_CATALOG, getOrganizationBillingLimits } from "@/lib/billing-policy";
 
 export async function GET(
   request: NextRequest,
@@ -85,9 +29,18 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const permissions = await authService.getUserPermissions(user.id, organization.id);
+    if (!permissions?.is_owner && !permissions?.is_admin) {
+      return NextResponse.json(
+        { error: "Only owners or admins can view billing plans" },
+        { status: 403 }
+      );
+    }
+
+    const { planId } = await getOrganizationBillingLimits(organization.id);
     return NextResponse.json({
-      plans: PLANS,
-      currentPlanId: PLANS.find(plan => plan.storageLimit >= organization.storageLimit)?.id || 'starter'
+      plans: BILLING_PLAN_CATALOG,
+      currentPlanId: planId,
     });
   } catch (error) {
     console.error("Failed to get plans:", error);

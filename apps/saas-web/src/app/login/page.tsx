@@ -31,6 +31,13 @@ export default function LoginPage() {
     window.location.href = '/api/auth/register';
   };
 
+  const handlePartnerSignUp = () => {
+    if (authLoading) return;
+    setAuthLoading(true);
+    const redirect = encodeURIComponent('/onboarding?type=partner&create=1');
+    window.location.href = `/api/auth/register?post_login_redirect_url=${redirect}`;
+  };
+
   // Show loading state
   if (isLoading || authLoading) {
     return (
@@ -105,8 +112,18 @@ export default function LoginPage() {
               >
                 Create Account
               </Button>
+              <Button
+                onClick={handlePartnerSignUp}
+                variant="outline"
+                disabled={authLoading}
+                className="w-full h-12 rounded-[0.5rem] text-[var(--font-size-base)] font-semibold"
+                size="lg"
+              >
+                Partner Signup
+              </Button>
               <p className="text-xs text-muted-foreground">
                 New to STACKCESS? Create an account to start inviting your team and organizing assets.
+                Retailers and distributors can use Partner Signup to create a paid partner workspace.
               </p>
             </div>
           </div>

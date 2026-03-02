@@ -1,17 +1,25 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Package, FileText, ImageIcon } from "lucide-react";
+import { Package, FileText, ImageIcon, Languages } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
-import { generateProductSlug } from "@/lib/product-utils";
+import { buildCanonicalProductIdentifier, parseProductIdentifier } from "@/lib/product-utils";
 import { VariantNavigationHeader } from "@/components/products/VariantNavigationHeader";
 import { DynamicFieldRenderer } from "@/components/field-types/DynamicFieldRenderer";
 import { PageLoader } from "@/components/ui/loading-spinner";
+import { PageContentContainer } from "@/components/ui/page-content-container";
 import { cn } from "@/lib/utils";
 import { useMarketContext } from "@/components/market-context";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { buildTenantPathForScope } from "@/lib/tenant-view-scope";
+import { fetchJsonWithDedupe } from "@/lib/client-request-cache";
+import {
+  createGlobalAuthoringScope,
+  getAuthoringScopeSummary,
+  normalizeAuthoringScope,
+} from "@/components/scope/authoring-scope-picker";
 
 interface VariantDetailClientProps {
   tenantSlug: string;
@@ -29,20 +37,63 @@ type SectionConfig = {
   fieldGroup?: any;
 };
 
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 export function VariantDetailClient({
   tenantSlug,
   productId,
   variantId,
   selectedBrandSlug: selectedBrandSlugProp,
 }: VariantDetailClientProps) {
+  const TABLE_HEAVY_FIELD_TYPES = ['table', 'gallery', 'asset_collection', 'data_grid'];
+  const getResolvedField = (field: any) => field?.product_field || field;
+  const isConstrainedPanelTable = (field: any) => {
+    const resolved = getResolvedField(field);
+    return (
+      resolved?.field_type === 'table' &&
+      resolved?.options?.table_definition?.meta?.uses_panel_instances === true
+    );
+  };
+  const isLayoutWideField = (field: any) => {
+    const resolved = getResolvedField(field);
+    if (!resolved) return false;
+    if (resolved.field_type !== 'table') {
+      return TABLE_HEAVY_FIELD_TYPES.includes(resolved.field_type);
+    }
+    return !isConstrainedPanelTable(resolved);
+  };
+
+  const router = useRouter();
   const searchParams = useSearchParams();
   const selectedBrandSlug = (selectedBrandSlugProp || searchParams.get("brand") || "")
     .trim()
     .toLowerCase();
   const isSharedBrandView =
     selectedBrandSlug.length > 0 && selectedBrandSlug !== tenantSlug.toLowerCase();
-  const { selectedChannel, selectedLocale, selectedMarketId } = useMarketContext();
-  const [activeSection, setActiveSection] = useState('');
+  const {
+    channels,
+    locales,
+    markets,
+    selectedChannelId,
+    selectedLocaleId,
+    selectedChannel,
+    selectedLocale,
+    selectedMarketId,
+    selectedDestinationId,
+    selectedMarket,
+    selectedDestination,
+    availableDestinations,
+    isLoading: marketContextLoading,
+  } = useMarketContext();
+  const [activeSection, setActiveSection] = useState('overview');
   const [variant, setVariant] = useState<any>(null);
   const [parentProduct, setParentProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -54,15 +105,92 @@ export function VariantDetailClient({
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [overrideModes, setOverrideModes] = useState<Record<string, boolean>>({});
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, any>>({});
+  const [localizationEligibilityLoading, setLocalizationEligibilityLoading] = useState(false);
+  const [canUseTranslateProduct, setCanUseTranslateProduct] = useState(false);
+  const [translateRestrictionMessage, setTranslateRestrictionMessage] = useState<string | null>(null);
+
+  const resolveSystemFieldCode = (field: any): string =>
+    String(field?.options?.system_key || field?.code || '')
+      .trim()
+      .toLowerCase();
+
+  const isScinSystemField = (field: any): boolean =>
+    resolveSystemFieldCode(field) === 'scin';
 
   const buildScopeQueryString = useCallback(() => {
     const query = new URLSearchParams();
     if (selectedMarketId) query.set('marketId', selectedMarketId);
     if (selectedLocale?.code) query.set('locale', selectedLocale.code);
     if (selectedChannel?.code) query.set('channel', selectedChannel.code);
+    if (selectedDestination?.code) query.set('destination', selectedDestination.code);
     if (selectedBrandSlug) query.set('brand', selectedBrandSlug);
     return query.toString();
-  }, [selectedMarketId, selectedLocale?.code, selectedChannel?.code, selectedBrandSlug]);
+  }, [selectedMarketId, selectedLocale?.code, selectedChannel?.code, selectedDestination?.code, selectedBrandSlug]);
+
+  const isScopeReady = React.useMemo(() => {
+    if (marketContextLoading) return false;
+    if (markets.length > 0 && !selectedMarketId) return false;
+    if (channels.length > 0 && !selectedChannel?.code) return false;
+    if (locales.length > 0 && !selectedLocale?.code) return false;
+    if (availableDestinations.length > 0 && !selectedDestination?.code) return false;
+    return true;
+  }, [
+    marketContextLoading,
+    markets.length,
+    selectedMarketId,
+    channels.length,
+    selectedChannel?.code,
+    locales.length,
+    selectedLocale?.code,
+    availableDestinations.length,
+    selectedDestination?.code,
+  ]);
+
+  const authoringScope = React.useMemo(() => {
+    const rawScope =
+      variant?.marketplace_content?.authoringScope ??
+      variant?.marketplaceContent?.authoringScope ??
+      null;
+    return normalizeAuthoringScope(rawScope) || createGlobalAuthoringScope();
+  }, [variant]);
+
+  const parentVariantInheritanceConfig = React.useMemo(() => {
+    const rawConfig =
+      parentProduct?.marketplace_content?.variantInheritance ??
+      parentProduct?.marketplaceContent?.variantInheritance ??
+      {};
+
+    return {
+      inheritByDefault:
+        typeof rawConfig?.inheritByDefault === "boolean"
+          ? rawConfig.inheritByDefault
+          : true,
+      allowChildOverrides:
+        typeof rawConfig?.allowChildOverrides === "boolean"
+          ? rawConfig.allowChildOverrides
+          : true,
+    };
+  }, [parentProduct]);
+
+  const isCurrentViewInsideAuthoringScope = React.useMemo(() => {
+    if (authoringScope.mode !== "scoped") return true;
+
+    const matchesDimension = (selectedId: string | null, allowedIds: string[]) =>
+      allowedIds.length === 0 || (selectedId ? allowedIds.includes(selectedId) : false);
+
+    return (
+      matchesDimension(selectedMarketId, authoringScope.marketIds) &&
+      matchesDimension(selectedChannelId, authoringScope.channelIds) &&
+      matchesDimension(selectedLocaleId, authoringScope.localeIds) &&
+      matchesDimension(selectedDestinationId, authoringScope.destinationIds)
+    );
+  }, [
+    authoringScope,
+    selectedMarketId,
+    selectedChannelId,
+    selectedLocaleId,
+    selectedDestinationId,
+  ]);
 
   const buildProductUrl = useCallback((id: string) => {
     const scopeQuery = buildScopeQueryString();
@@ -147,34 +275,36 @@ export function VariantDetailClient({
     return custom;
   };
 
-  // System sections
   const systemSections: SectionConfig[] = [
+    { id: 'overview', label: 'Overview', icon: Package, isSystem: true, isFieldGroup: false },
+    { id: 'attributes-all', label: 'All Attributes', icon: FileText, isSystem: true, isFieldGroup: false },
+    { id: 'attributes-required', label: 'Required', icon: FileText, isSystem: true, isFieldGroup: false },
+    { id: 'attributes-missing', label: 'Missing', icon: FileText, isSystem: true, isFieldGroup: false },
     { id: 'assets', label: 'Assets', icon: ImageIcon, isSystem: true, isFieldGroup: false }
   ];
 
-  // Combine system sections with field group sections
-  const sections: SectionConfig[] = [
-    ...systemSections,
-    ...fieldGroups.map(fg => ({
-      id: `fieldgroup-${fg.field_group.id}`,
-      label: fg.field_group.name,
-      icon: FileText,
-      isSystem: false,
-      isFieldGroup: true,
-      fieldGroup: fg
-    }))
-  ];
+  const fieldGroupSections: SectionConfig[] = fieldGroups.map((fg) => ({
+    id: `fieldgroup-${fg.field_group.id}`,
+    label: fg.field_group.name,
+    icon: FileText,
+    isSystem: false,
+    isFieldGroup: true,
+    fieldGroup: fg
+  }));
 
-  // Set default active section to first field group when they load
-  React.useEffect(() => {
-    if (fieldGroups.length > 0 && !activeSection) {
-      setActiveSection(`fieldgroup-${fieldGroups[0].field_group.id}`);
+  const sections: SectionConfig[] = [...systemSections, ...fieldGroupSections];
+
+  useEffect(() => {
+    const validSections = new Set(sections.map((section) => section.id));
+    if (!validSections.has(activeSection)) {
+      setActiveSection('overview');
     }
-  }, [fieldGroups, activeSection]);
+  }, [activeSection, sections]);
 
   // Handle field value changes with auto-save
   const handleFieldChange = (fieldCode: string, value: any) => {
     if (isSharedBrandView) return;
+    if (fieldCode === 'scin') return;
     console.log(`ðŸ“ Field "${fieldCode}" changed to:`, value);
 
     // Update local state immediately for responsive UI
@@ -188,6 +318,19 @@ export function VariantDetailClient({
       ...prev,
       [fieldCode]: value
     }));
+
+    if (fieldCode === 'title' || fieldCode === 'sku' || fieldCode === 'barcode') {
+      setVariant((prev: any) => {
+        if (!prev) return prev;
+        if (fieldCode === 'title') {
+          return { ...prev, product_name: value ?? '' };
+        }
+        if (fieldCode === 'sku') {
+          return { ...prev, sku: value ?? '' };
+        }
+        return { ...prev, barcode: value ?? '' };
+      });
+    }
 
     // Debounce save - wait 1 second after last change
     if (saveTimeoutRef.current) {
@@ -207,6 +350,23 @@ export function VariantDetailClient({
       return;
     }
 
+    const normalizedFieldsToSave: Record<string, any> = {};
+    Object.entries(fieldsToSave).forEach(([key, value]) => {
+      const normalizedKey = key.trim().toLowerCase();
+      if (normalizedKey === 'scin') {
+        return;
+      }
+      if (normalizedKey === 'title') {
+        normalizedFieldsToSave.product_name = value;
+        return;
+      }
+      normalizedFieldsToSave[key] = value;
+    });
+
+    if (Object.keys(normalizedFieldsToSave).length === 0) {
+      return;
+    }
+
     try {
       setSaving(true);
       console.log('ðŸ’¾ Saving field values:', fieldsToSave);
@@ -214,13 +374,13 @@ export function VariantDetailClient({
       const response = await fetch(buildProductUrl(variant.id), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(fieldsToSave)
+        body: JSON.stringify(normalizedFieldsToSave)
       });
 
-      const responseData = await response.json();
+      const responseData = await parseJsonSafely(response);
 
       if (!response.ok) {
-        throw new Error(responseData.error || 'Failed to save changes');
+        throw new Error(responseData?.error || 'Failed to save changes');
       }
 
       // Clear pending changes for saved fields
@@ -240,6 +400,7 @@ export function VariantDetailClient({
   };
 
   const setOverrideValue = (fieldCode: string, value: any) => {
+    if (fieldCode === 'scin') return;
     setFieldValues(prev => ({
       ...prev,
       [fieldCode]: value
@@ -260,6 +421,7 @@ export function VariantDetailClient({
   };
 
   const clearOverrideValue = async (fieldCode: string) => {
+    if (fieldCode === 'scin') return;
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
@@ -280,6 +442,7 @@ export function VariantDetailClient({
   };
 
   const enableOverrideMode = (fieldCode: string, parentValue: any) => {
+    if (fieldCode === 'scin') return;
     setOverrideModes(prev => ({
       ...prev,
       [fieldCode]: true
@@ -290,10 +453,15 @@ export function VariantDetailClient({
     }));
   };
 
-  const disableOverrideMode = async (fieldCode: string) => {
+  const disableOverrideMode = async (
+    fieldCode: string,
+    options?: { persist?: boolean }
+  ) => {
+    if (fieldCode === 'scin') return;
+    const hasOverrideValue = Object.prototype.hasOwnProperty.call(fieldValues, fieldCode);
+    const shouldPersist = options?.persist ?? hasOverrideValue;
     setOverrideModes(prev => {
-      const next = { ...prev };
-      delete next[fieldCode];
+      const next = { ...prev, [fieldCode]: false };
       return next;
     });
     setOverrideDrafts(prev => {
@@ -301,8 +469,27 @@ export function VariantDetailClient({
       delete next[fieldCode];
       return next;
     });
-    await clearOverrideValue(fieldCode);
+    if (shouldPersist) {
+      await clearOverrideValue(fieldCode);
+    }
   };
+
+  const isAutoEditableByParentDefault = useCallback(
+    (params: {
+      fieldCode: string;
+      hasOverride: boolean;
+      isScinField: boolean;
+      isVariantAxis: boolean;
+    }) => {
+      if (params.isScinField || params.isVariantAxis || params.hasOverride) return false;
+      if (!parentVariantInheritanceConfig.allowChildOverrides) return false;
+      if (parentVariantInheritanceConfig.inheritByDefault) return false;
+      // If user explicitly selected inherit for this field, keep it inherited.
+      if (overrideModes[params.fieldCode] === false) return false;
+      return true;
+    },
+    [overrideModes, parentVariantInheritanceConfig.allowChildOverrides, parentVariantInheritanceConfig.inheritByDefault]
+  );
 
   // Load variant data and field groups from API
   useEffect(() => {
@@ -311,96 +498,135 @@ export function VariantDetailClient({
         setLoading(true);
         console.log('ðŸ” Fetching variant:', variantId, 'of parent:', productId);
 
-        const scopeQuery = buildScopeQueryString();
-        const variantUrl = scopeQuery
-          ? `/api/${tenantSlug}/products/${productId}/variants/${variantId}?${scopeQuery}`
-          : `/api/${tenantSlug}/products/${productId}/variants/${variantId}`;
-        const response = await fetch(variantUrl);
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to fetch variant');
+        // Dedicated variant endpoints are not available; resolve variants via product endpoint.
+        const variantResult = await fetchJsonWithDedupe<any>(buildProductUrl(variantId), {
+          ttlMs: 3000,
+        });
+        const variantPayload = variantResult.data;
+        if (!variantResult.ok) {
+          throw new Error(variantPayload?.error || 'Failed to fetch variant');
+        }
+        if (!variantPayload?.success || !variantPayload?.data) {
+          throw new Error('Invalid variant response format');
         }
 
-        if (data.success && data.data) {
-          const variantData = data.data;
-          setVariant(variantData);
+        const variantData = variantPayload.data;
+        if (variantData.type !== 'variant') {
+          throw new Error('Requested record is not a variant');
+        }
+        setVariant(variantData);
 
-          // Fetch parent product data for inheritance (including field groups and values)
-          const parentResponse = await fetch(buildProductUrl(productId));
-          if (parentResponse.ok) {
-            const parentData = await parentResponse.json();
-            if (parentData.success && parentData.data) {
-              setParentProduct(parentData.data);
+        const parentIdentifier = variantData.parent_id || productId;
+        const parentResult = await fetchJsonWithDedupe<any>(buildProductUrl(parentIdentifier), {
+          ttlMs: 3000,
+        });
+        const parentPayload = parentResult.data;
+        const parentData =
+          parentResult.ok && parentPayload?.success && parentPayload?.data
+            ? parentPayload.data
+            : null;
 
-              // Fetch parent's field groups (variant inherits parent's field groups)
-              if (parentData.data.family_id) {
-                console.log('ðŸ” Fetching field groups for family:', parentData.data.family_id);
-                const fieldGroupsUrl = scopeQuery
-                  ? `/api/${tenantSlug}/product-families/${parentData.data.family_id}/field-groups?${scopeQuery}`
-                  : `/api/${tenantSlug}/product-families/${parentData.data.family_id}/field-groups`;
-                const fieldGroupsResponse = await fetch(fieldGroupsUrl);
-                if (fieldGroupsResponse.ok) {
-                  const groupsData = await fieldGroupsResponse.json();
-                  console.log('ðŸ“¦ Field groups response:', groupsData);
+        const canonicalParentIdentifier = buildCanonicalProductIdentifier(
+          parentIdentifier,
+          parentData?.product_name || variantData?.parent_product?.product_name || null
+        );
+        const canonicalVariantIdentifier = buildCanonicalProductIdentifier(
+          variantData.id,
+          variantData.product_name || variantData.sku || null
+        );
+        const parsedParentIdentifier = parseProductIdentifier((productId || "").trim());
+        const parsedVariantIdentifier = parseProductIdentifier((variantId || "").trim());
+        const hasParentUuidWithSlug =
+          Boolean(parsedParentIdentifier.uuid) &&
+          (productId || "").trim().length > (parsedParentIdentifier.uuid?.length || 0);
+        const hasVariantUuidWithSlug =
+          Boolean(parsedVariantIdentifier.uuid) &&
+          (variantId || "").trim().length > (parsedVariantIdentifier.uuid?.length || 0);
+        const shouldCanonicalizeParent = !hasParentUuidWithSlug;
+        const shouldCanonicalizeVariant = !hasVariantUuidWithSlug;
+        if (
+          (shouldCanonicalizeParent &&
+            (productId || "").trim().toLowerCase() !==
+              canonicalParentIdentifier.toLowerCase()) ||
+          (shouldCanonicalizeVariant &&
+            (variantId || "").trim().toLowerCase() !==
+              canonicalVariantIdentifier.toLowerCase())
+        ) {
+          const canonicalPath = buildTenantPathForScope({
+            tenantSlug,
+            scope: selectedBrandSlug || null,
+            suffix: `/products/${canonicalParentIdentifier}/variants/${canonicalVariantIdentifier}`,
+          });
+          router.replace(canonicalPath);
+          return;
+        }
 
-                  // Transform the data - extract fields from nested structure (same as ProductDetailClient)
-                  const processedGroups = groupsData.map((item: any) => {
-                    const allFields = (item.field_groups?.product_field_group_assignments || [])
-                      .map((assignment: any) => assignment.product_fields)
-                      .filter(Boolean)
-                      .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
+        if (parentResult.ok && parentPayload?.success && parentPayload?.data) {
+          setParentProduct(parentData);
 
-                    const visibleFields = allFields.filter((field: any) =>
-                      !item.hidden_fields?.includes(field.id)
-                    );
+          // Fetch parent's field groups (variant inherits parent's field groups)
+          if (parentData.family_id) {
+            const scopeQuery = buildScopeQueryString();
+            console.log('ðŸ” Fetching field groups for family:', parentData.family_id);
+            const fieldGroupsUrl = scopeQuery
+              ? `/api/${tenantSlug}/product-families/${parentData.family_id}/field-groups?${scopeQuery}`
+              : `/api/${tenantSlug}/product-families/${parentData.family_id}/field-groups`;
+            const fieldGroupsResult = await fetchJsonWithDedupe<any[]>(fieldGroupsUrl, {
+              ttlMs: 5000,
+            });
+            if (fieldGroupsResult.ok) {
+              const groupsData = fieldGroupsResult.data || [];
+              console.log('ðŸ“¦ Field groups response:', groupsData);
 
-                    return {
-                      id: item.id,
-                      field_group_id: item.field_group_id,
-                      field_group: item.field_groups,
-                      hidden_fields: item.hidden_fields || [],
-                      sort_order: item.sort_order,
-                      fields: visibleFields
-                    };
-                  });
+              // Transform the data - extract fields from nested structure (same as ProductDetailClient)
+              const processedGroups = groupsData.map((item: any) => {
+                const allFields = (item.field_groups?.product_field_group_assignments || [])
+                  .map((assignment: any) => assignment.product_fields)
+                  .filter(Boolean)
+                  .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
 
-                  console.log('âœ… Setting field groups:', processedGroups);
-                  setFieldGroups(processedGroups);
-                } else {
-                  console.error('âŒ Field groups fetch failed:', fieldGroupsResponse.status);
-                }
-              } else {
-                console.log('âš ï¸ No family_id on parent product');
-              }
+                const visibleFields = allFields.filter((field: any) =>
+                  !item.hidden_fields?.includes(field.id)
+                );
 
-          const parentDetailsResponse = await fetch(buildProductUrl(parentData.data.id));
-          if (parentDetailsResponse.ok) {
-            const parentDetails = await parentDetailsResponse.json();
-            if (parentDetails.success && parentDetails.data) {
-              const parentValuesMap = extractCustomFieldValues(parentDetails.data);
-              setParentProduct((prev: any) => ({
-                ...prev,
-                field_values_map: parentValuesMap
-              }));
+                return {
+                  id: item.id,
+                  field_group_id: item.field_group_id,
+                  field_group: item.field_groups,
+                  hidden_fields: item.hidden_fields || [],
+                  sort_order: item.sort_order,
+                  fields: visibleFields
+                };
+              });
+
+              console.log('âœ… Setting field groups:', processedGroups);
+              setFieldGroups(processedGroups);
+            } else {
+              console.error('âŒ Field groups fetch failed:', fieldGroupsResult.status);
             }
+          } else {
+            console.log('âš ï¸ No family_id on parent product');
           }
-        }
-      }
 
-      const variantDetailsResponse = await fetch(buildProductUrl(variantData.id));
-      if (variantDetailsResponse.ok) {
-        const variantDetails = await variantDetailsResponse.json();
-        if (variantDetails.success && variantDetails.data) {
-          const valuesMap = extractCustomFieldValues(variantDetails.data);
-          setFieldValues(valuesMap);
+          const parentValuesMap = extractCustomFieldValues(parentData);
+          parentValuesMap.title = parentData.product_name ?? '';
+          parentValuesMap.sku = parentData.sku ?? '';
+          parentValuesMap.barcode = parentData.barcode ?? parentData.upc ?? '';
+          parentValuesMap.scin = parentData.scin ?? parentData.id ?? '';
+          setParentProduct((prev: any) => ({
+            ...prev,
+            field_values_map: parentValuesMap
+          }));
         }
-      }
 
-          console.log('âœ… Variant loaded:', variantData.product_name);
-        } else {
-          throw new Error('Invalid response format');
-        }
+        const valuesMap = extractCustomFieldValues(variantData);
+        valuesMap.title = variantData.product_name ?? '';
+        valuesMap.sku = variantData.sku ?? '';
+        valuesMap.barcode = variantData.barcode ?? variantData.upc ?? '';
+        valuesMap.scin = variantData.scin ?? variantData.id ?? '';
+        setFieldValues(valuesMap);
+
+        console.log('âœ… Variant loaded:', variantData.product_name);
       } catch (err) {
         console.error('âŒ Error fetching variant:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -409,28 +635,128 @@ export function VariantDetailClient({
       }
     };
 
-    if (variantId && productId && tenantSlug) {
+    if (variantId && productId && tenantSlug && isScopeReady) {
       fetchVariant();
     }
-  }, [variantId, productId, tenantSlug, buildProductUrl, buildScopeQueryString]);
+  }, [
+    variantId,
+    productId,
+    tenantSlug,
+    selectedBrandSlug,
+    router,
+    buildProductUrl,
+    buildScopeQueryString,
+    isScopeReady,
+  ]);
 
   // Helper to get parent field value for inheritance display
   const getParentFieldValue = (fieldCode: string) => {
     if (!parentProduct) return null;
 
     // Use the parent's field values map
-    return parentProduct.field_values_map?.[fieldCode] || null;
+    if (parentProduct.field_values_map?.[fieldCode] !== undefined) {
+      return parentProduct.field_values_map[fieldCode];
+    }
+
+    if (fieldCode === 'title') return parentProduct.product_name ?? null;
+    if (fieldCode === 'sku') return parentProduct.sku ?? null;
+    if (fieldCode === 'barcode') return parentProduct.barcode ?? parentProduct.upc ?? null;
+    if (fieldCode === 'scin') return parentProduct.scin ?? parentProduct.id ?? null;
+    return null;
   };
 
-  // Helper to check if field needs wide layout
-  const needsWideLayout = (fieldGroup: any) => {
-    if (!fieldGroup?.fields) return false;
+  const fieldGroupStats = React.useMemo(() => {
+    return fieldGroups.map((group) => {
+      const fields = Array.isArray(group.fields) ? group.fields : [];
+      const requiredFields = fields.filter((field: any) => {
+        const productField = field.product_field || field;
+        return Boolean(productField?.is_required);
+      });
 
-    const wideFieldTypes = ['textarea', 'rich_text', 'table', 'image', 'file'];
-    return fieldGroup.fields.some((field: any) => {
-      const fieldType = field.product_field?.field_type ?? field.field_type;
-      return wideFieldTypes.includes(fieldType);
+      const completeRequired = requiredFields.filter((field: any) => {
+        const productField = field.product_field || field;
+        const fieldCode = productField?.code;
+        if (!fieldCode) return false;
+
+        if (isScinSystemField(productField)) {
+          return isFieldValueFilled(variant?.scin || variant?.id);
+        }
+
+        const hasOverride = Object.prototype.hasOwnProperty.call(fieldValues, fieldCode);
+        const parentValue = getParentFieldValue(fieldCode);
+        const autoEditable = isAutoEditableByParentDefault({
+          fieldCode,
+          hasOverride,
+          isScinField: false,
+          isVariantAxis: false,
+        });
+        const overrideEnabled =
+          hasOverride ||
+          (parentVariantInheritanceConfig.allowChildOverrides &&
+            (overrideModes[fieldCode] === true || autoEditable));
+        const effectiveValue = overrideEnabled
+          ? hasOverride
+            ? fieldValues[fieldCode]
+            : overrideDrafts[fieldCode] ?? parentValue
+          : parentValue;
+        return isFieldValueFilled(effectiveValue);
+      }).length;
+
+      return {
+        group,
+        sectionId: `fieldgroup-${group.field_group.id}`,
+        totalFieldCount: fields.length,
+        requiredFieldCount: requiredFields.length,
+        missingRequiredCount: Math.max(requiredFields.length - completeRequired, 0),
+      };
     });
+  }, [
+    fieldGroups,
+    fieldValues,
+    isAutoEditableByParentDefault,
+    overrideDrafts,
+    overrideModes,
+    parentProduct,
+    parentVariantInheritanceConfig.allowChildOverrides,
+    variant,
+  ]);
+
+  const requiredFieldGroupStats = React.useMemo(
+    () => fieldGroupStats.filter((stats) => stats.requiredFieldCount > 0),
+    [fieldGroupStats]
+  );
+  const missingFieldGroupStats = React.useMemo(
+    () => fieldGroupStats.filter((stats) => stats.missingRequiredCount > 0),
+    [fieldGroupStats]
+  );
+  const attributeFilterSections = ['attributes-all', 'attributes-required', 'attributes-missing'];
+  const scopePillClass =
+    "inline-flex h-6 items-center rounded-full border border-border/60 bg-background px-2.5 text-xs text-muted-foreground";
+  const scopeAuthoringPillClass =
+    "inline-flex h-6 items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 text-xs text-indigo-700";
+  const scopeAlertPillClass =
+    "inline-flex h-6 items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 text-xs text-rose-700";
+  const sidebarGroupLabelClass =
+    'px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground';
+  const sidebarNavButtonBaseClass =
+    'w-full flex min-h-9 items-center justify-between rounded-md px-3 py-2 text-left text-sm font-normal leading-5 transition-colors';
+  const getSidebarNavButtonStateClass = (isActive: boolean) =>
+    isActive
+      ? 'bg-muted text-foreground'
+      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50';
+
+  const isTableHeavyFieldGroup = (fieldGroup: any) => {
+    const fields = Array.isArray(fieldGroup?.fields) ? fieldGroup.fields : [];
+    if (fields.length === 0) return false;
+
+    const wideFieldCount = fields.filter((field: any) => isLayoutWideField(field)).length;
+
+    if (wideFieldCount === 0) return false;
+
+    return (
+      wideFieldCount >= 2 ||
+      wideFieldCount === fields.length
+    );
   };
 
   // Helper to determine content layout
@@ -440,8 +766,74 @@ export function VariantDetailClient({
     const section = sections.find(s => s.id === sectionId);
     if (!section || !section.isFieldGroup || !('fieldGroup' in section)) return 'form';
 
-    return needsWideLayout(section.fieldGroup) ? 'full-width' : 'form';
+    return isTableHeavyFieldGroup(section.fieldGroup) ? 'full-width' : 'form';
   };
+
+  useEffect(() => {
+    if (isSharedBrandView) {
+      setCanUseTranslateProduct(false);
+      setTranslateRestrictionMessage(null);
+      return;
+    }
+
+    let isCancelled = false;
+    const fetchLocalizationEligibility = async () => {
+      try {
+        setLocalizationEligibilityLoading(true);
+        const response = await fetch(`/api/${tenantSlug}/localization/eligibility`);
+        if (!response.ok) {
+          if (!isCancelled) {
+            setCanUseTranslateProduct(false);
+            setTranslateRestrictionMessage('Translation is currently unavailable.');
+          }
+          return;
+        }
+
+        const payload = await parseJsonSafely(response);
+        if (isCancelled) return;
+
+        const canTranslate = Boolean(payload?.data?.canTranslateProduct);
+        setCanUseTranslateProduct(canTranslate);
+        setTranslateRestrictionMessage(
+          canTranslate
+            ? null
+            : String(
+                payload?.data?.restrictions?.translateProduct ||
+                  'Translation is unavailable on this plan.'
+              )
+        );
+      } catch (eligibilityError) {
+        console.error('Failed to load localization eligibility:', eligibilityError);
+        if (!isCancelled) {
+          setCanUseTranslateProduct(false);
+          setTranslateRestrictionMessage('Translation is currently unavailable.');
+        }
+      } finally {
+        if (!isCancelled) {
+          setLocalizationEligibilityLoading(false);
+        }
+      }
+    };
+
+    fetchLocalizationEligibility();
+    return () => {
+      isCancelled = true;
+    };
+  }, [isSharedBrandView, tenantSlug]);
+
+  const handleTranslateThisVariant = useCallback(() => {
+    if (!variant?.id || !canUseTranslateProduct) return;
+
+    const basePath = buildTenantPathForScope({
+      tenantSlug,
+      scope: selectedBrandSlug || null,
+      suffix: '/settings/localization',
+    });
+    const query = new URLSearchParams();
+    query.set('productId', variant.id);
+    query.set('mode', 'translate');
+    router.push(`${basePath}?${query.toString()}`);
+  }, [canUseTranslateProduct, router, selectedBrandSlug, tenantSlug, variant?.id]);
 
   // Show loading state
   if (loading) {
@@ -464,31 +856,38 @@ export function VariantDetailClient({
   }
 
   return (
-    <div className="h-full">
+    <div className="h-[calc(100%-var(--app-header-height,44px))] min-h-0 overflow-hidden flex flex-col">
       {isSharedBrandView ? (
         <div className="border-b border-border bg-muted/20 px-6 py-3 text-sm text-muted-foreground">
           Shared brand view is read-only. Editing is disabled.
         </div>
       ) : null}
       {/* Header with navigation */}
-      <div className="bg-background border-b border-border">
-        <div className="px-6 py-4">
-          <div className="flex items-start justify-between gap-6">
-            <div className="space-y-2">
+      <div className="border-b border-border/60 bg-background">
+        <div className="flex">
+          <div className="w-72 shrink-0 border-r border-border/60 bg-background" aria-hidden="true" />
+          <div className="min-w-0 flex-1 px-6 py-3">
+            <PageContentContainer mode="form">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div className="space-y-1.5">
               {/* Variant Navigation Header with cascading dropdowns */}
-              {variant.family_id && (variant.parent_product?.sku || variant.parent_id) && (
+              {variant.family_id && (variant.parent_id || parentProduct?.id || parentProduct?.sku) && (
                 <VariantNavigationHeader
                   tenantSlug={tenantSlug}
-                  parentSku={variant.parent_product?.sku || variant.parent_id}
-                  parentName={variant.parent_product.product_name}
-                  currentVariantSku={variant.sku || variant.id}
+                  parentIdentifier={variant.parent_id || parentProduct?.id || parentProduct?.sku || ""}
+                  parentName={
+                    parentProduct?.product_name ||
+                    variant.parent_product?.product_name ||
+                    "Parent product"
+                  }
+                  currentVariantIdentifier={variant.id || variant.sku}
                   familyId={variant.family_id}
                   selectedBrandSlug={selectedBrandSlug || null}
                 />
               )}
 
               <div className="flex items-center gap-3">
-                <h1 className="text-xl font-semibold text-foreground">
+                <h1 className="text-lg font-semibold text-foreground">
                   {variant.product_name || variant.sku || variant.id}
                 </h1>
                 <span className={`px-2 py-0.5 text-xs font-medium rounded ${
@@ -503,74 +902,133 @@ export function VariantDetailClient({
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
                 <span>SCIN: {variant.scin || variant.id}</span>
                 <span>SKU: {variant.sku || '-'}</span>
                 <span>Barcode: {variant.barcode || '-'}</span>
               </div>
-            </div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="text-muted-foreground">View scope:</span>
+                <span className={scopePillClass}>
+                  {selectedMarketId ? selectedMarket?.name || "Market" : "All markets"}
+                </span>
+                <span className={scopePillClass}>
+                  {selectedChannelId ? selectedChannel?.name || "Channel" : "All channels"}
+                </span>
+                <span className={scopePillClass}>
+                  {selectedLocaleId ? selectedLocale?.code || "Language" : "All languages"}
+                </span>
+                <span className={scopePillClass}>
+                  {selectedDestination?.name || "All destinations"}
+                </span>
+                <span className={scopeAuthoringPillClass}>
+                  Authoring: {getAuthoringScopeSummary(authoringScope)}
+                </span>
+                {!isCurrentViewInsideAuthoringScope ? (
+                  <button
+                    type="button"
+                    className={scopeAlertPillClass}
+                    onClick={() => setActiveSection('attributes-missing')}
+                    title="Current viewing scope is outside this variant's authoring scope."
+                  >
+                    Missing in this scope
+                  </button>
+                ) : null}
+              </div>
+              </div>
 
-            <div className="flex items-center gap-4">
-              <span className="text-xs text-muted-foreground">
-                {saving
-                  ? 'Saving changes...'
-                  : Object.keys(pendingFieldChanges).length > 0
-                  ? 'Unsaved changes'
-                  : 'All changes saved'}
-              </span>
-            </div>
+                <div className="flex w-full items-center gap-2 lg:w-auto lg:justify-end">
+                  {!isSharedBrandView ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleTranslateThisVariant}
+                      disabled={localizationEligibilityLoading || !canUseTranslateProduct || !variant?.id}
+                      title={!canUseTranslateProduct ? translateRestrictionMessage || 'Translation unavailable' : 'Translate this product'}
+                    >
+                      <Languages className="mr-1.5 h-3.5 w-3.5" />
+                      Translate this product
+                    </Button>
+                  ) : null}
+                  <span className={scopePillClass}>
+                    {saving
+                      ? 'Saving changes...'
+                      : Object.keys(pendingFieldChanges).length > 0
+                      ? 'Unsaved changes'
+                      : 'All changes saved'}
+                  </span>
+                  {!parentVariantInheritanceConfig.allowChildOverrides ? (
+                    <span
+                      className={scopeAlertPillClass}
+                      title="Parent product settings currently lock inherited fields in this variant."
+                    >
+                      Overrides locked by parent
+                    </span>
+                  ) : null}
+                  {!isCurrentViewInsideAuthoringScope ? (
+                    <span
+                      className={scopeAlertPillClass}
+                      title="Current view scope is outside variant authoring scope."
+                    >
+                      Out of authoring scope
+                    </span>
+                  ) : null}
+                  {!isSharedBrandView && !canUseTranslateProduct && !localizationEligibilityLoading ? (
+                    <span className={scopeAlertPillClass} title={translateRestrictionMessage || undefined}>
+                      Translation locked on Starter
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </PageContentContainer>
           </div>
         </div>
       </div>
 
-      <div className="flex h-full">
-        {/* Minimal sidebar navigation */}
-        <div className="w-64 bg-background border-r border-border/60 h-full overflow-y-auto">
-          <div className="p-4">
-            <h2 className="text-sm font-medium text-foreground mb-3">Sections</h2>
-            <nav className="space-y-0.5">
-              {/* System sections first */}
-              {sections.filter(section => section.isSystem).map((section) => (
-                <button
-                  key={section.id}
-                  onClick={() => setActiveSection(section.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2 text-left rounded-md transition-colors text-sm ${
-                    activeSection === section.id
-                      ? 'bg-muted text-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-normal">{section.label}</span>
-                  </div>
-                </button>
-              ))}
-
-              {/* Separator if both system and user sections exist */}
-              {sections.some(s => s.isSystem) && sections.some(s => !s.isSystem) && (
-                <div className="py-2">
-                  <div className="border-t border-border"></div>
-                </div>
-              )}
-
-              {/* User-created field group sections */}
-              {sections.filter(section => !section.isSystem).map((section) => {
-                return (
+      <div className="flex min-h-0 flex-1">
+        {/* Sidebar navigation */}
+        <div className="w-72 bg-background border-r border-border/60 h-full overflow-y-auto">
+          <div className="px-2 py-3">
+            <nav className="space-y-4">
+              <div>
+                <p className={sidebarGroupLabelClass}>Sections</p>
+                <div className="space-y-0.5">
                   <button
-                    key={section.id}
-                    onClick={() => setActiveSection(section.id)}
-                    className={`w-full flex items-center justify-between px-3 py-2 text-left rounded-md transition-colors text-sm ${
-                      activeSection === section.id
-                        ? 'bg-muted text-foreground'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                    }`}
+                    onClick={() => setActiveSection('overview')}
+                    className={`${sidebarNavButtonBaseClass} ${getSidebarNavButtonStateClass(activeSection === 'overview')}`}
                   >
-                  <div className="flex items-center gap-2">
-                    <span className="font-normal">{section.label}</span>
-                  </div>
+                    <span className="truncate">Overview</span>
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <p className={sidebarGroupLabelClass}>
+                  Attributes
+                </p>
+
+                <div className="space-y-0.5">
+                  {fieldGroupSections.map((section) => (
+                    <button
+                      key={section.id}
+                      onClick={() => setActiveSection(section.id)}
+                      className={`${sidebarNavButtonBaseClass} ${getSidebarNavButtonStateClass(activeSection === section.id)}`}
+                    >
+                      <span className="truncate">{section.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-0.5 border-t border-border pt-3">
+                <button
+                  onClick={() => setActiveSection('assets')}
+                  className={`${sidebarNavButtonBaseClass} ${getSidebarNavButtonStateClass(activeSection === 'assets')}`}
+                >
+                  <span className="truncate">Assets</span>
                 </button>
-              );
-              })}
+              </div>
             </nav>
           </div>
         </div>
@@ -578,7 +1036,9 @@ export function VariantDetailClient({
         {/* Main content area */}
         <div className="flex-1 h-full overflow-y-auto">
           <div className="p-6">
-            <div className={`w-full ${getContentLayout(activeSection) === 'full-width' ? '' : 'max-w-5xl'}`}>
+            <PageContentContainer
+              mode={getContentLayout(activeSection) === 'full-width' ? 'fluid' : 'form'}
+            >
               <div className="mb-6">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                   {sections.find(s => s.id === activeSection)?.label || 'Variant Attributes'}
@@ -586,6 +1046,145 @@ export function VariantDetailClient({
               </div>
 
               <div className="w-full">
+                {activeSection === 'overview' && (
+                  <div className="mx-auto w-full max-w-4xl space-y-4">
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="rounded-lg border border-border/60 bg-card p-4">
+                        <p className="text-xs text-muted-foreground">Attribute groups</p>
+                        <p className="mt-1 text-xl font-semibold text-foreground">{fieldGroupStats.length}</p>
+                      </div>
+                      <div className="rounded-lg border border-border/60 bg-card p-4">
+                        <p className="text-xs text-muted-foreground">Fields in scope</p>
+                        <p className="mt-1 text-xl font-semibold text-foreground">
+                          {fieldGroupStats.reduce((sum, group) => sum + group.totalFieldCount, 0)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border/60 bg-card p-4">
+                        <p className="text-xs text-muted-foreground">Required fields</p>
+                        <p className="mt-1 text-xl font-semibold text-foreground">
+                          {fieldGroupStats.reduce((sum, group) => sum + group.requiredFieldCount, 0)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-border/60 bg-card p-4">
+                        <p className="text-xs text-muted-foreground">Missing required</p>
+                        <p className="mt-1 text-xl font-semibold text-foreground">
+                          {fieldGroupStats.reduce((sum, group) => sum + group.missingRequiredCount, 0)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border/60 bg-card p-4">
+                      <p className="text-sm font-medium text-foreground">Quick actions</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setActiveSection('attributes-all')}>
+                          Browse attributes
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setActiveSection('attributes-missing')}>
+                          Fix missing required
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => setActiveSection('assets')}>
+                          Review assets
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {attributeFilterSections.includes(activeSection) && (() => {
+                  const groupsToShow =
+                    activeSection === 'attributes-required'
+                      ? requiredFieldGroupStats
+                      : activeSection === 'attributes-missing'
+                      ? missingFieldGroupStats
+                      : fieldGroupStats;
+
+                  const description =
+                    activeSection === 'attributes-required'
+                      ? 'Attribute groups with required fields for this variant.'
+                      : activeSection === 'attributes-missing'
+                      ? 'Attribute groups missing one or more required values for this variant context.'
+                      : 'All attribute groups inherited by this variant.';
+
+                  return (
+                    <div className="mx-auto w-full max-w-4xl space-y-4">
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant={activeSection === 'attributes-all' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setActiveSection('attributes-all')}
+                        >
+                          All groups ({fieldGroupStats.length})
+                        </Button>
+                        <Button
+                          variant={activeSection === 'attributes-required' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setActiveSection('attributes-required')}
+                        >
+                          Required ({requiredFieldGroupStats.length})
+                        </Button>
+                        <Button
+                          variant={activeSection === 'attributes-missing' ? 'default' : 'outline'}
+                          size="sm"
+                          onClick={() => setActiveSection('attributes-missing')}
+                        >
+                          Missing ({missingFieldGroupStats.length})
+                        </Button>
+                      </div>
+
+                      <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
+                        <p className="text-sm text-muted-foreground">{description}</p>
+                      </div>
+
+                      {groupsToShow.length === 0 ? (
+                        <div className="rounded-lg border border-border/60 bg-card p-6 text-sm text-muted-foreground">
+                          No matching attribute groups in this view.
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {groupsToShow.map((stats) => (
+                            <button
+                              key={stats.sectionId}
+                              type="button"
+                              onClick={() => setActiveSection(stats.sectionId)}
+                              className="w-full rounded-lg border border-border/60 bg-card p-4 text-left transition-colors hover:bg-muted/20"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-sm font-medium text-foreground">
+                                  {stats.group.field_group.name}
+                                </p>
+                                <span className="text-xs text-muted-foreground">
+                                  {stats.totalFieldCount} fields
+                                </span>
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                                <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                                  {stats.requiredFieldCount} required
+                                </span>
+                                <span
+                                  className={`rounded-full px-2 py-0.5 ${
+                                    stats.missingRequiredCount > 0
+                                      ? 'bg-amber-50 text-amber-700'
+                                      : 'bg-emerald-50 text-emerald-700'
+                                  }`}
+                                >
+                                  {stats.missingRequiredCount > 0
+                                    ? `${stats.missingRequiredCount} missing`
+                                    : 'Required complete'}
+                                </span>
+                              </div>
+                              {stats.group.field_group.description ? (
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  {stats.group.field_group.description}
+                                </p>
+                              ) : null}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 {activeSection === 'assets' && (
                   <div className="text-center py-12">
                     <div className="text-muted-foreground mb-4">
@@ -604,6 +1203,7 @@ export function VariantDetailClient({
                   if (!section || !section.isFieldGroup || !('fieldGroup' in section)) return null;
 
                   const fieldGroup = section.fieldGroup;
+                  const isWideFieldGroup = isTableHeavyFieldGroup(fieldGroup);
                   const requiredFields = fieldGroup.fields.filter((f: any) => {
                     const productField = f.product_field || f;
                     return Boolean(productField?.is_required);
@@ -611,15 +1211,46 @@ export function VariantDetailClient({
                   const completedRequired = requiredFields.filter((f: any) => {
                     const productField = f.product_field || f;
                     const fieldCode = productField?.code;
+                    const isScinField = isScinSystemField(productField);
+                    if (isScinField) {
+                      return isFieldValueFilled(variant?.scin || variant?.id);
+                    }
+                    const isVariantAxis = !isScinField && variant.variant_attributes &&
+                      Object.prototype.hasOwnProperty.call(variant.variant_attributes, fieldCode);
                     const hasOverride = fieldCode ? Object.prototype.hasOwnProperty.call(fieldValues, fieldCode) : false;
                     const parentValue = fieldCode ? getParentFieldValue(fieldCode) : null;
-                    const displayValue = hasOverride ? fieldValues[fieldCode] : overrideDrafts[fieldCode] ?? parentValue;
+                    const autoEditable = fieldCode
+                      ? isAutoEditableByParentDefault({
+                          fieldCode,
+                          hasOverride,
+                          isScinField,
+                          isVariantAxis,
+                        })
+                      : false;
+                    const overrideEnabled = isScinField
+                      ? true
+                      : hasOverride ||
+                        (parentVariantInheritanceConfig.allowChildOverrides &&
+                          ((fieldCode ? overrideModes[fieldCode] === true : false) || autoEditable));
+                    const displayValue = isScinField
+                      ? (variant?.scin || variant?.id || null)
+                      : overrideEnabled
+                      ? hasOverride
+                        ? fieldValues[fieldCode]
+                        : (fieldCode ? overrideDrafts[fieldCode] : undefined) ?? parentValue
+                      : parentValue;
                     return isFieldValueFilled(displayValue);
                   }).length;
                   const missingRequired = requiredFields.length - completedRequired;
 
                   return (
-                    <div className="space-y-5">
+                    <div
+                      className={
+                        isWideFieldGroup
+                          ? 'space-y-5'
+                          : 'mx-auto w-full max-w-4xl space-y-5'
+                      }
+                    >
                       {fieldGroup.field_group.description && (
                         <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
                           <p className="text-sm text-muted-foreground">
@@ -635,6 +1266,9 @@ export function VariantDetailClient({
                               <p className="text-sm font-medium text-foreground">Attributes in this section</p>
                               <p className="text-xs text-muted-foreground">
                                 {fieldGroup.field_group.name}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Parent default: {parentVariantInheritanceConfig.inheritByDefault ? 'Inherit' : 'Start editable'}
                               </p>
                             </div>
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -661,20 +1295,41 @@ export function VariantDetailClient({
                                   return null;
                                 }
 
-                                const isVariantAxis = variant.variant_attributes &&
+                                const isScinField = isScinSystemField(productField);
+                                const isVariantAxis = !isScinField && variant.variant_attributes &&
                                   Object.prototype.hasOwnProperty.call(variant.variant_attributes, fieldCode);
 
-                                const hasOverride = Object.prototype.hasOwnProperty.call(fieldValues, fieldCode);
-                                const parentValue = getParentFieldValue(fieldCode);
-                                const overrideEnabled = hasOverride || overrideModes[fieldCode];
-                                const displayValue = hasOverride
-                                  ? fieldValues[fieldCode]
-                                  : overrideDrafts[fieldCode] ?? parentValue;
-                                const inherits = !overrideEnabled;
+                                const hasOverride = isScinField
+                                  ? true
+                                  : Object.prototype.hasOwnProperty.call(fieldValues, fieldCode);
+                                const parentValue = isScinField ? null : getParentFieldValue(fieldCode);
+                                const autoEditable = isAutoEditableByParentDefault({
+                                  fieldCode,
+                                  hasOverride,
+                                  isScinField,
+                                  isVariantAxis,
+                                });
+                                const overrideEnabled = isScinField
+                                  ? true
+                                  : hasOverride ||
+                                    (parentVariantInheritanceConfig.allowChildOverrides &&
+                                      (overrideModes[fieldCode] === true || autoEditable));
+                                const displayValue = isScinField
+                                  ? (variant?.scin || variant?.id || null)
+                                  : overrideEnabled
+                                  ? hasOverride
+                                    ? fieldValues[fieldCode]
+                                    : overrideDrafts[fieldCode] ?? parentValue
+                                  : parentValue;
+                                const inherits = isScinField ? false : !overrideEnabled;
+                                const isLockedByParent =
+                                  !isScinField &&
+                                  !isVariantAxis &&
+                                  inherits &&
+                                  !hasOverride &&
+                                  !parentVariantInheritanceConfig.allowChildOverrides;
 
-                                const isWideField = ['table', 'gallery', 'asset_collection', 'data_grid'].includes(
-                                  productField.field_type
-                                );
+                                const isWideField = isLayoutWideField(productField);
                                 const hasDescription = Boolean(productField.description);
 
                                 return (
@@ -698,15 +1353,22 @@ export function VariantDetailClient({
                                               Variant Axis
                                             </span>
                                           )}
-                                          {!isVariantAxis && (
+                                          {isScinField && (
+                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
+                                              System
+                                            </span>
+                                          )}
+                                          {!isVariantAxis && !isScinField && (
                                             <span
                                               className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                                inherits
+                                                isLockedByParent
+                                                  ? 'bg-slate-100 text-slate-700'
+                                                  : inherits
                                                   ? 'bg-emerald-50 text-emerald-700'
                                                   : 'bg-amber-50 text-amber-700'
                                               }`}
                                             >
-                                              {inherits ? 'Inherited' : 'Override'}
+                                              {isLockedByParent ? 'Inherited (locked)' : inherits ? 'Inherited' : 'Override'}
                                             </span>
                                           )}
                                           {isFieldValueFilled(displayValue) && (
@@ -715,7 +1377,7 @@ export function VariantDetailClient({
                                             </span>
                                           )}
                                         </div>
-                                        {!isVariantAxis && (
+                                        {!isVariantAxis && !isScinField && parentVariantInheritanceConfig.allowChildOverrides && (
                                           <div className="flex items-center gap-2">
                                             {!inherits && (
                                               <Button
@@ -762,9 +1424,20 @@ export function VariantDetailClient({
                                           </>
                                         ) : (
                                           <>
-                                            {inherits ? (
-                                              <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-                                                {formatPreviewValue(parentValue)}
+                                            {isScinField ? (
+                                              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm text-foreground">
+                                                {variant?.scin || variant?.id || '—'}
+                                              </div>
+                                            ) : inherits ? (
+                                              <div className="space-y-2">
+                                                <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+                                                  {formatPreviewValue(parentValue)}
+                                                </div>
+                                                {isLockedByParent ? (
+                                                  <p className="text-xs text-muted-foreground">
+                                                    Parent product has disabled child overrides for inherited fields.
+                                                  </p>
+                                                ) : null}
                                               </div>
                                             ) : productField.field_type === 'table' ? (
                                               <div
@@ -789,6 +1462,7 @@ export function VariantDetailClient({
                                                     }
                                                   }}
                                                   tenantSlug={tenantSlug}
+                                                  disabled={isSharedBrandView}
                                                   className={
                                                     productField.options?.table_definition?.meta?.uses_panel_instances
                                                       ? 'bg-transparent'
@@ -818,6 +1492,7 @@ export function VariantDetailClient({
                                                   }
                                                 }}
                                                 tenantSlug={tenantSlug}
+                                                disabled={isSharedBrandView}
                                               />
                                             )}
                                           </>
@@ -838,7 +1513,7 @@ export function VariantDetailClient({
                   );
                 })()}
 
-                {!['assets', ...sections.filter(s => s.isFieldGroup).map(s => s.id)].includes(activeSection) && (
+                {!['overview', 'attributes-all', 'attributes-required', 'attributes-missing', 'assets', ...sections.filter(s => s.isFieldGroup).map(s => s.id)].includes(activeSection) && (
                   <div className="text-center py-12">
                     <div className="text-muted-foreground mb-4">
                       <div className="w-12 h-12 mx-auto bg-muted rounded-md flex items-center justify-center">
@@ -852,7 +1527,7 @@ export function VariantDetailClient({
                   </div>
                 )}
               </div>
-            </div>
+            </PageContentContainer>
           </div>
         </div>
       </div>

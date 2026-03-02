@@ -1,5 +1,32 @@
 import type { NextConfig } from "next";
 
+const configuredCloudFrontDomain = (process.env.AWS_CLOUDFRONT_DOMAIN || "")
+  .trim()
+  .replace(/^https?:\/\//i, "")
+  .replace(/\/+$/, "");
+
+const remotePatterns: Array<{ protocol: "https"; hostname: string }> = [
+  {
+    protocol: "https",
+    hostname: "*.amazonaws.com",
+  },
+  {
+    protocol: "https",
+    hostname: "*.s3.amazonaws.com",
+  },
+  {
+    protocol: "https",
+    hostname: "*.cloudfront.net",
+  },
+];
+
+if (configuredCloudFrontDomain.length > 0) {
+  remotePatterns.push({
+    protocol: "https",
+    hostname: configuredCloudFrontDomain,
+  });
+}
+
 const nextConfig: NextConfig = {
   // Disable turbopack to fix Jest worker issues
   // turbopack: {},
@@ -32,16 +59,7 @@ const nextConfig: NextConfig = {
   },
 
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '*.amazonaws.com',
-      },
-      {
-        protocol: 'https',
-        hostname: '*.s3.amazonaws.com',
-      },
-    ],
+    remotePatterns,
   },
 };
 

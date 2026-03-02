@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageContentContainer } from '@/components/ui/page-content-container';
 import { Globe, Plus, X } from 'lucide-react';
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -556,8 +557,8 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
   }
 
   return (
-    <div className="space-y-10 px-8 py-8">
-      <div className="w-full space-y-10">
+    <div className="space-y-10">
+      <PageContentContainer mode="content" className="space-y-10">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Markets</h1>
           <p className="text-sm text-muted-foreground">
@@ -688,7 +689,7 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
           })}
         </div>
       </section>
-      </div>
+      </PageContentContainer>
         <DialogPrimitive.Root
           open={Boolean(manageMarketId)}
           onOpenChange={(open) => {

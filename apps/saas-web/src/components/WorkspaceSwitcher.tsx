@@ -36,7 +36,7 @@ export function WorkspaceSwitcher({
   }
 
   const handleCreateWorkspace = () => {
-    router.push('/onboarding')
+    router.push('/onboarding?create=1')
     setIsOpen(false)
   }
 

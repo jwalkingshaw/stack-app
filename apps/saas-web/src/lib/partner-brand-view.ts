@@ -6,6 +6,84 @@ import { supabaseServer } from "@/lib/supabase";
 
 type ScopeType = "organization" | "market" | "channel" | "collection";
 type ShareSetModuleKey = "assets" | "products";
+type PartnerGrantedAssetIdsResult = { foundationAvailable: boolean; assetIds: string[] };
+type PartnerGrantedProductIdsResult = { foundationAvailable: boolean; productIds: string[] };
+
+const parsedGrantCacheTtlMs = Number(process.env.PARTNER_GRANT_CACHE_TTL_MS);
+const PARTNER_GRANT_CACHE_TTL_MS =
+  Number.isFinite(parsedGrantCacheTtlMs) && parsedGrantCacheTtlMs > 0
+    ? parsedGrantCacheTtlMs
+    : 10_000;
+const parsedGrantCacheMaxKeys = Number(process.env.PARTNER_GRANT_CACHE_MAX_KEYS);
+const PARTNER_GRANT_CACHE_MAX_KEYS =
+  Number.isFinite(parsedGrantCacheMaxKeys) && parsedGrantCacheMaxKeys > 0
+    ? Math.floor(parsedGrantCacheMaxKeys)
+    : 500;
+
+const partnerGrantedAssetIdsCache = new Map<
+  string,
+  { expiresAt: number; value: PartnerGrantedAssetIdsResult }
+>();
+const partnerGrantedAssetIdsInFlight = new Map<
+  string,
+  Promise<PartnerGrantedAssetIdsResult>
+>();
+const partnerGrantedProductIdsCache = new Map<
+  string,
+  { expiresAt: number; value: PartnerGrantedProductIdsResult }
+>();
+const partnerGrantedProductIdsInFlight = new Map<
+  string,
+  Promise<PartnerGrantedProductIdsResult>
+>();
+
+function buildPartnerGrantCacheKey(
+  moduleKey: ShareSetModuleKey,
+  brandOrganizationId: string,
+  partnerOrganizationId: string
+): string {
+  return `${moduleKey}:${brandOrganizationId}:${partnerOrganizationId}`;
+}
+
+function prunePartnerGrantCache<T>(
+  cache: Map<string, { expiresAt: number; value: T }>
+): void {
+  if (cache.size <= PARTNER_GRANT_CACHE_MAX_KEYS) return;
+
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt <= now) {
+      cache.delete(key);
+    }
+  }
+  if (cache.size <= PARTNER_GRANT_CACHE_MAX_KEYS) return;
+
+  const overflow = cache.size - PARTNER_GRANT_CACHE_MAX_KEYS;
+  let removed = 0;
+  for (const key of cache.keys()) {
+    cache.delete(key);
+    removed += 1;
+    if (removed >= overflow) break;
+  }
+}
+
+function clonePartnerGrantedAssetIdsResult(
+  value: PartnerGrantedAssetIdsResult
+): PartnerGrantedAssetIdsResult {
+  return {
+    foundationAvailable: value.foundationAvailable,
+    assetIds: [...value.assetIds],
+  };
+}
+
+function clonePartnerGrantedProductIdsResult(
+  value: PartnerGrantedProductIdsResult
+): PartnerGrantedProductIdsResult {
+  return {
+    foundationAvailable: value.foundationAvailable,
+    productIds: [...value.productIds],
+  };
+}
 
 type OrganizationSummary = {
   id: string;
@@ -530,10 +608,10 @@ export async function resolveCollectionAssetIds(params: {
   return Array.from(assetIds);
 }
 
-export async function resolvePartnerGrantedAssetIds(params: {
+async function resolvePartnerGrantedAssetIdsUncached(params: {
   brandOrganizationId: string;
   partnerOrganizationId: string;
-}): Promise<{ foundationAvailable: boolean; assetIds: string[] }> {
+}): Promise<PartnerGrantedAssetIdsResult> {
   const shareSets = await resolveActivePartnerShareSetIds({
     brandOrganizationId: params.brandOrganizationId,
     partnerOrganizationId: params.partnerOrganizationId,
@@ -679,10 +757,47 @@ export async function resolvePartnerGrantedAssetIds(params: {
   return { foundationAvailable: true, assetIds: Array.from(assetIds) };
 }
 
-export async function resolvePartnerGrantedProductIds(params: {
+export async function resolvePartnerGrantedAssetIds(params: {
   brandOrganizationId: string;
   partnerOrganizationId: string;
-}): Promise<{ foundationAvailable: boolean; productIds: string[] }> {
+}): Promise<PartnerGrantedAssetIdsResult> {
+  const cacheKey = buildPartnerGrantCacheKey(
+    "assets",
+    params.brandOrganizationId,
+    params.partnerOrganizationId
+  );
+  const now = Date.now();
+  const cached = partnerGrantedAssetIdsCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return clonePartnerGrantedAssetIdsResult(cached.value);
+  }
+
+  const inFlight = partnerGrantedAssetIdsInFlight.get(cacheKey);
+  if (inFlight) {
+    return clonePartnerGrantedAssetIdsResult(await inFlight);
+  }
+
+  const computePromise = resolvePartnerGrantedAssetIdsUncached(params)
+    .then((result) => {
+      partnerGrantedAssetIdsCache.set(cacheKey, {
+        expiresAt: Date.now() + PARTNER_GRANT_CACHE_TTL_MS,
+        value: result,
+      });
+      prunePartnerGrantCache(partnerGrantedAssetIdsCache);
+      return result;
+    })
+    .finally(() => {
+      partnerGrantedAssetIdsInFlight.delete(cacheKey);
+    });
+
+  partnerGrantedAssetIdsInFlight.set(cacheKey, computePromise);
+  return clonePartnerGrantedAssetIdsResult(await computePromise);
+}
+
+async function resolvePartnerGrantedProductIdsUncached(params: {
+  brandOrganizationId: string;
+  partnerOrganizationId: string;
+}): Promise<PartnerGrantedProductIdsResult> {
   const shareSets = await resolveActivePartnerShareSetIds({
     brandOrganizationId: params.brandOrganizationId,
     partnerOrganizationId: params.partnerOrganizationId,
@@ -740,4 +855,41 @@ export async function resolvePartnerGrantedProductIds(params: {
   }
 
   return { foundationAvailable: true, productIds: Array.from(productIds) };
+}
+
+export async function resolvePartnerGrantedProductIds(params: {
+  brandOrganizationId: string;
+  partnerOrganizationId: string;
+}): Promise<PartnerGrantedProductIdsResult> {
+  const cacheKey = buildPartnerGrantCacheKey(
+    "products",
+    params.brandOrganizationId,
+    params.partnerOrganizationId
+  );
+  const now = Date.now();
+  const cached = partnerGrantedProductIdsCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return clonePartnerGrantedProductIdsResult(cached.value);
+  }
+
+  const inFlight = partnerGrantedProductIdsInFlight.get(cacheKey);
+  if (inFlight) {
+    return clonePartnerGrantedProductIdsResult(await inFlight);
+  }
+
+  const computePromise = resolvePartnerGrantedProductIdsUncached(params)
+    .then((result) => {
+      partnerGrantedProductIdsCache.set(cacheKey, {
+        expiresAt: Date.now() + PARTNER_GRANT_CACHE_TTL_MS,
+        value: result,
+      });
+      prunePartnerGrantCache(partnerGrantedProductIdsCache);
+      return result;
+    })
+    .finally(() => {
+      partnerGrantedProductIdsInFlight.delete(cacheKey);
+    });
+
+  partnerGrantedProductIdsInFlight.set(cacheKey, computePromise);
+  return clonePartnerGrantedProductIdsResult(await computePromise);
 }

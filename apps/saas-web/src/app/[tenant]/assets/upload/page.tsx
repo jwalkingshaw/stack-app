@@ -1,8 +1,25 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { Upload, X, Check, CheckCircle2, AlertCircle, Image as ImageIcon, Video, FileText, ArrowLeft, Loader2, ChevronDown, ChevronRight, Link2, Search } from "lucide-react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import {
+  Upload,
+  X,
+  Check,
+  CheckCircle2,
+  AlertCircle,
+  Image as ImageIcon,
+  Video,
+  FileText,
+  ArrowLeft,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  Link2,
+  Search,
+  SlidersHorizontal,
+  Undo2
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +28,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { consumeStagedAssetUploadFiles } from "@/lib/asset-upload-staging";
+import {
+  AuthoringScopePicker,
+  AuthoringScopeValue,
+  createGlobalAuthoringScope,
+  getAuthoringScopeSummary,
+  normalizeAuthoringScope,
+} from "@/components/scope/authoring-scope-picker";
 
 // Types
 
@@ -42,14 +67,24 @@ type ProductSelection = {
 
 type AssetMetadata = {
   name: string;
+  description: string;
   tags: string[];
   categories: string[];
   keywords: string[];
   usageGroupId?: string;
   productLinks: ProductSelection;
+  authoringScope: AuthoringScopeValue;
   autoSuggestedProductLinks?: boolean;
+  suggestedProductLinkConfidence?: number;
+  suggestedProductLinkReason?: string;
   appliesToChildren: boolean;
   folderId?: string | null;
+};
+
+type ProductLinkSuggestion = {
+  selection: ProductSelection;
+  confidence: number;
+  reason: string;
 };
 
 type AssetUpload = {
@@ -61,16 +96,20 @@ type AssetUpload = {
   error?: string;
   metadata: AssetMetadata;
   serverAssetId?: string;
+  dynamicSetMatches?: Array<{ id: string; name: string }>;
 };
 
 type AssetUploadRow = AssetUpload & {
   fileLabel?: string;
+  description?: string;
   usageGroupId?: string;
   tags?: string[];
   categories?: string[];
   keywords?: string[];
   productLinks?: ProductSelection;
+  authoringScope?: AuthoringScopeValue;
   appliesToChildren?: boolean;
+  validation?: string[];
   actions?: string;
 };
 
@@ -79,6 +118,38 @@ type FolderData = {
   name: string;
   path: string;
   parentId: string | null;
+};
+
+type UploadProfile = {
+  id: string;
+  label: string;
+  summary: string;
+  requirements: {
+    title: boolean;
+    description: boolean;
+    tags: boolean;
+    productLink: boolean;
+    usageGroup: boolean;
+  };
+};
+
+type BulkCollectionMode = "no-change" | "append" | "replace" | "clear";
+type BulkUsageGroupMode = "no-change" | "set" | "clear";
+type BulkProductMode = "no-change" | "replace" | "clear";
+type BulkInheritanceMode = "no-change" | "set-on" | "set-off";
+type BulkScopeMode = "no-change" | "set" | "add" | "clear";
+
+type BulkEditUndoSnapshot = {
+  assetIds: string[];
+  metadataByAssetId: Record<string, AssetMetadata>;
+  assetCount: number;
+  createdAt: number;
+};
+
+type BulkOperationSummaryItem = {
+  key: string;
+  label: string;
+  detail: string;
 };
 
 const USAGE_GROUP_OPTIONS = [
@@ -92,10 +163,114 @@ const USAGE_GROUP_OPTIONS = [
   { id: "regulatory", label: "Regulatory" }
 ];
 
+const AUTOMATION_USAGE_GROUP_RULES: Array<{ usageGroupId: string; keywords: string[] }> = [
+  { usageGroupId: "regulatory", keywords: ["coa", "legal", "regulatory", "compliance", "cert", "certificate", "msds"] },
+  { usageGroupId: "specifications", keywords: ["spec", "specification", "datasheet", "tech", "technical"] },
+  { usageGroupId: "marketing", keywords: ["marketing", "campaign", "social", "ad", "advert"] },
+  { usageGroupId: "packaging", keywords: ["pack", "packaging", "label", "carton"] },
+  { usageGroupId: "training", keywords: ["training", "manual", "guide", "howto", "how-to"] },
+  { usageGroupId: "sales", keywords: ["sales", "sellsheet", "sell-sheet", "linecard", "line-card"] },
+  { usageGroupId: "lifestyle", keywords: ["lifestyle", "ugc", "in-use", "inuse"] },
+];
+
+const UPLOAD_PROFILES: UploadProfile[] = [
+  {
+    id: "fast",
+    label: "Fast Upload",
+    summary: "Requires title only. Best for quick ingestion.",
+    requirements: {
+      title: true,
+      description: false,
+      tags: false,
+      productLink: false,
+      usageGroup: false,
+    },
+  },
+  {
+    id: "standard",
+    label: "Standard DAM",
+    summary: "Requires title, tags, product link, and usage group.",
+    requirements: {
+      title: true,
+      description: false,
+      tags: true,
+      productLink: true,
+      usageGroup: true,
+    },
+  },
+  {
+    id: "compliance",
+    label: "Compliance",
+    summary: "Requires title, description, tags, product link, and usage group.",
+    requirements: {
+      title: true,
+      description: true,
+      tags: true,
+      productLink: true,
+      usageGroup: true,
+    },
+  },
+];
+
 const createEmptySelection = (): ProductSelection => ({
   all: false,
   productIds: [],
   variantIdsByProduct: {}
+});
+
+const cloneProductSelection = (selection: ProductSelection): ProductSelection => ({
+  all: selection.all,
+  productIds: [...selection.productIds],
+  variantIdsByProduct: Object.fromEntries(
+    Object.entries(selection.variantIdsByProduct).map(([productId, variantIds]) => [productId, [...variantIds]])
+  )
+});
+
+const cloneAuthoringScopeValue = (scope: AuthoringScopeValue): AuthoringScopeValue => ({
+  mode: scope.mode,
+  marketIds: [...scope.marketIds],
+  channelIds: [...scope.channelIds],
+  localeIds: [...scope.localeIds],
+  destinationIds: [...scope.destinationIds],
+});
+
+const mergeAuthoringScopes = (
+  currentScope: AuthoringScopeValue,
+  incomingScope: AuthoringScopeValue
+): AuthoringScopeValue => {
+  const current = normalizeAuthoringScope(currentScope);
+  const incoming = normalizeAuthoringScope(incomingScope);
+
+  if (incoming.mode !== "scoped") {
+    return cloneAuthoringScopeValue(current);
+  }
+  if (current.mode !== "scoped") {
+    return cloneAuthoringScopeValue(incoming);
+  }
+
+  return normalizeAuthoringScope({
+    mode: "scoped",
+    marketIds: Array.from(new Set([...current.marketIds, ...incoming.marketIds])),
+    channelIds: Array.from(new Set([...current.channelIds, ...incoming.channelIds])),
+    localeIds: Array.from(new Set([...current.localeIds, ...incoming.localeIds])),
+    destinationIds: Array.from(new Set([...current.destinationIds, ...incoming.destinationIds])),
+  });
+};
+
+const cloneAssetMetadata = (metadata: AssetMetadata): AssetMetadata => ({
+  name: metadata.name,
+  description: metadata.description,
+  tags: [...metadata.tags],
+  categories: [...metadata.categories],
+  keywords: [...metadata.keywords],
+  usageGroupId: metadata.usageGroupId,
+  productLinks: cloneProductSelection(metadata.productLinks),
+  authoringScope: cloneAuthoringScopeValue(normalizeAuthoringScope(metadata.authoringScope)),
+  autoSuggestedProductLinks: metadata.autoSuggestedProductLinks,
+  suggestedProductLinkConfidence: metadata.suggestedProductLinkConfidence,
+  suggestedProductLinkReason: metadata.suggestedProductLinkReason,
+  appliesToChildren: metadata.appliesToChildren,
+  folderId: metadata.folderId
 });
 
 const splitTokens = (value: string) =>
@@ -110,6 +285,32 @@ const formatFileSize = (bytes: number) => {
   const order = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
   const size = bytes / Math.pow(1024, order);
   return `${size.toFixed(order === 0 ? 0 : 1)} ${units[order]}`;
+};
+
+const applyCollectionMode = (params: {
+  current: string[];
+  mode: BulkCollectionMode;
+  input: string;
+}): string[] => {
+  const { current, mode, input } = params;
+  if (mode === "no-change") return current;
+  if (mode === "clear") return [];
+
+  const tokens = splitTokens(input);
+  if (mode === "replace") {
+    return Array.from(new Set(tokens));
+  }
+  if (mode === "append") {
+    return Array.from(new Set([...current, ...tokens]));
+  }
+  return current;
+};
+
+const formatCollectionModeLabel = (mode: BulkCollectionMode): string => {
+  if (mode === "append") return "Append";
+  if (mode === "replace") return "Replace";
+  if (mode === "clear") return "Clear";
+  return "No change";
 };
 
 const hasProductSelection = (selection: ProductSelection) => {
@@ -132,6 +333,71 @@ const formatProductSummary = (selection: ProductSelection) => {
   return parentText || variantText;
 };
 
+const formatSuggestionConfidence = (confidence?: number): string => {
+  if (typeof confidence !== "number" || Number.isNaN(confidence)) {
+    return "Suggested";
+  }
+  const percent = Math.max(0, Math.min(100, Math.round(confidence * 100)));
+  const band = percent >= 90 ? "High" : percent >= 70 ? "Medium" : "Low";
+  return `Suggested ${band} (${percent}%)`;
+};
+
+const getUsageGroupLabel = (usageGroupId?: string): string => {
+  if (!usageGroupId) return "Unknown";
+  return USAGE_GROUP_OPTIONS.find((option) => option.id === usageGroupId)?.label || usageGroupId;
+};
+
+const deriveUsageGroupSuggestion = (asset: AssetUpload): string | undefined => {
+  if (asset.metadata.usageGroupId) return undefined;
+
+  const haystack = [
+    asset.metadata.name,
+    ...asset.metadata.tags,
+    ...asset.metadata.categories,
+    ...asset.metadata.keywords,
+    asset.file.type
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (!haystack.trim()) return undefined;
+
+  for (const rule of AUTOMATION_USAGE_GROUP_RULES) {
+    if (rule.keywords.some((keyword) => haystack.includes(keyword))) {
+      return rule.usageGroupId;
+    }
+  }
+
+  if (asset.file.type === "application/pdf") {
+    return "regulatory";
+  }
+
+  return undefined;
+};
+
+const getValidationIssues = (asset: AssetUpload, profile: UploadProfile): string[] => {
+  const issues: string[] = [];
+  const { requirements } = profile;
+
+  if (requirements.title && !asset.metadata.name.trim()) {
+    issues.push("Missing title");
+  }
+  if (requirements.description && !asset.metadata.description.trim()) {
+    issues.push("Missing description");
+  }
+  if (requirements.tags && asset.metadata.tags.length === 0) {
+    issues.push("Missing tags");
+  }
+  if (requirements.productLink && !hasProductSelection(asset.metadata.productLinks)) {
+    issues.push("Missing product");
+  }
+  if (requirements.usageGroup && !asset.metadata.usageGroupId) {
+    issues.push("Missing usage group");
+  }
+
+  return issues;
+};
+
 const normalizeForMatch = (value: string) =>
   value
     .toLowerCase()
@@ -141,38 +407,73 @@ const normalizeForMatch = (value: string) =>
 const suggestProductLinksFromFilename = (
   filename: string,
   products: ProductSummary[]
-): ProductSelection | null => {
+): ProductLinkSuggestion | null => {
   const normalized = normalizeForMatch(filename);
   if (!normalized) return null;
 
   let best: ProductSummary | null = null;
   let bestScore = 0;
+  let bestReason = "";
 
   for (const product of products) {
     let score = 0;
+    let reason = "";
     const sku = normalizeForMatch(product.sku || "");
     const name = normalizeForMatch(product.productName || "");
+    const isVariant = Boolean(product.parentId);
 
-    if (sku && normalized.includes(sku)) score += 10;
+    if (sku && normalized.includes(sku)) {
+      score += isVariant ? 12 : 10;
+      reason = isVariant ? "Filename matched variant SKU" : "Filename matched parent SKU";
+    }
 
     if (name) {
       const parts = name.split(" ").filter((part) => part.length >= 4);
       const matchedPartCount = parts.filter((part) => normalized.includes(part)).length;
-      score += Math.min(4, matchedPartCount);
+      score += Math.min(isVariant ? 5 : 4, matchedPartCount);
+      if (!reason && matchedPartCount > 0) {
+        reason = `Filename matched ${matchedPartCount} ${isVariant ? "variant" : "product"} name token${matchedPartCount === 1 ? "" : "s"}`;
+      }
     }
 
     if (score > bestScore) {
       best = product;
       bestScore = score;
+      bestReason = reason;
     }
   }
 
   if (!best || bestScore < 3) return null;
 
+  let confidence = 0.55;
+  if (bestScore >= 12) {
+    confidence = 0.96;
+  } else if (bestScore >= 10) {
+    confidence = 0.92;
+  } else if (bestScore >= 7) {
+    confidence = 0.8;
+  } else if (bestScore >= 4) {
+    confidence = 0.68;
+  }
+
+  const selection: ProductSelection = best.parentId
+    ? {
+        all: false,
+        productIds: [],
+        variantIdsByProduct: {
+          [best.parentId]: [best.id]
+        }
+      }
+    : {
+        all: false,
+        productIds: [best.id],
+        variantIdsByProduct: {}
+      };
+
   return {
-    all: false,
-    productIds: [best.id],
-    variantIdsByProduct: {}
+    selection,
+    confidence,
+    reason: bestReason || "Filename similarity match"
   };
 };
 
@@ -275,9 +576,9 @@ const TagInput = ({ value, onChange, placeholder, ariaLabel }: {
   };
 
   return (
-    <div className="flex min-h-[36px] flex-wrap items-center gap-1 rounded-md border border-input bg-background px-2 py-1 text-xs">
+    <div className="flex min-h-8 flex-wrap items-center gap-1 rounded-md border border-input bg-background px-2 py-1 text-xs">
       {value.map((token) => (
-        <Badge key={token} variant="secondary" className="flex items-center gap-1 text-[11px]">
+        <Badge key={token} variant="secondary" className="flex items-center gap-1 px-2 py-0.5 text-xs">
           {token}
           <button
             type="button"
@@ -376,7 +677,7 @@ const ProductLinkDialog = ({
 
         <div className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            Tip: select a parent product, then keep <strong>Applies to Children</strong> on to auto-link its variants on upload.
+            Tip: select a parent product, then keep <strong>Applies to Children</strong> on to auto-link current variants and future variants created under that parent.
           </p>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -486,10 +787,11 @@ const ProductLinkDialog = ({
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" className="h-8 px-3 text-sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
+            className="h-8 px-3 text-sm"
             onClick={() => {
               onApply?.();
               onOpenChange(false);
@@ -505,7 +807,12 @@ const ProductLinkDialog = ({
 export default function ModernUploadPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const tenantSlug = params.tenant as string;
+  const initialFolderParam = searchParams.get("folderId");
+  const initialFolderId =
+    initialFolderParam && initialFolderParam !== "none" ? initialFolderParam : null;
+  const stagedUploadToken = searchParams.get("uploadToken");
 
   const [assets, setAssets] = useState<AssetUpload[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -514,19 +821,52 @@ export default function ModernUploadPage() {
   const [variantsByProductId, setVariantsByProductId] = useState<Record<string, VariantSummary[]>>({});
   const [variantsLoadingByProductId, setVariantsLoadingByProductId] = useState<Record<string, boolean>>({});
   const [folders, setFolders] = useState<FolderData[]>([]);
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(initialFolderId);
   const [activeProductDialogId, setActiveProductDialogId] = useState<string | null>(null);
+  const [activeScopeDialogId, setActiveScopeDialogId] = useState<string | null>(null);
+  const [bulkEditorOpen, setBulkEditorOpen] = useState(false);
   const [bulkProductDialogOpen, setBulkProductDialogOpen] = useState(false);
+  const [bulkUsageGroupMode, setBulkUsageGroupMode] = useState<BulkUsageGroupMode>("no-change");
   const [bulkProductSelection, setBulkProductSelection] = useState<ProductSelection>(createEmptySelection());
+  const [bulkProductMode, setBulkProductMode] = useState<BulkProductMode>("no-change");
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+  const [bulkTagsMode, setBulkTagsMode] = useState<BulkCollectionMode>("no-change");
   const [bulkUsageGroupId, setBulkUsageGroupId] = useState("");
   const [bulkTags, setBulkTags] = useState("");
+  const [bulkCategoriesMode, setBulkCategoriesMode] = useState<BulkCollectionMode>("no-change");
   const [bulkCategories, setBulkCategories] = useState("");
+  const [bulkKeywordsMode, setBulkKeywordsMode] = useState<BulkCollectionMode>("no-change");
   const [bulkKeywords, setBulkKeywords] = useState("");
-  const [bulkAppliesToChildren, setBulkAppliesToChildren] = useState<"no-change" | "on" | "off">("no-change");
+  const [bulkInheritanceMode, setBulkInheritanceMode] = useState<BulkInheritanceMode>("no-change");
+  const [bulkScopeMode, setBulkScopeMode] = useState<BulkScopeMode>("no-change");
+  const [bulkScopeValue, setBulkScopeValue] = useState<AuthoringScopeValue>(createGlobalAuthoringScope());
+  const [lastBulkEditSnapshot, setLastBulkEditSnapshot] = useState<BulkEditUndoSnapshot | null>(null);
   const [productError, setProductError] = useState<string | null>(null);
   const [savingState, setSavingState] = useState<Record<string, "idle" | "saving" | "error">>({});
+  const [selectedUploadProfileId, setSelectedUploadProfileId] = useState<string>("standard");
+  const [uploadAuthoringScope, setUploadAuthoringScope] = useState<AuthoringScopeValue>(
+    createGlobalAuthoringScope()
+  );
+  const assetsRef = useRef<AssetUpload[]>([]);
   const saveTimers = useRef<Record<string, NodeJS.Timeout>>({});
+  const stagedUploadTokenRef = useRef<string | null>(null);
+  const activeUploadProfile = useMemo(
+    () => UPLOAD_PROFILES.find((profile) => profile.id === selectedUploadProfileId) || UPLOAD_PROFILES[1],
+    [selectedUploadProfileId]
+  );
+
+  useEffect(() => {
+    assetsRef.current = assets;
+  }, [assets]);
+
+  useEffect(
+    () => () => {
+      for (const timer of Object.values(saveTimers.current)) {
+        clearTimeout(timer);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (!tenantSlug) return;
@@ -578,15 +918,17 @@ export default function ModernUploadPage() {
         }
         const suggested = suggestProductLinksFromFilename(
           asset.file.name,
-          products.filter((product) => !product.parentId)
+          products
         );
         if (!suggested) return asset;
         return {
           ...asset,
           metadata: {
             ...asset.metadata,
-            productLinks: suggested,
+            productLinks: suggested.selection,
             autoSuggestedProductLinks: true,
+            suggestedProductLinkConfidence: suggested.confidence,
+            suggestedProductLinkReason: suggested.reason,
           },
         };
       })
@@ -622,6 +964,21 @@ export default function ModernUploadPage() {
   );
 
   const selectedCount = selectedAssetIds.size;
+  const selectedAssetIdsArray = useMemo(() => Array.from(selectedAssetIds), [selectedAssetIds]);
+  const selectedUploadedCount = useMemo(
+    () => assets.filter((asset) => selectedAssetIds.has(asset.id) && Boolean(asset.serverAssetId)).length,
+    [assets, selectedAssetIds]
+  );
+  const selectedAutomationSuggestionCount = useMemo(
+    () =>
+      assets.filter(
+        (asset) =>
+          selectedAssetIds.has(asset.id) &&
+          !asset.metadata.usageGroupId &&
+          Boolean(deriveUsageGroupSuggestion(asset))
+      ).length,
+    [assets, selectedAssetIds]
+  );
 
   const toggleSelectAll = () => {
     if (selectedAssetIds.size === assets.length) {
@@ -647,8 +1004,46 @@ export default function ModernUploadPage() {
     setSelectedAssetIds(new Set());
   };
 
+  const applyAuthoringScopeToQueuedAssets = useCallback((scope: AuthoringScopeValue) => {
+    const normalizedScope = normalizeAuthoringScope(scope);
+    setUploadAuthoringScope(cloneAuthoringScopeValue(normalizedScope));
+
+    setAssets((prev) =>
+      prev.map((asset) =>
+        asset.status === "completed"
+          ? asset
+          : {
+              ...asset,
+              metadata: {
+                ...asset.metadata,
+                authoringScope: cloneAuthoringScopeValue(normalizedScope),
+              },
+            }
+      )
+    );
+  }, []);
+
+  const resetBulkEditorForm = () => {
+    setBulkUsageGroupMode("no-change");
+    setBulkUsageGroupId("");
+    setBulkTagsMode("no-change");
+    setBulkTags("");
+    setBulkCategoriesMode("no-change");
+    setBulkCategories("");
+    setBulkKeywordsMode("no-change");
+    setBulkKeywords("");
+    setBulkProductMode("no-change");
+    setBulkProductSelection(createEmptySelection());
+    setBulkInheritanceMode("no-change");
+    setBulkScopeMode("no-change");
+    setBulkScopeValue(createGlobalAuthoringScope());
+  };
+
   const applyFolderToAssets = (folderId: string | null) => {
     setSelectedFolderId(folderId);
+    const uploadedAssetIds = assetsRef.current
+      .filter((asset) => Boolean(asset.serverAssetId))
+      .map((asset) => asset.id);
     setAssets((prev) =>
       prev.map((asset) => ({
         ...asset,
@@ -658,42 +1053,342 @@ export default function ModernUploadPage() {
         }
       }))
     );
-    assets.forEach((asset) => {
-      if (asset.serverAssetId) {
-        scheduleSave(asset.id);
-      }
-    });
+    uploadedAssetIds.forEach((assetId) => scheduleSave(assetId));
   };
 
-  const applyBulkValues = () => {
-    const tags = splitTokens(bulkTags);
-    const categories = splitTokens(bulkCategories);
-    const keywords = splitTokens(bulkKeywords);
-    const shouldApplyProducts = hasProductSelection(bulkProductSelection);
+  const applyAutomationSuggestionsToSelected = () => {
+    const selectedSet = new Set(selectedAssetIdsArray);
+    const selectedAssets = assetsRef.current.filter((asset) => selectedSet.has(asset.id));
+    if (selectedAssets.length === 0) return;
 
+    const metadataByAssetId: Record<string, AssetMetadata> = {};
+    const changedAssetIds: string[] = [];
+    for (const asset of selectedAssets) {
+      metadataByAssetId[asset.id] = cloneAssetMetadata(asset.metadata);
+      if (!asset.metadata.usageGroupId && deriveUsageGroupSuggestion(asset)) {
+        changedAssetIds.push(asset.id);
+      }
+    }
+    if (changedAssetIds.length === 0) return;
+
+    setLastBulkEditSnapshot({
+      assetIds: selectedAssetIdsArray,
+      metadataByAssetId,
+      assetCount: selectedAssets.length,
+      createdAt: Date.now()
+    });
+
+    const changedSet = new Set(changedAssetIds);
     setAssets((prev) =>
       prev.map((asset) => {
-        if (!selectedAssetIds.has(asset.id)) return asset;
+        if (!changedSet.has(asset.id)) return asset;
+        const suggestedUsageGroupId = deriveUsageGroupSuggestion(asset);
+        if (!suggestedUsageGroupId) return asset;
         return {
           ...asset,
           metadata: {
             ...asset.metadata,
-            usageGroupId: bulkUsageGroupId || asset.metadata.usageGroupId,
-            tags: tags.length > 0 ? tags : asset.metadata.tags,
-            categories: categories.length > 0 ? categories : asset.metadata.categories,
-            keywords: keywords.length > 0 ? keywords : asset.metadata.keywords,
-            productLinks: shouldApplyProducts ? bulkProductSelection : asset.metadata.productLinks,
-            autoSuggestedProductLinks: shouldApplyProducts ? false : asset.metadata.autoSuggestedProductLinks,
-            appliesToChildren:
-              bulkAppliesToChildren === "no-change"
-                ? asset.metadata.appliesToChildren
-                : bulkAppliesToChildren === "on"
-                  ? true
-                  : false
+            usageGroupId: suggestedUsageGroupId
           }
         };
       })
     );
+
+    const uploadedChangedAssetIds = assetsRef.current
+      .filter((asset) => changedSet.has(asset.id) && Boolean(asset.serverAssetId))
+      .map((asset) => asset.id);
+    uploadedChangedAssetIds.forEach((assetId) => {
+      scheduleSave(assetId);
+    });
+  };
+
+  const canApplyBulkEdit = useMemo(() => {
+    if (selectedAssetIdsArray.length === 0) return false;
+    const hasAnyOperation =
+      bulkUsageGroupMode !== "no-change" ||
+      bulkTagsMode !== "no-change" ||
+      bulkCategoriesMode !== "no-change" ||
+      bulkKeywordsMode !== "no-change" ||
+      bulkProductMode !== "no-change" ||
+      bulkInheritanceMode !== "no-change" ||
+      bulkScopeMode !== "no-change";
+
+    if (!hasAnyOperation) return false;
+    if (bulkUsageGroupMode === "set" && !bulkUsageGroupId) return false;
+    if ((bulkTagsMode === "append" || bulkTagsMode === "replace") && splitTokens(bulkTags).length === 0) {
+      return false;
+    }
+    if (
+      (bulkCategoriesMode === "append" || bulkCategoriesMode === "replace") &&
+      splitTokens(bulkCategories).length === 0
+    ) {
+      return false;
+    }
+    if ((bulkKeywordsMode === "append" || bulkKeywordsMode === "replace") && splitTokens(bulkKeywords).length === 0) {
+      return false;
+    }
+    if (bulkProductMode === "replace" && !hasProductSelection(bulkProductSelection)) {
+      return false;
+    }
+    if (bulkScopeMode === "add") {
+      const normalizedScope = normalizeAuthoringScope(bulkScopeValue);
+      const hasScopedDimensions =
+        normalizedScope.mode === "scoped" &&
+        (normalizedScope.marketIds.length > 0 ||
+          normalizedScope.channelIds.length > 0 ||
+          normalizedScope.localeIds.length > 0 ||
+          normalizedScope.destinationIds.length > 0);
+      if (!hasScopedDimensions) return false;
+    }
+    return true;
+  }, [
+    selectedAssetIdsArray,
+    bulkUsageGroupMode,
+    bulkUsageGroupId,
+    bulkTagsMode,
+    bulkTags,
+    bulkCategoriesMode,
+    bulkCategories,
+    bulkKeywordsMode,
+    bulkKeywords,
+    bulkProductMode,
+    bulkProductSelection,
+    bulkInheritanceMode,
+    bulkScopeMode,
+    bulkScopeValue
+  ]);
+
+  const bulkOperationSummary = useMemo<BulkOperationSummaryItem[]>(() => {
+    const items: BulkOperationSummaryItem[] = [];
+
+    if (bulkUsageGroupMode === "set" && bulkUsageGroupId) {
+      const option = USAGE_GROUP_OPTIONS.find((entry) => entry.id === bulkUsageGroupId);
+      items.push({
+        key: "usageGroup",
+        label: "Usage group",
+        detail: `Set to ${option?.label || bulkUsageGroupId}`,
+      });
+    } else if (bulkUsageGroupMode === "clear") {
+      items.push({
+        key: "usageGroup",
+        label: "Usage group",
+        detail: "Clear value",
+      });
+    }
+
+    if (bulkTagsMode !== "no-change") {
+      const tokenCount = splitTokens(bulkTags).length;
+      items.push({
+        key: "tags",
+        label: "Tags",
+        detail:
+          bulkTagsMode === "clear"
+            ? "Clear all tags"
+            : `${formatCollectionModeLabel(bulkTagsMode)} ${tokenCount} tag${tokenCount === 1 ? "" : "s"}`,
+      });
+    }
+
+    if (bulkCategoriesMode !== "no-change") {
+      const tokenCount = splitTokens(bulkCategories).length;
+      items.push({
+        key: "categories",
+        label: "Categories",
+        detail:
+          bulkCategoriesMode === "clear"
+            ? "Clear all categories"
+            : `${formatCollectionModeLabel(bulkCategoriesMode)} ${tokenCount} categor${tokenCount === 1 ? "y" : "ies"}`,
+      });
+    }
+
+    if (bulkKeywordsMode !== "no-change") {
+      const tokenCount = splitTokens(bulkKeywords).length;
+      items.push({
+        key: "keywords",
+        label: "Keywords",
+        detail:
+          bulkKeywordsMode === "clear"
+            ? "Clear all keywords"
+            : `${formatCollectionModeLabel(bulkKeywordsMode)} ${tokenCount} keyword${tokenCount === 1 ? "" : "s"}`,
+      });
+    }
+
+    if (bulkProductMode === "replace") {
+      items.push({
+        key: "products",
+        label: "Product links",
+        detail: `Replace with ${formatProductSummary(bulkProductSelection)}`,
+      });
+    } else if (bulkProductMode === "clear") {
+      items.push({
+        key: "products",
+        label: "Product links",
+        detail: "Clear all product links",
+      });
+    }
+
+    if (bulkInheritanceMode === "set-on") {
+      items.push({
+        key: "inheritance",
+        label: "Inheritance",
+        detail: "Set to apply to children",
+      });
+    } else if (bulkInheritanceMode === "set-off") {
+      items.push({
+        key: "inheritance",
+        label: "Inheritance",
+        detail: "Set to not apply to children",
+      });
+    }
+
+    if (bulkScopeMode === "set") {
+      items.push({
+        key: "scope",
+        label: "Authoring scope",
+        detail: `Set to ${getAuthoringScopeSummary(bulkScopeValue)}`,
+      });
+    } else if (bulkScopeMode === "add") {
+      items.push({
+        key: "scope",
+        label: "Authoring scope",
+        detail: `Add ${getAuthoringScopeSummary(bulkScopeValue)}`,
+      });
+    } else if (bulkScopeMode === "clear") {
+      items.push({
+        key: "scope",
+        label: "Authoring scope",
+        detail: "Clear to Global",
+      });
+    }
+
+    return items;
+  }, [
+    bulkUsageGroupMode,
+    bulkUsageGroupId,
+    bulkTagsMode,
+    bulkTags,
+    bulkCategoriesMode,
+    bulkCategories,
+    bulkKeywordsMode,
+    bulkKeywords,
+    bulkProductMode,
+    bulkProductSelection,
+    bulkInheritanceMode,
+    bulkScopeMode,
+    bulkScopeValue
+  ]);
+
+  const applyBulkValues = () => {
+    if (!canApplyBulkEdit) return;
+    const selectedSet = new Set(selectedAssetIdsArray);
+    const selectedAssets = assetsRef.current.filter((asset) => selectedSet.has(asset.id));
+    if (selectedAssets.length === 0) return;
+
+    const metadataByAssetId: Record<string, AssetMetadata> = {};
+    for (const asset of selectedAssets) {
+      metadataByAssetId[asset.id] = cloneAssetMetadata(asset.metadata);
+    }
+    setLastBulkEditSnapshot({
+      assetIds: selectedAssetIdsArray,
+      metadataByAssetId,
+      assetCount: selectedAssets.length,
+      createdAt: Date.now()
+    });
+
+    setAssets((prev) =>
+      prev.map((asset) => {
+        if (!selectedSet.has(asset.id)) return asset;
+        let nextMetadata = cloneAssetMetadata(asset.metadata);
+
+        if (bulkUsageGroupMode === "set" && bulkUsageGroupId) {
+          nextMetadata.usageGroupId = bulkUsageGroupId;
+        } else if (bulkUsageGroupMode === "clear") {
+          nextMetadata.usageGroupId = undefined;
+        }
+
+        nextMetadata.tags = applyCollectionMode({
+          current: nextMetadata.tags,
+          mode: bulkTagsMode,
+          input: bulkTags
+        });
+        nextMetadata.categories = applyCollectionMode({
+          current: nextMetadata.categories,
+          mode: bulkCategoriesMode,
+          input: bulkCategories
+        });
+        nextMetadata.keywords = applyCollectionMode({
+          current: nextMetadata.keywords,
+          mode: bulkKeywordsMode,
+          input: bulkKeywords
+        });
+
+        if (bulkProductMode === "replace") {
+          nextMetadata.productLinks = cloneProductSelection(bulkProductSelection);
+          nextMetadata.autoSuggestedProductLinks = false;
+          nextMetadata.suggestedProductLinkConfidence = undefined;
+          nextMetadata.suggestedProductLinkReason = undefined;
+        } else if (bulkProductMode === "clear") {
+          nextMetadata.productLinks = createEmptySelection();
+          nextMetadata.autoSuggestedProductLinks = false;
+          nextMetadata.suggestedProductLinkConfidence = undefined;
+          nextMetadata.suggestedProductLinkReason = undefined;
+        }
+
+        if (bulkInheritanceMode === "set-on") {
+          nextMetadata.appliesToChildren = true;
+        } else if (bulkInheritanceMode === "set-off") {
+          nextMetadata.appliesToChildren = false;
+        }
+
+        if (bulkScopeMode === "set") {
+          nextMetadata.authoringScope = cloneAuthoringScopeValue(normalizeAuthoringScope(bulkScopeValue));
+        } else if (bulkScopeMode === "add") {
+          nextMetadata.authoringScope = mergeAuthoringScopes(nextMetadata.authoringScope, bulkScopeValue);
+        } else if (bulkScopeMode === "clear") {
+          nextMetadata.authoringScope = createGlobalAuthoringScope();
+        }
+
+        return {
+          ...asset,
+          metadata: nextMetadata
+        };
+      })
+    );
+
+    const selectedUploadedAssetIds = assetsRef.current
+      .filter((asset) => selectedSet.has(asset.id) && Boolean(asset.serverAssetId))
+      .map((asset) => asset.id);
+    selectedUploadedAssetIds.forEach((assetId) => {
+      scheduleSave(assetId);
+    });
+
+    setBulkEditorOpen(false);
+    resetBulkEditorForm();
+  };
+
+  const undoLastBulkEdit = () => {
+    if (!lastBulkEditSnapshot) return;
+    const snapshot = lastBulkEditSnapshot;
+    const selectedSet = new Set(snapshot.assetIds);
+
+    setAssets((prev) =>
+      prev.map((asset) => {
+        const previousMetadata = snapshot.metadataByAssetId[asset.id];
+        if (!previousMetadata) return asset;
+        return {
+          ...asset,
+          metadata: cloneAssetMetadata(previousMetadata)
+        };
+      })
+    );
+
+    const uploadedAssetIds = assetsRef.current
+      .filter((asset) => selectedSet.has(asset.id) && Boolean(asset.serverAssetId))
+      .map((asset) => asset.id);
+    uploadedAssetIds.forEach((assetId) => {
+      scheduleSave(assetId);
+    });
+
+    setLastBulkEditSnapshot(null);
   };
 
   const updateAssetMetadata = (assetId: string, updates: Partial<AssetMetadata>) => {
@@ -706,7 +1401,13 @@ export default function ModernUploadPage() {
                 ...asset.metadata,
                 ...updates,
                 autoSuggestedProductLinks:
-                  updates.productLinks !== undefined ? false : asset.metadata.autoSuggestedProductLinks
+                  updates.productLinks !== undefined ? false : asset.metadata.autoSuggestedProductLinks,
+                suggestedProductLinkConfidence:
+                  updates.productLinks !== undefined
+                    ? undefined
+                    : asset.metadata.suggestedProductLinkConfidence,
+                suggestedProductLinkReason:
+                  updates.productLinks !== undefined ? undefined : asset.metadata.suggestedProductLinkReason
               }
             }
           : asset
@@ -720,39 +1421,54 @@ export default function ModernUploadPage() {
       clearTimeout(saveTimers.current[assetId]);
     }
     saveTimers.current[assetId] = setTimeout(() => {
-      saveAsset(assetId);
+      void saveAsset(assetId);
     }, 600);
   };
 
   const saveAsset = async (assetId: string) => {
-    const asset = assets.find((a) => a.id === assetId);
+    const asset = assetsRef.current.find((a) => a.id === assetId);
     if (!asset || !asset.serverAssetId) return;
 
     setSavingState((prev) => ({ ...prev, [assetId]: "saving" }));
     try {
+      const payload: Record<string, unknown> = {
+        description: asset.metadata.description || null,
+        usageGroupId: asset.metadata.usageGroupId ?? null,
+        keywords: asset.metadata.keywords,
+        tags: asset.metadata.tags,
+        categories: asset.metadata.categories,
+        folderId: asset.metadata.folderId ?? null,
+        productLinks: asset.metadata.productLinks,
+        authoringScope: asset.metadata.authoringScope,
+        appliesToChildren: asset.metadata.appliesToChildren,
+        autoSuggestedProductLinks: asset.metadata.autoSuggestedProductLinks ?? false,
+        suggestedProductLinkConfidence: asset.metadata.suggestedProductLinkConfidence ?? null,
+        suggestedProductLinkReason: asset.metadata.suggestedProductLinkReason ?? null
+      };
+      const trimmedFilename = asset.metadata.name.trim();
+      if (trimmedFilename.length > 0) {
+        payload.filename = trimmedFilename;
+      }
+
       const response = await fetch(`/api/${tenantSlug}/assets/${asset.serverAssetId}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          name: asset.metadata.name,
-          usageGroupId: asset.metadata.usageGroupId ?? null,
-          keywords: asset.metadata.keywords,
-          tags: asset.metadata.tags,
-          categories: asset.metadata.categories,
-          folderId: asset.metadata.folderId ?? null
-        })
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to auto-save (${response.status})`);
+        const errorBody = await response.text();
+        throw new Error(`Failed to auto-save (${response.status}): ${errorBody || "Unknown error"}`);
       }
 
       setSavingState((prev) => ({ ...prev, [assetId]: "idle" }));
     } catch (error) {
-      console.error("Auto-save failed", error);
+      console.error("Auto-save failed", { assetId, error });
       setSavingState((prev) => ({ ...prev, [assetId]: "error" }));
+    } finally {
+      delete saveTimers.current[assetId];
     }
   };
 
@@ -787,11 +1503,12 @@ export default function ModernUploadPage() {
     handleFilesAdded(files);
   };
 
-  const handleFilesAdded = (files: File[]) => {
+  const handleFilesAdded = (files: File[], folderOverride?: string | null) => {
+    const targetFolderId = folderOverride === undefined ? selectedFolderId : folderOverride;
     const newAssets: AssetUpload[] = files.map((file) => {
-      const suggestedProductLinks = suggestProductLinksFromFilename(
+      const suggestedProductLink = suggestProductLinksFromFilename(
         file.name,
-        products.filter((product) => !product.parentId)
+        products
       );
       return {
         id: `${Date.now()}-${Math.random().toString(36).substring(2)}`,
@@ -800,14 +1517,18 @@ export default function ModernUploadPage() {
         progress: 0,
         metadata: {
           name: file.name.split(".").slice(0, -1).join(".") || file.name,
+          description: "",
           tags: [],
           categories: [],
           keywords: [],
           usageGroupId: undefined,
-          productLinks: suggestedProductLinks || createEmptySelection(),
-          autoSuggestedProductLinks: Boolean(suggestedProductLinks),
+          productLinks: suggestedProductLink?.selection || createEmptySelection(),
+          authoringScope: cloneAuthoringScopeValue(uploadAuthoringScope),
+          autoSuggestedProductLinks: Boolean(suggestedProductLink),
+          suggestedProductLinkConfidence: suggestedProductLink?.confidence,
+          suggestedProductLinkReason: suggestedProductLink?.reason,
           appliesToChildren: true,
-          folderId: selectedFolderId
+          folderId: targetFolderId
         }
       };
     });
@@ -823,8 +1544,33 @@ export default function ModernUploadPage() {
     });
 
     setAssets((prev) => [...prev, ...newAssets]);
-    setTimeout(() => startUploading(newAssets), 300);
+    const readyAssets = newAssets.filter(
+      (asset) => getValidationIssues(asset, activeUploadProfile).length === 0
+    );
+    if (readyAssets.length > 0) {
+      setTimeout(() => {
+        void startUploading(readyAssets);
+      }, 300);
+    }
   };
+
+  useEffect(() => {
+    if (!stagedUploadToken) return;
+    if (stagedUploadTokenRef.current === stagedUploadToken) return;
+
+    stagedUploadTokenRef.current = stagedUploadToken;
+
+    const stagedFiles = consumeStagedAssetUploadFiles(stagedUploadToken);
+    if (stagedFiles.length > 0) {
+      setSelectedFolderId(initialFolderId);
+      handleFilesAdded(stagedFiles, initialFolderId);
+    }
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("uploadToken");
+    const nextQuery = nextParams.toString();
+    router.replace(`/${tenantSlug}/assets/upload${nextQuery ? `?${nextQuery}` : ""}`);
+  }, [handleFilesAdded, initialFolderId, router, searchParams, stagedUploadToken, tenantSlug]);
 
   const uploadAsset = async (asset: AssetUpload) => {
     const formData = new FormData();
@@ -833,13 +1579,19 @@ export default function ModernUploadPage() {
       "metadata",
       JSON.stringify({
         name: asset.metadata.name,
+        description: asset.metadata.description,
         tags: asset.metadata.tags,
         categories: asset.metadata.categories,
         keywords: asset.metadata.keywords,
         usageGroupId: asset.metadata.usageGroupId,
         productLinks: asset.metadata.productLinks,
+        authoringScope: asset.metadata.authoringScope,
         appliesToChildren: asset.metadata.appliesToChildren,
-        folderId: asset.metadata.folderId ?? null
+        autoSuggestedProductLinks: asset.metadata.autoSuggestedProductLinks ?? false,
+        suggestedProductLinkConfidence: asset.metadata.suggestedProductLinkConfidence ?? null,
+        suggestedProductLinkReason: asset.metadata.suggestedProductLinkReason ?? null,
+        folderId: asset.metadata.folderId ?? null,
+        uploadProfileId: selectedUploadProfileId
       })
     );
 
@@ -854,6 +1606,9 @@ export default function ModernUploadPage() {
       try {
         const errorJson = JSON.parse(errorText);
         errorMessage = errorJson.error || errorMessage;
+        if (Array.isArray(errorJson.validationIssues) && errorJson.validationIssues.length > 0) {
+          errorMessage = `${errorMessage}: ${errorJson.validationIssues.join(", ")}`;
+        }
       } catch {
         errorMessage = `Upload failed (${response.status})`;
       }
@@ -865,32 +1620,65 @@ export default function ModernUploadPage() {
   };
 
   const startUploading = async (assetsToUpload: AssetUpload[]) => {
+    if (isUploading) return;
+    if (!assetsToUpload || assetsToUpload.length === 0) return;
     setIsUploading(true);
 
-    for (const asset of assetsToUpload) {
-      try {
-        setAssets((prev) => prev.map((a) => (a.id === asset.id ? { ...a, status: "uploading" } : a)));
+    const uploadQueue = [...assetsToUpload];
+    const concurrency = Math.min(4, uploadQueue.length);
 
-        const result = await uploadAsset(asset);
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (uploadQueue.length > 0) {
+        const asset = uploadQueue.shift();
+        if (!asset) break;
 
-        setAssets((prev) =>
-          prev.map((a) =>
-            a.id === asset.id
-              ? {
-                  ...a,
-                  status: "completed",
-                  progress: 100,
-                  serverAssetId: result?.data?.id || a.serverAssetId
-                }
-              : a
-          )
-        );
-      } catch (error) {
-        setAssets((prev) => prev.map((a) => (a.id === asset.id ? { ...a, status: "failed", error: String(error) } : a)));
+        try {
+          setAssets((prev) => prev.map((a) => (a.id === asset.id ? { ...a, status: "uploading" } : a)));
+
+          const result = await uploadAsset(asset);
+          const matchedSets = Array.isArray(result?.meta?.dynamicSetMatches?.sets)
+            ? (result.meta.dynamicSetMatches.sets as Array<{ id?: string; name?: string }>)
+                .filter((set) => typeof set?.id === "string" && typeof set?.name === "string")
+                .map((set) => ({ id: String(set.id), name: String(set.name) }))
+            : [];
+
+          setAssets((prev) =>
+            prev.map((a) =>
+              a.id === asset.id
+                ? {
+                    ...a,
+                    status: "completed",
+                    progress: 100,
+                    serverAssetId: result?.data?.id || a.serverAssetId,
+                    dynamicSetMatches: matchedSets
+                  }
+                : a
+            )
+          );
+        } catch (error) {
+          setAssets((prev) =>
+            prev.map((a) =>
+              a.id === asset.id
+                ? {
+                    ...a,
+                    status: "failed",
+                    error: error instanceof Error ? error.message : String(error)
+                  }
+                : a
+            )
+          );
+        }
       }
-    }
+    });
 
+    await Promise.all(workers);
     setIsUploading(false);
+  };
+
+  const uploadReadyPendingAssets = () => {
+    if (isUploading) return;
+    if (pendingReadyAssets.length === 0) return;
+    void startUploading(pendingReadyAssets);
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -931,7 +1719,49 @@ export default function ModernUploadPage() {
   const completedCount = assets.filter((a) => a.status === "completed").length;
   const failedCount = assets.filter((a) => a.status === "failed").length;
   const suggestedLinkCount = assets.filter((a) => a.metadata.autoSuggestedProductLinks).length;
+  const highConfidenceSuggestedLinkCount = assets.filter(
+    (asset) =>
+      asset.metadata.autoSuggestedProductLinks &&
+      typeof asset.metadata.suggestedProductLinkConfidence === "number" &&
+      asset.metadata.suggestedProductLinkConfidence >= 0.9
+  ).length;
+  const assetsWithDynamicSetMatches = useMemo(
+    () => assets.filter((asset) => (asset.dynamicSetMatches || []).length > 0),
+    [assets]
+  );
+  const dynamicSetMatchAssetCount = assetsWithDynamicSetMatches.length;
+  const dynamicMatchedSetNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          assetsWithDynamicSetMatches.flatMap((asset) => (asset.dynamicSetMatches || []).map((set) => set.name))
+        )
+      ),
+    [assetsWithDynamicSetMatches]
+  );
   const activeAsset = assets.find((asset) => asset.id === activeProductDialogId);
+  const activeScopeAsset = assets.find((asset) => asset.id === activeScopeDialogId);
+  const validationIssuesByAssetId = useMemo(() => {
+    const byId: Record<string, string[]> = {};
+    for (const asset of assets) {
+      byId[asset.id] = getValidationIssues(asset, activeUploadProfile);
+    }
+    return byId;
+  }, [activeUploadProfile, assets]);
+  const pendingReadyAssets = useMemo(
+    () =>
+      assets.filter(
+        (asset) => asset.status === "pending" && (validationIssuesByAssetId[asset.id] || []).length === 0
+      ),
+    [assets, validationIssuesByAssetId]
+  );
+  const pendingBlockedAssets = useMemo(
+    () =>
+      assets.filter(
+        (asset) => asset.status === "pending" && (validationIssuesByAssetId[asset.id] || []).length > 0
+      ),
+    [assets, validationIssuesByAssetId]
+  );
 
   const columns: Column<AssetUploadRow>[] = [
     {
@@ -995,32 +1825,56 @@ export default function ModernUploadPage() {
       )
     },
     {
+      key: "description",
+      label: "Description",
+      sortable: false,
+      className: "min-w-[260px] max-w-[340px]",
+      render: (_value, item) => (
+        <Input
+          value={item.metadata.description}
+          onChange={(event) => updateAssetMetadata(item.id, { description: event.target.value })}
+          className="h-9 text-xs w-full"
+          placeholder="Describe this asset"
+        />
+      )
+    },
+    {
       key: "usageGroupId",
       label: "Usage Group",
       sortable: false,
       className: "min-w-[240px] max-w-[320px]",
-      render: (_value, item) => (
-        <Select
-          value={item.metadata.usageGroupId || "none"}
-          onValueChange={(value) =>
-            updateAssetMetadata(item.id, {
-              usageGroupId: value === "none" ? undefined : value
-            })
-          }
-        >
-          <SelectTrigger className="h-9 w-full text-xs">
-            <SelectValue placeholder="Select group" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">Select group</SelectItem>
-            {USAGE_GROUP_OPTIONS.map((option) => (
-              <SelectItem key={option.id} value={option.id}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )
+      render: (_value, item) => {
+        const suggestedUsageGroupId = deriveUsageGroupSuggestion(item);
+        return (
+          <div className="space-y-1">
+            <Select
+              value={item.metadata.usageGroupId || "none"}
+              onValueChange={(value) =>
+                updateAssetMetadata(item.id, {
+                  usageGroupId: value === "none" ? undefined : value
+                })
+              }
+            >
+              <SelectTrigger className="h-9 w-full text-xs">
+                <SelectValue placeholder="Select group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Select group</SelectItem>
+                {USAGE_GROUP_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!item.metadata.usageGroupId && suggestedUsageGroupId && (
+              <div className="text-[11px] text-amber-700">
+                Suggested: {getUsageGroupLabel(suggestedUsageGroupId)}
+              </div>
+            )}
+          </div>
+        );
+      }
     },
     {
       key: "tags",
@@ -1075,16 +1929,36 @@ export default function ModernUploadPage() {
           <Link2 className="mr-2 h-4 w-4" />
           {formatProductSummary(item.metadata.productLinks)}
           {item.metadata.autoSuggestedProductLinks && hasProductSelection(item.metadata.productLinks) && (
-            <span className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
-              Suggested
+            <span
+              title={item.metadata.suggestedProductLinkReason || undefined}
+              className="ml-2 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700"
+            >
+              {formatSuggestionConfidence(item.metadata.suggestedProductLinkConfidence)}
             </span>
           )}
         </Button>
       )
     },
     {
+      key: "authoringScope",
+      label: "Scope",
+      sortable: false,
+      className: "min-w-[220px] max-w-[300px]",
+      render: (_value, item) => (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-9 text-xs"
+          onClick={() => setActiveScopeDialogId(item.id)}
+          title={getAuthoringScopeSummary(item.metadata.authoringScope)}
+        >
+          {getAuthoringScopeSummary(item.metadata.authoringScope)}
+        </Button>
+      )
+    },
+    {
       key: "appliesToChildren",
-      label: "Applies to Children",
+      label: "Children Inheritance",
       sortable: false,
       render: (_value, item) => (
         <div className="flex items-center gap-2">
@@ -1092,9 +1966,48 @@ export default function ModernUploadPage() {
             checked={item.metadata.appliesToChildren}
             onCheckedChange={(checked) => updateAssetMetadata(item.id, { appliesToChildren: checked })}
           />
-          <span className="text-xs text-muted-foreground">{item.metadata.appliesToChildren ? "Yes" : "No"}</span>
+          <span className="text-xs text-muted-foreground">
+            {item.metadata.appliesToChildren ? "Current + future variants" : "Current selection only"}
+          </span>
         </div>
       )
+    },
+    {
+      key: "validation",
+      label: "Validation",
+      sortable: false,
+      className: "min-w-[240px] max-w-[320px]",
+      render: (_value, item) => {
+        const issues = validationIssuesByAssetId[item.id] || [];
+        if (issues.length === 0) {
+          return (
+            <Badge variant="secondary" className="text-[11px] bg-emerald-100 text-emerald-800 hover:bg-emerald-100">
+              Ready
+            </Badge>
+          );
+        }
+
+        const visibleIssues = issues.slice(0, 2);
+        const hiddenCount = Math.max(0, issues.length - visibleIssues.length);
+        return (
+          <div className="flex flex-wrap items-center gap-1">
+            {visibleIssues.map((issue) => (
+              <Badge
+                key={`${item.id}-${issue}`}
+                variant="secondary"
+                className="text-[11px] bg-amber-100 text-amber-800 hover:bg-amber-100"
+              >
+                {issue}
+              </Badge>
+            ))}
+            {hiddenCount > 0 && (
+              <Badge variant="secondary" className="text-[11px]">
+                +{hiddenCount} more
+              </Badge>
+            )}
+          </div>
+        );
+      }
     },
     {
       key: "status",
@@ -1153,28 +2066,55 @@ export default function ModernUploadPage() {
         </div>
 
         <div className="rounded-xl border border-border bg-white p-4 shadow-soft">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3">
             <div>
               <h2 className="text-sm font-semibold text-gray-900">Upload destination</h2>
-              <p className="text-xs text-gray-600">Applies to all queued uploads.</p>
+              <p className="text-xs text-gray-600">
+                Applies to all queued uploads. Profile controls required metadata before upload.
+              </p>
             </div>
-            <Select
-              value={selectedFolderId || "none"}
-              onValueChange={(value) => applyFolderToAssets(value === "none" ? null : value)}
-            >
-              <SelectTrigger className="h-9 min-w-[240px] text-xs">
-                <SelectValue placeholder="Select folder" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No folder (unfiled)</SelectItem>
-                {folders.map((folder) => (
-                  <SelectItem key={folder.id} value={folder.id}>
-                    {folder.path || folder.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <Select
+                value={selectedFolderId || "none"}
+                onValueChange={(value) => applyFolderToAssets(value === "none" ? null : value)}
+              >
+                <SelectTrigger className="h-9 min-w-[240px] text-xs">
+                  <SelectValue placeholder="Select folder" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No folder (unfiled)</SelectItem>
+                  {folders.map((folder) => (
+                    <SelectItem key={folder.id} value={folder.id}>
+                      {folder.path || folder.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              <Select value={selectedUploadProfileId} onValueChange={setSelectedUploadProfileId}>
+                <SelectTrigger className="h-9 min-w-[240px] text-xs">
+                  <SelectValue placeholder="Select upload profile" />
+                </SelectTrigger>
+                <SelectContent>
+                  {UPLOAD_PROFILES.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="text-xs text-gray-600">{activeUploadProfile.summary}</div>
           </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-white p-4 shadow-soft">
+          <AuthoringScopePicker
+            title="Authoring scope"
+            description="Applies to all queued uploads. Header context is for viewing/filtering only unless you apply it here."
+            value={uploadAuthoringScope}
+            onChange={applyAuthoringScopeToQueuedAssets}
+          />
         </div>
 
         <div
@@ -1214,8 +2154,23 @@ export default function ModernUploadPage() {
                 <h2 className="text-xl font-semibold text-gray-900">Assets ({assets.length})</h2>
                 {isUploading && <span className="text-xs text-muted-foreground">Uploading...</span>}
               </div>
-              <div className="text-sm text-gray-600">
-                {completedCount} completed - {failedCount} failed
+              <div className="flex items-center gap-3">
+                <div className="text-sm text-gray-600">
+                  {pendingReadyAssets.length} ready - {pendingBlockedAssets.length} blocked - {completedCount} completed - {failedCount} failed
+                </div>
+                <Button
+                  size="sm"
+                  onClick={uploadReadyPendingAssets}
+                  disabled={isUploading || pendingReadyAssets.length === 0}
+                >
+                  Upload ready ({pendingReadyAssets.length})
+                </Button>
+                {lastBulkEditSnapshot && (
+                  <Button size="sm" variant="outline" onClick={undoLastBulkEdit}>
+                    <Undo2 className="mr-2 h-4 w-4" />
+                    Undo bulk ({lastBulkEditSnapshot.assetCount})
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -1228,7 +2183,29 @@ export default function ModernUploadPage() {
             {!productError && suggestedLinkCount > 0 && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
                 Suggested product links were applied to {suggestedLinkCount} asset{suggestedLinkCount === 1 ? "" : "s"} based on filename/SKU.
-                Review them in the Product Link column.
+                {highConfidenceSuggestedLinkCount > 0
+                  ? ` ${highConfidenceSuggestedLinkCount} high-confidence suggestion${highConfidenceSuggestedLinkCount === 1 ? "" : "s"} detected.`
+                  : ""}
+                {" "}Review them in the Product Link column.
+              </div>
+            )}
+
+            {dynamicSetMatchAssetCount > 0 && (
+              <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+                Phase 5 rules auto-added {dynamicSetMatchAssetCount} uploaded asset
+                {dynamicSetMatchAssetCount === 1 ? "" : "s"} to set
+                {dynamicMatchedSetNames.length === 1 ? "" : "s"}.
+                {dynamicMatchedSetNames.length > 0
+                  ? ` Matched: ${dynamicMatchedSetNames.slice(0, 4).join(", ")}${dynamicMatchedSetNames.length > 4 ? "..." : ""}.`
+                  : ""}
+              </div>
+            )}
+
+            {pendingBlockedAssets.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {pendingBlockedAssets.length} asset{pendingBlockedAssets.length === 1 ? "" : "s"} blocked by the
+                active profile. Fill required fields shown in the Validation column, then click{" "}
+                <strong>Upload ready</strong>.
               </div>
             )}
 
@@ -1236,68 +2213,18 @@ export default function ModernUploadPage() {
               <div className="rounded-lg border border-border bg-card p-4 shadow-soft">
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-sm font-medium text-foreground">{selectedCount} selected</span>
-
-                  <Select
-                    value={bulkUsageGroupId || "none"}
-                    onValueChange={(value) => setBulkUsageGroupId(value === "none" ? "" : value)}
-                  >
-                    <SelectTrigger className="h-9 text-xs">
-                      <SelectValue placeholder="Usage group" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Usage group</SelectItem>
-                      {USAGE_GROUP_OPTIONS.map((option) => (
-                        <SelectItem key={option.id} value={option.id}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Input
-                    value={bulkTags}
-                    onChange={(event) => setBulkTags(event.target.value)}
-                    placeholder="Tags (comma separated)"
-                    className="h-9 w-48 text-xs"
-                  />
-
-                  <Input
-                    value={bulkCategories}
-                    onChange={(event) => setBulkCategories(event.target.value)}
-                    placeholder="Categories"
-                    className="h-9 w-40 text-xs"
-                  />
-
-                  <Input
-                    value={bulkKeywords}
-                    onChange={(event) => setBulkKeywords(event.target.value)}
-                    placeholder="Keywords"
-                    className="h-9 w-40 text-xs"
-                  />
-
-                  <Select
-                    value={bulkAppliesToChildren}
-                    onValueChange={(value) => setBulkAppliesToChildren(value as "no-change" | "on" | "off")}
-                  >
-                    <SelectTrigger className="h-9 text-xs">
-                      <SelectValue placeholder="Inheritance" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="no-change">Inheritance</SelectItem>
-                      <SelectItem value="on">Apply to children</SelectItem>
-                      <SelectItem value="off">Do not apply</SelectItem>
-                    </SelectContent>
-                  </Select>
-
-                  <Button size="sm" variant="outline" onClick={() => setBulkProductDialogOpen(true)}>
-                    <Link2 className="mr-2 h-4 w-4" />
-                    Set products
+                  <Button size="sm" onClick={() => setBulkEditorOpen(true)}>
+                    <SlidersHorizontal className="mr-2 h-4 w-4" />
+                    Bulk edit
                   </Button>
-
-                  <Button size="sm" onClick={applyBulkValues}>
-                    Apply
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={applyAutomationSuggestionsToSelected}
+                    disabled={selectedAutomationSuggestionCount === 0}
+                  >
+                    Apply rule suggestions ({selectedAutomationSuggestionCount})
                   </Button>
-
                   <Button size="sm" variant="ghost" onClick={clearSelection}>
                     Clear selection
                   </Button>
@@ -1328,6 +2255,230 @@ export default function ModernUploadPage() {
         )}
       </div>
 
+      <Dialog open={bulkEditorOpen} onOpenChange={setBulkEditorOpen}>
+        <DialogContent className="left-auto right-0 top-0 h-screen max-w-xl translate-x-0 translate-y-0 gap-0 rounded-none border-l p-0 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right">
+          <div className="flex h-full flex-col">
+            <DialogHeader className="border-b border-border px-6 py-5">
+              <DialogTitle>Bulk edit selected assets</DialogTitle>
+              <DialogDescription>
+                Apply operations to {selectedCount} selected item{selectedCount === 1 ? "" : "s"}.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              <div className="rounded-lg border border-border bg-muted/20 px-4 py-3 text-xs">
+                <div className="font-medium text-foreground">
+                  {selectedCount} selected
+                  {selectedUploadedCount > 0 ? ` - ${selectedUploadedCount} already uploaded (will autosave)` : ""}
+                </div>
+                {bulkOperationSummary.length === 0 ? (
+                  <div className="mt-1 text-muted-foreground">No operations selected yet.</div>
+                ) : (
+                  <div className="mt-2 space-y-1">
+                    {bulkOperationSummary.map((item) => (
+                      <div key={item.key} className="flex items-start justify-between gap-2">
+                        <span className="font-medium text-foreground">{item.label}</span>
+                        <span className="text-muted-foreground">{item.detail}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground">Usage Group</h3>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Select value={bulkUsageGroupMode} onValueChange={(value) => setBulkUsageGroupMode(value as BulkUsageGroupMode)}>
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Operation" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-change">No change</SelectItem>
+                      <SelectItem value="set">Set value</SelectItem>
+                      <SelectItem value="clear">Clear</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={bulkUsageGroupId || "none"}
+                    onValueChange={(value) => setBulkUsageGroupId(value === "none" ? "" : value)}
+                    disabled={bulkUsageGroupMode !== "set"}
+                  >
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Usage group" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Select group</SelectItem>
+                      {USAGE_GROUP_OPTIONS.map((option) => (
+                        <SelectItem key={option.id} value={option.id}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground">Tags</h3>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Select value={bulkTagsMode} onValueChange={(value) => setBulkTagsMode(value as BulkCollectionMode)}>
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Operation" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-change">No change</SelectItem>
+                      <SelectItem value="append">Append</SelectItem>
+                      <SelectItem value="replace">Replace</SelectItem>
+                      <SelectItem value="clear">Clear</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={bulkTags}
+                    onChange={(event) => setBulkTags(event.target.value)}
+                    placeholder="Comma separated tags"
+                    className="h-9 text-xs"
+                    disabled={bulkTagsMode !== "append" && bulkTagsMode !== "replace"}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground">Categories</h3>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Select
+                    value={bulkCategoriesMode}
+                    onValueChange={(value) => setBulkCategoriesMode(value as BulkCollectionMode)}
+                  >
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Operation" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-change">No change</SelectItem>
+                      <SelectItem value="append">Append</SelectItem>
+                      <SelectItem value="replace">Replace</SelectItem>
+                      <SelectItem value="clear">Clear</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={bulkCategories}
+                    onChange={(event) => setBulkCategories(event.target.value)}
+                    placeholder="Comma separated categories"
+                    className="h-9 text-xs"
+                    disabled={bulkCategoriesMode !== "append" && bulkCategoriesMode !== "replace"}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground">Keywords</h3>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Select value={bulkKeywordsMode} onValueChange={(value) => setBulkKeywordsMode(value as BulkCollectionMode)}>
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Operation" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-change">No change</SelectItem>
+                      <SelectItem value="append">Append</SelectItem>
+                      <SelectItem value="replace">Replace</SelectItem>
+                      <SelectItem value="clear">Clear</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={bulkKeywords}
+                    onChange={(event) => setBulkKeywords(event.target.value)}
+                    placeholder="Comma separated keywords"
+                    className="h-9 text-xs"
+                    disabled={bulkKeywordsMode !== "append" && bulkKeywordsMode !== "replace"}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground">Product Links</h3>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Select value={bulkProductMode} onValueChange={(value) => setBulkProductMode(value as BulkProductMode)}>
+                    <SelectTrigger className="h-9 text-xs">
+                      <SelectValue placeholder="Operation" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="no-change">No change</SelectItem>
+                      <SelectItem value="replace">Replace</SelectItem>
+                      <SelectItem value="clear">Clear</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-9 justify-start text-xs"
+                    onClick={() => setBulkProductDialogOpen(true)}
+                    disabled={bulkProductMode !== "replace"}
+                  >
+                    <Link2 className="mr-2 h-4 w-4" />
+                    {formatProductSummary(bulkProductSelection)}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground">Inheritance</h3>
+                <Select
+                  value={bulkInheritanceMode}
+                  onValueChange={(value) => setBulkInheritanceMode(value as BulkInheritanceMode)}
+                >
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Operation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="no-change">No change</SelectItem>
+                    <SelectItem value="set-on">Set to apply to children</SelectItem>
+                    <SelectItem value="set-off">Set to not apply</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-foreground">Authoring Scope</h3>
+                <Select value={bulkScopeMode} onValueChange={(value) => setBulkScopeMode(value as BulkScopeMode)}>
+                  <SelectTrigger className="h-9 text-xs">
+                    <SelectValue placeholder="Operation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="no-change">No change</SelectItem>
+                    <SelectItem value="set">Set scope</SelectItem>
+                    <SelectItem value="add">Add to scope</SelectItem>
+                    <SelectItem value="clear">Clear to global</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {bulkScopeMode === "set" || bulkScopeMode === "add" ? (
+                  <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+                    <AuthoringScopePicker
+                      showHeader={false}
+                      value={bulkScopeValue}
+                      onChange={(next) => setBulkScopeValue(normalizeAuthoringScope(next))}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <DialogFooter className="border-t border-border px-6 py-4 sm:justify-between">
+              <Button variant="ghost" onClick={resetBulkEditorForm}>
+                Reset form
+              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => setBulkEditorOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={applyBulkValues} disabled={!canApplyBulkEdit}>
+                  Apply {bulkOperationSummary.length} change{bulkOperationSummary.length === 1 ? "" : "s"}
+                </Button>
+              </div>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <ProductLinkDialog
         open={Boolean(activeProductDialogId && activeAsset)}
         onOpenChange={(open) => {
@@ -1351,17 +2502,40 @@ export default function ModernUploadPage() {
       <ProductLinkDialog
         open={bulkProductDialogOpen}
         onOpenChange={setBulkProductDialogOpen}
-        title="Apply product links"
-        description="Select products or variants to apply to all selected assets."
-        actionLabel="Apply"
+        title="Select product links"
+        description="Choose products or variants for the bulk replace operation."
         products={products}
         variantsByProductId={variantsByProductId}
         variantsLoadingByProductId={variantsLoadingByProductId}
         selection={bulkProductSelection}
         onChange={setBulkProductSelection}
         onLoadVariants={loadVariants}
-        onApply={applyBulkValues}
       />
+
+      <Dialog
+        open={Boolean(activeScopeDialogId && activeScopeAsset)}
+        onOpenChange={(open) => {
+          if (!open) setActiveScopeDialogId(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Set authoring scope</DialogTitle>
+            <DialogDescription>Overrides scope for this file only.</DialogDescription>
+          </DialogHeader>
+          {activeScopeAsset ? (
+            <AuthoringScopePicker
+              showHeader={false}
+              value={activeScopeAsset.metadata.authoringScope}
+              onChange={(scope) =>
+                updateAssetMetadata(activeScopeAsset.id, {
+                  authoringScope: normalizeAuthoringScope(scope),
+                })
+              }
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

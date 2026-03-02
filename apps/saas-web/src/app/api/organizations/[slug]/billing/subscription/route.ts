@@ -2,43 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@tradetool/auth";
 import { DatabaseQueries } from "@tradetool/database";
 import { supabaseServer } from "@/lib/supabase";
-
-// Mock subscription plans
-const PLANS = [
-  {
-    id: 'starter',
-    name: 'Starter',
-    description: 'Perfect for small teams getting started',
-    price: 29,
-    currency: 'USD',
-    interval: 'month' as const,
-    features: ['5GB Storage', 'Up to 5 users', 'Basic Assets features'],
-    storageLimit: 5 * 1024 * 1024 * 1024, // 5GB
-    userLimit: 5,
-  },
-  {
-    id: 'professional',
-    name: 'Professional',
-    description: 'For growing teams with advanced needs',
-    price: 99,
-    currency: 'USD',
-    interval: 'month' as const,
-    features: ['50GB Storage', 'Up to 25 users', 'Advanced Assets features', 'API Access'],
-    storageLimit: 50 * 1024 * 1024 * 1024, // 50GB
-    userLimit: 25,
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    description: 'For large organizations with custom requirements',
-    price: 299,
-    currency: 'USD',
-    interval: 'month' as const,
-    features: ['500GB Storage', 'Unlimited users', 'All features', 'Priority support'],
-    storageLimit: 500 * 1024 * 1024 * 1024, // 500GB
-    userLimit: -1, // unlimited
-  },
-];
+import {
+  BILLING_PLAN_CATALOG,
+  getOrganizationBillingLimits,
+  getOrganizationUsageSnapshot,
+} from "@/lib/billing-policy";
 
 export async function GET(
   request: NextRequest,
@@ -65,13 +33,48 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // For now, return a mock subscription based on storage limit
-    const currentPlan = PLANS.find(plan => plan.storageLimit >= organization.storageLimit) || PLANS[0];
-    
-    const mockSubscription = {
+    const permissions = await authService.getUserPermissions(user.id, organization.id);
+    if (!permissions?.is_owner && !permissions?.is_admin) {
+      return NextResponse.json(
+        { error: "Only owners or admins can view billing settings" },
+        { status: 403 }
+      );
+    }
+
+    const { data: subscriptionRow, error: subscriptionError } = await (supabaseServer as any)
+      .from("organization_subscriptions")
+      .select(`
+        id,
+        plan_id,
+        status,
+        trial_end,
+        current_period_start,
+        current_period_end,
+        cancel_at_period_end,
+        created_at,
+        updated_at
+      `)
+      .eq("organization_id", organization.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (subscriptionError) {
+      console.error("Failed to load organization subscription row:", subscriptionError);
+    }
+
+    const [{ planId, limits }, usage] = await Promise.all([
+      getOrganizationBillingLimits(organization.id),
+      getOrganizationUsageSnapshot(organization.id),
+    ]);
+    const resolvedPlanId = (subscriptionRow?.plan_id || planId) as (typeof BILLING_PLAN_CATALOG)[number]["id"];
+    const currentPlan =
+      BILLING_PLAN_CATALOG.find((plan) => plan.id === resolvedPlanId) || BILLING_PLAN_CATALOG[0];
+
+    const fallbackSubscription = {
       id: `sub_${organization.id}`,
       organizationId: organization.id,
-      planId: currentPlan.id,
+      planId: resolvedPlanId,
       status: 'active' as const,
       currentPeriodStart: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
       currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -80,15 +83,34 @@ export async function GET(
       updatedAt: organization.createdAt,
     };
 
+    const derivedSubscription = subscriptionRow
+      ? {
+          id: subscriptionRow.id,
+          organizationId: organization.id,
+          planId: subscriptionRow.plan_id,
+          status: subscriptionRow.status,
+          currentPeriodStart: subscriptionRow.current_period_start,
+          currentPeriodEnd: subscriptionRow.current_period_end,
+          cancelAtPeriodEnd: subscriptionRow.cancel_at_period_end,
+          trialEnd: subscriptionRow.trial_end,
+          createdAt: subscriptionRow.created_at,
+          updatedAt: subscriptionRow.updated_at,
+        }
+      : fallbackSubscription;
+
     return NextResponse.json({
-      subscription: mockSubscription,
+      subscription: derivedSubscription,
       plan: currentPlan,
       usage: {
         organizationId: organization.id,
         period: new Date().toISOString().slice(0, 7), // YYYY-MM
         storageUsed: organization.storageUsed,
-        assetsCount: 0, // Would need to count from database
-        downloadCount: 0, // Would need analytics
+        storageLimitGb: limits.storageGb,
+        activeSkuCount: usage.activeSkuCount,
+        internalUserCount: usage.internalUserCount,
+        partnerInviteCount: usage.partnerInviteCount,
+        assetsCount: 0,
+        deliveryBandwidthGb: 0,
         uploadsCount: 0, // Would need analytics
       }
     });
@@ -126,22 +148,150 @@ export async function POST(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const body = await request.json();
-    const { planId } = body;
+    const permissions = await authService.getUserPermissions(user.id, organization.id);
+    if (!permissions?.is_owner && !permissions?.is_admin) {
+      return NextResponse.json(
+        { error: "Only owners or admins can change billing plans" },
+        { status: 403 }
+      );
+    }
 
-    const plan = PLANS.find(p => p.id === planId);
+    const body = await request.json();
+    const planId = String(body?.planId || "").trim().toLowerCase();
+    const useTrial = Boolean(body?.trial);
+    const trialDaysRaw = Number(body?.trialDays);
+    const trialDays = Number.isFinite(trialDaysRaw)
+      ? Math.max(1, Math.min(30, Math.floor(trialDaysRaw)))
+      : 14;
+    const providerCustomerId = body?.providerCustomerId
+      ? String(body.providerCustomerId).trim()
+      : null;
+    const providerSubscriptionId = body?.providerSubscriptionId
+      ? String(body.providerSubscriptionId).trim()
+      : null;
+    const changeSource = body?.source ? String(body.source).trim() : "manual";
+
+    const plan = BILLING_PLAN_CATALOG.find((p) => p.id === planId);
     if (!plan) {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
 
-    // In a real implementation, you would:
-    // 1. Create a Stripe/Paddle subscription
-    // 2. Update the organization's storage limit
-    // 3. Store subscription details in database
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const nextPeriodEnd = new Date(now);
+    nextPeriodEnd.setMonth(nextPeriodEnd.getMonth() + 1);
+
+    const trialEnd = new Date(now);
+    trialEnd.setDate(trialEnd.getDate() + trialDays);
+
+    const targetStatus = useTrial ? "trialing" : "active";
+
+    const { data: currentRows, error: currentRowsError } = await (supabaseServer as any)
+      .from("organization_subscriptions")
+      .select("id,plan_id,status")
+      .eq("organization_id", organization.id)
+      .in("status", ["trialing", "active", "past_due", "incomplete"])
+      .order("created_at", { ascending: false });
+
+    if (currentRowsError) {
+      console.error("Failed to read active organization subscriptions:", currentRowsError);
+      return NextResponse.json(
+        { error: "Could not update subscription" },
+        { status: 500 }
+      );
+    }
+
+    const activeRows = (currentRows || []) as Array<any>;
+    const existingEquivalent = activeRows.find(
+      (row) => row.plan_id === plan.id && row.status === targetStatus
+    );
+    if (existingEquivalent) {
+      return NextResponse.json({
+        message: "Subscription already matches requested plan",
+        selectedPlanId: plan.id,
+        subscriptionId: existingEquivalent.id,
+        redirectUrl: `/dashboard/${resolvedParams.slug}/billing?success=true`,
+      });
+    }
+
+    if (activeRows.length > 0) {
+      const activeIds = activeRows.map((row) => row.id);
+      const { error: cancelExistingError } = await (supabaseServer as any)
+        .from("organization_subscriptions")
+        .update({
+          status: "canceled",
+          canceled_at: nowIso,
+          cancel_at_period_end: false,
+          current_period_end: nowIso,
+          updated_at: nowIso,
+        })
+        .in("id", activeIds);
+
+      if (cancelExistingError) {
+        console.error("Failed to cancel existing subscriptions:", cancelExistingError);
+        return NextResponse.json(
+          { error: "Could not update subscription" },
+          { status: 500 }
+        );
+      }
+    }
+
+    const subscriptionInsertPayload = {
+      organization_id: organization.id,
+      plan_id: plan.id,
+      status: targetStatus,
+      trial_start: useTrial ? nowIso : null,
+      trial_end: useTrial ? trialEnd.toISOString() : null,
+      current_period_start: nowIso,
+      current_period_end: useTrial ? trialEnd.toISOString() : nextPeriodEnd.toISOString(),
+      cancel_at_period_end: false,
+      canceled_at: null,
+      provider: "kinde",
+      provider_customer_id: providerCustomerId,
+      provider_subscription_id: providerSubscriptionId,
+      created_by: user.id,
+      updated_at: nowIso,
+    };
+
+    const { data: insertedSubscription, error: subscriptionInsertError } = await (supabaseServer as any)
+      .from("organization_subscriptions")
+      .insert(subscriptionInsertPayload)
+      .select("id,plan_id,status,current_period_start,current_period_end,trial_end,created_at,updated_at")
+      .single();
+
+    if (subscriptionInsertError) {
+      console.error("Failed to insert organization subscription:", subscriptionInsertError);
+      return NextResponse.json(
+        { error: "Could not update subscription" },
+        { status: 500 }
+      );
+    }
+
+    const { error: billingEventError } = await (supabaseServer as any)
+      .from("organization_billing_events")
+      .insert({
+        organization_id: organization.id,
+        event_type: "subscription.updated.manual",
+        actor_user_id: user.id,
+        payload: {
+          source: changeSource,
+          plan_id: plan.id,
+          status: targetStatus,
+          trial_days: useTrial ? trialDays : 0,
+          provider_customer_id: providerCustomerId,
+          provider_subscription_id: providerSubscriptionId,
+        },
+      });
+
+    if (billingEventError) {
+      console.error("Failed to insert organization_billing_events row:", billingEventError);
+    }
 
     return NextResponse.json({
-      message: "Subscription updated successfully",
-      redirectUrl: `/dashboard/${resolvedParams.slug}/billing?success=true`
+      message: "Subscription updated",
+      selectedPlanId: plan.id,
+      subscription: insertedSubscription,
+      redirectUrl: `/dashboard/${resolvedParams.slug}/billing?success=true`,
     });
   } catch (error) {
     console.error("Failed to update subscription:", error);

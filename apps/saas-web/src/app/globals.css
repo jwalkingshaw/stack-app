@@ -222,6 +222,17 @@ input[type="radio"]:active {
   filter: brightness(0.95);
 }
 
+/* Number inputs: hide native spin buttons to reduce visual clutter */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* Focus styles */
 *:focus-visible {
   outline: none;
@@ -252,6 +263,15 @@ input[type="radio"]:active {
 [role="menuitemcheckbox"][data-highlighted],
 [role="menuitemradio"][data-highlighted] {
   box-shadow: none !important;
+}
+
+[role="listbox"] [role="option"]:focus,
+[role="listbox"] [role="option"]:focus-visible,
+[role="listbox"] [role="option"][data-highlighted] {
+  background-color: var(--color-interactive-hover) !important;
+  color: var(--color-foreground) !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 .workspace-menu-trigger:focus,

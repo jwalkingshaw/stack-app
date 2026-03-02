@@ -288,10 +288,18 @@ export async function GET(
           confidence,
           match_reason,
           link_type,
+          product_field_id,
+          channel_id,
+          market_id,
+          destination_id,
+          locale_id,
+          document_slot_code,
+          is_primary,
+          document_expiry_date,
           is_active,
           created_at,
           products!inner(id, sku, product_name, brand:brand_line),
-          dam_assets!inner(id, filename, file_type, mime_type, file_path, asset_scope)
+          dam_assets!inner(id, filename, original_filename, file_type, mime_type, thumbnail_urls, s3_url, file_path, asset_scope, updated_at)
         `
       )
       .eq("id", linkId)

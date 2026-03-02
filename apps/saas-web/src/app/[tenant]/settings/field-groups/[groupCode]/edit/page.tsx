@@ -11,8 +11,9 @@ import {
   List
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageContentContainer } from '@/components/ui/page-content-container';
 
-const LOCKED_GROUP_CODES = new Set(['basic_info']);
+const LOCKED_GROUP_CODES = new Set(['basic_info', 'documentation']);
 
 // This will be the edit page for a specific field group
 export default function FieldGroupEditPage({
@@ -165,7 +166,7 @@ export default function FieldGroupEditPage({
     <div className="h-full bg-background">
       {/* Header with breadcrumb */}
       <div className="border-b border-border bg-white">
-        <div className="px-6 py-4">
+        <PageContentContainer mode="content" className="px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Button
@@ -198,11 +199,11 @@ export default function FieldGroupEditPage({
               </Button>
             </div>
           </div>
-        </div>
+        </PageContentContainer>
       </div>
 
       {/* Main content */}
-      <div className="px-6 py-6">
+      <PageContentContainer mode="content" className="px-6 py-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -303,7 +304,7 @@ export default function FieldGroupEditPage({
             )}
           </CardContent>
         </Card>
-      </div>
+      </PageContentContainer>
     </div>
   );
 }

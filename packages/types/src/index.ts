@@ -109,6 +109,12 @@ export interface DamAsset {
   fileType: string;
    assetType?: string;
    assetScope?: string;
+   currentVersionNumber?: number;
+   currentVersionComment?: string | null;
+   currentVersionEffectiveFrom?: string | null;
+   currentVersionEffectiveTo?: string | null;
+   currentVersionChangedBy?: string | null;
+   currentVersionChangedAt?: string | null;
   fileSize: number;
   mimeType: string;
    filePath?: string;

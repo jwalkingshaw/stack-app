@@ -18,6 +18,149 @@ type FamilyAttributeCompletion = {
   missingAttributes: Array<{ code: string; label: string }>;
 };
 
+type CompletenessScope = {
+  marketId?: string | null;
+  channelId?: string | null;
+  channelCode?: string | null;
+  localeId?: string | null;
+  localeCode?: string | null;
+  destinationId?: string | null;
+};
+
+type FieldValueRow = {
+  product_field_id: string;
+  value_text: string | null;
+  value_number: number | null;
+  value_boolean: boolean | null;
+  value_date: string | null;
+  value_datetime: string | null;
+  value_json: any;
+  locale: string | null;
+  channel: string | null;
+  locale_id: string | null;
+  channel_id: string | null;
+  market_id: string | null;
+  destination_id: string | null;
+};
+
+const normalizeScopeToken = (value: string | null | undefined): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const normalizeScopeCode = (value: string | null | undefined): string | null => {
+  const token = normalizeScopeToken(value);
+  return token ? token.toLowerCase() : null;
+};
+
+const scoreScopeMatch = (params: {
+  row: FieldValueRow;
+  scope: Required<CompletenessScope>;
+}): number => {
+  const { row, scope } = params;
+  let score = 0;
+
+  if (scope.marketId && row.market_id === scope.marketId) score += 8;
+  if (scope.channelId && row.channel_id === scope.channelId) score += 8;
+  if (scope.localeId && row.locale_id === scope.localeId) score += 8;
+  if (scope.destinationId && row.destination_id === scope.destinationId) score += 8;
+
+  if (!scope.channelId && scope.channelCode && normalizeScopeCode(row.channel) === scope.channelCode) {
+    score += 6;
+  }
+  if (!scope.localeId && scope.localeCode && normalizeScopeCode(row.locale) === scope.localeCode) {
+    score += 6;
+  }
+
+  if (row.market_id) score += 1;
+  if (row.channel_id || row.channel) score += 1;
+  if (row.locale_id || row.locale) score += 1;
+  if (row.destination_id) score += 1;
+
+  return score;
+};
+
+const doesRowMatchDimension = (params: {
+  selectedValue: string | null;
+  rowValue: string | null;
+  allowGlobalFallback: boolean;
+}): boolean => {
+  const { selectedValue, rowValue, allowGlobalFallback } = params;
+
+  if (selectedValue) {
+    if (!rowValue) {
+      return allowGlobalFallback;
+    }
+    return rowValue === selectedValue;
+  }
+
+  return !rowValue;
+};
+
+const doesRowMatchScopedContext = (params: {
+  row: FieldValueRow;
+  scope: Required<CompletenessScope>;
+  requireScopedChannel: boolean;
+  requireScopedLocale: boolean;
+}): boolean => {
+  const { row, scope, requireScopedChannel, requireScopedLocale } = params;
+
+  if (
+    !doesRowMatchDimension({
+      selectedValue: scope.marketId,
+      rowValue: normalizeScopeToken(row.market_id),
+      allowGlobalFallback: true,
+    })
+  ) {
+    return false;
+  }
+
+  if (
+    !doesRowMatchDimension({
+      selectedValue: scope.destinationId,
+      rowValue: normalizeScopeToken(row.destination_id),
+      allowGlobalFallback: true,
+    })
+  ) {
+    return false;
+  }
+
+  const channelId = normalizeScopeToken(row.channel_id);
+  const channelCode = normalizeScopeCode(row.channel);
+  if (scope.channelId) {
+    if (channelId && channelId !== scope.channelId) return false;
+    if (!channelId) {
+      if (requireScopedChannel) return false;
+      if (scope.channelCode && channelCode && channelCode !== scope.channelCode) return false;
+    }
+  } else if (scope.channelCode) {
+    if (channelCode && channelCode !== scope.channelCode) return false;
+    if (!channelCode && requireScopedChannel) return false;
+    if (!channelCode && channelId && !scope.channelId) return false;
+  } else if (channelId || channelCode) {
+    return false;
+  }
+
+  const localeId = normalizeScopeToken(row.locale_id);
+  const localeCode = normalizeScopeCode(row.locale);
+  if (scope.localeId) {
+    if (localeId && localeId !== scope.localeId) return false;
+    if (!localeId) {
+      if (requireScopedLocale) return false;
+      if (scope.localeCode && localeCode && localeCode !== scope.localeCode) return false;
+    }
+  } else if (scope.localeCode) {
+    if (localeCode && localeCode !== scope.localeCode) return false;
+    if (!localeCode && requireScopedLocale) return false;
+    if (!localeCode && localeId && !scope.localeId) return false;
+  } else if (localeId || localeCode) {
+    return false;
+  }
+
+  return true;
+};
+
 const isValuePresent = (fieldType: string, value: any): boolean => {
   if (value === null || value === undefined) return false;
 
@@ -271,7 +414,8 @@ export async function evaluateProductCompleteness(
   organizationId: string,
   productId: string,
   familyId?: string | null,
-  overrides: Record<string, any> = {}
+  overrides: Record<string, any> = {},
+  scope: CompletenessScope = {}
 ): Promise<FamilyAttributeCompletion> {
   if (!familyId) {
     return {
@@ -309,7 +453,7 @@ export async function evaluateProductCompleteness(
   const requiredCodes = requiredAttributes.map((attr: any) => attr.attribute_code);
   const { data: fields, error: fieldsError } = await (supabaseServer as any)
     .from('product_fields')
-    .select('id, code, field_type')
+    .select('id, code, field_type, is_localizable, is_channelable')
     .eq('organization_id', organizationId)
     .in('code', requiredCodes);
 
@@ -318,9 +462,17 @@ export async function evaluateProductCompleteness(
     throw new Error('Failed to load product fields for completeness');
   }
 
-  const fieldMap = new Map<string, { id: string; type: string }>();
+  const fieldMap = new Map<
+    string,
+    { id: string; type: string; isLocalizable: boolean; isChannelable: boolean }
+  >();
   (fields || []).forEach((field: any) => {
-    fieldMap.set(field.code, { id: field.id, type: field.field_type });
+    fieldMap.set(field.code, {
+      id: field.id,
+      type: field.field_type,
+      isLocalizable: Boolean(field.is_localizable),
+      isChannelable: Boolean(field.is_channelable),
+    });
   });
 
   const fieldIds = Array.from(fieldMap.values()).map((field) => field.id);
@@ -334,7 +486,13 @@ export async function evaluateProductCompleteness(
           value_boolean,
           value_date,
           value_datetime,
-          value_json
+          value_json,
+          locale,
+          channel,
+          locale_id,
+          channel_id,
+          market_id,
+          destination_id
         `)
         .eq('product_id', productId)
         .in('product_field_id', fieldIds)
@@ -345,16 +503,38 @@ export async function evaluateProductCompleteness(
     throw new Error('Failed to load product field values');
   }
 
-  const valueMap = new Map<string, any>();
+  const normalizedScope: Required<CompletenessScope> = {
+    marketId: normalizeScopeToken(scope.marketId),
+    channelId: normalizeScopeToken(scope.channelId),
+    channelCode: normalizeScopeCode(scope.channelCode),
+    localeId: normalizeScopeToken(scope.localeId),
+    localeCode: normalizeScopeCode(scope.localeCode),
+    destinationId: normalizeScopeToken(scope.destinationId),
+  };
+
+  const valuesByFieldId = new Map<string, FieldValueRow[]>();
   (fieldValues || []).forEach((valueRow: any) => {
-    const value =
-      valueRow.value_text ??
-      valueRow.value_number ??
-      valueRow.value_boolean ??
-      valueRow.value_date ??
-      valueRow.value_datetime ??
-      valueRow.value_json;
-    valueMap.set(valueRow.product_field_id, value);
+    const normalizedRow: FieldValueRow = {
+      product_field_id: String(valueRow.product_field_id || ''),
+      value_text: valueRow.value_text ?? null,
+      value_number: valueRow.value_number ?? null,
+      value_boolean: valueRow.value_boolean ?? null,
+      value_date: valueRow.value_date ?? null,
+      value_datetime: valueRow.value_datetime ?? null,
+      value_json: valueRow.value_json ?? null,
+      locale: valueRow.locale ?? null,
+      channel: valueRow.channel ?? null,
+      locale_id: valueRow.locale_id ?? null,
+      channel_id: valueRow.channel_id ?? null,
+      market_id: valueRow.market_id ?? null,
+      destination_id: valueRow.destination_id ?? null,
+    };
+    if (!normalizedRow.product_field_id) {
+      return;
+    }
+    const existing = valuesByFieldId.get(normalizedRow.product_field_id) || [];
+    existing.push(normalizedRow);
+    valuesByFieldId.set(normalizedRow.product_field_id, existing);
   });
 
   const missingAttributes: Array<{ code: string; label: string }> = [];
@@ -369,7 +549,51 @@ export async function evaluateProductCompleteness(
     const overrideValue = Object.prototype.hasOwnProperty.call(overrides, code)
       ? overrides[code]
       : undefined;
-    const rawValue = overrideValue !== undefined ? overrideValue : fieldInfo ? valueMap.get(fieldInfo.id) : undefined;
+    const rawValue =
+      overrideValue !== undefined
+        ? overrideValue
+        : (() => {
+            if (!fieldInfo) return undefined;
+            const fieldRows = valuesByFieldId.get(fieldInfo.id) || [];
+            if (fieldRows.length === 0) return undefined;
+
+            const requireScopedChannel =
+              fieldInfo.isChannelable &&
+              Boolean(normalizedScope.channelId || normalizedScope.channelCode);
+            const requireScopedLocale =
+              fieldInfo.isLocalizable &&
+              Boolean(normalizedScope.localeId || normalizedScope.localeCode);
+
+            const candidates = fieldRows.filter((row) =>
+              doesRowMatchScopedContext({
+                row,
+                scope: normalizedScope,
+                requireScopedChannel,
+                requireScopedLocale,
+              })
+            );
+
+            if (candidates.length === 0) {
+              return undefined;
+            }
+
+            const bestRow = candidates
+              .slice()
+              .sort(
+                (a, b) =>
+                  scoreScopeMatch({ row: b, scope: normalizedScope }) -
+                  scoreScopeMatch({ row: a, scope: normalizedScope })
+              )[0];
+
+            return (
+              bestRow.value_text ??
+              bestRow.value_number ??
+              bestRow.value_boolean ??
+              bestRow.value_date ??
+              bestRow.value_datetime ??
+              bestRow.value_json
+            );
+          })();
 
     if (isValuePresent(fieldType, rawValue)) {
       completeCount += 1;

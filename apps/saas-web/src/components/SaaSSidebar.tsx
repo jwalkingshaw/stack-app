@@ -91,6 +91,11 @@ export function SaaSSidebar({
   const organizationName = organization?.name ?? ''
   const organizationSlug = organization?.slug ?? ''
   const showWorkspaceRail = organization?.organizationType === 'partner'
+  const currentWorkspaceMembership = workspaces?.find(
+    (workspace) => workspace.slug === currentWorkspaceSlug
+  )
+  const canManageMembers =
+    currentWorkspaceMembership?.role === 'owner' || currentWorkspaceMembership?.role === 'admin'
   const userFirstName = user?.firstName ?? ''
   const userLastName = user?.lastName ?? ''
   const userEmail = user?.email ?? ''
@@ -259,7 +264,7 @@ export function SaaSSidebar({
                 >
                   Settings
                 </DropdownMenuItem>
-                {organization?.organizationType === 'brand' ? (
+                {canManageMembers ? (
                   <DropdownMenuItem
                     onSelect={() => handleNavigation(buildPath('/settings/team'))}
                     className="cursor-pointer"

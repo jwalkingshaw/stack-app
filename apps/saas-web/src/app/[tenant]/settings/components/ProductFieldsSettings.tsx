@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DataTable, Column, createTableActions } from '@/components/ui/data-table';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { PageContentContainer } from '@/components/ui/page-content-container';
 import IdentifierField from '@/components/field-types/IdentifierField';
 import TextField from '@/components/field-types/TextField';
 import TextAreaField from '@/components/field-types/TextAreaField';
@@ -103,7 +104,16 @@ interface ProductFieldsSettingsProps {
   tenantSlug: string;
 }
 
-const SYSTEM_FIELD_CODES = new Set(['facts_panel', 'title', 'scin', 'sku', 'barcode']);
+const SYSTEM_FIELD_CODES = new Set([
+  'facts_panel',
+  'title',
+  'scin',
+  'sku',
+  'barcode',
+  'coa_documents',
+  'legal_documents',
+  'sfp_documents',
+]);
 
 const isSystemAttribute = (field: ProductField) =>
   SYSTEM_FIELD_CODES.has(field.code) || field.options?.is_system === true;
@@ -647,7 +657,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   ];
 
   return (
-    <div className="space-y-6">
+    <PageContentContainer mode="fluid" className="space-y-6">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Attributes</h2>
@@ -1248,7 +1258,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContentContainer>
   );
 }
 

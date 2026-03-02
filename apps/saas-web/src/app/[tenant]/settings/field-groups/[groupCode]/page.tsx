@@ -19,9 +19,18 @@ import {
   Type
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageContentContainer } from '@/components/ui/page-content-container';
 
-const LOCKED_GROUP_CODES = new Set(['basic_info']);
-const LOCKED_CORE_FIELD_CODES = new Set(['title', 'scin', 'sku', 'barcode']);
+const LOCKED_GROUP_CODES = new Set(['basic_info', 'documentation']);
+const LOCKED_CORE_FIELD_CODES = new Set([
+  'title',
+  'scin',
+  'sku',
+  'barcode',
+  'coa_documents',
+  'legal_documents',
+  'sfp_documents',
+]);
 
 // This will be the detailed view for a specific field group
 export default function FieldGroupDetailPage({
@@ -225,7 +234,7 @@ export default function FieldGroupDetailPage({
     <div className="h-full bg-background">
       {/* Header with breadcrumb */}
       <div className="border-b border-border bg-white">
-        <div className="px-6 py-4">
+        <PageContentContainer mode="content" className="px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Button
@@ -254,11 +263,11 @@ export default function FieldGroupDetailPage({
               </Button>
             )}
           </div>
-        </div>
+        </PageContentContainer>
       </div>
 
       {/* Main content */}
-      <div className="px-6 py-6">
+      <PageContentContainer mode="content" className="px-6 py-6">
         <Card>
           <CardHeader className="pb-0">
             <div className="flex items-center justify-between">
@@ -505,7 +514,7 @@ export default function FieldGroupDetailPage({
             )}
           </CardContent>
         </Card>
-      </div>
+      </PageContentContainer>
 
       {/* Add Attributes Dialog */}
       <Dialog open={showAddFieldsDialog} onOpenChange={setShowAddFieldsDialog}>

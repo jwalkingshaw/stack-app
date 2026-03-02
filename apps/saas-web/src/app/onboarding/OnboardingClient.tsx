@@ -210,10 +210,6 @@ export default function OnboardingPage() {
         partner_category: partnerCategory,
       };
 
-      if (isPartnerOnboarding && !invitationToken) {
-        throw new Error("Missing invitation token for partner onboarding");
-      }
-
       const response = await fetch("/api/workspaces/create", {
         method: "POST",
         headers: {
@@ -251,7 +247,14 @@ export default function OnboardingPage() {
         }
       }
 
-      router.push(`/${createdOrgSlug}`);
+      const isSelfServePartnerWorkspace =
+        organizationType === "partner" && !hasPartnerInviteContext;
+
+      if (isSelfServePartnerWorkspace) {
+        router.push(`/${createdOrgSlug}/settings/billing?source=partner_signup`);
+      } else {
+        router.push(`/${createdOrgSlug}`);
+      }
     } catch (error) {
       console.error("Organization creation error:", error);
 
@@ -309,9 +312,11 @@ export default function OnboardingPage() {
                 Welcome{user?.given_name ? `, ${user.given_name}` : ""}!
               </h1>
               <p className="text-[var(--font-size-sm)] text-muted-foreground">
-                {isPartnerOnboarding
-                  ? "Create your partner organization to access brand content"
-                  : "Let's set up your organization's digital asset workspace"}
+                {hasPartnerInviteContext
+                  ? "Create your partner organization to access invited brand content. Invited access is free, and you can upgrade anytime for full workspace features."
+                  : isPartnerOnboarding
+                    ? "Create your partner workspace. Brands can share content to this same workspace, and you can upgrade anytime for full features."
+                    : "Let's set up your organization's digital asset workspace"}
               </p>
             </CardHeader>
 
@@ -415,7 +420,7 @@ export default function OnboardingPage() {
                     </SelectContent>
                   </Select>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    This sets your default workspace experience and permission model.
+                    This sets your default workspace experience and billing model. Both brands and partners can subscribe to paid plans.
                   </p>
                 </div>
               )}
@@ -439,7 +444,7 @@ export default function OnboardingPage() {
                     </SelectContent>
                   </Select>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    This determines partner workflow defaults and permission presets.
+                    This determines partner workflow defaults and permission presets for your own workspace.
                   </p>
                 </div>
               )}

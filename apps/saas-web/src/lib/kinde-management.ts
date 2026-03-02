@@ -17,6 +17,12 @@ interface CreateOrganizationRequest {
   external_id?: string;
 }
 
+interface KindeRole {
+  id: string;
+  key?: string;
+  name?: string;
+}
+
 class KindeManagementAPI {
   private baseURL: string;
   private clientId: string;
@@ -31,6 +37,22 @@ class KindeManagementAPI {
     this.clientId = process.env.KINDE_MANAGEMENT_CLIENT_ID || '';
     this.clientSecret = process.env.KINDE_MANAGEMENT_CLIENT_SECRET || '';
     this.audience = process.env.KINDE_MANAGEMENT_API_AUDIENCE || '';
+  }
+
+  private getManagementScopes(): string {
+    const baseScopes = [
+      'create:organizations',
+      'read:organizations',
+      'create:organization_users',
+      'read:users',
+      'create:users',
+      'update:users',
+    ];
+    const extraScopes = (process.env.KINDE_MANAGEMENT_EXTRA_SCOPES || '')
+      .split(/\s+/)
+      .map((scope) => scope.trim())
+      .filter(Boolean);
+    return Array.from(new Set([...baseScopes, ...extraScopes])).join(' ');
   }
 
   /**
@@ -54,7 +76,7 @@ class KindeManagementAPI {
         client_id: this.clientId,
         client_secret: this.clientSecret,
         audience: this.audience,
-        scope: 'create:organizations read:organizations create:organization_users read:users create:users update:users',
+        scope: this.getManagementScopes(),
       }),
     });
 
@@ -96,7 +118,13 @@ class KindeManagementAPI {
       throw new Error(`Kinde API error: ${response.status} ${error}`);
     }
 
-    return response.json();
+    const text = await response.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { raw: text };
+    }
   }
 
   /**
@@ -246,18 +274,151 @@ class KindeManagementAPI {
   }
 
   /**
+   * Get all roles defined in Kinde.
+   */
+  async getRoles(params?: { pageSize?: number }): Promise<KindeRole[]> {
+    const pageSize = Number.isFinite(params?.pageSize as number)
+      ? Math.max(1, Math.min(100, Number(params?.pageSize)))
+      : 100;
+    const roles: KindeRole[] = [];
+    let nextToken: string | null = null;
+
+    while (true) {
+      const query = new URLSearchParams({ page_size: String(pageSize) });
+      if (nextToken) {
+        query.set('next_token', nextToken);
+      }
+      const result = await this.makeRequest(`/roles?${query.toString()}`);
+      const pageRoles = Array.isArray(result?.roles) ? result.roles : [];
+      for (const role of pageRoles) {
+        if (!role?.id) continue;
+        roles.push({
+          id: String(role.id),
+          key: typeof role.key === 'string' ? role.key : undefined,
+          name: typeof role.name === 'string' ? role.name : undefined,
+        });
+      }
+      nextToken = typeof result?.next_token === 'string' && result.next_token.trim().length > 0
+        ? result.next_token.trim()
+        : null;
+      if (!nextToken) break;
+    }
+
+    return roles;
+  }
+
+  async getRoleByKey(roleKey: string): Promise<KindeRole | null> {
+    const normalizedKey = String(roleKey || '').trim().toLowerCase();
+    if (!normalizedKey) return null;
+    const roles = await this.getRoles();
+    return (
+      roles.find((role) => String(role.key || '').trim().toLowerCase() === normalizedKey) ||
+      null
+    );
+  }
+
+  async getOrganizationUserRoles(orgId: string, userId: string): Promise<KindeRole[]> {
+    const result = await this.makeRequest(
+      `/organizations/${encodeURIComponent(orgId)}/users/${encodeURIComponent(userId)}/roles`
+    );
+    const roles = Array.isArray(result?.roles) ? result.roles : [];
+    return roles
+      .filter((role: any) => role?.id)
+      .map((role: any) => ({
+        id: String(role.id),
+        key: typeof role.key === 'string' ? role.key : undefined,
+        name: typeof role.name === 'string' ? role.name : undefined,
+      }));
+  }
+
+  async addOrganizationUserRole(orgId: string, userId: string, roleId: string): Promise<void> {
+    await this.makeRequest(
+      `/organizations/${encodeURIComponent(orgId)}/users/${encodeURIComponent(userId)}/roles`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ role_id: roleId }),
+      }
+    );
+  }
+
+  async deleteOrganizationUserRole(orgId: string, userId: string, roleId: string): Promise<void> {
+    await this.makeRequest(
+      `/organizations/${encodeURIComponent(orgId)}/users/${encodeURIComponent(
+        userId
+      )}/roles/${encodeURIComponent(roleId)}`,
+      {
+        method: 'DELETE',
+      }
+    );
+  }
+
+  async syncOrganizationUserRoleByKey(params: {
+    orgId: string;
+    userId: string;
+    roleKey: string;
+    shouldHaveRole: boolean;
+  }): Promise<{ changed: boolean; roleId?: string; roleKey: string }> {
+    const normalizedRoleKey = String(params.roleKey || '').trim().toLowerCase();
+    if (!normalizedRoleKey) {
+      throw new Error('Role key is required to sync organization user role');
+    }
+
+    const role = await this.getRoleByKey(normalizedRoleKey);
+    if (!role?.id) {
+      throw new Error(`Kinde role not found for key '${normalizedRoleKey}'`);
+    }
+
+    const assignedRoles = await this.getOrganizationUserRoles(params.orgId, params.userId);
+    const hasRole = assignedRoles.some(
+      (assigned) =>
+        String(assigned.id || '') === role.id ||
+        String(assigned.key || '').trim().toLowerCase() === normalizedRoleKey
+    );
+
+    if (params.shouldHaveRole && !hasRole) {
+      await this.addOrganizationUserRole(params.orgId, params.userId, role.id);
+      return { changed: true, roleId: role.id, roleKey: normalizedRoleKey };
+    }
+
+    if (!params.shouldHaveRole && hasRole) {
+      await this.deleteOrganizationUserRole(params.orgId, params.userId, role.id);
+      return { changed: true, roleId: role.id, roleKey: normalizedRoleKey };
+    }
+
+    return { changed: false, roleId: role.id, roleKey: normalizedRoleKey };
+  }
+
+  /**
    * Update an existing user's profile information
    */
   async updateUserProfile(
     userId: string,
     profile: { given_name?: string; family_name?: string; picture?: string }
   ): Promise<void> {
-    console.log(`dY-^ Updating Kinde user profile for ${userId}:`, profile);
+    console.log(`[kinde] Updating user profile for ${userId}:`, profile);
 
-    await this.makeRequest(`/users/${userId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ profile }),
-    });
+    const payload = {
+      given_name: profile.given_name,
+      family_name: profile.family_name,
+    };
+
+    try {
+      // Kinde Management update-user endpoint is PATCH /api/v1/user?id={user_id}
+      await this.makeRequest(`/user?id=${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      // Backward compatibility fallback for older endpoint assumptions.
+      if (error instanceof Error && error.message.includes('ROUTE_NOT_FOUND')) {
+        await this.makeRequest(`/users/${encodeURIComponent(userId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        });
+        return;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -266,11 +427,10 @@ class KindeManagementAPI {
   async createUser(email: string, givenName?: string, familyName?: string): Promise<any> {
     console.log('👤 Creating user in Kinde:', email);
 
-    const payload = {
-      profile: {
-        given_name: givenName || email.split('@')[0],
-        family_name: familyName || '',
-      },
+    const normalizedGivenName = givenName?.trim();
+    const normalizedFamilyName = familyName?.trim();
+
+    const payload: Record<string, unknown> = {
       identities: [
         {
           type: 'email',
@@ -281,6 +441,13 @@ class KindeManagementAPI {
       ],
       // No password needed - Kinde will send one-time code for passwordless auth
     };
+
+    if (normalizedGivenName || normalizedFamilyName) {
+      payload.profile = {
+        ...(normalizedGivenName ? { given_name: normalizedGivenName } : {}),
+        ...(normalizedFamilyName ? { family_name: normalizedFamilyName } : {}),
+      };
+    }
 
     try {
       const result = await this.makeRequest('/user', {
@@ -361,4 +528,4 @@ class KindeManagementAPI {
 export const kindeAPI = new KindeManagementAPI();
 
 // Export types
-export type { KindeOrganization, CreateOrganizationRequest };
+export type { KindeOrganization, CreateOrganizationRequest, KindeRole };

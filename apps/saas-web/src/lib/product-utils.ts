@@ -2,6 +2,10 @@
  * Product utilities for URL handling and slug generation
  */
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_PREFIX_PATTERN =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-.+)?$/i;
+
 /**
  * Generate a URL-friendly slug from a product SKU
  * @param sku - Product SKU
@@ -23,18 +27,37 @@ export function generateProductSlug(sku: string): string {
  * @returns Object with parsing info
  */
 export function parseProductIdentifier(identifier: string) {
-  // UUID pattern (8-4-4-4-12 format)
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-  const isUuid = uuidPattern.test(identifier);
+  const normalized = (identifier || "").trim();
+  const uuidPrefixMatch = normalized.match(UUID_PREFIX_PATTERN);
+  const isUuid = UUID_PATTERN.test(normalized) || Boolean(uuidPrefixMatch?.[1]);
   const isSlug = !isUuid && identifier.length > 0;
+  const uuid = uuidPrefixMatch?.[1] || (UUID_PATTERN.test(normalized) ? normalized : null);
 
   return {
     identifier,
+    normalized,
+    uuid,
     isUuid,
     isSlug,
     type: isUuid ? 'uuid' : isSlug ? 'slug' : 'unknown'
   };
+}
+
+export function buildCanonicalProductIdentifier(
+  identifier: string,
+  label?: string | null
+): string {
+  const parsed = parseProductIdentifier(identifier);
+  if (parsed.isUuid && parsed.uuid) {
+    const normalizedLabel = (label || "").trim();
+    const slug = normalizedLabel ? generateProductSlug(normalizedLabel) : "";
+    if (!slug || slug.toLowerCase() === parsed.uuid.toLowerCase()) {
+      return parsed.uuid;
+    }
+    return `${parsed.uuid}-${slug}`;
+  }
+
+  return generateProductSlug(identifier);
 }
 
 /**
@@ -46,20 +69,20 @@ export function parseProductIdentifier(identifier: string) {
  */
 export function generateProductUrl(
   tenantSlug: string,
-  sku?: string | null,
+  label?: string | null,
   productId?: string
 ): string {
   // Prefer immutable IDs for routing consistency across scoped views.
   if (productId) {
-    return `/${tenantSlug}/products/${productId}`;
+    return `/${tenantSlug}/products/${buildCanonicalProductIdentifier(productId, label)}`;
   }
 
-  if (sku) {
-    const slug = generateProductSlug(sku);
+  if (label) {
+    const slug = generateProductSlug(label);
     return `/${tenantSlug}/products/${slug}`;
   }
 
-  throw new Error('Either SKU or productId must be provided');
+  throw new Error('Either label or productId must be provided');
 }
 
 /**
@@ -69,12 +92,21 @@ export function generateProductUrl(
  * @param variantSku - Variant SKU
  * @returns Variant URL
  */
-export function generateVariantUrl(tenantSlug: string, parentSku: string, variantSku: string): string {
-  const parentIdentifier = parseProductIdentifier(parentSku);
-  const variantIdentifier = parseProductIdentifier(variantSku);
-  const parentSlug = parentIdentifier.isUuid ? parentSku : generateProductSlug(parentSku);
-  const variantSlug = variantIdentifier.isUuid ? variantSku : generateProductSlug(variantSku);
-  return `/${tenantSlug}/products/${parentSlug}/variants/${variantSlug}`;
+export function generateVariantUrl(
+  tenantSlug: string,
+  parentIdentifier: string,
+  variantIdentifier: string,
+  options?: { parentLabel?: string | null; variantLabel?: string | null }
+): string {
+  const parentSegment = buildCanonicalProductIdentifier(
+    parentIdentifier,
+    options?.parentLabel
+  );
+  const variantSegment = buildCanonicalProductIdentifier(
+    variantIdentifier,
+    options?.variantLabel
+  );
+  return `/${tenantSlug}/products/${parentSegment}/variants/${variantSegment}`;
 }
 
 /**
@@ -84,15 +116,37 @@ export function generateVariantUrl(tenantSlug: string, parentSku: string, varian
  * @returns Appropriate URL for the product
  */
 export function getProductUrl(product: any, tenantSlug: string): string {
-  if (product.type === 'variant' && (product.parent_sku || product.parent_id)) {
+  const parentIdentifier =
+    product.parent_id ||
+    product.parentId ||
+    product.parent_product?.id ||
+    product.parent_sku ||
+    product.parentSku ||
+    null;
+
+  if (product.type === 'variant' && parentIdentifier) {
     return generateVariantUrl(
       tenantSlug,
-      product.parent_sku || product.parent_id,
-      product.sku || product.id
+      parentIdentifier,
+      product.id || product.sku,
+      {
+        parentLabel:
+          product.parent_product_name ||
+          product.parentProductName ||
+          product.parent_product?.product_name ||
+          product.parent_sku ||
+          product.parentSku ||
+          null,
+        variantLabel: product.product_name || product.title || product.sku || null,
+      }
     );
   }
 
-  return generateProductUrl(tenantSlug, product.sku, product.id);
+  return generateProductUrl(
+    tenantSlug,
+    product.product_name || product.title || product.sku,
+    product.id
+  );
 }
 
 /**

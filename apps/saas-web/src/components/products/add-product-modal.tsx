@@ -9,6 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Package, X } from "lucide-react";
 import { generateProductUrl } from "@/lib/product-utils";
 import { useMarketContext } from "@/components/market-context";
+import {
+  AuthoringScopePicker,
+  AuthoringScopeValue,
+  createGlobalAuthoringScope,
+  getAuthoringScopeSummary,
+  normalizeAuthoringScope,
+} from "@/components/scope/authoring-scope-picker";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 
 interface AddProductModalProps {
@@ -28,8 +35,10 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
     status: 'Draft'
   });
   const [errors, setErrors] = useState<{[key: string]: string}>({});
+  const [showInitialScope, setShowInitialScope] = useState(false);
+  const [initialScope, setInitialScope] = useState<AuthoringScopeValue>(createGlobalAuthoringScope());
 
-  // Product families data from API
+  // Product models data from API
   const [families, setFamilies] = useState([]);
   const [familiesLoading, setFamiliesLoading] = useState(false);
 
@@ -57,7 +66,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
         setFamilies(result.data || []);
       }
     } catch (error) {
-      // Error fetching families - continue with empty list
+      // Error fetching product models - continue with empty list
     } finally {
       setFamiliesLoading(false);
     }
@@ -103,7 +112,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
     }
 
     if (!formData.family_id.trim()) {
-      newErrors.family_id = 'Product family is required';
+      newErrors.family_id = 'Product model is required';
     }
 
     setErrors(newErrors);
@@ -127,7 +136,8 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
         },
         body: JSON.stringify({
           ...formData,
-          type: 'standalone' // Default to standalone product
+          type: 'standalone', // Default to standalone product
+          initialScope: normalizeAuthoringScope(initialScope),
         }),
       });
 
@@ -174,7 +184,11 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
       
       // Close modal and redirect to product detail page using SKU-based URL
       onClose();
-      const productUrl = generateProductUrl(tenantSlug, result.data.sku, result.data.id);
+      const productUrl = generateProductUrl(
+        tenantSlug,
+        result.data.product_name || result.data.title || result.data.sku,
+        result.data.id
+      );
       router.push(productUrl);
       
     } catch (error) {
@@ -188,6 +202,8 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
     if (!isLoading) {
       setFormData({ sku: '', product_name: '', family_id: '', status: 'Draft' });
       setSelectedFamily(null);
+      setShowInitialScope(false);
+      setInitialScope(createGlobalAuthoringScope());
       setErrors({});
       onClose();
     }
@@ -222,7 +238,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
             <div className="flex-1 overflow-y-auto p-6">
               <div className="max-w-2xl mx-auto space-y-6">
                 <p className="text-sm text-muted-foreground">
-                  Select a product family to define the product template. You'll configure attributes on the product page.
+                  Select a product model to define the product template. You'll configure attributes on the product page.
                 </p>
 
                 <form onSubmit={handleSubmit} className="space-y-4" id="add-product-form">
@@ -262,7 +278,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
 
           <div className="space-y-2">
             <label htmlFor="family_id" className="block text-sm font-medium text-gray-700">
-              Product Family *
+              Product Model *
             </label>
             <Select
               value={formData.family_id || ""}
@@ -275,10 +291,10 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
                 <SelectValue
                   placeholder={
                     familiesLoading
-                      ? "Loading families..."
+                      ? "Loading product models..."
                       : families.length === 0
-                      ? "No families available - Create one in Settings"
-                      : "Select a product family..."
+                      ? "No product models available - Create one in Settings"
+                      : "Select a product model..."
                   }
                 />
               </SelectTrigger>
@@ -318,6 +334,37 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
             </Select>
           </div>
 
+          <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">Initial Authoring Scope (optional)</p>
+                <p className="text-xs text-muted-foreground">
+                  Viewing context is not written automatically unless you apply it here.
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setShowInitialScope((prev) => !prev)}
+              >
+                {showInitialScope ? "Hide" : "Set scope"}
+              </Button>
+            </div>
+
+            {showInitialScope ? (
+              <AuthoringScopePicker
+                showHeader={false}
+                value={initialScope}
+                onChange={(next) => setInitialScope(normalizeAuthoringScope(next))}
+              />
+            ) : (
+              <div className="text-xs text-muted-foreground">
+                Current: <span className="font-medium text-foreground">{getAuthoringScopeSummary(initialScope)}</span>
+              </div>
+            )}
+          </div>
+
                   {/* Display all validation errors */}
                   {Object.entries(errors).length > 0 && (
                     <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded space-y-1">
@@ -355,7 +402,6 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
                   loading={isLoading}
                   disabled={!isFormValid}
                   variant="accent-blue"
-                  className="enabled:bg-[#CCDCFF] enabled:hover:bg-[#99BAFF]"
                 >
                   {isLoading ? 'Creating' : 'Create Product'}
                 </ActionButton>

@@ -3,13 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { FileText, Check, X } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
-import { Input } from '@/components/ui/input';
 
 interface FileFieldOptions {
   allowed_mime_groups?: string[];
-  max_size_mb?: number;
   allow_multiple?: boolean;
-  require_download_security?: boolean;
 }
 
 interface FileFieldProps {
@@ -33,24 +30,18 @@ const MIME_GROUPS = [
 type FileFieldState = {
   allowedMimeGroups: string[];
   allowMultiple: boolean;
-  requireSecurity: boolean;
-  maxSize: string;
 };
 
 const initialise = (input?: FileFieldOptions): FileFieldState => ({
   allowedMimeGroups: input?.allowed_mime_groups?.length
     ? [...input.allowed_mime_groups]
     : ['pdf', 'document', 'image'],
-  allowMultiple: !!input?.allow_multiple,
-  requireSecurity: !!input?.require_download_security,
-  maxSize: input?.max_size_mb !== undefined && input.max_size_mb !== null ? String(input.max_size_mb) : ''
+  allowMultiple: !!input?.allow_multiple
 });
 
 const buildOptions = (state: FileFieldState): FileFieldOptions => ({
   allowed_mime_groups: state.allowedMimeGroups,
-  allow_multiple: state.allowMultiple,
-  require_download_security: state.requireSecurity,
-  max_size_mb: state.maxSize === '' ? undefined : Number(state.maxSize)
+  allow_multiple: state.allowMultiple
 });
 
 export default function FileField({ value, onChange }: FileFieldProps) {
@@ -100,7 +91,7 @@ export default function FileField({ value, onChange }: FileFieldProps) {
     });
   };
 
-  const { allowedMimeGroups, allowMultiple, requireSecurity, maxSize } = state;
+  const { allowedMimeGroups, allowMultiple } = state;
 
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20 px-5 py-6">
@@ -109,9 +100,9 @@ export default function FileField({ value, onChange }: FileFieldProps) {
           <FileText className="h-5 w-5" />
         </div>
         <div className="flex flex-col gap-1">
-          <h4 className="text-sm font-semibold text-foreground">File upload rules</h4>
+          <h4 className="text-sm font-semibold text-foreground">Asset link rules</h4>
           <p className="text-sm leading-6 text-muted-foreground">
-            Limit accepted file types, size, and download behaviour for this attribute.
+            This field stores references to existing DAM assets. Links are keyed by asset ID, not filename.
           </p>
         </div>
       </div>
@@ -139,71 +130,34 @@ export default function FileField({ value, onChange }: FileFieldProps) {
             })}
           </div>
           <p className="text-xs text-muted-foreground">
-            Users can only attach assets that match these file groups. Adjustments can be made later in attribute
-            settings.
+            Users can only attach assets that match these file groups.
           </p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium text-foreground">Maximum file size (MB)</label>
-            <Input
-              type="number"
-              min={1}
-              step={1}
-              placeholder="Unlimited"
-              value={maxSize}
-              onChange={(event) =>
+        <div className="space-y-3 rounded-lg border border-dashed border-border/60 p-4 text-sm">
+          <div className="flex items-center justify-between">
+            <span>Allow multiple files</span>
+            <Switch
+              checked={allowMultiple}
+              onCheckedChange={(checked) =>
                 updateState((prev) => ({
                   ...prev,
-                  maxSize: event.target.value
+                  allowMultiple: checked
                 }))
               }
-              className="h-11"
             />
-            <p className="text-xs text-muted-foreground">Leave blank for no limit. Files are stored in Supabase (S3).</p>
           </div>
-
-          <div className="space-y-3 rounded-lg border border-dashed border-border/60 p-4 text-sm">
-            <div className="flex items-center justify-between">
-              <span>Allow multiple files</span>
-              <Switch
-                checked={allowMultiple}
-                onCheckedChange={(checked) =>
-                  updateState((prev) => ({
-                    ...prev,
-                    allowMultiple: checked
-                  }))
-                }
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Enable for attributes that capture several documents, such as regulatory or compliance files.
-            </p>
-            <div className="flex items-center justify-between pt-1">
-              <span>Require secure downloads</span>
-              <Switch
-                checked={requireSecurity}
-                onCheckedChange={(checked) =>
-                  updateState((prev) => ({
-                    ...prev,
-                    requireSecurity: checked
-                  }))
-                }
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              When enabled, downloads are served via signed URLs to guard access.
-            </p>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Enable for attributes that capture several documents, such as COAs and legal files.
+          </p>
         </div>
 
         <div className="rounded-lg border border-border/60 bg-background/60 px-5 py-4 text-xs text-muted-foreground">
-          <p className="mb-2 text-sm font-semibold text-foreground">Best practices</p>
+          <p className="mb-2 text-sm font-semibold text-foreground">How linking works</p>
           <ul className="space-y-1">
-            <li>- Encourage consistent file naming so variants inherit the correct documents.</li>
-            <li>- Keep key specs in lightweight PDFs to optimise download speed.</li>
-            <li>- Combine with workflows to flag missing attachments across the catalogue.</li>
+            <li>- The saved reference is the DAM asset ID.</li>
+            <li>- Filename is display metadata and can change without breaking links.</li>
+            <li>- Upload and file governance remains managed in the Assets workspace.</li>
           </ul>
         </div>
       </div>

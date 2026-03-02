@@ -6,5 +6,5 @@ export default async function SettingsTeamPage({
   params: Promise<{ tenant: string }>;
 }) {
   const resolvedParams = await params;
-  return <TeamClient tenantSlug={resolvedParams.tenant} view="members" />;
+  return <TeamClient tenantSlug={resolvedParams.tenant} view="internal" />;
 }

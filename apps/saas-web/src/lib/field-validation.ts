@@ -514,7 +514,7 @@ function validateFileField(value: any, field: ProductField, errors: ValidationEr
       return;
     }
 
-    const { assetId, filename, mimeType, size } = fileValue;
+    const { assetId, mimeType, size } = fileValue;
     if (!assetId) {
       errors.push({
         field: field.code,
@@ -522,20 +522,8 @@ function validateFileField(value: any, field: ProductField, errors: ValidationEr
         code: 'MISSING_FILE_ASSET'
       });
     }
-    if (!filename) {
-      errors.push({
-        field: field.code,
-        message: `${field.name} is missing a filename`,
-        code: 'MISSING_FILE_NAME'
-      });
-    }
-    if (!mimeType) {
-      errors.push({
-        field: field.code,
-        message: `${field.name} is missing MIME type metadata`,
-        code: 'MISSING_FILE_MIME'
-      });
-    } else if (
+    if (
+      mimeType &&
       Array.isArray(field.options?.allowed_mime_groups) &&
       field.options.allowed_mime_groups.length > 0
     ) {

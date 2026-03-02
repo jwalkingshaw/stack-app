@@ -1,4 +1,4 @@
-import { AuthService, ScopedPermission } from "@tradetool/auth";
+import { AuthService, ScopedPermission, type ScopedPermissionKey } from "@tradetool/auth";
 
 type PermissionContext = {
   authService: AuthService;
@@ -6,21 +6,38 @@ type PermissionContext = {
   organizationId: string;
 };
 
+async function hasLegacyTeamOrScopedPermission(params: {
+  authService: AuthService;
+  userId: string;
+  organizationId: string;
+  permissionKey: ScopedPermissionKey;
+}): Promise<boolean> {
+  const { authService, userId, organizationId, permissionKey } = params;
+
+  // Short-circuit for owner/admin-style legacy access to avoid unnecessary scoped RPC calls.
+  const legacyCanManageTeam = await authService.canManageTeam(userId, organizationId);
+  if (legacyCanManageTeam) {
+    return true;
+  }
+
+  return authService.hasScopedPermission({
+    userId,
+    organizationId,
+    permissionKey,
+  });
+}
+
 export async function canManageContainerSharing({
   authService,
   userId,
   organizationId,
 }: PermissionContext): Promise<boolean> {
-  const [legacyCanManageTeam, canManageSharing] = await Promise.all([
-    authService.canManageTeam(userId, organizationId),
-    authService.hasScopedPermission({
-      userId,
-      organizationId,
-      permissionKey: ScopedPermission.ContainerShareManage,
-    }),
-  ]);
-
-  return legacyCanManageTeam || canManageSharing;
+  return hasLegacyTeamOrScopedPermission({
+    authService,
+    userId,
+    organizationId,
+    permissionKey: ScopedPermission.ContainerShareManage,
+  });
 }
 
 export async function canSendInvite({
@@ -28,16 +45,12 @@ export async function canSendInvite({
   userId,
   organizationId,
 }: PermissionContext): Promise<boolean> {
-  const [legacyCanManageTeam, canSendInvitePermission] = await Promise.all([
-    authService.canManageTeam(userId, organizationId),
-    authService.hasScopedPermission({
-      userId,
-      organizationId,
-      permissionKey: ScopedPermission.InviteSend,
-    }),
-  ]);
-
-  return legacyCanManageTeam || canSendInvitePermission;
+  return hasLegacyTeamOrScopedPermission({
+    authService,
+    userId,
+    organizationId,
+    permissionKey: ScopedPermission.InviteSend,
+  });
 }
 
 export async function canRevokeInvite({
@@ -45,16 +58,12 @@ export async function canRevokeInvite({
   userId,
   organizationId,
 }: PermissionContext): Promise<boolean> {
-  const [legacyCanManageTeam, canRevokeInvitePermission] = await Promise.all([
-    authService.canManageTeam(userId, organizationId),
-    authService.hasScopedPermission({
-      userId,
-      organizationId,
-      permissionKey: ScopedPermission.InviteRevoke,
-    }),
-  ]);
-
-  return legacyCanManageTeam || canRevokeInvitePermission;
+  return hasLegacyTeamOrScopedPermission({
+    authService,
+    userId,
+    organizationId,
+    permissionKey: ScopedPermission.InviteRevoke,
+  });
 }
 
 export async function canReadAudit({

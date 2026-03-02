@@ -5,6 +5,7 @@ import { Building2, Save, Upload } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { PageContentContainer } from '@/components/ui/page-content-container';
 
 interface OrganizationSettingsProps {
   tenantSlug: string;
@@ -40,7 +41,7 @@ export default function OrganizationSettings({ tenantSlug }: OrganizationSetting
   };
 
   return (
-    <div className="space-y-6">
+    <PageContentContainer mode="content" className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -141,7 +142,7 @@ export default function OrganizationSettings({ tenantSlug }: OrganizationSetting
           </div>
         </CardContent>
       </Card>
-    </div>
+    </PageContentContainer>
   );
 }
 

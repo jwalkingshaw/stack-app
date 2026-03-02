@@ -1,12 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import Link from "next/link";
-import { generateVariantUrl } from "@/lib/product-utils";
+import {
+  buildCanonicalProductIdentifier,
+  generateVariantUrl,
+  parseProductIdentifier,
+} from "@/lib/product-utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { buildTenantPathForScope } from "@/lib/tenant-view-scope";
+import { useMarketContext } from "@/components/market-context";
+import { fetchJsonWithDedupe } from "@/lib/client-request-cache";
 
 interface VariantAttribute {
   field_code: string;
@@ -23,45 +29,71 @@ interface Variant {
 
 interface VariantNavigationHeaderProps {
   tenantSlug: string;
-  parentSku: string;
+  parentIdentifier: string;
   parentName: string;
-  currentVariantSku?: string;
+  currentVariantIdentifier?: string;
   familyId: string;
   selectedBrandSlug?: string | null;
 }
 
 export function VariantNavigationHeader({
   tenantSlug,
-  parentSku,
+  parentIdentifier,
   parentName,
-  currentVariantSku,
+  currentVariantIdentifier,
   familyId,
   selectedBrandSlug
 }: VariantNavigationHeaderProps) {
   const router = useRouter();
+  const {
+    channels,
+    locales,
+    markets,
+    selectedChannel,
+    selectedLocale,
+    selectedMarketId,
+    selectedDestination,
+    availableDestinations,
+    isLoading: marketContextLoading,
+  } = useMarketContext();
   const [variantAttributes, setVariantAttributes] = useState<VariantAttribute[]>([]);
   const [allVariants, setAllVariants] = useState<Variant[]>([]);
   const [selectedValues, setSelectedValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const normalizedSelectedBrand = (selectedBrandSlug || "").trim().toLowerCase();
+  const isScopeReady = useMemo(() => {
+    if (marketContextLoading) return false;
+    if (markets.length > 0 && !selectedMarketId) return false;
+    if (channels.length > 0 && !selectedChannel?.code) return false;
+    if (locales.length > 0 && !selectedLocale?.code) return false;
+    if (availableDestinations.length > 0 && !selectedDestination?.code) return false;
+    return true;
+  }, [
+    marketContextLoading,
+    markets.length,
+    selectedMarketId,
+    channels.length,
+    selectedChannel?.code,
+    locales.length,
+    selectedLocale?.code,
+    availableDestinations.length,
+    selectedDestination?.code,
+  ]);
   const buildScopeQuery = () => {
-    if (!normalizedSelectedBrand) return "";
     const query = new URLSearchParams();
-    query.set("brand", normalizedSelectedBrand);
+    if (selectedMarketId) query.set("marketId", selectedMarketId);
+    if (selectedLocale?.code) query.set("locale", selectedLocale.code);
+    if (selectedChannel?.code) query.set("channel", selectedChannel.code);
+    if (selectedDestination?.code) query.set("destination", selectedDestination.code);
+    if (normalizedSelectedBrand) query.set("brand", normalizedSelectedBrand);
     return query.toString();
   };
-  const buildProductsHref = () =>
-    buildTenantPathForScope({
-      tenantSlug,
-      scope: normalizedSelectedBrand || null,
-      suffix: "/products",
-    });
   const buildParentHref = () =>
     buildTenantPathForScope({
       tenantSlug,
       scope: normalizedSelectedBrand || null,
-      suffix: `/products/${parentSku}`,
+      suffix: `/products/${buildCanonicalProductIdentifier(parentIdentifier, parentName)}`,
     });
 
   const loadVariantData = useCallback(async () => {
@@ -71,22 +103,34 @@ export function VariantNavigationHeader({
       const scopedSuffix = scopeQuery ? `?${scopeQuery}` : "";
 
       // Fetch variant attributes configuration
-      const attrsResponse = await fetch(`/api/${tenantSlug}/product-families/${familyId}/variant-attributes${scopedSuffix}`);
-      if (attrsResponse.ok) {
-        const attrsData = await attrsResponse.json();
-        setVariantAttributes(attrsData.data || []);
+      const attrsUrl = `/api/${tenantSlug}/product-families/${familyId}/variant-attributes${scopedSuffix}`;
+      const attrsResult = await fetchJsonWithDedupe<{ data?: VariantAttribute[] }>(attrsUrl, {
+        ttlMs: 5000,
+      });
+      if (attrsResult.ok) {
+        setVariantAttributes(attrsResult.data?.data || []);
       }
 
       // Fetch all variants for this parent
-      const variantsResponse = await fetch(`/api/${tenantSlug}/products/${parentSku}/variants${scopedSuffix}`);
-      if (variantsResponse.ok) {
-        const variantsData = await variantsResponse.json();
-        setAllVariants(variantsData.data || []);
+      const variantsUrl = `/api/${tenantSlug}/products/${parentIdentifier}/variants${scopedSuffix}`;
+      const variantsResult = await fetchJsonWithDedupe<{ data?: Variant[] }>(variantsUrl, {
+        ttlMs: 3000,
+      });
+      if (variantsResult.ok) {
+        setAllVariants(variantsResult.data?.data || []);
 
-        // If we have a current variant SKU, find it and extract its attribute values
-        if (currentVariantSku) {
-          const currentVariant = variantsData.data?.find(
-            (v: Variant) => v.sku === currentVariantSku || v.id === currentVariantSku
+        // If we have a current variant identifier, find it and extract its attribute values
+        if (currentVariantIdentifier) {
+          const parsedCurrentIdentifier = parseProductIdentifier(currentVariantIdentifier);
+          const normalizedCurrentIdentifier = (
+            parsedCurrentIdentifier.uuid || currentVariantIdentifier
+          )
+            .trim()
+            .toLowerCase();
+          const currentVariant = variantsResult.data?.data?.find(
+            (v: Variant) =>
+              (v.id || "").toLowerCase() === normalizedCurrentIdentifier ||
+              (v.sku || "").toLowerCase() === normalizedCurrentIdentifier
           );
           if (currentVariant) {
             setSelectedValues(currentVariant.variant_attributes || {});
@@ -98,11 +142,22 @@ export function VariantNavigationHeader({
     } finally {
       setLoading(false);
     }
-  }, [tenantSlug, familyId, parentSku, currentVariantSku, normalizedSelectedBrand]);
+  }, [
+    tenantSlug,
+    familyId,
+    parentIdentifier,
+    currentVariantIdentifier,
+    normalizedSelectedBrand,
+    selectedMarketId,
+    selectedLocale?.code,
+    selectedChannel?.code,
+    selectedDestination?.code,
+  ]);
 
   useEffect(() => {
+    if (!isScopeReady) return;
     loadVariantData();
-  }, [loadVariantData]);
+  }, [isScopeReady, loadVariantData]);
 
   // Get available values for a specific attribute based on previous selections
   const getAvailableValues = (attributeCode: string, attributeIndex: number): string[] => {
@@ -161,8 +216,12 @@ export function VariantNavigationHeader({
         // Navigate to the variant
         const variantUrl = generateVariantUrl(
           tenantSlug,
-          parentSku,
-          matchingVariant.sku || matchingVariant.id
+          parentIdentifier,
+          matchingVariant.id || matchingVariant.sku || "",
+          {
+            parentLabel: parentName || parentIdentifier,
+            variantLabel: matchingVariant.product_name || matchingVariant.sku || null,
+          }
         );
         if (variantUrl) {
           const scopeRoot = buildTenantPathForScope({
@@ -182,15 +241,10 @@ export function VariantNavigationHeader({
   if (loading || variantAttributes.length === 0) {
     return (
       <div className="flex items-center gap-2">
-        <Link href={buildProductsHref()}>
-          <button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="w-4 h-4" />
-            <span>Back</span>
-          </button>
-        </Link>
-        <ChevronDown className="w-3 h-3 text-muted-foreground rotate-[-90deg]" />
         <Link href={buildParentHref()}>
-          <span className="text-sm text-foreground hover:underline">{parentName}</span>
+          <span className="inline-block max-w-[280px] truncate text-sm text-foreground hover:underline">
+            {parentName}
+          </span>
         </Link>
       </div>
     );
@@ -198,15 +252,10 @@ export function VariantNavigationHeader({
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <Link href={buildProductsHref()}>
-        <button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back</span>
-        </button>
-      </Link>
-      <ChevronDown className="w-3 h-3 text-muted-foreground rotate-[-90deg]" />
       <Link href={buildParentHref()}>
-        <span className="text-sm text-foreground hover:underline">{parentName}</span>
+        <span className="inline-block max-w-[280px] truncate text-sm text-foreground hover:underline">
+          {parentName}
+        </span>
       </Link>
 
       {/* Cascading Variant Attribute Dropdowns */}
@@ -229,8 +278,8 @@ export function VariantNavigationHeader({
               onValueChange={(value) => handleAttributeChange(attr.field_code, value, index)}
               disabled={!isPreviousSelected}
             >
-              <SelectTrigger className="h-8 px-2 text-sm">
-                <SelectValue placeholder={attr.field_name} />
+              <SelectTrigger className="h-8 min-w-[160px] max-w-[280px] px-2 text-sm">
+                <SelectValue className="truncate" placeholder={attr.field_name} />
               </SelectTrigger>
               <SelectContent>
                 {availableValues.map((value) => (

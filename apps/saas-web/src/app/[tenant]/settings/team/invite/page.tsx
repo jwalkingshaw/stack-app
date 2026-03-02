@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Users, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PageContentContainer } from "@/components/ui/page-content-container";
 
 export default async function InviteTypeChooserPage({
   params,
@@ -11,7 +12,7 @@ export default async function InviteTypeChooserPage({
   const tenantSlug = resolvedParams.tenant;
 
   return (
-    <div className="space-y-6">
+    <PageContentContainer mode="content" className="space-y-6">
       <div>
         <h1 className="text-lg font-semibold text-foreground">Invite User</h1>
         <p className="text-sm text-muted-foreground">
@@ -52,6 +53,6 @@ export default async function InviteTypeChooserPage({
           <Link href={`/${tenantSlug}/settings/team`}>Back to Team</Link>
         </Button>
       </div>
-    </div>
+    </PageContentContainer>
   );
 }

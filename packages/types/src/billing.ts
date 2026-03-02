@@ -6,8 +6,12 @@ export interface SubscriptionPlan {
   currency: string;
   interval: 'month' | 'year';
   features: string[];
-  storageLimit: number; // bytes
-  userLimit: number;
+  activeSkuLimit?: number;
+  storageLimitGb?: number;
+  deliveryBandwidthLimitGb?: number;
+  internalUserLimit?: number;
+  userLimit?: number;
+  partnerInviteLimit?: number;
 }
 
 export interface Subscription {
@@ -27,6 +31,13 @@ export interface Usage {
   organizationId: string;
   period: string; // YYYY-MM format
   storageUsed: number;
+  storageLimitGb?: number;
+  activeSkuCount?: number;
+  internalUserCount?: number;
+  partnerInviteCount?: number;
+  translationCharCount?: number;
+  writeCharCount?: number;
+  deliveryBandwidthGb?: number;
   assetsCount: number;
   downloadCount: number;
   uploadsCount: number;

@@ -2,10 +2,13 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { AuthLayoutShell } from "@tradetool/ui";
 import { useMe } from "@/hooks/useMe";
-import { Check, Sparkles, User } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 
 export default function WelcomePage() {
   const searchParams = useSearchParams();
@@ -23,13 +26,6 @@ export default function WelcomePage() {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "success">("idle");
   const [hasRedirected, setHasRedirected] = useState(false);
-
-  useEffect(() => {
-    if (!loading && user) {
-      setFirstName(user.given_name || "");
-      setLastName(user.family_name || "");
-    }
-  }, [loading, user]);
 
   useEffect(() => {
     if (
@@ -93,39 +89,56 @@ export default function WelcomePage() {
 
   if (loading && !user) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="h-14 w-14 rounded-full border-4 border-slate-700 border-t-blue-400 animate-spin" />
-          <p className="text-sm text-slate-300">Getting things ready...</p>
+      <AuthLayoutShell
+        authContext={{ isAuthenticated: false }}
+        headerProps={{ className: "hidden" }}
+        contentClassName="pt-0"
+      >
+        <div className="flex min-h-screen items-center justify-center px-4 py-12">
+          <Card className="w-full max-w-[520px] rounded-2xl border border-muted/30 bg-white shadow-sm">
+            <CardContent className="px-6 py-8 sm:px-8">
+              <div className="text-center">
+                <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-xl border border-muted/30 bg-white">
+                  <Image src="/stackcess-icon-wb-logo.svg" alt="STACKCESS" width={32} height={32} className="h-8 w-8" />
+                </div>
+                <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin text-foreground" />
+                <p className="text-[var(--font-size-sm)] text-muted-foreground">Getting things ready...</p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
-      </div>
+      </AuthLayoutShell>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-100 flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-xl">
-        <div className="rounded-3xl border border-white/10 bg-white/5 backdrop-blur-md shadow-[0_30px_80px_-25px_rgba(15,23,42,0.7)] overflow-hidden">
-          <div className="px-8 py-10 sm:px-12 sm:py-12">
-            <div className="flex items-start gap-4">
-              <div className="rounded-2xl bg-blue-500/10 border border-blue-500/20 p-3 text-blue-300">
-                <Sparkles className="h-8 w-8" />
-              </div>
-              <div>
-                <h1 className="text-3xl font-semibold text-white">
-                  Let's personalize your workspace
-                </h1>
-                <p className="mt-2 text-sm text-slate-300">
-                  Add your name so teammates know who just joined. We will use this
-                  on invites, comments, and activity feeds.
-                </p>
-              </div>
+    <AuthLayoutShell
+      authContext={{ isAuthenticated: false }}
+      headerProps={{ className: "hidden" }}
+      contentClassName="pt-0"
+    >
+      <div className="flex min-h-screen items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-[520px] rounded-2xl border border-muted/30 bg-white shadow-sm">
+          <CardHeader className="space-y-3 px-6 pb-4 pt-8 text-left sm:px-8">
+            <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-muted/30 bg-white">
+              <Image src="/stackcess-icon-wb-logo.svg" alt="STACKCESS" width={32} height={32} className="h-8 w-8" />
             </div>
+            <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">
+              STACKCESS
+            </span>
+            <h1 className="text-[var(--font-size-2xl)] font-semibold leading-tight tracking-tight text-foreground">
+              Finish your profile
+            </h1>
+            <p className="text-[var(--font-size-sm)] text-muted-foreground">
+              Add your first and last name so your team can identify you in activity and sharing.
+            </p>
+          </CardHeader>
 
-            <form onSubmit={handleSubmit} className="mt-10 space-y-6">
-              <div className="grid gap-6 sm:grid-cols-2">
+          <CardContent className="space-y-5 px-6 pb-8 pt-0 sm:px-8">
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="grid gap-5 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs uppercase tracking-wide text-slate-400">
+                  <label className="mb-2 block text-sm font-medium text-foreground">
                     First name
                   </label>
                   <Input
@@ -134,11 +147,11 @@ export default function WelcomePage() {
                     placeholder="Jane"
                     autoComplete="given-name"
                     required
-                    className="mt-2 bg-white/10 border-white/15 text-white placeholder:text-slate-400 focus-visible:ring-blue-400"
+                    className="h-12 rounded-[0.5rem]"
                   />
                 </div>
                 <div>
-                  <label className="text-xs uppercase tracking-wide text-slate-400">
+                  <label className="mb-2 block text-sm font-medium text-foreground">
                     Last name
                   </label>
                   <Input
@@ -147,21 +160,21 @@ export default function WelcomePage() {
                     placeholder="Doe"
                     autoComplete="family-name"
                     required
-                    className="mt-2 bg-white/10 border-white/15 text-white placeholder:text-slate-400 focus-visible:ring-blue-400"
+                    className="h-12 rounded-[0.5rem]"
                   />
                 </div>
               </div>
 
               {error && (
-                <div className="rounded-lg border border-red-400/60 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                   {error}
                 </div>
               )}
 
               {status === "success" && (
-                <div className="flex items-center gap-2 rounded-lg border border-emerald-400/60 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                <div className="flex items-center gap-2 rounded-lg border border-[var(--color-success)]/25 bg-[var(--color-success)]/5 px-4 py-3 text-sm text-[var(--color-success)]">
                   <Check className="h-4 w-4" />
-                  Profile saved! Redirecting you now.
+                  Profile saved. Redirecting now.
                 </div>
               )}
 
@@ -169,26 +182,18 @@ export default function WelcomePage() {
                 type="submit"
                 size="lg"
                 disabled={submitting}
-                className="w-full bg-blue-500 text-white hover:bg-blue-400 focus-visible:ring-blue-300"
+                className="h-12 w-full rounded-[0.5rem] text-[var(--font-size-base)] font-semibold"
               >
                 {submitting ? "Saving..." : "Save and continue"}
               </Button>
             </form>
 
-            <div className="mt-10 rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="flex items-start gap-3 text-sm text-slate-300">
-                <div className="mt-1 rounded-full bg-slate-800/80 p-1 text-slate-200">
-                  <User className="h-4 w-4" />
-                </div>
-                <p>
-                  We only use your name inside Stackcess. You can update it anytime
-                  from your profile menu once you're in.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+            <p className="text-xs text-muted-foreground">
+              You can update these details later from your profile menu.
+            </p>
+          </CardContent>
+        </Card>
       </div>
-    </div>
+    </AuthLayoutShell>
   );
 }

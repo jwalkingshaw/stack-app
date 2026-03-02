@@ -164,8 +164,12 @@ export function InlineVariantTable({
     if (variant.isNew) return; // Don't navigate if it's the new row
     const variantUrl = generateVariantUrl(
       tenantSlug,
-      productSku || productId,
-      variant.sku || variant.id
+      productId || productSku || "",
+      variant.id || variant.sku || "",
+      {
+        parentLabel: productName || productSku || null,
+        variantLabel: variant.product_name || variant.sku || null,
+      }
     );
     if (variantUrl) {
       router.push(variantUrl);

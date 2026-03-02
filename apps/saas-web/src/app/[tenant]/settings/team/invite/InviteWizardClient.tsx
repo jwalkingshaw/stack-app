@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, Mail, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContentContainer } from "@/components/ui/page-content-container";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { defaultInviteModuleLevels, type PermissionLevel } from "@/lib/invite-permissions";
@@ -41,6 +42,20 @@ type ShareSetOption = {
   module_key: "assets" | "products";
 };
 
+type InviteConfigPayload = {
+  success: boolean;
+  data?: {
+    permission_bundles?: PermissionBundle[];
+    markets?: ShareContainer[];
+    share_sets?: ShareSetOption[];
+  };
+  error?: string;
+};
+
+function getSetModuleLabel(moduleKey: ShareSetOption["module_key"]): "Assets" | "Products" {
+  return moduleKey === "assets" ? "Assets" : "Products";
+}
+
 type InviteWizardClientProps = {
   tenantSlug: string;
   invitationType: InvitationType;
@@ -58,13 +73,56 @@ const INVITE_LEVEL_OPTIONS: Array<{ value: PermissionLevel; label: string }> = [
   { value: "edit", label: "Edit" },
   { value: "admin", label: "Admin" },
 ];
+const INVITE_CONFIG_CACHE_TTL_MS = 30_000;
+const inviteConfigCache = new Map<string, { expiresAt: number; payload: InviteConfigPayload }>();
+const inviteConfigInFlight = new Map<string, Promise<InviteConfigPayload>>();
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-function toSubjectType(invitationType: InvitationType): "team_member" | "partner" {
-  return invitationType === "team_member" ? "team_member" : "partner";
+function getInviteConfigCacheKey(tenantSlug: string, invitationType: InvitationType): string {
+  return `${tenantSlug}:${invitationType}`;
+}
+
+async function getInviteConfig(
+  tenantSlug: string,
+  invitationType: InvitationType
+): Promise<InviteConfigPayload> {
+  const cacheKey = getInviteConfigCacheKey(tenantSlug, invitationType);
+  const now = Date.now();
+  const cached = inviteConfigCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.payload;
+  }
+
+  const inFlight = inviteConfigInFlight.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = (async () => {
+    const response = await fetch(
+      `/api/${tenantSlug}/invites/config?invitation_type=${invitationType}`
+    );
+
+    const payload = (await response.json().catch(() => ({}))) as InviteConfigPayload;
+    if (!response.ok) {
+      throw new Error(payload?.error || "Failed to load invite configuration");
+    }
+
+    inviteConfigCache.set(cacheKey, {
+      payload,
+      expiresAt: Date.now() + INVITE_CONFIG_CACHE_TTL_MS,
+    });
+
+    return payload;
+  })().finally(() => {
+    inviteConfigInFlight.delete(cacheKey);
+  });
+
+  inviteConfigInFlight.set(cacheKey, request);
+  return request;
 }
 
 export default function InviteWizardClient({
@@ -126,75 +184,32 @@ export default function InviteWizardClient({
     setLoadingConfig(true);
     setConfigError("");
     try {
-      const subjectType = toSubjectType(invitationType);
-      const requests: Promise<Response>[] = [
-        fetch(`/api/${tenantSlug}/permission-bundles?subject_type=${subjectType}`),
-        fetch(`/api/${tenantSlug}/sharing/containers`),
-      ];
-      if (!isTeamInvite) {
-        requests.push(fetch(`/api/${tenantSlug}/sharing/sets?page=1&pageSize=200`));
-      }
-      const [bundlesRes, containersRes, setsRes] = await Promise.all(requests);
+      const configPayload = await getInviteConfig(tenantSlug, invitationType);
+      const bundles = Array.isArray(configPayload?.data?.permission_bundles)
+        ? configPayload.data.permission_bundles
+        : [];
+      const markets = Array.isArray(configPayload?.data?.markets)
+        ? configPayload.data.markets
+        : [];
+      const sets = Array.isArray(configPayload?.data?.share_sets)
+        ? configPayload.data.share_sets
+        : [];
 
-      if (bundlesRes.ok) {
-        const bundlesPayload = await bundlesRes.json();
-        setPermissionBundles(bundlesPayload?.data || []);
-      } else if (bundlesRes.status === 403) {
-        setPermissionBundles([]);
-      } else {
-        throw new Error("Failed to load permission templates");
-      }
-
-      if (containersRes.ok) {
-        const containersPayload = await containersRes.json();
-        const markets = containersPayload?.data?.markets || [];
-        setShareMarkets(markets);
-        setSelectedMarketIds((current) => {
-          const valid = current.filter((id) => markets.some((market: ShareContainer) => market.id === id));
-          if (valid.length > 0) return valid;
-          return markets[0]?.id ? [markets[0].id] : [];
-        });
-      } else if (containersRes.status === 403) {
-        setShareMarkets([]);
-        setSelectedMarketIds([]);
-      } else {
-        throw new Error("Failed to load market scope options");
-      }
-
-      if (isTeamInvite) {
-        setShareSets([]);
-        setSelectedShareSetIds([]);
-      } else if (setsRes?.ok) {
-        const setsPayload = await setsRes.json();
-        const assetSets = Array.isArray(setsPayload?.data?.asset_sets)
-          ? setsPayload.data.asset_sets
-          : [];
-        const productSets = Array.isArray(setsPayload?.data?.product_sets)
-          ? setsPayload.data.product_sets
-          : [];
-
-        const allSets: ShareSetOption[] = [
-          ...assetSets.map((set: any) => ({
-            id: set.id,
-            name: set.name,
-            module_key: "assets" as const,
-          })),
-          ...productSets.map((set: any) => ({
-            id: set.id,
-            name: set.name,
-            module_key: "products" as const,
-          })),
-        ];
-        setShareSets(allSets);
-        setSelectedShareSetIds((current) =>
-          current.filter((id) => allSets.some((set) => set.id === id))
+      setPermissionBundles(bundles);
+      setShareMarkets(markets);
+      setSelectedMarketIds((current) => {
+        const valid = current.filter((id) =>
+          markets.some((market: ShareContainer) => market.id === id)
         );
-      } else if (setsRes?.status === 403) {
-        setShareSets([]);
-        setSelectedShareSetIds([]);
-      } else if (!isTeamInvite) {
-        throw new Error("Failed to load sets for partner assignment");
-      }
+        if (valid.length > 0) return valid;
+        return markets[0]?.id ? [markets[0].id] : [];
+      });
+
+      const nextSets = isTeamInvite ? [] : sets;
+      setShareSets(nextSets);
+      setSelectedShareSetIds((current) =>
+        current.filter((id) => nextSets.some((set) => set.id === id))
+      );
     } catch (error: any) {
       setConfigError(error?.message || "Failed to load invite configuration");
     } finally {
@@ -351,7 +366,7 @@ export default function InviteWizardClient({
   };
 
   return (
-    <div className="space-y-6">
+    <PageContentContainer mode="content" className="space-y-6">
       <PageHeader
         title={title}
         description={description}
@@ -520,7 +535,7 @@ export default function InviteWizardClient({
                     <MultiSelect
                       options={shareSets.map((set) => ({
                         value: set.id,
-                        label: `[${set.module_key}] ${set.name}`,
+                        label: `${set.name} (${getSetModuleLabel(set.module_key)})`,
                       }))}
                       value={selectedShareSetIds}
                       onChange={setSelectedShareSetIds}
@@ -632,6 +647,6 @@ export default function InviteWizardClient({
           </div>
         )}
       </div>
-    </div>
+    </PageContentContainer>
   );
 }

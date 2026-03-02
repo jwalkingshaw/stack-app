@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, type ChangeEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -11,18 +11,13 @@ import {
   FolderPlus,
   Image as ImageIcon,
   FileText,
-  Download,
   ChevronRight,
   MoreHorizontal,
   Grid3X3,
-  List,
   LayoutGrid,
-  Star,
+  List,
   Tag,
-  Eye,
-  Link2,
   Share2,
-  Edit3,
   Check,
   X,
   Home,
@@ -50,7 +45,6 @@ import {
 import { AssetViewPanel } from "@/components/dam/asset-view-panel";
 import { BulkActionToolbar } from "@/components/dam/bulk-action-toolbar";
 import { BulkEditorPanel } from "@/components/dam/bulk-editor-panel";
-import { KeyboardShortcutsHelp } from "@/components/dam/keyboard-shortcuts-help";
 import { PageHeader } from "@/components/ui/page-header";
 import type {
   AssetCategory,
@@ -62,15 +56,7 @@ import type {
 } from "@tradetool/types";
 import { extractPartnerScopeFromPath, isReservedPartnerScope } from "@/lib/tenant-view-scope";
 import { useMarketContext } from "@/components/market-context";
-
-// Simple inline components for demo
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
+import { stageAssetUploadFiles } from "@/lib/asset-upload-staging";
 
 function getFileIcon(mimeType?: string) {
   if (!mimeType) return <FileText className="w-5 h-5 text-gray-500" />;
@@ -114,6 +100,7 @@ type AssetRecord = DamAsset & {
   previewUrl?: string | null;
   preview?: string;
   favorite?: boolean;
+  tenantOwned?: boolean;
 };
 
 type ProductOption = {
@@ -121,6 +108,8 @@ type ProductOption = {
   sku?: string;
   productName?: string;
   brand?: string;
+  parentId?: string | null;
+  productType?: string | null;
 };
 
 type AssetShareSetOption = {
@@ -136,6 +125,21 @@ type ScopeConstraintOption = {
   label: string;
 };
 
+const NEW_CONTENT_FILTER_OPTIONS = [
+  { value: "all", label: "Any time" },
+  { value: "1", label: "New in 24h" },
+  { value: "7", label: "New in 7 days" },
+  { value: "30", label: "New in 30 days" },
+  { value: "since_last_visit", label: "Since last visit" },
+] as const;
+
+const UPDATED_FILTER_OPTIONS = [
+  { value: "all", label: "Any time" },
+  { value: "1", label: "Updated in 24h" },
+  { value: "7", label: "Updated in 7 days" },
+  { value: "30", label: "Updated in 30 days" },
+] as const;
+
 const getAssetTagNames = (asset: AssetRecord): string[] => {
   if (!asset?.tagAssignments) {
     return [];
@@ -145,6 +149,59 @@ const getAssetTagNames = (asset: AssetRecord): string[] => {
     .map((assignment) => assignment.tag?.name?.trim())
     .filter((name): name is string => Boolean(name));
 };
+
+const mapAssetApiToClient = (asset: any): Partial<AssetRecord> => ({
+  id: asset?.id,
+  organizationId: asset?.organization_id ?? asset?.organizationId,
+  folderId: asset?.folder_id ?? asset?.folderId ?? null,
+  filename: asset?.filename ?? asset?.original_filename ?? asset?.originalFilename ?? "Untitled",
+  originalFilename:
+    asset?.original_filename ?? asset?.originalFilename ?? asset?.filename ?? "Untitled",
+  fileType: asset?.file_type ?? asset?.fileType ?? "other",
+  assetType: asset?.asset_type ?? asset?.assetType,
+  assetScope: asset?.asset_scope ?? asset?.assetScope,
+  currentVersionNumber: asset?.current_version_number ?? asset?.currentVersionNumber,
+  currentVersionComment: asset?.current_version_comment ?? asset?.currentVersionComment ?? null,
+  currentVersionEffectiveFrom:
+    asset?.current_version_effective_from ?? asset?.currentVersionEffectiveFrom ?? null,
+  currentVersionEffectiveTo:
+    asset?.current_version_effective_to ?? asset?.currentVersionEffectiveTo ?? null,
+  currentVersionChangedBy:
+    asset?.current_version_changed_by ?? asset?.currentVersionChangedBy ?? null,
+  currentVersionChangedAt:
+    asset?.current_version_changed_at ?? asset?.currentVersionChangedAt ?? null,
+  fileSize: Number(asset?.file_size ?? asset?.fileSize ?? 0),
+  mimeType: asset?.mime_type ?? asset?.mimeType ?? "",
+  filePath: asset?.file_path ?? asset?.filePath,
+  s3Key: asset?.s3_key ?? asset?.s3Key ?? "",
+  s3Url: asset?.s3_url ?? asset?.s3Url ?? "",
+  thumbnailUrls: asset?.thumbnail_urls ?? asset?.thumbnailUrls,
+  metadata: asset?.metadata,
+  tags: Array.isArray(asset?.tags) ? asset.tags : [],
+  description: asset?.description ?? null,
+  productIdentifiers:
+    asset?.product_identifiers ?? asset?.productIdentifiers ?? [],
+  createdBy: asset?.created_by ?? asset?.createdBy ?? "",
+  createdAt: asset?.created_at ?? asset?.createdAt ?? new Date().toISOString(),
+  updatedAt: asset?.updated_at ?? asset?.updatedAt ?? new Date().toISOString(),
+  tenantOwned:
+    typeof asset?.tenant_owned === "boolean"
+      ? asset.tenant_owned
+      : typeof asset?.tenantOwned === "boolean"
+        ? asset.tenantOwned
+        : undefined,
+});
+
+const normalizeAssetRecord = (asset: any): AssetRecord => ({
+  ...(mapAssetApiToClient(asset) as AssetRecord),
+  tagAssignments: Array.isArray(asset?.tagAssignments) ? asset.tagAssignments : [],
+  categoryAssignments: Array.isArray(asset?.categoryAssignments)
+    ? asset.categoryAssignments
+    : [],
+  categories: Array.isArray(asset?.categories) ? asset.categories : [],
+  previewUrl: typeof asset?.previewUrl === "string" ? asset.previewUrl : null,
+  favorite: Boolean(asset?.favorite),
+});
 
 const buildFolderTree = (folderList: FolderRecord[]): FolderRecord[] => {
   const folderMap = new Map<string, FolderRecord>();
@@ -224,7 +281,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   }, [partnerPathScope, searchParams, selectedBrandSlugProp, tenantSlug]);
   const isSharedBrandView =
     selectedBrandSlug.length > 0 && selectedBrandSlug !== tenantSlug.toLowerCase();
-  const shouldProxyPreviewUrls = isPartnerAllView || isSharedBrandView;
+  // Always use API preview URLs so thumbnails render consistently regardless of bucket ACL.
+  const shouldProxyPreviewUrls = true;
 
   const [assets, setAssets] = useState<AssetRecord[]>([]);
   const [folders, setFolders] = useState<FolderRecord[]>([]);
@@ -233,15 +291,18 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [availableCategories, setAvailableCategories] = useState<AssetCategory[]>([]);
   const [userPermissions, setUserPermissions] = useState<UserPermissions | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState("grid"); // grid, list, mosaic
+  const [viewMode, setViewMode] = useState("grid"); // grid, list, visual
+  const [isUploadDropActive, setIsUploadDropActive] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
   const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
   const [filterTag, setFilterTag] = useState("");
-  const [linkedOnly, setLinkedOnly] = useState(false);
+  const [newContentFilter, setNewContentFilter] = useState<string>("all");
+  const [updatedContentFilter, setUpdatedContentFilter] = useState<string>("all");
+  const [isQuickFiltersCollapsed, setIsQuickFiltersCollapsed] = useState(false);
   const [sortBy, setSortBy] = useState("name"); // name, date, size, type
   const [selectedAsset, setSelectedAsset] = useState<AssetRecord | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
@@ -276,8 +337,15 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [shareMarketIds, setShareMarketIds] = useState<string[]>([]);
   const [shareChannelIds, setShareChannelIds] = useState<string[]>([]);
   const [shareLocaleIds, setShareLocaleIds] = useState<string[]>([]);
+  const [lastVisitedAt, setLastVisitedAt] = useState<string | null>(null);
+  const [replaceTargetAssetId, setReplaceTargetAssetId] = useState<string | null>(null);
+  const [isReplacingAsset, setIsReplacingAsset] = useState(false);
+  const replaceFileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadDropDepthRef = useRef(0);
   const folderParam = searchParams.get("folder");
-  const productParam = searchParams.get("product");
+  const productsParam = searchParams.get("products") || searchParams.get("product");
+  const newContentParam = searchParams.get("new");
+  const updatedContentParam = searchParams.get("updated");
 
   const buildScopedQuery = () => {
     const queryParams = new URLSearchParams();
@@ -287,16 +355,37 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     if (selectedFolderId && selectedFolderId !== "unfiled") {
       queryParams.set("folderId", selectedFolderId);
     }
-    if (selectedProductId) {
-      queryParams.set("productId", selectedProductId);
+    if (selectedProductIds.length > 0) {
+      queryParams.set("productIds", selectedProductIds.join(","));
     }
     if (selectedBrandSlug) {
       queryParams.set("brand", selectedBrandSlug);
     }
+
+    if (newContentFilter === "since_last_visit") {
+      if (lastVisitedAt) {
+        queryParams.set("createdAfter", lastVisitedAt);
+      }
+    } else if (newContentFilter !== "all") {
+      const days = Number(newContentFilter);
+      if (!Number.isNaN(days) && days > 0) {
+        const createdAfter = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        queryParams.set("createdAfter", createdAfter);
+      }
+    }
+
+    if (updatedContentFilter !== "all") {
+      const days = Number(updatedContentFilter);
+      if (!Number.isNaN(days) && days > 0) {
+        const updatedAfter = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+        queryParams.set("updatedAfter", updatedAfter);
+      }
+    }
+
     return queryParams.toString();
   };
 
-  const buildAssetPreviewProxyUrl = (assetId: string) => {
+  const buildAssetPreviewProxyUrl = (assetId: string, versionToken?: string | null) => {
     const queryParams = new URLSearchParams();
     if (isPartnerAllView) {
       queryParams.set("view", "all");
@@ -304,19 +393,21 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     if (selectedBrandSlug) {
       queryParams.set("brand", selectedBrandSlug);
     }
+    if (versionToken && versionToken.trim().length > 0) {
+      queryParams.set("v", versionToken.trim());
+    }
     const queryString = queryParams.toString();
     return `/api/${tenantSlug}/assets/${assetId}/preview${queryString ? `?${queryString}` : ""}`;
   };
 
-  const withPreviewUrls = (assetList: AssetRecord[]): AssetRecord[] => {
-    if (!shouldProxyPreviewUrls) {
-      return assetList;
-    }
-    return assetList.map((asset) => ({
+  const withPreviewUrls = (assetList: AssetRecord[]): AssetRecord[] =>
+    assetList.map((asset) => ({
       ...asset,
-      previewUrl: buildAssetPreviewProxyUrl(asset.id),
+      previewUrl: buildAssetPreviewProxyUrl(
+        asset.id,
+        asset.currentVersionChangedAt || asset.updatedAt || null
+      ),
     }));
-  };
 
   useEffect(() => {
     if (!folderParam) {
@@ -327,12 +418,53 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   }, [folderParam]);
 
   useEffect(() => {
-    if (!productParam) {
-      setSelectedProductId(null);
+    if (!productsParam) {
+      setSelectedProductIds([]);
       return;
     }
-    setSelectedProductId(productParam);
-  }, [productParam]);
+    const parsedIds = productsParam
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    setSelectedProductIds(parsedIds);
+  }, [productsParam]);
+
+  useEffect(() => {
+    if (!newContentParam) {
+      setNewContentFilter("all");
+      return;
+    }
+    setNewContentFilter(newContentParam);
+  }, [newContentParam]);
+
+  useEffect(() => {
+    if (!updatedContentParam) {
+      setUpdatedContentFilter("all");
+      return;
+    }
+    setUpdatedContentFilter(updatedContentParam);
+  }, [updatedContentParam]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const lastVisitedKey = `assets:lastVisited:${tenantSlug}:${selectedBrandSlug || "self"}`;
+    const previous = window.localStorage.getItem(lastVisitedKey);
+    setLastVisitedAt(previous || null);
+  }, [selectedBrandSlug, tenantSlug]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const lastVisitedKey = `assets:lastVisited:${tenantSlug}:${selectedBrandSlug || "self"}`;
+    const persistVisit = () => {
+      window.localStorage.setItem(lastVisitedKey, new Date().toISOString());
+    };
+
+    window.addEventListener("beforeunload", persistVisit);
+    return () => {
+      persistVisit();
+      window.removeEventListener("beforeunload", persistVisit);
+    };
+  }, [selectedBrandSlug, tenantSlug]);
 
   // Fetch real assets and folders
   useEffect(() => {
@@ -354,7 +486,9 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         const { data } = await response.json();
         console.log('📥 Assets data received:', data);
 
-        setAssets(withPreviewUrls((data.assets || []) as AssetRecord[]));
+        setAssets(
+          withPreviewUrls(((data.assets || []) as any[]).map((asset) => normalizeAssetRecord(asset)))
+        );
         const folderList = (data.folders || []) as FolderRecord[];
         setFolders(folderList);
         setFolderTree(buildFolderTree(folderList));
@@ -384,7 +518,15 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       fetchAssetsData();
     }
     return () => controller.abort();
-  }, [tenantSlug, selectedFolderId, selectedProductId, selectedBrandSlug]);
+  }, [
+    tenantSlug,
+    selectedFolderId,
+    selectedProductIds,
+    selectedBrandSlug,
+    newContentFilter,
+    updatedContentFilter,
+    lastVisitedAt,
+  ]);
 
   // Refresh assets function
   const refreshAssets = async () => {
@@ -397,7 +539,9 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       }
 
       const { data } = await response.json();
-      setAssets(withPreviewUrls((data.assets || []) as AssetRecord[]));
+      setAssets(
+        withPreviewUrls(((data.assets || []) as any[]).map((asset) => normalizeAssetRecord(asset)))
+      );
       const folderList = (data.folders || []) as FolderRecord[];
       setFolders(folderList);
       setFolderTree(buildFolderTree(folderList));
@@ -462,8 +606,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       const matchesFolder =
         !selectedFolderId ||
         (selectedFolderId === "unfiled" ? !asset.folderId : asset.folderId === selectedFolderId);
-      const matchesLinked = !linkedOnly || (asset.productIdentifiers?.length ?? 0) > 0;
-      return matchesSearch && matchesFilter && matchesFolder && matchesLinked;
+      return matchesSearch && matchesFilter && matchesFolder;
     })
     .sort((a, b) => {
       switch (sortBy) {
@@ -479,6 +622,45 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
           return 0;
       }
     });
+
+  useEffect(() => {
+    if ((newContentFilter !== "all" || updatedContentFilter !== "all") && sortBy === "name") {
+      setSortBy("date");
+    }
+  }, [newContentFilter, updatedContentFilter, sortBy]);
+
+  const productNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const product of productOptions) {
+      map.set(
+        product.id,
+        product.productName?.trim() || product.sku?.trim() || "Unnamed product"
+      );
+    }
+    return map;
+  }, [productOptions]);
+
+  const productFilterOptions = useMemo(
+    () =>
+      productOptions
+        .map((product) => {
+          const ownName =
+            product.productName?.trim() || product.sku?.trim() || "Unnamed product";
+          const parentName = product.parentId ? productNameById.get(product.parentId) : null;
+          const hierarchyLabel =
+            parentName && parentName !== ownName ? `${parentName} > ${ownName}` : ownName;
+          const skuSuffix =
+            product.sku && !hierarchyLabel.includes(product.sku)
+              ? ` (${product.sku})`
+              : "";
+          return {
+            value: product.id,
+            label: `${hierarchyLabel}${skuSuffix}`,
+          };
+        })
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    [productNameById, productOptions]
+  );
 
   const allTags = useMemo(() => {
     const tagSet = new Set<string>();
@@ -496,25 +678,108 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       ])
     );
   }, [folders]);
+  const folderLookup = useMemo(
+    () => new Map((folders || []).map((folder: FolderRecord) => [folder.id, folder])),
+    [folders]
+  );
+  const selectedFolder = useMemo(() => {
+    if (!selectedFolderId || selectedFolderId === "unfiled") {
+      return null;
+    }
+    return folderLookup.get(selectedFolderId) || null;
+  }, [folderLookup, selectedFolderId]);
+  const folderBreadcrumb = useMemo(() => {
+    if (!selectedFolder) return [];
+    const chain: FolderRecord[] = [];
+    const visited = new Set<string>();
+    let current: FolderRecord | null = selectedFolder;
 
-  const handleSelectFolder = (folderId: string | null) => {
+    while (current && !visited.has(current.id)) {
+      chain.unshift(current);
+      visited.add(current.id);
+      current = current.parentId ? folderLookup.get(current.parentId) || null : null;
+    }
+
+    return chain;
+  }, [folderLookup, selectedFolder]);
+  const childFoldersForMainNav = useMemo(() => {
+    if (selectedFolderId === "unfiled") return [];
+    const parentId = selectedFolderId || null;
+    return (folders || [])
+      .filter((folder) => folder.parentId === parentId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [folders, selectedFolderId]);
+  const activeQuickFilterCount =
+    (selectedProductIds.length > 0 ? 1 : 0) +
+    (filterTag ? 1 : 0) +
+    (newContentFilter !== "all" ? 1 : 0) +
+    (updatedContentFilter !== "all" ? 1 : 0) +
+    (sortBy !== "name" ? 1 : 0);
+
+  useEffect(() => {
+    if (!selectedFolderId || selectedFolderId === "unfiled") return;
+
+    const ancestorIds: string[] = [];
+    const visited = new Set<string>();
+    let current = folderLookup.get(selectedFolderId) || null;
+
+    while (current?.parentId && !visited.has(current.parentId)) {
+      ancestorIds.push(current.parentId);
+      visited.add(current.parentId);
+      current = folderLookup.get(current.parentId) || null;
+    }
+
+    if (ancestorIds.length === 0) return;
+
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      ancestorIds.forEach((id) => {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [folderLookup, selectedFolderId]);
+
+  const setAssetsSearchParam = (key: string, value: string | null) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (!folderId) {
-      params.delete("folder");
+    if (!value) {
+      params.delete(key);
     } else {
-      params.set("folder", folderId);
+      params.set(key, value);
     }
     router.replace(`/${tenantSlug}/assets${params.toString() ? `?${params.toString()}` : ""}`);
   };
 
-  const handleSelectProduct = (productId: string | null) => {
+  const handleSelectFolder = (folderId: string | null) => {
+    setAssetsSearchParam("folder", folderId);
+  };
+  const handleSelectProducts = (productIds: string[]) => {
+    setSelectedProductIds(productIds);
     const params = new URLSearchParams(searchParams.toString());
-    if (!productId) {
-      params.delete("product");
+    params.delete("product");
+    if (productIds.length === 0) {
+      params.delete("products");
     } else {
-      params.set("product", productId);
+      params.set("products", productIds.join(","));
     }
     router.replace(`/${tenantSlug}/assets${params.toString() ? `?${params.toString()}` : ""}`);
+  };
+
+  const handleSelectNewContentFilter = (value: string) => {
+    if (value === "since_last_visit" && !lastVisitedAt) {
+      return;
+    }
+    setNewContentFilter(value);
+    setAssetsSearchParam("new", value === "all" ? null : value);
+  };
+
+  const handleSelectUpdatedContentFilter = (value: string) => {
+    setUpdatedContentFilter(value);
+    setAssetsSearchParam("updated", value === "all" ? null : value);
   };
 
   const toggleFolderExpansion = (folderId: string) => {
@@ -736,25 +1001,25 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                 {canManageLibrary ? (
                   <button
                     onClick={(event) => toggleFolderSelection(folder.id, event)}
-                    className={`flex h-5 w-5 items-center justify-center rounded border ${
+                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border ${
                       isFolderChecked
                         ? "border-blue-500 bg-blue-600 text-white"
                         : "border-border bg-background hover:border-blue-400"
                     }`}
                     aria-label={isFolderChecked ? "Deselect folder" : "Select folder"}
                   >
-                    {isFolderChecked ? <Check className="h-3 w-3" /> : null}
+                    {isFolderChecked ? <Check className="h-2.5 w-2.5" /> : null}
                   </button>
                 ) : null}
                 {hasChildren ? (
                   <button
                     onClick={() => toggleFolderExpansion(folder.id)}
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
                   >
                     {isExpanded ? <ChevronRight className="h-4 w-4 rotate-90" /> : <ChevronRight className="h-4 w-4" />}
                   </button>
                 ) : (
-                  <span className="h-6 w-6" />
+                  <span className="h-6 w-6 shrink-0" />
                 )}
                 <button
                   onClick={() => handleSelectFolder(folder.id)}
@@ -835,11 +1100,88 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     if (isSharedBrandView) {
       return;
     }
-    router.push(`/${tenantSlug}/assets/upload`);
+    const uploadParams = new URLSearchParams();
+    if (selectedFolderId && selectedFolderId !== "unfiled") {
+      uploadParams.set("folderId", selectedFolderId);
+    } else if (selectedFolderId === "unfiled") {
+      uploadParams.set("folderId", "none");
+    }
+    router.push(
+      `/${tenantSlug}/assets/upload${uploadParams.toString() ? `?${uploadParams.toString()}` : ""}`
+    );
+  };
+
+  const isFileDragEvent = (event: React.DragEvent) =>
+    Array.from(event.dataTransfer?.types || []).includes("Files");
+
+  const handleUploadDropEnter = (event: React.DragEvent) => {
+    if (isSharedBrandView || !canManageLibrary || !isFileDragEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    uploadDropDepthRef.current += 1;
+    setIsUploadDropActive(true);
+  };
+
+  const handleUploadDropOver = (event: React.DragEvent) => {
+    if (isSharedBrandView || !canManageLibrary || !isFileDragEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    if (!isUploadDropActive) {
+      setIsUploadDropActive(true);
+    }
+  };
+
+  const handleUploadDropLeave = (event: React.DragEvent) => {
+    if (!isFileDragEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    uploadDropDepthRef.current = Math.max(0, uploadDropDepthRef.current - 1);
+    if (uploadDropDepthRef.current === 0) {
+      setIsUploadDropActive(false);
+    }
+  };
+
+  const handleUploadDrop = (event: React.DragEvent) => {
+    if (isSharedBrandView || !canManageLibrary || !isFileDragEvent(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    uploadDropDepthRef.current = 0;
+    setIsUploadDropActive(false);
+
+    const files = Array.from(event.dataTransfer.files || []).filter(
+      (file) => file instanceof File
+    );
+    if (files.length === 0) return;
+
+    const uploadToken = stageAssetUploadFiles(files);
+    if (!uploadToken) return;
+
+    const uploadParams = new URLSearchParams();
+    uploadParams.set("uploadToken", uploadToken);
+    if (selectedFolderId && selectedFolderId !== "unfiled") {
+      uploadParams.set("folderId", selectedFolderId);
+    } else {
+      uploadParams.set("folderId", "none");
+    }
+
+    router.push(`/${tenantSlug}/assets/upload?${uploadParams.toString()}`);
   };
 
   const canEditAssets = !isSharedBrandView && Boolean(userPermissions?.can_edit_products);
   const canManageLibrary = canEditAssets;
+  const isAssetOwnedByTenant = (asset: AssetRecord | null | undefined) => {
+    if (!asset) return false;
+    if (typeof asset.tenantOwned === "boolean") {
+      return asset.tenantOwned;
+    }
+    return !isSharedBrandView;
+  };
+  const canMutateAsset = (asset: AssetRecord | null | undefined) =>
+    canEditAssets && isAssetOwnedByTenant(asset);
+  const selectableAssetIds = new Set(
+    filteredAssets.filter((asset) => canMutateAsset(asset)).map((asset) => asset.id)
+  );
   const selectedAssetCount = selectedAssetIds.size;
   const selectedFolderCount = selectedFolderIds.size;
   const totalSelectedShareItems = selectedAssetCount + selectedFolderCount;
@@ -1079,6 +1421,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   const handleSaveAsset = async (updates: AssetEditorUpdates) => {
     if (!selectedAsset) return;
+    if (!canMutateAsset(selectedAsset)) return;
 
     try {
       console.log('🔵 Saving asset updates:', updates);
@@ -1125,6 +1468,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   const handleDeleteAsset = async (assetId: string) => {
     if (!assetId) return;
+    const targetAsset = assets.find((asset) => asset.id === assetId);
+    if (!canMutateAsset(targetAsset)) return;
 
     try {
       const response = await fetch(`/api/${tenantSlug}/assets/${assetId}`, {
@@ -1151,14 +1496,51 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     }
   };
 
+  const handleVersionCreated = async (updatedAsset: Record<string, any>) => {
+    if (!updatedAsset?.id) {
+      await refreshAssets();
+      return;
+    }
+
+    const normalized = mapAssetApiToClient(updatedAsset);
+    const assetId = String(normalized.id || updatedAsset.id);
+
+    setAssets((prevAssets) =>
+      prevAssets.map((asset) => {
+        if (asset.id !== assetId) return asset;
+        const merged = { ...asset, ...normalized } as AssetRecord;
+        if (shouldProxyPreviewUrls) {
+          merged.previewUrl = buildAssetPreviewProxyUrl(
+            assetId,
+            (merged.currentVersionChangedAt || merged.updatedAt || null) as string | null
+          );
+        }
+        return merged;
+      })
+    );
+
+    setSelectedAsset((prev) => {
+      if (!prev || prev.id !== assetId) return prev;
+      const merged = { ...prev, ...normalized } as AssetRecord;
+      return {
+        ...merged,
+        preview: getAssetPreviewUrl(merged),
+      };
+    });
+  };
+
   // Multi-select functionality
   const handleAssetSelect = (assetId: string, event?: React.MouseEvent) => {
     event?.stopPropagation();
     setShareStatusMessage(null);
+    const targetAsset = filteredAssets.find((asset) => asset.id === assetId);
+    if (!targetAsset || !selectableAssetIds.has(assetId)) return;
 
     if (event?.shiftKey && selectedAssetIds.size > 0) {
       // Range selection with Shift+click
-      const assetIds = filteredAssets.map(a => a.id);
+      const assetIds = filteredAssets
+        .filter((asset) => selectableAssetIds.has(asset.id))
+        .map((asset) => asset.id);
       const lastSelectedIndex = assetIds.findIndex(id => selectedAssetIds.has(id));
       const currentIndex = assetIds.indexOf(assetId);
 
@@ -1188,13 +1570,18 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   };
 
   const handleSelectAll = () => {
+    const selectableIds = filteredAssets
+      .filter((asset) => selectableAssetIds.has(asset.id))
+      .map((asset) => asset.id);
     setShareStatusMessage(null);
-    if (selectedAssetIds.size === filteredAssets.length) {
+    const isAllSelectableSelected =
+      selectableIds.length > 0 && selectableIds.every((id) => selectedAssetIds.has(id));
+    if (isAllSelectableSelected) {
       // Deselect all
       setSelectedAssetIds(new Set());
     } else {
       // Select all filtered assets
-      setSelectedAssetIds(new Set(filteredAssets.map(asset => asset.id)));
+      setSelectedAssetIds(new Set(selectableIds));
     }
   };
 
@@ -1222,13 +1609,19 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   };
 
   const handleBulkDelete = async () => {
-    if (selectedAssetIds.size === 0) return;
-    const confirmed = confirm(`Delete ${selectedAssetIds.size} assets? This action cannot be undone.`);
+    const deletableAssetIds = Array.from(selectedAssetIds).filter((assetId) => {
+      const asset = assets.find((row) => row.id === assetId);
+      return canMutateAsset(asset);
+    });
+    if (deletableAssetIds.length === 0) return;
+    const confirmed = confirm(
+      `Delete ${deletableAssetIds.length} assets? This action cannot be undone.`
+    );
     if (!confirmed) return;
 
     try {
       await Promise.all(
-        Array.from(selectedAssetIds).map(async (assetId) => {
+        deletableAssetIds.map(async (assetId) => {
           const response = await fetch(`/api/${tenantSlug}/assets/${assetId}`, {
             method: 'DELETE',
           });
@@ -1239,13 +1632,13 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       );
 
       setAssets((prevAssets) =>
-        prevAssets.filter((asset) => !selectedAssetIds.has(asset.id))
+        prevAssets.filter((asset) => !deletableAssetIds.includes(asset.id))
       );
       setSelectedAssetIds(new Set());
       setIsBulkMode(false);
       setIsBulkEditorOpen(false);
 
-      if (selectedAsset && selectedAssetIds.has(selectedAsset.id)) {
+      if (selectedAsset && deletableAssetIds.includes(selectedAsset.id)) {
         setIsViewOpen(false);
         setSelectedAsset(null);
       }
@@ -1259,6 +1652,107 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   const handleBulkShare = () => {
     void openShareDialog();
+  };
+
+  const handleAddAssetToSet = (assetId: string) => {
+    const asset = assets.find((row) => row.id === assetId);
+    if (!canMutateAsset(asset)) return;
+    setSelectedAssetIds(new Set([assetId]));
+    setSelectedFolderIds(new Set());
+    void openShareDialog();
+  };
+
+  const handleCopyAssetUrl = async (asset: AssetRecord) => {
+    const url = getAssetPreviewUrl(asset) || asset.s3Url;
+    if (!url) return;
+
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareStatusMessage(`Copied URL for "${asset.originalFilename}".`);
+    } catch (error) {
+      console.error("Failed to copy asset URL:", error);
+    }
+  };
+
+  const handleDownloadAsset = (asset: AssetRecord) => {
+    const url = asset.s3Url || getAssetPreviewUrl(asset);
+    if (!url) return;
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.download = asset.originalFilename || asset.filename || "asset";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleOpenContainingFolder = (asset: AssetRecord) => {
+    handleSelectFolder(asset.folderId || "unfiled");
+  };
+
+  const handleQuickRename = (asset: AssetRecord) => {
+    if (!canMutateAsset(asset)) return;
+    handleViewAsset(asset);
+    setShareStatusMessage("Open asset details to rename.");
+  };
+
+  const handleQuickReplace = (assetId: string) => {
+    const asset = assets.find((row) => row.id === assetId);
+    if (!canMutateAsset(asset) || isReplacingAsset) return;
+    setReplaceTargetAssetId(assetId);
+    replaceFileInputRef.current?.click();
+  };
+
+  const handleReplaceFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    const assetId = replaceTargetAssetId;
+    event.target.value = "";
+    if (!file || !assetId) return;
+
+    setIsReplacingAsset(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const query = new URLSearchParams();
+      if (selectedBrandSlug) {
+        query.set("brand", selectedBrandSlug);
+      }
+
+      const response = await fetch(
+        `/api/${tenantSlug}/assets/${assetId}/versions${query.toString() ? `?${query.toString()}` : ""}`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        data?: Record<string, any>;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to replace asset");
+      }
+
+      if (payload.data) {
+        await handleVersionCreated(payload.data);
+      } else {
+        await refreshAssets();
+      }
+      setShareStatusMessage("Asset replaced successfully.");
+    } catch (error) {
+      console.error("Failed to replace asset:", error);
+      setShareStatusMessage(
+        error instanceof Error ? error.message : "Failed to replace asset."
+      );
+    } finally {
+      setReplaceTargetAssetId(null);
+      setIsReplacingAsset(false);
+    }
   };
 
   const handleConfirmShareSelection = async () => {
@@ -1362,9 +1856,14 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     }
   };
 
-  const selectedAssets = assets.filter(asset => selectedAssetIds.has(asset.id));
-  const isAllSelected = filteredAssets.length > 0 && selectedAssetIds.size === filteredAssets.length;
-  const isPartiallySelected = selectedAssetIds.size > 0 && selectedAssetIds.size < filteredAssets.length;
+  const selectedAssets = assets.filter(
+    (asset) => selectedAssetIds.has(asset.id) && canMutateAsset(asset)
+  );
+  const selectableCount = selectableAssetIds.size;
+  const selectedSelectableCount = selectedAssets.length;
+  const isAllSelected = selectableCount > 0 && selectedSelectableCount === selectableCount;
+  const isPartiallySelected =
+    selectedSelectableCount > 0 && selectedSelectableCount < selectableCount;
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -1405,11 +1904,68 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     switch (viewMode) {
       case "list":
         return "space-y-2";
-      case "mosaic":
-        return "columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 space-y-4";
+      case "visual":
+        return "columns-2 sm:columns-3 lg:columns-4 xl:columns-5 2xl:columns-6 gap-4 space-y-4";
       default: // grid
-        return "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4";
+        return "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-5 gap-4";
     }
+  };
+
+  const renderAssetActions = (asset: AssetRecord, className = "") => {
+    const canMutateSelectedAsset = canMutateAsset(asset);
+    return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={className || "rounded-md bg-background/90 p-1.5 text-muted-foreground hover:bg-background hover:text-foreground"}
+          onClick={(event) => event.stopPropagation()}
+          aria-label={`Asset actions for ${asset.originalFilename}`}
+        >
+          <MoreHorizontal className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-52">
+        <DropdownMenuItem onSelect={() => handleViewAsset(asset)}>
+          Open
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => handleOpenContainingFolder(asset)}>
+          Open containing folder
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => handleDownloadAsset(asset)}>
+          Download
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void handleCopyAssetUrl(asset)}>
+          Copy URL
+        </DropdownMenuItem>
+        {canMutateSelectedAsset ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => handleAddAssetToSet(asset.id)}>
+              Add to Set
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => handleQuickRename(asset)}>
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => handleQuickReplace(asset.id)}>
+              Replace
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => {
+                const confirmed = confirm(`Delete "${asset.originalFilename}"?`);
+                if (!confirmed) return;
+                void handleDeleteAsset(asset.id);
+              }}
+              className="text-destructive"
+            >
+              Delete
+            </DropdownMenuItem>
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
   };
 
   return (
@@ -1420,11 +1976,136 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
           Viewing shared assets from <span className="font-medium text-foreground">{selectedBrandSlug}</span>.
           Uploading and editing are disabled in shared view.
         </div>
+      ) : isPartnerAllView ? (
+        <div className="mx-6 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          Viewing your library plus brand-shared assets in one workspace.
+          Shared brand assets are read-only.
+        </div>
       ) : null}
-      <div className="flex gap-6 p-6">
+      <div className="flex gap-4 p-4">
         {/* Folder Sidebar */}
         <aside className="w-64 shrink-0 space-y-4">
-          <div className="rounded-xl border border-border bg-background p-4 shadow-soft">
+          <div className="rounded-xl bg-muted/20 p-4">
+            <button
+              type="button"
+              onClick={() => setIsQuickFiltersCollapsed((prev) => !prev)}
+              className="flex w-full items-center justify-between text-left"
+            >
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-foreground">Quick Filters</h3>
+                {activeQuickFilterCount > 0 ? (
+                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                    {activeQuickFilterCount} active
+                  </span>
+                ) : null}
+              </div>
+              <ChevronRight
+                className={`h-4 w-4 text-muted-foreground transition-transform ${
+                  isQuickFiltersCollapsed ? "" : "rotate-90"
+                }`}
+              />
+            </button>
+            {!isQuickFiltersCollapsed ? (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
+                    Product
+                  </label>
+                  <MultiSelect
+                    options={productFilterOptions}
+                    value={selectedProductIds}
+                    onChange={handleSelectProducts}
+                    placeholder="Select one or more products"
+                    className="h-9"
+                    contentClassName="max-h-72 overflow-y-auto"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
+                    New content
+                  </label>
+                  <Select
+                    value={newContentFilter}
+                    onValueChange={handleSelectNewContentFilter}
+                  >
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="Any time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {NEW_CONTENT_FILTER_OPTIONS.map((option) => (
+                        <SelectItem
+                          key={option.value}
+                          value={option.value}
+                          disabled={option.value === "since_last_visit" && !lastVisitedAt}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
+                    Updated
+                  </label>
+                  <Select
+                    value={updatedContentFilter}
+                    onValueChange={handleSelectUpdatedContentFilter}
+                  >
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="Any time" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UPDATED_FILTER_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
+                    Tags
+                  </label>
+                  <Select
+                    value={filterTag || "all"}
+                    onValueChange={(value) => setFilterTag(value === "all" ? "" : value)}
+                  >
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="All tags" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All tags</SelectItem>
+                      {allTags.map((tag) => (
+                        <SelectItem key={tag} value={tag}>
+                          {tag}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
+                    Sort
+                  </label>
+                  <Select value={sortBy} onValueChange={setSortBy}>
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="Sort by name" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="name">Sort by name</SelectItem>
+                      <SelectItem value="date">Sort by date</SelectItem>
+                      <SelectItem value="size">Sort by size</SelectItem>
+                      <SelectItem value="type">Sort by type</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-xl bg-muted/20 p-4">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-foreground">Library</h3>
               <div className="flex items-center gap-2">
@@ -1438,11 +2119,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                 ) : null}
               </div>
             </div>
-            {canManageLibrary ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Use checkboxes to select folders for sets.
-              </p>
-            ) : null}
             <div className="mt-3 space-y-1">
               <button
                 onClick={() => handleSelectFolder(null)}
@@ -1481,52 +2157,31 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
               </div>
             </div>
           </div>
-
-          <div className="rounded-xl border border-border bg-background p-4 shadow-soft">
-            <h3 className="text-sm font-semibold text-foreground">Quick Filters</h3>
-            <div className="mt-3 space-y-2">
-              <button
-                onClick={() => setLinkedOnly((prev) => !prev)}
-                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors ${
-                  linkedOnly ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                }`}
-              >
-                <span className="flex items-center gap-2">
-                  <Link2 className="h-4 w-4" />
-                  Linked Assets
-                </span>
-                <span className="text-xs font-medium">{linkedOnly ? "On" : "Off"}</span>
-              </button>
-              <div className="pt-2">
-                <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                  Product
-                </label>
-                <Select
-                  value={selectedProductId || "all"}
-                  onValueChange={(value) => handleSelectProduct(value === "all" ? null : value)}
-                >
-                  <SelectTrigger className="h-9 w-full">
-                    <SelectValue placeholder="All products" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All products</SelectItem>
-                    {productOptions.map((product) => (
-                      <SelectItem key={product.id} value={product.id}>
-                        {product.productName || product.sku || "Unnamed product"}
-                        {product.sku ? ` (${product.sku})` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
         </aside>
 
         {/* Main Content */}
-        <div className="flex-1 space-y-6">
+        <div
+          className="relative flex-1 space-y-6"
+          onDragEnter={handleUploadDropEnter}
+          onDragOver={handleUploadDropOver}
+          onDragLeave={handleUploadDropLeave}
+          onDrop={handleUploadDrop}
+        >
+          {isUploadDropActive && canManageLibrary && !isSharedBrandView ? (
+            <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-primary/60 bg-primary/10">
+              <div className="rounded-lg bg-background/95 px-5 py-4 text-center shadow-sm">
+                <p className="text-sm font-semibold text-foreground">Drop files to start upload</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Destination:{" "}
+                  {selectedFolderId === "unfiled"
+                    ? "Unfiled"
+                    : selectedFolder?.path || "All assets"}
+                </p>
+              </div>
+            </div>
+          ) : null}
           {/* Enhanced Search Section */}
-          <div className="bg-background px-4 py-4 shadow-soft">
+          <div className="bg-background px-1 py-1">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               {/* Search Bar */}
               <div className="flex-1 max-w-2xl">
@@ -1544,23 +2199,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
               </div>
 
               <div className="flex items-center gap-2">
-                <Select
-                  value={selectedProductId || "all"}
-                  onValueChange={(value) => handleSelectProduct(value === "all" ? null : value)}
-                >
-                  <SelectTrigger className="min-w-[220px] h-10">
-                    <SelectValue placeholder="All products" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All products</SelectItem>
-                    {productOptions.map((product) => (
-                      <SelectItem key={product.id} value={product.id}>
-                        {product.productName || product.sku || "Unnamed product"}
-                        {product.sku ? ` (${product.sku})` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
                 {!isSharedBrandView ? (
                   <Button onClick={handleNavigateToUpload} className="gap-2">
                     <Upload className="w-4 h-4" />
@@ -1571,8 +2209,96 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
             </div>
           </div>
 
+          <div className="rounded-lg bg-muted/20 px-4 py-3">
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <button
+                    onClick={() => handleSelectFolder(null)}
+                    className={`rounded px-1.5 py-1 transition-colors ${
+                      !selectedFolderId
+                        ? "bg-primary/10 font-medium text-primary"
+                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                    }`}
+                  >
+                    Folders
+                  </button>
+                  {canManageLibrary ? (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() =>
+                        openCreateFolder(
+                          selectedFolderId && selectedFolderId !== "unfiled"
+                            ? selectedFolderId
+                            : null
+                        )
+                      }
+                      aria-label="Create folder"
+                      title="Create folder"
+                      className="h-7 w-7"
+                    >
+                      <FolderPlus className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                  {selectedFolderId === "unfiled" ? (
+                    <>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <span className="rounded bg-primary/10 px-2 py-1 font-medium text-primary">
+                        Unfiled
+                      </span>
+                    </>
+                  ) : (
+                    folderBreadcrumb.map((folder, index) => {
+                      const isLast = index === folderBreadcrumb.length - 1;
+                      return (
+                        <div key={folder.id} className="flex items-center gap-2">
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          {isLast ? (
+                            <span className="rounded bg-primary/10 px-2 py-1 font-medium text-primary">
+                              {folder.name}
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => handleSelectFolder(folder.id)}
+                              className="rounded px-1.5 py-1 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+                            >
+                              {folder.name}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+              {selectedFolderId === "unfiled" ? (
+                <p className="text-xs text-muted-foreground">
+                  Unfiled assets are not inside any folder.
+                </p>
+              ) : childFoldersForMainNav.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {childFoldersForMainNav.map((folder) => (
+                    <button
+                      key={folder.id}
+                      onClick={() => handleSelectFolder(folder.id)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
+                    >
+                      <Folder className="h-4 w-4" />
+                      <span className="truncate max-w-[180px]">{folder.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  No subfolders at this level.
+                </p>
+              )}
+            </div>
+          </div>
+
           {/* Enhanced Toolbar */}
-          <div className="bg-background/95 backdrop-blur-sm border-b border-border px-4 py-3 shadow-soft">
+          <div className="bg-background px-4 py-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-6">
                 <div className="flex items-center gap-3">
@@ -1610,7 +2336,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                       <span className="text-lg font-semibold text-foreground">
                         {filteredAssets.length} {filteredAssets.length === 1 ? 'asset' : 'assets'}
                       </span>
-                      {filteredAssets.length > 0 && (
+                      {selectableCount > 0 && (
                         <button
                           onClick={handleSelectAll}
                           className="text-sm text-gray-500 hover:text-gray-700"
@@ -1633,47 +2359,15 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                     </div>
                   )}
                 </div>
-
-                {/* Enhanced Filters */}
-                <div className="flex items-center gap-4">
-                  <Select
-                    value={filterTag || "all"}
-                    onValueChange={(value) => setFilterTag(value === "all" ? "" : value)}
-                  >
-                    <SelectTrigger className="min-w-[120px]">
-                      <SelectValue placeholder="All tags" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All tags</SelectItem>
-                      {allTags.map((tag) => (
-                        <SelectItem key={tag} value={tag}>
-                          {tag}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={sortBy} onValueChange={setSortBy}>
-                    <SelectTrigger className="min-w-[140px]">
-                      <SelectValue placeholder="Sort by name" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="name">Sort by name</SelectItem>
-                      <SelectItem value="date">Sort by date</SelectItem>
-                      <SelectItem value="size">Sort by size</SelectItem>
-                      <SelectItem value="type">Sort by type</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
 
               {/* Enhanced View Switcher */}
-              <div className="flex items-center bg-muted/50 border border-border rounded p-1.5 shadow-soft">
+              <div className="flex items-center bg-muted/50 border border-border rounded p-1.5">
                 <button
                   onClick={() => setViewMode("grid")}
                   className={`px-3 py-2 text-sm transition-all duration-200 rounded-lg ${
                     viewMode === "grid"
-                      ? "bg-background shadow-soft text-primary border border-primary/20"
+                      ? "bg-background text-primary border border-primary/20"
                       : "hover:bg-background/50 text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -1683,19 +2377,20 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                   onClick={() => setViewMode("list")}
                   className={`px-3 py-2 text-sm transition-all duration-200 rounded-lg ${
                     viewMode === "list"
-                      ? "bg-background shadow-soft text-primary border border-primary/20"
+                      ? "bg-background text-primary border border-primary/20"
                       : "hover:bg-background/50 text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   <List className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => setViewMode("mosaic")}
+                  onClick={() => setViewMode("visual")}
                   className={`px-3 py-2 text-sm transition-all duration-200 rounded-lg ${
-                    viewMode === "mosaic"
-                      ? "bg-background shadow-soft text-primary border border-primary/20"
+                    viewMode === "visual"
+                      ? "bg-background text-primary border border-primary/20"
                       : "hover:bg-background/50 text-muted-foreground hover:text-foreground"
                   }`}
+                  title="Visual scan"
                 >
                   <LayoutGrid className="w-4 h-4" />
                 </button>
@@ -1711,41 +2406,50 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
             {loading ? (
               <div className={getGridClasses()}>
                 {Array.from({ length: 12 }).map((_, i) => (
-                  <div key={i} className={`${viewMode === "list" ? "h-16" : "aspect-square"} bg-muted rounded animate-pulse shadow-soft`} />
+                  <div
+                    key={i}
+                    className={`${
+                      viewMode === "list" ? "h-16" : viewMode === "visual" ? "h-48 mb-4 break-inside-avoid" : "aspect-square"
+                    } bg-muted rounded animate-pulse`}
+                  />
                 ))}
               </div>
             ) : (
               <div className={getGridClasses()}>
                 {filteredAssets.map((asset) => {
                   const isSelected = selectedAssetIds.has(asset.id);
+                  const isSelectable = selectableAssetIds.has(asset.id);
                   const assetTagNames = getAssetTagNames(asset);
                   const isImage = isImageAsset(asset);
                   const previewUrl = getAssetPreviewUrl(asset);
-                  const linkedCount = asset.productIdentifiers?.length ?? 0;
 
                   if (viewMode === "list") {
                     return (
                       <div
                         key={asset.id}
                         onClick={() => handleViewAsset(asset)}
-                        className={`group flex items-center gap-4 p-4 rounded border transition-all duration-300 cursor-pointer hover:-translate-y-0.5 ${
+                        className={`flex items-center gap-4 p-4 rounded border cursor-pointer ${
                         isSelected
-                          ? 'bg-blue-50 border-blue-300 shadow-md'
-                          : 'bg-card border-border hover:shadow-medium hover:border-ring/20'
+                          ? 'bg-blue-50 border-blue-300'
+                          : 'bg-card border-border hover:bg-muted/30'
                       }`}
                       >
                         {/* Selection Checkbox */}
                         <div className="flex-shrink-0">
-                          <button
-                            onClick={(e) => handleAssetSelect(asset.id, e)}
-                            className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                              isSelected
-                                ? 'bg-blue-600 border-blue-600 text-white'
-                                : 'border-input hover:border-blue-400'
-                            }`}
-                          >
-                            {isSelected && <Check className="w-3 h-3" />}
-                          </button>
+                          {isSelectable ? (
+                            <button
+                              onClick={(e) => handleAssetSelect(asset.id, e)}
+                              className={`h-4 w-4 rounded border flex items-center justify-center transition-all ${
+                                isSelected
+                                  ? 'bg-blue-600 border-blue-600 text-white'
+                                  : 'border-input hover:border-blue-400'
+                              }`}
+                            >
+                              {isSelected && <Check className="h-2.5 w-2.5" />}
+                            </button>
+                          ) : (
+                            <div className="h-4 w-4" />
+                          )}
                         </div>
 
                         <div className="w-14 h-14 bg-muted/30 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden border border-border/50">
@@ -1761,58 +2465,72 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold text-foreground truncate">
-                              {asset.originalFilename}
-                            </h3>
-                            {asset.favorite && <Star className="w-4 h-4 text-yellow-500 fill-current" />}
-                            {linkedCount > 0 && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                                <Link2 className="h-3 w-3" />
-                                {linkedCount}
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground font-medium">
-                            <span>{formatFileSize(asset.fileSize)}</span>
-                            <span className="capitalize">{asset.fileType}</span>
-                            <span>{new Date(asset.createdAt).toLocaleDateString()}</span>
-                          </div>
+                          <h3 className="text-sm font-semibold text-foreground truncate">
+                            {asset.originalFilename}
+                          </h3>
+                          {assetTagNames.length > 0 ? (
+                            <div className="text-xs text-muted-foreground truncate mt-1">
+                              {assetTagNames.slice(0, 2).join(", ")}
+                            </div>
+                          ) : null}
                         </div>
 
-                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleViewAsset(asset);
-                            }}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <Download className="w-4 h-4" />
-                          </Button>
-                          {canEditAssets && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-8 w-8"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleViewAsset(asset);
-                              }}
+                        <div className="flex-shrink-0">
+                          {renderAssetActions(asset)}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (viewMode === "visual") {
+                    return (
+                      <div
+                        key={asset.id}
+                        onClick={() => handleViewAsset(asset)}
+                        className={`group relative mb-4 break-inside-avoid overflow-hidden rounded border cursor-pointer ${
+                          isSelected
+                            ? "border-blue-300 bg-blue-50"
+                            : "border-border bg-card hover:bg-muted/10"
+                        }`}
+                      >
+                        <div className="absolute left-2 top-2 z-10">
+                          {isSelectable ? (
+                            <button
+                              onClick={(e) => handleAssetSelect(asset.id, e)}
+                              className={`h-4 w-4 rounded border flex items-center justify-center transition-all ${
+                                isSelected
+                                  ? "border-blue-600 bg-blue-600 text-white opacity-100"
+                                  : "border-input bg-white opacity-100 hover:border-blue-400"
+                              }`}
                             >
-                              <Edit3 className="w-4 h-4" />
-                            </Button>
+                              {isSelected ? <Check className="h-2.5 w-2.5" /> : null}
+                            </button>
+                          ) : (
+                            <div className="h-4 w-4" />
                           )}
+                        </div>
+                        <div className="absolute right-2 top-2 z-10">
+                          {renderAssetActions(asset, "rounded-md bg-background/90 p-1.5 text-muted-foreground hover:bg-background hover:text-foreground")}
+                        </div>
+
+                        <div className="bg-muted/20">
+                          {isImage && previewUrl ? (
+                            <img
+                              src={previewUrl}
+                              alt={asset.originalFilename}
+                              className="w-full h-auto object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-40 w-full items-center justify-center">
+                              {getFileIcon(asset.mimeType)}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/35 to-transparent p-3">
+                          <p className="truncate text-sm font-medium text-white" title={asset.originalFilename}>
+                            {asset.originalFilename}
+                          </p>
                         </div>
                       </div>
                     );
@@ -1822,34 +2540,39 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                     <div
                       key={asset.id}
                       onClick={() => handleViewAsset(asset)}
-                      className={`group relative rounded border overflow-hidden transition-all duration-300 cursor-pointer hover:-translate-y-1 ${
-                        viewMode === "mosaic" ? "break-inside-avoid mb-6" : ""
-                      } ${
+                      className={`relative rounded border overflow-hidden cursor-pointer ${
                         isSelected
-                          ? 'bg-blue-50 border-blue-300 shadow-lg'
-                          : 'bg-card border-border hover:shadow-medium hover:border-ring/20'
+                          ? 'bg-blue-50 border-blue-300'
+                          : 'bg-card border-border hover:bg-muted/20'
                       }`}
                     >
                       {/* Selection Checkbox - Top Left */}
                       <div className="absolute top-2 left-2 z-10">
-                        <button
-                          onClick={(e) => handleAssetSelect(asset.id, e)}
-                          className={`w-6 h-6 rounded border-2 flex items-center justify-center transition-all shadow-sm ${
-                            isSelected
-                              ? 'bg-blue-600 border-blue-600 text-white opacity-100'
-                              : 'bg-white border-input opacity-0 group-hover:opacity-100 hover:border-blue-400'
-                          }`}
-                        >
-                          {isSelected && <Check className="w-3 h-3" />}
-                        </button>
+                        {isSelectable ? (
+                          <button
+                            onClick={(e) => handleAssetSelect(asset.id, e)}
+                            className={`h-4 w-4 rounded border flex items-center justify-center transition-all ${
+                              isSelected
+                                ? 'bg-blue-600 border-blue-600 text-white opacity-100'
+                                : 'bg-white border-input opacity-100 hover:border-blue-400'
+                            }`}
+                          >
+                            {isSelected && <Check className="h-2.5 w-2.5" />}
+                          </button>
+                        ) : (
+                          <div className="h-4 w-4" />
+                        )}
+                      </div>
+                      <div className="absolute top-2 right-2 z-10">
+                        {renderAssetActions(asset)}
                       </div>
 
-                      <div className={`bg-muted/30 relative ${viewMode === "mosaic" ? "" : "aspect-square"}`}>
+                      <div className="bg-muted/30 relative aspect-square">
                         {isImage && previewUrl ? (
                           <img
                             src={previewUrl}
                             alt={asset.originalFilename}
-                            className={`w-full object-cover ${viewMode === "mosaic" ? "h-auto" : "h-full"}`}
+                            className="w-full h-full object-cover"
                           />
                         ) : (
                           <div className="w-full h-32 flex items-center justify-center">
@@ -1857,92 +2580,18 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                           </div>
                         )}
 
-                        {/* Favorite Star */}
-                        {asset.favorite && (
-                          <div className="absolute top-2 right-2">
-                            <Star className="w-4 h-4 text-yellow-500 fill-current" />
-                          </div>
-                        )}
-
-                        {/* Enhanced Hover Actions */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center gap-3">
-                          <Button
-                            size="icon"
-                            variant="secondary"
-                            className="h-9 w-9 bg-white/90 hover:bg-white border-0 shadow-lg"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              handleViewAsset(asset);
-                            }}
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="secondary"
-                            className="h-9 w-9 bg-white/90 hover:bg-white border-0 shadow-lg"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            <Download className="w-4 h-4" />
-                          </Button>
-                          {canEditAssets && (
-                            <Button
-                              size="icon"
-                              variant="secondary"
-                              className="h-9 w-9 bg-white/90 hover:bg-white border-0 shadow-lg"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleViewAsset(asset);
-                              }}
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </Button>
-                          )}
-                        </div>
                       </div>
 
                       <div className="p-4">
                         <h3 className="text-sm font-semibold text-foreground truncate mb-2" title={asset.originalFilename}>
                           {asset.originalFilename}
                         </h3>
-                        <div className="flex items-center justify-between mb-3">
-                          <p className="text-xs text-muted-foreground font-medium">
-                            {formatFileSize(asset.fileSize)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {new Date(asset.createdAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                        {linkedCount > 0 && (
-                          <div className="mb-3">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
-                              <Link2 className="h-3 w-3" />
-                              Linked to {linkedCount}
-                            </span>
-                          </div>
-                        )}
 
-                        {assetTagNames.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {assetTagNames.slice(0, 2).map((tag: string) => (
-                              <button
-                                key={tag}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setFilterTag(tag);
-                                }}
-                                className="inline-block px-2.5 py-1 text-xs bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-all duration-200 border border-primary/20 font-medium"
-                              >
-                                {tag}
-                              </button>
-                            ))}
-                            {assetTagNames.length > 2 && (
-                              <span className="inline-block px-2.5 py-1 text-xs bg-muted text-muted-foreground rounded-lg border border-border font-medium">
-                                +{assetTagNames.length - 2}
-                              </span>
-                            )}
+                        {assetTagNames.length > 0 ? (
+                          <div className="text-xs text-muted-foreground truncate">
+                            {assetTagNames.slice(0, 2).join(", ")}
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -1962,6 +2611,13 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         </div>
       </div>
 
+      <input
+        ref={replaceFileInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleReplaceFileChange}
+      />
+
       {/* Asset View Panel */}
       <AssetViewPanel
         tenantSlug={tenantSlug}
@@ -1978,7 +2634,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         availableTags={availableTags}
         availableCategories={availableCategories}
         onCreateTag={handleCreateTag}
-        canEdit={canEditAssets}
+        canEdit={canMutateAsset(selectedAsset)}
         folders={folders}
         availableProducts={productOptions}
         folderPath={
@@ -1987,6 +2643,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         folderName={
           selectedAsset?.folderId ? folderMap.get(selectedAsset.folderId) || null : null
         }
+        onVersionCreated={handleVersionCreated}
       />
 
       <Dialog
@@ -2073,7 +2730,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                       options={shareMarketOptions}
                       value={shareMarketIds}
                       onChange={setShareMarketIds}
-                      placeholder="All markets"
+                      placeholder="Select one or more markets"
                     />
                   </div>
                   <div className="space-y-1">
@@ -2082,7 +2739,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                       options={shareChannelOptions}
                       value={shareChannelIds}
                       onChange={setShareChannelIds}
-                      placeholder="All channels"
+                      placeholder="Select one or more channels"
                     />
                   </div>
                   <div className="space-y-1">
@@ -2091,7 +2748,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                       options={shareLocaleOptions}
                       value={shareLocaleIds}
                       onChange={setShareLocaleIds}
-                      placeholder="All locales"
+                      placeholder="Select one or more locales"
                     />
                   </div>
                 </div>
@@ -2152,7 +2809,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
       {/* Bulk Action Toolbar */}
       <BulkActionToolbar
-        selectedCount={isSharedBrandView ? 0 : selectedAssetIds.size}
+        selectedCount={isSharedBrandView ? 0 : selectedSelectableCount}
         onEdit={handleBulkEdit}
         onTag={handleBulkTag}
         onMove={handleBulkMove}
@@ -2170,8 +2827,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         availableTags={availableTags}
       />
 
-      {/* Keyboard Shortcuts Help */}
-      <KeyboardShortcutsHelp />
+      {/* Keyboard shortcuts intentionally removed for now */}
 
       <Dialog open={showCreateFolder} onOpenChange={setShowCreateFolder}>
         <DialogContent>

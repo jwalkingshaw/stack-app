@@ -108,7 +108,7 @@ export function FileFieldComponent({
           disabled={disabled || !tenantSlug}
         >
           <Plus className="mr-1 h-4 w-4" />
-          {fileValues.length > 0 ? 'Replace file' : 'Select file'}
+          {allowMultiple ? 'Add files' : fileValues.length > 0 ? 'Replace file' : 'Select file'}
         </Button>
         {allowMultiple && fileValues.length > 0 && (
           <Badge variant="secondary" className="self-center">
@@ -124,7 +124,7 @@ export function FileFieldComponent({
 
       {fileValues.length === 0 && (
         <div className="rounded-lg border border-dashed border-border/60 p-3 text-sm text-muted-foreground">
-          No file attached yet. Select an existing asset from the library or upload via the Assets area.
+          No file attached yet. Select an existing DAM asset. The field stores the asset ID reference.
         </div>
       )}
 
@@ -141,9 +141,8 @@ export function FileFieldComponent({
                 </div>
                 <div>
                   <div className="font-medium">{file.filename}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {file.mimeType} • {formatFileSize(file.size)}
-                  </div>
+                  <div className="text-xs text-muted-foreground">{file.mimeType} | {formatFileSize(file.size)}</div>
+                  <div className="text-[11px] text-muted-foreground">Asset ID: {file.assetId}</div>
                 </div>
               </div>
               <div className="flex items-center gap-2">

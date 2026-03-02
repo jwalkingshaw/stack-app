@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DataTable, Column, createTableActions } from '@/components/ui/data-table';
+import { PageContentContainer } from '@/components/ui/page-content-container';
 import AttributeWorkflowChecklist from './AttributeWorkflowChecklist';
 
 interface FieldGroup {
@@ -35,7 +36,7 @@ interface FieldGroupsSettingsProps {
   tenantSlug: string;
 }
 
-const LOCKED_GROUP_CODES = new Set(['basic_info']);
+const LOCKED_GROUP_CODES = new Set(['basic_info', 'documentation']);
 const isLockedFieldGroup = (group: FieldGroup | null | undefined) =>
   !!group && LOCKED_GROUP_CODES.has(group.code);
 
@@ -279,7 +280,7 @@ export default function FieldGroupsSettings({ tenantSlug }: FieldGroupsSettingsP
   ];
 
   return (
-    <div className="space-y-6">
+    <PageContentContainer mode="fluid" className="space-y-6">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Attribute Groups</h2>
@@ -487,7 +488,7 @@ export default function FieldGroupsSettings({ tenantSlug }: FieldGroupsSettingsP
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageContentContainer>
   );
 }
 

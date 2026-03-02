@@ -16,6 +16,7 @@ import {
   Layers
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageContentContainer } from '@/components/ui/page-content-container';
 
 interface FieldGroup {
   id: string;
@@ -64,6 +65,16 @@ interface FamilyAttribute {
   help_text?: string;
   inherit_level_1?: boolean;
   inherit_level_2?: boolean;
+}
+
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 export default function ProductFamilyDetailPage({
@@ -201,14 +212,17 @@ export default function ProductFamilyDetailPage({
     try {
       setLoading(true);
       const response = await fetch(`/api/${tenant}/product-families/${familyCode}`);
-      const result = await response.json();
+      const result = await parseJsonSafely(response);
 
       if (response.ok) {
+        if (!result?.data?.id) {
+          throw new Error('Failed to fetch family');
+        }
         setFamily(result.data);
 
         const groupsResponse = await fetch(`/api/${tenant}/product-families/${result.data.id}/field-groups`);
         if (groupsResponse.ok) {
-          const groupsData = await groupsResponse.json();
+          const groupsData = (await parseJsonSafely(groupsResponse)) || [];
 
           const transformedWithFields = await Promise.all(
             groupsData.map(async (item: any) => {
@@ -216,7 +230,7 @@ export default function ProductFamilyDetailPage({
               let fields: ProductField[] = [];
 
               if (fieldsResponse.ok) {
-                const fieldsData = await fieldsResponse.json();
+                const fieldsData = (await parseJsonSafely(fieldsResponse)) || [];
                 fields = fieldsData.map((f: any) => f.product_fields).filter(Boolean);
               } else {
                 console.warn('Failed to fetch fields for field group:', item.field_group_id);
@@ -239,7 +253,7 @@ export default function ProductFamilyDetailPage({
           setAssignedGroups([]);
         }
       } else {
-        setError(result.error || 'Failed to fetch family');
+        setError(result?.error || 'Failed to fetch family');
       }
     } catch (error) {
       console.error('Error fetching family:', error);
@@ -267,7 +281,7 @@ export default function ProductFamilyDetailPage({
         throw new Error('Failed to update rules');
       }
 
-      const data = await response.json();
+      const data = (await parseJsonSafely(response)) || {};
       setFamily((prev: any) => ({
         ...prev,
         ...data.data
@@ -284,7 +298,7 @@ export default function ProductFamilyDetailPage({
     try {
       const response = await fetch(`/api/${tenant}/field-groups`);
       if (response.ok) {
-        const data = await response.json();
+        const data = await parseJsonSafely(response);
         setAllFieldGroups(data || []);
       } else {
         console.warn('Failed to fetch all field groups, but continuing with empty array');
@@ -300,7 +314,7 @@ export default function ProductFamilyDetailPage({
     try {
       const response = await fetch(`/api/${tenant}/product-families/${familyCode}/history`);
       if (response.ok) {
-        const data = await response.json();
+        const data = await parseJsonSafely(response);
         setHistoryData(data || []);
       } else {
         console.warn('Failed to fetch history, but continuing with empty array');
@@ -318,7 +332,7 @@ export default function ProductFamilyDetailPage({
     try {
       const response = await fetch(`/api/${tenant}/product-families/${family.id}/variant-attributes`);
       if (response.ok) {
-        const data = await response.json();
+        const data = (await parseJsonSafely(response)) || {};
         setVariantAttributes(data.data || []);
       } else {
         console.warn('Failed to fetch variant attributes');
@@ -336,7 +350,7 @@ export default function ProductFamilyDetailPage({
     try {
       const response = await fetch(`/api/${tenant}/product-families/${family.id}/attributes`);
       if (response.ok) {
-        const data = await response.json();
+        const data = (await parseJsonSafely(response)) || {};
         setFamilyAttributes(data.data || []);
       } else {
         console.warn('Failed to fetch family attributes');
@@ -352,7 +366,7 @@ export default function ProductFamilyDetailPage({
     try {
       const response = await fetch(`/api/${tenant}/product-fields`);
       if (response.ok) {
-        const data = await response.json();
+        const data = await parseJsonSafely(response);
         setAllProductFields(data || []);
       } else {
         console.warn('Failed to fetch attributes');
@@ -373,18 +387,25 @@ export default function ProductFamilyDetailPage({
     if (selectedGroupsToAdd.length === 0) return;
 
     try {
-      for (const groupId of selectedGroupsToAdd) {
-        await fetch(`/api/${tenant}/product-families/${family.id}/field-groups`, {
+      for (let index = 0; index < selectedGroupsToAdd.length; index += 1) {
+        const groupId = selectedGroupsToAdd[index];
+        const response = await fetch(`/api/${tenant}/product-families/${family.id}/field-groups`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             field_group_id: groupId,
-            sort_order: assignedGroups.length + 1
+            sort_order: assignedGroups.length + index + 1
           })
         });
+
+        if (!response.ok) {
+          const result = await parseJsonSafely(response);
+          throw new Error(result?.error || 'Failed to add field group');
+        }
       }
 
       await fetchFamily();
+      await Promise.all([fetchFamilyAttributes(), fetchVariantAttributes()]);
       setSelectedGroupsToAdd([]);
       setShowAddGroupsDialog(false);
     } catch (error) {
@@ -397,11 +418,16 @@ export default function ProductFamilyDetailPage({
     if (!confirm('Remove this field group from the family?')) return;
 
     try {
-      await fetch(`/api/${tenant}/product-families/${family.id}/field-groups/${assignmentId}`, {
+      const response = await fetch(`/api/${tenant}/product-families/${family.id}/field-groups/${assignmentId}`, {
         method: 'DELETE'
       });
+      if (!response.ok) {
+        const result = await parseJsonSafely(response);
+        throw new Error(result?.error || 'Failed to remove field group');
+      }
 
       await fetchFamily();
+      await Promise.all([fetchFamilyAttributes(), fetchVariantAttributes()]);
     } catch (error) {
       console.error('Error removing group:', error);
       setError('Failed to remove field group');
@@ -449,7 +475,7 @@ export default function ProductFamilyDetailPage({
 
     try {
       for (const fieldId of selectedFieldsToAdd) {
-        await fetch(`/api/${tenant}/product-families/${family.id}/variant-attributes`, {
+        const response = await fetch(`/api/${tenant}/product-families/${family.id}/variant-attributes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -458,6 +484,11 @@ export default function ProductFamilyDetailPage({
             is_required: false
           })
         });
+
+        if (!response.ok) {
+          const result = await parseJsonSafely(response);
+          throw new Error(result?.error || 'Failed to add variant attribute');
+        }
       }
 
       await fetchVariantAttributes();
@@ -529,6 +560,16 @@ export default function ProductFamilyDetailPage({
     }
   };
 
+  const handleVariantAxesDialogOpenChange = (open: boolean) => {
+    setShowAddVariantAttributesDialog(open);
+    if (open) {
+      void fetchFamilyAttributes();
+      void fetchVariantAttributes();
+    } else {
+      setSelectedFieldsToAdd([]);
+    }
+  };
+
   if (loading) {
     return (
       <div className="h-full bg-background">
@@ -556,7 +597,7 @@ export default function ProductFamilyDetailPage({
     <div className="h-full bg-background">
       {/* Header */}
       <div className="border-b border-border bg-white">
-        <div className="px-6 py-4">
+        <PageContentContainer mode="content" className="px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Button
@@ -573,11 +614,11 @@ export default function ProductFamilyDetailPage({
               <Badge variant="outline">{assignedGroups.length} groups</Badge>
             </div>
           </div>
-        </div>
+        </PageContentContainer>
       </div>
 
       {/* Main content */}
-      <div className="px-6 py-6">
+      <PageContentContainer mode="content" className="px-6 py-6">
         <Card>
           <CardHeader className="pb-0">
             <CardTitle>{family.name}</CardTitle>
@@ -862,7 +903,7 @@ export default function ProductFamilyDetailPage({
                     </div>
                     <Button
                       variant="secondary"
-                      onClick={() => setShowAddVariantAttributesDialog(true)}
+                      onClick={() => handleVariantAxesDialogOpenChange(true)}
                       disabled={!hasFamilyAttributes}
                     >
                       <Plus className="w-4 h-4" />
@@ -1075,7 +1116,7 @@ export default function ProductFamilyDetailPage({
             )}
           </CardContent>
         </Card>
-      </div>
+      </PageContentContainer>
 
       {/* Add Groups Dialog */}
       <Dialog open={showAddGroupsDialog} onOpenChange={setShowAddGroupsDialog}>
@@ -1137,7 +1178,7 @@ export default function ProductFamilyDetailPage({
       </Dialog>
 
       {/* Add Variant Axes Dialog */}
-      <Dialog open={showAddVariantAttributesDialog} onOpenChange={setShowAddVariantAttributesDialog}>
+      <Dialog open={showAddVariantAttributesDialog} onOpenChange={handleVariantAxesDialogOpenChange}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add Variant Axes to {family.name}</DialogTitle>

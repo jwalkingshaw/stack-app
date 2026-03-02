@@ -1,6 +1,15 @@
 export const CORE_BASIC_INFO_GROUP_CODE = 'basic_info';
+export const CORE_DOCUMENTATION_GROUP_CODE = 'documentation';
 
-export const CORE_SYSTEM_FIELD_CODES = ['title', 'scin', 'sku', 'barcode'] as const;
+export const CORE_SYSTEM_FIELD_CODES = [
+  'title',
+  'scin',
+  'sku',
+  'barcode',
+  'coa_documents',
+  'legal_documents',
+  'sfp_documents',
+] as const;
 
 export const RESERVED_SYSTEM_FIELD_CODES = ['facts_panel', ...CORE_SYSTEM_FIELD_CODES] as const;
 

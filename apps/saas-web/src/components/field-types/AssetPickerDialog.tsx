@@ -72,6 +72,16 @@ const matchesAllowedMime = (mimeType: string, allowedGroups?: MimeGroup[]) => {
   return allowedGroups.some((group) => MIME_GROUP_MAP[group].test(mimeType));
 };
 
+const parseJsonSafely = async (response: Response): Promise<any | null> => {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
+
 export function AssetPickerDialog({
   open,
   onOpenChange,
@@ -141,7 +151,10 @@ export function AssetPickerDialog({
         if (!response.ok) {
           throw new Error(`Failed to load assets (${response.status})`);
         }
-        const payload = await response.json();
+        const payload = await parseJsonSafely(response);
+        if (!payload) {
+          throw new Error('Assets API returned an empty or invalid response.');
+        }
         const list: AssetSummary[] = payload?.data?.assets ?? [];
         setAssets((prev) => (isInitial ? list : [...prev, ...list]));
         const pagination = payload?.data?.pagination;
@@ -219,7 +232,7 @@ export function AssetPickerDialog({
           {loading ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              Loading assets…
+              Loading assetsÃ¢â‚¬Â¦
             </div>
           ) : filteredAssets.length === 0 ? (
             <div className="flex items-center justify-center py-16 text-center text-sm text-muted-foreground">
@@ -261,7 +274,7 @@ export function AssetPickerDialog({
                         {asset.originalFilename ?? asset.fileName ?? 'Untitled asset'}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {asset.mimeType || 'Unknown type'} • {formatFileSize(asset.fileSize)}
+                        {asset.mimeType || 'Unknown type'} Ã¢â‚¬Â¢ {formatFileSize(asset.fileSize)}
                       </div>
                       {asset.tags && asset.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1">

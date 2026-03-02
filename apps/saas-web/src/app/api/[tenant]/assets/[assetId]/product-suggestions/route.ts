@@ -114,7 +114,7 @@ export async function GET(
       .from("products")
       .select("id, sku, product_name, brand:brand_line")
       .eq("organization_id", targetOrganizationId)
-      .eq("status", "active");
+      .in("status", ["Active", "active"]);
 
     if (allowedProductIds) {
       if (allowedProductIds.size === 0) {
@@ -236,7 +236,7 @@ export async function POST(
       .from("products")
       .select("id, sku, product_name, brand:brand_line")
       .eq("organization_id", targetOrganizationId)
-      .eq("status", "active");
+      .in("status", ["Active", "active"]);
 
     if (productsError) {
       return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 });

@@ -4,6 +4,7 @@ import { S3Service } from "@tradetool/storage";
 import { supabaseServer } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { isAuthenticated, requireOrganization, requireUser } from "@/lib/auth-server";
+import { getOrganizationBillingLimits } from "@/lib/billing-policy";
 
 type AssetRow = {
   id: string;
@@ -24,12 +25,14 @@ type ShareLookup = {
   publicEnabled: boolean;
   allowDownloads: boolean;
   expiresAt: string;
+  forceAuthenticatedAccess: boolean;
 };
 
 const findSharedAsset = async (tenant: string, token: string): Promise<ShareLookup | null> => {
   const db = new DatabaseQueries(supabaseServer);
   const org = await db.getOrganizationBySlug(tenant);
   if (!org) return null;
+  const { planId } = await getOrganizationBillingLimits(org.id);
 
   const { data: shareRow } = await (supabaseServer as any)
     .from("asset_shares")
@@ -56,6 +59,7 @@ const findSharedAsset = async (tenant: string, token: string): Promise<ShareLook
     publicEnabled: Boolean((shareRow as any).public_enabled),
     allowDownloads: Boolean((shareRow as any).allow_downloads),
     expiresAt: String((shareRow as any).expires_at),
+    forceAuthenticatedAccess: planId === "free",
   };
 };
 
@@ -97,8 +101,9 @@ export default async function PublicAssetPage({
   const publicEnabled = share.publicEnabled;
   const allowDownloads = share.allowDownloads;
   const asset = share.asset;
+  const requiresAuthenticatedAccess = !publicEnabled || share.forceAuthenticatedAccess;
 
-  if (!publicEnabled) {
+  if (requiresAuthenticatedAccess) {
     const authenticated = await isAuthenticated();
     if (!authenticated) {
       redirect("/api/auth/login");

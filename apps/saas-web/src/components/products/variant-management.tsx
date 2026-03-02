@@ -38,6 +38,16 @@ interface VariantManagementProps {
   onProductTypeChange: (newType: 'parent') => void;
 }
 
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
 export function VariantManagement({
   productId,
   productSku,
@@ -55,9 +65,9 @@ export function VariantManagement({
 
     try {
       const response = await fetch(`/api/${tenantSlug}/product-families/${productFamilyId}/variant-attributes`);
+      const data = await parseJsonSafely(response);
       if (response.ok) {
-        const data = await response.json();
-        setVariantAttributes(data.data || []);
+        setVariantAttributes(data?.data || []);
       }
     } catch (error) {
       console.error('Error loading variant attributes:', error);
@@ -67,9 +77,9 @@ export function VariantManagement({
   const loadExistingVariants = useCallback(async () => {
     try {
       const response = await fetch(`/api/${tenantSlug}/products/${productId}/variants`);
+      const data = await parseJsonSafely(response);
       if (response.ok) {
-        const data = await response.json();
-        setExistingVariants(data.data || []);
+        setExistingVariants(data?.data || []);
       }
     } catch (error) {
       console.error('Error loading existing variants:', error);
@@ -99,8 +109,8 @@ export function VariantManagement({
   const getParentSku = async () => {
     try {
       const response = await fetch(`/api/${tenantSlug}/products/${productId}`);
+      const data = await parseJsonSafely(response);
       if (response.ok) {
-        const data = await response.json();
         return data.data?.sku;
       }
     } catch (error) {

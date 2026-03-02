@@ -12,7 +12,8 @@ import {
   Check,
   Clock,
   Users as UsersIcon,
-  Trash2
+  Trash2,
+  ChevronRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -83,7 +84,24 @@ interface PendingInvitation {
 
 interface TeamClientProps {
   tenantSlug: string;
-  view?: "members" | "permissions" | "assetSets";
+  view?: "internal" | "partners" | "members" | "permissions" | "assetSets";
+}
+
+interface PartnerRelationship {
+  id: string;
+  partner_organization_id: string;
+  status: string;
+  access_level: string;
+  created_at: string | null;
+  updated_at: string | null;
+  share_set_count?: number;
+  partner_organization?: {
+    id: string;
+    name: string;
+    slug: string;
+    partner_category?: string | null;
+    organization_type?: string | null;
+  } | null;
 }
 
 type ModuleKey = "products" | "assets";
@@ -137,6 +155,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
   const router = useRouter();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
+  const [partnerRelationships, setPartnerRelationships] = useState<PartnerRelationship[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [deletingInviteId, setDeletingInviteId] = useState<string | null>(null);
@@ -168,6 +187,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
   const [collectionSaving, setCollectionSaving] = useState(false);
   const [collectionDeleting, setCollectionDeleting] = useState(false);
   const [organizationType, setOrganizationType] = useState<"brand" | "partner">("brand");
+  const [canManageInvites, setCanManageInvites] = useState(false);
 
   const fetchTeam = useCallback(async () => {
     try {
@@ -178,7 +198,12 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       const { data } = await response.json();
       setMembers(data.members || []);
       setPendingInvitations(data.pending_invitations || []);
+      setPartnerRelationships(data.partner_relationships || []);
       setOrganizationType(data.organization?.organization_type === "partner" ? "partner" : "brand");
+      const permissions = data.user_permissions || {};
+      setCanManageInvites(
+        Boolean(permissions.is_admin || permissions.is_owner || permissions.can_manage_team)
+      );
     } catch (error) {
       console.error("Failed to fetch team:", error);
     } finally {
@@ -677,24 +702,22 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
     }
   };
 
-  const showMembers = view === "members";
+  const showInternal = view === "internal" || view === "members";
+  const showPartners = view === "partners";
   const showPermissions = view === "permissions";
   const showAssetSets = view === "assetSets";
-  const canManageBrandInvites = organizationType === "brand";
-  const headerTitle = showPermissions
-    ? "Member Permissions"
-    : showAssetSets
-      ? "Shared Asset Sets"
-      : "Team";
-  const headerDescription = showPermissions
-    ? canManageBrandInvites
-      ? "Configure cross-module access with global market scope."
-      : "Partner workspaces are read-only for member/permission management."
-    : showAssetSets
-      ? canManageBrandInvites
-        ? "Create and assign selective DAM sets (folders/files)."
-        : "Shared asset sets are managed by the brand that invited this workspace."
-      : `${members.length} ${members.length === 1 ? "member" : "members"}`;
+  const canManagePartnerInvites = canManageInvites && organizationType === "brand";
+  const canManageBrandSharing = canManageInvites && organizationType === "brand";
+  const headerTitle = showPartners ? "Partners" : "Team";
+  const headerDescription = showPartners
+    ? `${partnerRelationships.length} ${partnerRelationships.length === 1 ? "partner relationship" : "partner relationships"}`
+    : `${members.length} ${members.length === 1 ? "member" : "members"}`;
+  const pendingTeamInvitations = pendingInvitations.filter(
+    (invitation) => invitation.invitation_type !== "partner"
+  );
+  const pendingPartnerInvitations = pendingInvitations.filter(
+    (invitation) => invitation.invitation_type === "partner"
+  );
 
   return (
     <div className="space-y-6">
@@ -702,13 +725,17 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
         title={headerTitle}
         description={headerDescription}
         actions={[
-          ...(canManageBrandInvites && showMembers
+          ...(canManageInvites && showInternal
             ? [
                 {
                   label: "Invite Team Member",
                   onClick: () => router.push(`/${tenantSlug}/settings/team/invite/team`),
                   icon: UserPlus,
                 },
+              ]
+            : []),
+          ...(canManagePartnerInvites && showPartners
+            ? [
                 {
                   label: "Invite Partner",
                   onClick: () => router.push(`/${tenantSlug}/settings/team/invite/partner`),
@@ -719,28 +746,31 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
         ]}
       />
 
-      <div className="bg-background rounded-lg border border-border shadow-soft p-2">
-        <div className="flex flex-wrap gap-2">
+      <div className="bg-background rounded-lg border border-border shadow-soft p-3">
+        <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
           <Link href={`/${tenantSlug}/settings/team`}>
-            <Button variant={showMembers ? "default" : "outline"} size="sm">
-              Members
+            <Button
+              variant="ghost"
+              size="sm"
+              className={showInternal ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}
+            >
+              Internal
             </Button>
           </Link>
-          <Link href={`/${tenantSlug}/settings/team/permissions`}>
-            <Button variant={showPermissions ? "default" : "outline"} size="sm">
-              Permissions
-            </Button>
-          </Link>
-          <Link href={`/${tenantSlug}/settings/team/asset-sets`}>
-            <Button variant={showAssetSets ? "default" : "outline"} size="sm">
-              Shared Asset Sets
+          <Link href={`/${tenantSlug}/settings/team/partners`}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={showPartners ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}
+            >
+              Partners
             </Button>
           </Link>
         </div>
       </div>
 
       {/* Team Members List */}
-      {showMembers && (
+      {showInternal && (
       <div className="bg-background rounded-lg border border-border shadow-soft">
         {loading ? (
           <div className="p-8 space-y-4">
@@ -803,23 +833,23 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       </div>
       )}
 
-      {!canManageBrandInvites && (
+      {!canManageInvites && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          Invitations and permission assignment are managed by the brand. Partner users can view shared content, but cannot invite additional users.
+          You do not have permission to manage invitations in this workspace.
         </div>
       )}
 
       {/* Pending Invitations */}
-      {showMembers && canManageBrandInvites && pendingInvitations.length > 0 && (
+      {showInternal && canManageInvites && pendingTeamInvitations.length > 0 && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
           <div className="p-4 border-b border-border">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
               <Clock className="h-4 w-4" />
-              Pending Invitations ({pendingInvitations.length})
+              Pending Internal Invitations ({pendingTeamInvitations.length})
             </h3>
           </div>
           <div className="divide-y divide-border">
-            {pendingInvitations.map((invitation) => (
+            {pendingTeamInvitations.map((invitation) => (
               <div
                 key={invitation.id}
                 className="p-4 hover:bg-muted/50 transition-colors"
@@ -893,7 +923,124 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
         </div>
       )}
 
-      {showPermissions && sharingAvailable !== false && canManageBrandInvites && (
+      {showPartners && (
+        <div className="bg-background rounded-lg border border-border shadow-soft">
+          <div className="p-4 border-b border-border">
+            <h3 className="text-sm font-medium text-foreground">Partner Organizations</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Active partner relationships with current access scope.
+            </p>
+          </div>
+          {partnerRelationships.length === 0 ? (
+            <div className="p-12 text-center">
+              <UsersIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-60" />
+              <p className="text-muted-foreground">No partner organizations connected yet</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {partnerRelationships.map((relationship) => (
+                <Link
+                  key={relationship.id}
+                  href={`/${tenantSlug}/settings/team/partners/${relationship.partner_organization_id}`}
+                  className="block p-4 hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {relationship.partner_organization?.name || relationship.partner_organization_id}
+                      </p>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {showPartners && canManagePartnerInvites && pendingPartnerInvitations.length > 0 && (
+        <div className="bg-background rounded-lg border border-border shadow-soft">
+          <div className="p-4 border-b border-border">
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              Pending Partner Invitations ({pendingPartnerInvitations.length})
+            </h3>
+          </div>
+          <div className="divide-y divide-border">
+            {pendingPartnerInvitations.map((invitation) => (
+              <div
+                key={invitation.id}
+                className="p-4 hover:bg-muted/50 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className="w-10 h-10 bg-muted text-muted-foreground rounded-full flex items-center justify-center">
+                      <Mail className="h-5 w-5" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-medium text-foreground">
+                          {invitation.email}
+                        </h3>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="inline-block px-2 py-0.5 text-xs font-medium rounded border bg-purple-100 text-purple-700 border-purple-200">
+                          Partner
+                        </span>
+                        <span
+                          className={`inline-block px-2 py-0.5 text-xs font-medium rounded border ${getRoleBadgeColor(
+                            invitation.role_or_access_level
+                          )}`}
+                        >
+                          {invitation.role_or_access_level.charAt(0).toUpperCase() +
+                            invitation.role_or_access_level.slice(1)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Expires{" "}
+                          {new Date(invitation.expires_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyInviteLink(invitation.token)}
+                      className="gap-2"
+                    >
+                      {copiedToken === invitation.token ? (
+                        <>
+                          <Check className="h-4 w-4" />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-4 w-4" />
+                          Copy Link
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openDeleteConfirmation(invitation.id, invitation.email)}
+                      disabled={deletingInviteId === invitation.id}
+                      className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletingInviteId === invitation.id ? "Deleting..." : "Delete"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {showPermissions && sharingAvailable !== false && canManageBrandSharing && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
           <div className="p-4 border-b border-border">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
@@ -1079,7 +1226,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
         </div>
       )}
 
-      {showAssetSets && sharingAvailable !== false && canManageBrandInvites && (
+      {showAssetSets && sharingAvailable !== false && canManageBrandSharing && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
           <div className="p-4 border-b border-border">
             <h3 className="text-sm font-medium text-foreground">Shared Asset Sets</h3>
@@ -1252,7 +1399,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                   }))}
                   value={selectedCollectionFolderIds}
                   onChange={setSelectedCollectionFolderIds}
-                  placeholder="Select folders"
+                  placeholder="Select one or more folders"
                 />
               </div>
               <div>
@@ -1264,7 +1411,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                   }))}
                   value={selectedCollectionAssetIds}
                   onChange={setSelectedCollectionAssetIds}
-                  placeholder="Select files"
+                  placeholder="Select one or more files"
                 />
               </div>
             </div>

@@ -13,8 +13,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const BASIC_PRODUCTS_SELECT_WITH_BRAND = "id, sku, product_name, brand:brand_line";
-const BASIC_PRODUCTS_SELECT_FALLBACK = "id, sku, product_name";
+const BASIC_PRODUCTS_SELECT_WITH_BRAND = "id, sku, product_name, brand:brand_line, parent_id, type";
+const BASIC_PRODUCTS_SELECT_FALLBACK = "id, sku, product_name, parent_id, type";
 
 // GET /api/[tenant]/products/basic - Get minimal product data for suggestions
 export async function GET(
@@ -131,6 +131,8 @@ export async function GET(
       sku: string | null;
       product_name: string | null;
       brand?: string | null;
+      parent_id?: string | null;
+      type?: string | null;
     }> = [];
     let productsError: { code?: string } | null = null;
 
@@ -155,6 +157,8 @@ export async function GET(
       sku: product.sku,
       productName: product.product_name,
       brand: product.brand || "",
+      parentId: product.parent_id || null,
+      productType: product.type || null,
     }));
 
     return NextResponse.json({

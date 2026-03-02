@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageContentContainer } from '@/components/ui/page-content-container';
 
 interface ChannelsSettingsProps {
   tenantSlug: string;
@@ -116,7 +117,7 @@ export default function ChannelsSettings({ tenantSlug }: ChannelsSettingsProps) 
   }
 
   return (
-    <div className="space-y-8 px-8 py-8">
+    <PageContentContainer mode="content" className="space-y-8">
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Channels</h1>
         <p className="text-sm text-muted-foreground">
@@ -177,6 +178,6 @@ export default function ChannelsSettings({ tenantSlug }: ChannelsSettingsProps) 
           ))}
         </div>
       </section>
-    </div>
+    </PageContentContainer>
   );
 }

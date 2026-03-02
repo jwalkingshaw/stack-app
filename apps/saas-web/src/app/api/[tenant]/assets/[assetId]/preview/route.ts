@@ -26,6 +26,13 @@ function extractUrl(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function redirectNoStore(url: string) {
+  const response = NextResponse.redirect(url, 307);
+  response.headers.set("Cache-Control", "no-store, max-age=0");
+  response.headers.set("Pragma", "no-cache");
+  return response;
+}
+
 async function getAssetById(params: {
   assetId: string;
   organizationId: string;
@@ -73,31 +80,32 @@ export async function GET(
     let asset: AssetRow | null = null;
 
     if (isPartnerAllViewRequest) {
+      const tenantOrganizationId = context.tenantOrganization.id;
       const brandOrganizationIds = await resolvePartnerSharedBrandOrganizationIds({
-        partnerOrganizationId: context.tenantOrganization.id,
+        partnerOrganizationId: tenantOrganizationId,
       });
-      if (brandOrganizationIds.length === 0) {
-        return NextResponse.json({ error: "Asset not found" }, { status: 404 });
-      }
+      const scopedOrganizationIds = [tenantOrganizationId, ...brandOrganizationIds];
 
       const { data: row, error: rowError } = await (supabaseServer as any)
         .from("dam_assets")
         .select("id,organization_id,asset_scope,s3_key,s3_url,mime_type,thumbnail_urls")
         .eq("id", assetId)
-        .in("organization_id", brandOrganizationIds)
+        .in("organization_id", scopedOrganizationIds)
         .maybeSingle();
 
       if (rowError || !row) {
         return NextResponse.json({ error: "Asset not found" }, { status: 404 });
       }
 
-      const granted = await resolvePartnerGrantedAssetIds({
-        brandOrganizationId: row.organization_id,
-        partnerOrganizationId: context.tenantOrganization.id,
-      });
+      if (row.organization_id !== tenantOrganizationId) {
+        const granted = await resolvePartnerGrantedAssetIds({
+          brandOrganizationId: row.organization_id,
+          partnerOrganizationId: tenantOrganizationId,
+        });
 
-      if (!granted.foundationAvailable || !granted.assetIds.includes(assetId)) {
-        return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+        if (!granted.foundationAvailable || !granted.assetIds.includes(assetId)) {
+          return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+        }
       }
 
       asset = row as AssetRow;
@@ -184,7 +192,7 @@ export async function GET(
 
     if (!asset.s3_key) {
       if (fallbackUrl) {
-        return NextResponse.redirect(fallbackUrl, 307);
+        return redirectNoStore(fallbackUrl);
       }
       return NextResponse.json({ error: "Preview unavailable" }, { status: 404 });
     }
@@ -195,10 +203,10 @@ export async function GET(
         contentType: asset.mime_type || undefined,
         forceDownload: false,
       });
-      return NextResponse.redirect(signedPreviewUrl, 307);
+      return redirectNoStore(signedPreviewUrl);
     } catch (error) {
       if (fallbackUrl) {
-        return NextResponse.redirect(fallbackUrl, 307);
+        return redirectNoStore(fallbackUrl);
       }
       console.error("Failed to resolve signed preview URL:", error);
       return NextResponse.json({ error: "Preview unavailable" }, { status: 500 });

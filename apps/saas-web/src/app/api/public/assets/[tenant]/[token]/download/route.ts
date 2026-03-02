@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { enforceRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
 import { logRateLimitSecurityEvent } from "@/lib/security-audit";
+import { getOrganizationBillingLimits } from "@/lib/billing-policy";
 
 type AssetRow = {
   id: string;
@@ -21,16 +22,19 @@ const isShareExpired = (expiresAt?: string) => {
 };
 
 type ShareLookup = {
+  organizationId: string;
   asset: AssetRow;
   publicEnabled: boolean;
   allowDownloads: boolean;
   expiresAt: string;
+  forceAuthenticatedAccess: boolean;
 };
 
 const findSharedAsset = async (tenant: string, token: string): Promise<ShareLookup | null> => {
   const db = new DatabaseQueries(supabaseServer);
   const org = await db.getOrganizationBySlug(tenant);
   if (!org) return null;
+  const { planId } = await getOrganizationBillingLimits(org.id);
 
   const { data: shareRow } = await (supabaseServer as any)
     .from("asset_shares")
@@ -53,10 +57,12 @@ const findSharedAsset = async (tenant: string, token: string): Promise<ShareLook
   }
 
   return {
+    organizationId: org.id,
     asset: assetRow as AssetRow,
     publicEnabled: Boolean((shareRow as any).public_enabled),
     allowDownloads: Boolean((shareRow as any).allow_downloads),
     expiresAt: String((shareRow as any).expires_at),
+    forceAuthenticatedAccess: planId === "free",
   };
 };
 
@@ -91,11 +97,14 @@ export async function GET(
       return NextResponse.json({ error: "Shared link has expired" }, { status: 410 });
     }
 
-    const publicEnabled = share.publicEnabled;
-    if (!publicEnabled) {
+    const requiresAuthenticatedAccess = !share.publicEnabled || share.forceAuthenticatedAccess;
+    if (requiresAuthenticatedAccess) {
       const tenantAccess = await requireTenantAccess(request, tenant);
       if (!tenantAccess.ok) {
         return tenantAccess.response;
+      }
+      if (tenantAccess.organization.id !== share.organizationId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
       }
     }
 

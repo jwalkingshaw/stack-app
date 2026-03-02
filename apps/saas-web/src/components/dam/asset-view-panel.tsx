@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -63,6 +63,21 @@ type AssetEditorSavePayload = {
   folderId?: string | null;
 };
 
+type AssetVersionRecord = {
+  id: string;
+  versionNumber: number;
+  filename: string;
+  fileSize: number;
+  mimeType: string;
+  previewUrl?: string | null;
+  changeComment?: string | null;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+  changedBy?: string | null;
+  changedAt?: string | null;
+  isCurrent: boolean;
+};
+
 interface AssetViewPanelProps {
   tenantSlug: string;
   selectedBrandSlug?: string | null;
@@ -93,6 +108,7 @@ interface AssetViewPanelProps {
     productName?: string;
     brand?: string;
   }>;
+  onVersionCreated?: (updatedAsset: Record<string, any>) => Promise<void> | void;
 }
 
 const arrayEquals = (a: string[], b: string[]) => {
@@ -115,6 +131,16 @@ const formatDate = (dateString: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
+
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 
 const getPreviewUrl = (asset: AssetWithAssignments) =>
   asset.preview ||
@@ -164,6 +190,12 @@ const formatFolderBreadcrumb = (path?: string | null) => {
   return parts.length > 0 ? parts.join(" / ") : "Unfiled";
 };
 
+const asTagAssignments = (value: unknown): AssetTagAssignment[] =>
+  Array.isArray(value) ? (value as AssetTagAssignment[]) : [];
+
+const asCategoryAssignments = (value: unknown): AssetCategoryAssignment[] =>
+  Array.isArray(value) ? (value as AssetCategoryAssignment[]) : [];
+
 export function AssetViewPanel({
   tenantSlug,
   selectedBrandSlug,
@@ -184,6 +216,7 @@ export function AssetViewPanel({
   folderPath,
   folders = [],
   availableProducts = [],
+  onVersionCreated,
 }: AssetViewPanelProps) {
   const [filename, setFilename] = useState("");
   const [description, setDescription] = useState("");
@@ -220,9 +253,19 @@ export function AssetViewPanel({
   const [isEditMode, setIsEditMode] = useState(false);
   const [viewerBackground, setViewerBackground] = useState<"dark" | "light" | "checker">("dark");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [versionHistory, setVersionHistory] = useState<AssetVersionRecord[]>([]);
+  const [isLoadingVersionHistory, setIsLoadingVersionHistory] = useState(false);
+  const [versionHistoryError, setVersionHistoryError] = useState<string | null>(null);
+  const [isUploadingVersion, setIsUploadingVersion] = useState(false);
+  const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
+  const [versionUploadError, setVersionUploadError] = useState<string | null>(null);
+  const [versionChangeComment, setVersionChangeComment] = useState("");
+  const [versionEffectiveFrom, setVersionEffectiveFrom] = useState("");
+  const [versionEffectiveTo, setVersionEffectiveTo] = useState("");
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>("");
   const viewerPaneRef = useRef<HTMLDivElement | null>(null);
+  const versionFileInputRef = useRef<HTMLInputElement | null>(null);
   const canEditFields = canEdit && isEditMode;
   const brandQuerySuffix = useMemo(() => {
     const brand = (selectedBrandSlug || "").trim().toLowerCase();
@@ -231,6 +274,16 @@ export function AssetViewPanel({
     query.set("brand", brand);
     return `?${query.toString()}`;
   }, [selectedBrandSlug]);
+
+  const tagAssignments = useMemo(
+    () => asTagAssignments(asset?.tagAssignments),
+    [asset?.tagAssignments]
+  );
+
+  const categoryAssignments = useMemo(
+    () => asCategoryAssignments(asset?.categoryAssignments),
+    [asset?.categoryAssignments]
+  );
 
   const initialState = useMemo(() => {
     if (!asset) {
@@ -244,12 +297,12 @@ export function AssetViewPanel({
       };
     }
 
-    const initialTagIds = asset.tagAssignments.map((assignment) => assignment.tagId);
-    const initialCategoryIds = asset.categoryAssignments.map(
+    const initialTagIds = tagAssignments.map((assignment) => assignment.tagId);
+    const initialCategoryIds = categoryAssignments.map(
       (assignment) => assignment.categoryId
     );
     const initialPrimary =
-      asset.categoryAssignments.find((assignment) => assignment.isPrimary)?.categoryId || null;
+      categoryAssignments.find((assignment) => assignment.isPrimary)?.categoryId || null;
 
     return {
       filename: asset.filename,
@@ -259,7 +312,7 @@ export function AssetViewPanel({
       primaryCategoryId: initialPrimary,
       folderId: asset.folderId ?? null,
     };
-  }, [asset]);
+  }, [asset, categoryAssignments, tagAssignments]);
 
   useEffect(() => {
     if (!asset) return;
@@ -283,6 +336,15 @@ export function AssetViewPanel({
     setIsDownloading(false);
     setActiveTab("info");
     setIsEditMode(false);
+    setVersionHistory([]);
+    setIsLoadingVersionHistory(false);
+    setVersionHistoryError(null);
+    setIsUploadingVersion(false);
+    setRestoringVersionId(null);
+    setVersionUploadError(null);
+    setVersionChangeComment("");
+    setVersionEffectiveFrom("");
+    setVersionEffectiveTo("");
     lastSavedRef.current = JSON.stringify({
       filename: initialState.filename,
       description: initialState.description,
@@ -345,13 +407,24 @@ export function AssetViewPanel({
     return { usageRights, validTo };
   }, [asset]);
 
-  const versionSummary = useMemo(() => {
-    if (!asset?.metadata) return { supersedesAssetId: null as string | null };
+  const currentVersionSummary = useMemo(() => {
+    if (!asset) {
+      return {
+        versionNumber: 1,
+        changedAt: null as string | null,
+        changedBy: null as string | null,
+        comment: null as string | null,
+        effectiveFrom: null as string | null,
+        effectiveTo: null as string | null,
+      };
+    }
     return {
-      supersedesAssetId:
-        (asset.metadata as any).supersedesAssetId ||
-        (asset.metadata as any).supersedes_asset_id ||
-        null,
+      versionNumber: Number(asset.currentVersionNumber || 1),
+      changedAt: asset.currentVersionChangedAt || asset.updatedAt || null,
+      changedBy: asset.currentVersionChangedBy || asset.createdBy || null,
+      comment: asset.currentVersionComment || null,
+      effectiveFrom: asset.currentVersionEffectiveFrom || null,
+      effectiveTo: asset.currentVersionEffectiveTo || null,
     };
   }, [asset]);
 
@@ -382,6 +455,150 @@ export function AssetViewPanel({
   useEffect(() => {
     fetchLinkedProducts();
   }, [fetchLinkedProducts]);
+
+  const fetchVersionHistory = useCallback(async () => {
+    if (!asset?.id) {
+      setVersionHistory([]);
+      return;
+    }
+
+    setIsLoadingVersionHistory(true);
+    setVersionHistoryError(null);
+    try {
+      const response = await fetch(
+        `/api/${tenantSlug}/assets/${asset.id}/versions${brandQuerySuffix}`
+      );
+      if (!response.ok) {
+        const payload = await parseJsonSafely(response);
+        throw new Error(payload?.error || `Failed to load version history (${response.status})`);
+      }
+      const payload = await parseJsonSafely(response);
+      setVersionHistory((Array.isArray(payload?.data) ? payload.data : []) as AssetVersionRecord[]);
+    } catch (error) {
+      console.error("Failed to fetch version history:", error);
+      setVersionHistory([]);
+      setVersionHistoryError(
+        error instanceof Error ? error.message : "Failed to load version history."
+      );
+    } finally {
+      setIsLoadingVersionHistory(false);
+    }
+  }, [asset?.id, tenantSlug, brandQuerySuffix]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    fetchVersionHistory();
+  }, [fetchVersionHistory, isOpen]);
+
+  const handleCreateVersion = useCallback(
+    async (file: File) => {
+      if (!asset?.id) return;
+      if (!file) return;
+
+      setIsUploadingVersion(true);
+      setVersionUploadError(null);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        if (versionChangeComment.trim().length > 0) {
+          formData.append("changeComment", versionChangeComment.trim());
+        }
+        if (versionEffectiveFrom.trim().length > 0) {
+          formData.append("effectiveFrom", versionEffectiveFrom.trim());
+        }
+        if (versionEffectiveTo.trim().length > 0) {
+          formData.append("effectiveTo", versionEffectiveTo.trim());
+        }
+
+        const response = await fetch(
+          `/api/${tenantSlug}/assets/${asset.id}/versions${brandQuerySuffix}`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+        if (!response.ok) {
+          const payload = await parseJsonSafely(response);
+          throw new Error(payload?.error || `Failed to create version (${response.status})`);
+        }
+
+        const payload = await parseJsonSafely(response);
+        if (payload?.data && onVersionCreated) {
+          await onVersionCreated(payload.data);
+        }
+
+        setVersionChangeComment("");
+        setVersionEffectiveFrom("");
+        setVersionEffectiveTo("");
+        await fetchVersionHistory();
+      } catch (error) {
+        console.error("Failed to upload new asset version:", error);
+        setVersionUploadError(
+          error instanceof Error ? error.message : "Failed to upload version."
+        );
+      } finally {
+        setIsUploadingVersion(false);
+      }
+    },
+    [
+      asset?.id,
+      brandQuerySuffix,
+      fetchVersionHistory,
+      onVersionCreated,
+      tenantSlug,
+      versionChangeComment,
+      versionEffectiveFrom,
+      versionEffectiveTo,
+    ]
+  );
+
+  const handleVersionFileInputChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      await handleCreateVersion(file);
+      event.target.value = "";
+    },
+    [handleCreateVersion]
+  );
+
+  const handleRestoreVersion = useCallback(
+    async (version: AssetVersionRecord) => {
+      if (!asset?.id) return;
+      if (version.isCurrent) return;
+
+      setRestoringVersionId(version.id);
+      setVersionUploadError(null);
+      try {
+        const response = await fetch(
+          `/api/${tenantSlug}/assets/${asset.id}/versions/restore${brandQuerySuffix}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ versionId: version.id }),
+          }
+        );
+        if (!response.ok) {
+          const payload = await parseJsonSafely(response);
+          throw new Error(payload?.error || `Failed to restore version (${response.status})`);
+        }
+
+        const payload = await parseJsonSafely(response);
+        if (payload?.data && onVersionCreated) {
+          await onVersionCreated(payload.data);
+        }
+        await fetchVersionHistory();
+      } catch (error) {
+        console.error("Failed to restore version:", error);
+        setVersionUploadError(
+          error instanceof Error ? error.message : "Failed to restore selected version."
+        );
+      } finally {
+        setRestoringVersionId(null);
+      }
+    },
+    [asset?.id, brandQuerySuffix, fetchVersionHistory, onVersionCreated, tenantSlug]
+  );
 
   const handleLinkProduct = useCallback(async () => {
     if (!asset?.id || productToLinkId === "none") return;
@@ -749,7 +966,7 @@ export function AssetViewPanel({
 
   const previewUrl = withCacheBuster(getPreviewUrl(asset), asset.updatedAt);
   const isImage = asset.mimeType?.startsWith("image/");
-  const primaryCategory = asset.categoryAssignments.find((assignment) => assignment.isPrimary);
+  const primaryCategory = categoryAssignments.find((assignment) => assignment.isPrimary);
 
   return (
     <>
@@ -944,10 +1161,11 @@ export function AssetViewPanel({
           <div className="flex h-full w-full max-w-[440px] flex-col border-l border-border bg-white">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
           <div className="border-b border-border px-6 py-4">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="info">Info</TabsTrigger>
               <TabsTrigger value="products">Products</TabsTrigger>
               <TabsTrigger value="metadata">Metadata</TabsTrigger>
+              <TabsTrigger value="versions">Versions</TabsTrigger>
               <TabsTrigger value="comments">Comments</TabsTrigger>
             </TabsList>
           </div>
@@ -1080,10 +1298,10 @@ export function AssetViewPanel({
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {asset.tagAssignments.length === 0 && (
+                {tagAssignments.length === 0 && (
                   <span className="text-sm text-muted-foreground">No tags assigned.</span>
                 )}
-                {asset.tagAssignments.map((assignment) => (
+                {tagAssignments.map((assignment) => (
                   <Badge key={assignment.id} variant="secondary" className="text-xs">
                     {assignment.tag?.name || "Tag"}
                   </Badge>
@@ -1163,10 +1381,10 @@ export function AssetViewPanel({
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {asset.categoryAssignments.length === 0 && (
+                {categoryAssignments.length === 0 && (
                   <span className="text-sm text-muted-foreground">No categories assigned.</span>
                 )}
-                {asset.categoryAssignments.map((assignment) => (
+                {categoryAssignments.map((assignment) => (
                   <Badge
                     key={assignment.id}
                     variant={assignment.isPrimary ? "default" : "secondary"}
@@ -1299,9 +1517,24 @@ export function AssetViewPanel({
 
           <div className="space-y-2">
             <label className="block text-sm font-medium text-foreground">Version</label>
-            <div className="rounded-lg bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-              Supersedes asset:{" "}
-              <span className="text-foreground">{versionSummary.supersedesAssetId || "None"}</span>
+            <div className="rounded-lg bg-muted/20 px-3 py-2 text-sm text-muted-foreground space-y-1">
+              <div>
+                Latest version:{" "}
+                <span className="text-foreground">v{currentVersionSummary.versionNumber}</span>
+              </div>
+              <div>
+                Updated:{" "}
+                <span className="text-foreground">
+                  {currentVersionSummary.changedAt
+                    ? formatDate(currentVersionSummary.changedAt)
+                    : "Unknown"}
+                </span>
+              </div>
+              {currentVersionSummary.comment ? (
+                <div>
+                  Note: <span className="text-foreground">{currentVersionSummary.comment}</span>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -1340,6 +1573,177 @@ export function AssetViewPanel({
               </div>
             )}
           </div>
+            </TabsContent>
+
+            <TabsContent value="versions" className="mt-0 space-y-4">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-foreground">Current version</label>
+                <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-sm text-muted-foreground space-y-1">
+                  <div>
+                    Version: <span className="text-foreground">v{currentVersionSummary.versionNumber}</span>
+                  </div>
+                  <div>
+                    Updated:{" "}
+                    <span className="text-foreground">
+                      {currentVersionSummary.changedAt
+                        ? formatDate(currentVersionSummary.changedAt)
+                        : "Unknown"}
+                    </span>
+                  </div>
+                  {currentVersionSummary.effectiveFrom || currentVersionSummary.effectiveTo ? (
+                    <div>
+                      Effective window:{" "}
+                      <span className="text-foreground">
+                        {currentVersionSummary.effectiveFrom
+                          ? formatDate(currentVersionSummary.effectiveFrom)
+                          : "Now"}
+                        {" - "}
+                        {currentVersionSummary.effectiveTo
+                          ? formatDate(currentVersionSummary.effectiveTo)
+                          : "Open"}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              {canEdit && (
+                <div className="space-y-3 rounded-lg border border-border/60 bg-card p-3">
+                  <label className="block text-sm font-medium text-foreground">
+                    Replace with new version
+                  </label>
+                  <input
+                    ref={versionFileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={(event) => void handleVersionFileInputChange(event)}
+                  />
+                  <Textarea
+                    value={versionChangeComment}
+                    onChange={(event) => setVersionChangeComment(event.target.value)}
+                    placeholder="Optional change comment"
+                    rows={2}
+                    className="border-border/60"
+                  />
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input
+                      type="date"
+                      value={versionEffectiveFrom}
+                      onChange={(event) => setVersionEffectiveFrom(event.target.value)}
+                    />
+                    <Input
+                      type="date"
+                      value={versionEffectiveTo}
+                      onChange={(event) => setVersionEffectiveTo(event.target.value)}
+                    />
+                  </div>
+                  {versionUploadError ? (
+                    <p className="text-xs text-destructive">{versionUploadError}</p>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="accent-blue"
+                    className="h-9 px-3"
+                    disabled={isUploadingVersion}
+                    onClick={() => versionFileInputRef.current?.click()}
+                  >
+                    {isUploadingVersion ? "Uploading..." : "Browse and upload new version"}
+                  </Button>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-foreground">Version history</label>
+                <div className="rounded-lg border border-border/60">
+                  {isLoadingVersionHistory ? (
+                    <div className="px-3 py-4 text-sm text-muted-foreground">Loading versions...</div>
+                  ) : versionHistoryError ? (
+                    <div className="px-3 py-4 text-sm text-destructive">{versionHistoryError}</div>
+                  ) : versionHistory.length === 0 ? (
+                    <div className="px-3 py-4 text-sm text-muted-foreground">
+                      No versions available yet.
+                    </div>
+                  ) : (
+                    versionHistory.map((version, index) => (
+                      (() => {
+                        const versionPreviewUrl =
+                          typeof version.previewUrl === "string" && version.previewUrl.trim().length > 0
+                            ? version.previewUrl
+                            : null;
+                        const hasImagePreview =
+                          String(version.mimeType || "").toLowerCase().startsWith("image/") &&
+                          Boolean(versionPreviewUrl);
+
+                        return (
+                          <div
+                            key={version.id}
+                            className={cn(
+                              "space-y-1 px-3 py-3 text-sm",
+                              index !== versionHistory.length - 1 && "border-b border-border/60"
+                            )}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-foreground">v{version.versionNumber}</span>
+                                {version.isCurrent ? (
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    Latest
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <span className="text-xs text-muted-foreground">
+                                {version.changedAt ? formatDate(version.changedAt) : "Unknown"}
+                              </span>
+                            </div>
+                            <div className="mt-2 flex items-start gap-3">
+                              {hasImagePreview ? (
+                                <div className="h-16 w-16 overflow-hidden rounded-md border border-border/60 bg-muted/20">
+                                  <img
+                                    src={versionPreviewUrl || ""}
+                                    alt={`${version.filename} preview`}
+                                    className="h-full w-full object-contain bg-white"
+                                    loading="lazy"
+                                  />
+                                </div>
+                              ) : null}
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <div className="truncate text-xs text-muted-foreground">{version.filename}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {version.mimeType || "unknown"} | {formatFileSize(version.fileSize || 0)}
+                                </div>
+                                {version.changeComment ? (
+                                  <div className="text-xs text-foreground">{version.changeComment}</div>
+                                ) : null}
+                                {version.effectiveFrom || version.effectiveTo ? (
+                                  <div className="text-xs text-muted-foreground">
+                                    Effective: {version.effectiveFrom ? formatDate(version.effectiveFrom) : "Now"}
+                                    {" - "}
+                                    {version.effectiveTo ? formatDate(version.effectiveTo) : "Open"}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                            {!version.isCurrent && canEdit ? (
+                              <div className="pt-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  disabled={Boolean(restoringVersionId)}
+                                  onClick={() => void handleRestoreVersion(version)}
+                                >
+                                  {restoringVersionId === version.id ? "Restoring..." : "Restore as latest"}
+                                </Button>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })()
+                    ))
+                  )}
+                </div>
+              </div>
             </TabsContent>
 
             <TabsContent value="comments" className="mt-0 space-y-2">

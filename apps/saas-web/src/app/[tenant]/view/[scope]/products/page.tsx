@@ -21,8 +21,15 @@ function normalizeSelectedBrand(scope: string, tenant: string): string | null {
 export default async function ScopedProductsPage({ params }: ScopedProductsPageProps) {
   const resolvedParams = await params;
   const tenantSlug = resolvedParams.tenant;
+  const normalizedScope = resolvedParams.scope.trim().toLowerCase();
+  const isPartnerAllView = normalizedScope === "all";
   const selectedBrandSlug = normalizeSelectedBrand(resolvedParams.scope, tenantSlug);
 
-  return <ProductsClient tenantSlug={tenantSlug} selectedBrandSlug={selectedBrandSlug} />;
+  return (
+    <ProductsClient
+      tenantSlug={tenantSlug}
+      selectedBrandSlug={selectedBrandSlug}
+      isPartnerAllView={isPartnerAllView}
+    />
+  );
 }
-

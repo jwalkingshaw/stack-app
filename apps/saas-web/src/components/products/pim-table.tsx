@@ -5,16 +5,11 @@ import Link from "next/link";
 import {
   ArrowUpDown,
   Check,
-  Eye,
   MoreHorizontal,
   Plus,
-  Filter,
-  Settings,
   ChevronDown,
   ChevronRight,
   Package,
-  TrendingUp,
-  Calendar,
   ImageIcon,
   Layers,
   GitBranch,
@@ -26,12 +21,26 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SearchInput } from "@/components/ui/search-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { BulkActionToolbar } from "@/components/dam/bulk-action-toolbar";
-import { MOCK_PIM_PRODUCTS, STATUS_COLORS, type PIMProduct } from "./mock-pim-data";
+import {
+  AuthoringScopePicker,
+  type AuthoringScopeValue,
+  createGlobalAuthoringScope,
+  getAuthoringScopeSummary,
+  normalizeAuthoringScope,
+} from "@/components/scope/authoring-scope-picker";
+import { type PIMProduct } from "./mock-pim-data";
 import { getProductUrl } from "@/lib/product-utils";
 import { useMarketContext } from "@/components/market-context";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -53,9 +62,13 @@ const PRODUCT_STATUSES: ProductStatus[] = [
   'Archived'
 ];
 
+const PRODUCT_MODEL_FILTER_ALL = "__all_models__";
+const PRODUCT_MODEL_FILTER_UNASSIGNED = "__unassigned_model__";
+
 interface PIMTableProps {
   tenantSlug: string;
   selectedBrandSlug?: string | null;
+  isPartnerAllView?: boolean;
   onProductClick?: (product: PIMProduct) => void;
   onCreateProduct?: () => void;
 }
@@ -73,15 +86,18 @@ type ScopeConstraintOption = {
   label: string;
 };
 
+type ScopeFilterMode = "all" | "in_scope" | "out_of_scope";
+type ProductBulkScopeMode = "set" | "add" | "clear";
+
 const DEFAULT_VISIBLE_COLUMNS = {
   productName: true,
   scin: true,
   sku: true,
+  family: true,
   upc: true,
   status: true,
   lastModified: true,
   brandLine: false,
-  family: false,
   msrp: false,
   costOfGoods: false,
   marginPercent: false,
@@ -89,31 +105,78 @@ const DEFAULT_VISIBLE_COLUMNS = {
   contentScore: false
 };
 
-type ColumnKey = keyof typeof DEFAULT_VISIBLE_COLUMNS;
+type ProductLinkRecord = {
+  product_id?: string | null;
+  asset_id?: string | null;
+  channel_id?: string | null;
+  market_id?: string | null;
+  locale_id?: string | null;
+  destination_id?: string | null;
+  is_primary?: boolean | null;
+  created_at?: string | null;
+  dam_assets?: {
+    id?: string | null;
+    filename?: string | null;
+  } | null;
+};
 
-const COLUMN_OPTIONS: Array<{ key: ColumnKey; label: string; group: 'Essentials' | 'Additional' }> = [
-  { key: 'productName', label: 'Product name', group: 'Essentials' },
-  { key: 'scin', label: 'SCIN', group: 'Essentials' },
-  { key: 'sku', label: 'SKU', group: 'Essentials' },
-  { key: 'upc', label: 'Barcode', group: 'Essentials' },
-  { key: 'status', label: 'Status', group: 'Essentials' },
-  { key: 'lastModified', label: 'Last modified', group: 'Essentials' },
-  { key: 'brandLine', label: 'Brand line', group: 'Additional' },
-  { key: 'family', label: 'Family', group: 'Additional' },
-  { key: 'msrp', label: 'MSRP', group: 'Additional' },
-  { key: 'costOfGoods', label: 'COGS', group: 'Additional' },
-  { key: 'marginPercent', label: 'Margin %', group: 'Additional' },
-  { key: 'assetsCount', label: 'Assets', group: 'Additional' },
-  { key: 'contentScore', label: 'Content score', group: 'Additional' }
-];
+type ProductFrontImage = {
+  assetId: string;
+  previewUrl: string;
+  filename: string | null;
+};
+
+const cloneAuthoringScope = (scope: AuthoringScopeValue): AuthoringScopeValue => ({
+  mode: scope.mode,
+  marketIds: [...scope.marketIds],
+  channelIds: [...scope.channelIds],
+  localeIds: [...scope.localeIds],
+  destinationIds: [...scope.destinationIds],
+});
+
+const mergeAuthoringScopes = (
+  currentScope: Partial<AuthoringScopeValue> | null | undefined,
+  incomingScope: AuthoringScopeValue
+): AuthoringScopeValue => {
+  const current = normalizeAuthoringScope(currentScope);
+  const incoming = normalizeAuthoringScope(incomingScope);
+
+  if (incoming.mode !== "scoped") {
+    return current;
+  }
+  if (current.mode !== "scoped") {
+    return cloneAuthoringScope(incoming);
+  }
+
+  return {
+    mode: "scoped",
+    marketIds: Array.from(new Set([...current.marketIds, ...incoming.marketIds])),
+    channelIds: Array.from(new Set([...current.channelIds, ...incoming.channelIds])),
+    localeIds: Array.from(new Set([...current.localeIds, ...incoming.localeIds])),
+    destinationIds: Array.from(new Set([...current.destinationIds, ...incoming.destinationIds])),
+  };
+};
+
+const isScopeDimensionMatch = (selectedId: string | null, scopeIds: string[]): boolean => {
+  if (scopeIds.length === 0) return true;
+  if (!selectedId) return false;
+  return scopeIds.includes(selectedId);
+};
 
 
 
-export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCreateProduct }: PIMTableProps) {
+export function PIMTable({
+  tenantSlug,
+  selectedBrandSlug,
+  isPartnerAllView = false,
+  onProductClick,
+  onCreateProduct,
+}: PIMTableProps) {
   const {
     channels,
     locales,
     markets,
+    selectedDestinationId,
     selectedChannel,
     selectedChannelId,
     selectedLocale,
@@ -121,13 +184,24 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
     selectedMarketId,
   } = useMarketContext();
   const normalizedSelectedBrand = (selectedBrandSlug || "").trim().toLowerCase();
+  const normalizedTenantSlug = tenantSlug.trim().toLowerCase();
   const isSharedBrandView =
-    normalizedSelectedBrand.length > 0 && normalizedSelectedBrand !== tenantSlug.toLowerCase();
+    normalizedSelectedBrand.length > 0 && normalizedSelectedBrand !== normalizedTenantSlug;
   const canCreateProducts = Boolean(onCreateProduct) && !isSharedBrandView;
+  const isSharedRow = useCallback(
+    (product: Partial<PIMProduct>) => {
+      if (isSharedBrandView) return true;
+      if (!isPartnerAllView) return false;
+      const rowSlug = String(product.organizationSlug || "").trim().toLowerCase();
+      return rowSlug.length > 0 && rowSlug !== normalizedTenantSlug;
+    },
+    [isPartnerAllView, isSharedBrandView, normalizedTenantSlug]
+  );
   const [products, setProducts] = useState<PIMProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
+  const [filterProductModel, setFilterProductModel] = useState<string>(PRODUCT_MODEL_FILTER_ALL);
   const [sortField, setSortField] = useState<keyof PIMProduct>("productName");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
@@ -143,14 +217,22 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
   const [shareMarketIds, setShareMarketIds] = useState<string[]>([]);
   const [shareChannelIds, setShareChannelIds] = useState<string[]>([]);
   const [shareLocaleIds, setShareLocaleIds] = useState<string[]>([]);
+  const [scopeFilterMode, setScopeFilterMode] = useState<ScopeFilterMode>("all");
+  const [bulkScopeDialogOpen, setBulkScopeDialogOpen] = useState(false);
+  const [bulkScopeMode, setBulkScopeMode] = useState<ProductBulkScopeMode>("set");
+  const [bulkScopeValue, setBulkScopeValue] = useState<AuthoringScopeValue>(createGlobalAuthoringScope());
+  const [bulkScopeSubmitting, setBulkScopeSubmitting] = useState(false);
+  const [bulkScopeError, setBulkScopeError] = useState<string | null>(null);
+  const [bulkScopeStatusMessage, setBulkScopeStatusMessage] = useState<string | null>(null);
 
   // Product creation workflow state
   const [creationMode, setCreationMode] = useState(false);
   const [creatingProducts, setCreatingProducts] = useState<Partial<PIMProduct>[]>([]);
-  
-  // Column visibility state
-  const [visibleColumns, setVisibleColumns] = useState(DEFAULT_VISIBLE_COLUMNS);
-  const [showColumnSettings, setShowColumnSettings] = useState(false);
+
+  const visibleColumns = DEFAULT_VISIBLE_COLUMNS;
+
+  const [frontImageByProductId, setFrontImageByProductId] = useState<Record<string, ProductFrontImage>>({});
+  const [failedFrontImageAssetIds, setFailedFrontImageAssetIds] = useState<Set<string>>(new Set());
   
   // Hierarchy state
   const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
@@ -158,6 +240,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
 
   const buildScopedProductsUrl = useCallback(() => {
     const query = new URLSearchParams();
+    if (isPartnerAllView) query.set("view", "all");
     if (selectedMarketId) query.set("marketId", selectedMarketId);
     if (selectedLocale?.code) query.set("locale", selectedLocale.code);
     if (selectedChannel?.code) query.set("channel", selectedChannel.code);
@@ -166,7 +249,108 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
     return query.toString()
       ? `/api/${tenantSlug}/products?${query.toString()}`
       : `/api/${tenantSlug}/products`;
-  }, [tenantSlug, selectedMarketId, selectedLocale?.code, selectedChannel?.code, normalizedSelectedBrand]);
+  }, [
+    isPartnerAllView,
+    normalizedSelectedBrand,
+    selectedChannel?.code,
+    selectedLocale?.code,
+    selectedMarketId,
+    tenantSlug,
+  ]);
+
+  const productModelOptions = useMemo(() => {
+    const models = new Map<string, string>();
+    for (const product of products) {
+      const label = String(product.family || "").trim();
+      if (!label) continue;
+      const value = label.toLowerCase();
+      if (!models.has(value)) {
+        models.set(value, label);
+      }
+    }
+    return Array.from(models.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [products]);
+
+  const buildAssetPreviewPath = useCallback(
+    (assetId: string) => {
+      const query = new URLSearchParams();
+      if (isPartnerAllView) {
+        query.set("view", "all");
+      }
+      if (normalizedSelectedBrand) {
+        query.set("brand", normalizedSelectedBrand);
+      }
+      return query.toString()
+        ? `/api/${tenantSlug}/assets/${assetId}/preview?${query.toString()}`
+        : `/api/${tenantSlug}/assets/${assetId}/preview`;
+    },
+    [isPartnerAllView, normalizedSelectedBrand, tenantSlug]
+  );
+
+  const doesScopedLinkMatch = useCallback(
+    (link: ProductLinkRecord) => {
+      const channel = (link.channel_id || "").trim();
+      const market = (link.market_id || "").trim();
+      const locale = (link.locale_id || "").trim();
+      const destination = (link.destination_id || "").trim();
+
+      if (channel && channel !== selectedChannelId) return false;
+      if (market && market !== selectedMarketId) return false;
+      if (locale && locale !== selectedLocaleId) return false;
+      if (destination) return false;
+
+      return true;
+    },
+    [selectedChannelId, selectedLocaleId, selectedMarketId]
+  );
+
+  const getScopedLinkRank = useCallback(
+    (link: ProductLinkRecord) => {
+      let rank = 0;
+      if ((link.channel_id || "").trim()) rank += 3;
+      if ((link.market_id || "").trim()) rank += 3;
+      if ((link.locale_id || "").trim()) rank += 3;
+      if (link.is_primary) rank += 1;
+      return rank;
+    },
+    []
+  );
+
+  const getProductAuthoringScope = useCallback((product: PIMProduct): AuthoringScopeValue => {
+    const productWithScope = product as PIMProduct & {
+      marketplaceContent?: Record<string, unknown> | null;
+      marketplace_content?: Record<string, unknown> | null;
+    };
+    const rawScope =
+      productWithScope.marketplaceContent?.authoringScope ??
+      productWithScope.marketplace_content?.authoringScope ??
+      null;
+    return normalizeAuthoringScope(
+      rawScope && typeof rawScope === "object" ? (rawScope as Partial<AuthoringScopeValue>) : null
+    );
+  }, []);
+
+  const isProductInCurrentScope = useCallback(
+    (product: PIMProduct): boolean => {
+      const scope = getProductAuthoringScope(product);
+      if (scope.mode !== "scoped") return true;
+      return (
+        isScopeDimensionMatch(selectedMarketId, scope.marketIds) &&
+        isScopeDimensionMatch(selectedChannelId, scope.channelIds) &&
+        isScopeDimensionMatch(selectedLocaleId, scope.localeIds) &&
+        isScopeDimensionMatch(selectedDestinationId, scope.destinationIds)
+      );
+    },
+    [
+      getProductAuthoringScope,
+      selectedChannelId,
+      selectedDestinationId,
+      selectedLocaleId,
+      selectedMarketId,
+    ]
+  );
   
   // Get filtered products with hierarchy (memoized for performance)
   const getFilteredProductsWithHierarchy = useMemo(() => {
@@ -178,9 +362,20 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
         (product.upc || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         product.brandLine?.toLowerCase().includes(searchQuery.toLowerCase());
       
-      const matchesFilter = filterStatus === "All" || product.status === filterStatus;
-      
-      return matchesSearch && matchesFilter;
+      const matchesStatus = filterStatus === "All" || product.status === filterStatus;
+      const modelValue = (product.family || "").trim().toLowerCase();
+      const matchesProductModel =
+        filterProductModel === PRODUCT_MODEL_FILTER_ALL ||
+        (filterProductModel === PRODUCT_MODEL_FILTER_UNASSIGNED
+          ? modelValue.length === 0
+          : modelValue === filterProductModel);
+      const isInCurrentScope = isProductInCurrentScope(product);
+      const matchesScope =
+        scopeFilterMode === "all" ||
+        (scopeFilterMode === "in_scope" && isInCurrentScope) ||
+        (scopeFilterMode === "out_of_scope" && !isInCurrentScope);
+
+      return matchesSearch && matchesStatus && matchesProductModel && matchesScope;
     });
 
     if (!showVariantHierarchy) {
@@ -238,11 +433,21 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
     });
 
     return result;
-  }, [products, searchQuery, filterStatus, showVariantHierarchy, expandedParents]);
+  }, [
+    products,
+    searchQuery,
+    filterStatus,
+    filterProductModel,
+    scopeFilterMode,
+    isProductInCurrentScope,
+    showVariantHierarchy,
+    expandedParents,
+  ]);
 
   // Load products
   useEffect(() => {
     const controller = new AbortController();
+    let isCancelled = false;
 
     const loadProducts = async () => {
       try {
@@ -250,6 +455,8 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
         const response = await fetch(buildScopedProductsUrl(), {
           signal: controller.signal,
         });
+        if (isCancelled) return;
+
         if (!response.ok) {
           if ([401, 403, 404].includes(response.status)) {
             setProducts([]);
@@ -258,11 +465,15 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
           throw new Error(`Failed to fetch products: ${response.status}`);
         }
         const data = await response.json();
+        if (isCancelled) return;
         
         if (data.success && data.data) {
           // Transform Supabase data to PIMProduct format
           const transformedProducts = data.data.map((product: any) => ({
             id: product.id,
+            organizationId: product.organization_id,
+            organizationSlug: product.organization_slug,
+            organizationName: product.organization_name,
             type: product.type,
             parentId: product.parent_id,
             hasVariants: product.has_variants,
@@ -310,42 +521,130 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
           setProducts([]);
         }
       } catch (error) {
-        if ((error as Error)?.name === "AbortError") {
+        if (isCancelled || (error as Error)?.name === "AbortError") {
           return;
         }
         console.error("Failed to load products:", error);
         // Start with empty state on error
         setProducts([]);
       } finally {
-        if (!controller.signal.aborted) {
+        if (!isCancelled) {
           setLoading(false);
         }
       }
     };
 
-    loadProducts();
-    return () => controller.abort();
+    void loadProducts();
+    return () => {
+      isCancelled = true;
+      controller.abort();
+    };
   }, [buildScopedProductsUrl]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const stored = window.localStorage.getItem('pimTableColumns');
-    if (!stored) return;
-    try {
-      const parsed = JSON.parse(stored);
-      setVisibleColumns({
-        ...DEFAULT_VISIBLE_COLUMNS,
-        ...parsed
-      });
-    } catch (error) {
-      console.warn('Failed to load column settings', error);
+    if (
+      filterProductModel === PRODUCT_MODEL_FILTER_ALL ||
+      filterProductModel === PRODUCT_MODEL_FILTER_UNASSIGNED
+    ) {
+      return;
     }
-  }, []);
+    const stillExists = productModelOptions.some((option) => option.value === filterProductModel);
+    if (!stillExists) {
+      setFilterProductModel(PRODUCT_MODEL_FILTER_ALL);
+    }
+  }, [filterProductModel, productModelOptions]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem('pimTableColumns', JSON.stringify(visibleColumns));
-  }, [visibleColumns]);
+    let isCancelled = false;
+
+    const loadFrontImages = async () => {
+      if (products.length === 0) {
+        setFrontImageByProductId({});
+        return;
+      }
+
+      try {
+        const query = new URLSearchParams({
+          document_slot_code: "image_front",
+        });
+        if (isPartnerAllView) {
+          query.set("view", "all");
+        }
+        if (normalizedSelectedBrand) {
+          query.set("brand", normalizedSelectedBrand);
+        }
+
+        const response = await fetch(`/api/${tenantSlug}/product-links?${query.toString()}`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch image slots (${response.status})`);
+        }
+
+        const payload = await response.json();
+        if (isCancelled) return;
+
+        const links = (payload?.data || []) as ProductLinkRecord[];
+        const productIds = new Set(products.map((product) => product.id));
+        const bestByProduct = new Map<
+          string,
+          { rank: number; createdAt: number; image: ProductFrontImage }
+        >();
+
+        for (const link of links) {
+          const productId = String(link.product_id || "").trim();
+          const assetId = String(link.asset_id || link.dam_assets?.id || "").trim();
+          if (!productId || !assetId || !productIds.has(productId)) {
+            continue;
+          }
+          if (!doesScopedLinkMatch(link)) {
+            continue;
+          }
+
+          const rank = getScopedLinkRank(link);
+          const createdAt = link.created_at ? Date.parse(link.created_at) || 0 : 0;
+          const existing = bestByProduct.get(productId);
+          if (
+            !existing ||
+            rank > existing.rank ||
+            (rank === existing.rank && createdAt > existing.createdAt)
+          ) {
+            bestByProduct.set(productId, {
+              rank,
+              createdAt,
+              image: {
+                assetId,
+                previewUrl: buildAssetPreviewPath(assetId),
+                filename: link.dam_assets?.filename || null,
+              },
+            });
+          }
+        }
+
+        const nextMap: Record<string, ProductFrontImage> = {};
+        for (const [productId, entry] of bestByProduct.entries()) {
+          nextMap[productId] = entry.image;
+        }
+        setFrontImageByProductId(nextMap);
+        setFailedFrontImageAssetIds(new Set());
+      } catch (error) {
+        if (isCancelled) return;
+        console.error("Failed to load front image slot links:", error);
+        setFrontImageByProductId({});
+      }
+    };
+
+    void loadFrontImages();
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    buildAssetPreviewPath,
+    doesScopedLinkMatch,
+    getScopedLinkRank,
+    isPartnerAllView,
+    normalizedSelectedBrand,
+    products,
+    tenantSlug,
+  ]);
 
   // Start product creation workflow (clear view)
   const handleStartCreation = () => {
@@ -510,13 +809,13 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
 
   const selectableProductIds = useMemo(() => {
     return filteredAndSortedProducts
-      .filter((product) => realProductIds.has(product.id))
+      .filter((product) => realProductIds.has(product.id) && !isSharedRow(product))
       .map((product) => product.id);
-  }, [filteredAndSortedProducts, realProductIds]);
+  }, [filteredAndSortedProducts, isSharedRow, realProductIds]);
 
   const selectedShareableProducts = useMemo(() => {
-    return products.filter((product) => selectedProductIds.has(product.id));
-  }, [products, selectedProductIds]);
+    return products.filter((product) => selectedProductIds.has(product.id) && !isSharedRow(product));
+  }, [isSharedRow, products, selectedProductIds]);
 
   const shareMarketOptions = useMemo<ScopeConstraintOption[]>(
     () =>
@@ -545,6 +844,11 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
     [locales]
   );
 
+  const outOfScopeCount = useMemo(
+    () => products.reduce((count, product) => (isProductInCurrentScope(product) ? count : count + 1), 0),
+    [isProductInCurrentScope, products]
+  );
+
   const applyCurrentScopeToShareSelection = useCallback(() => {
     setShareMarketIds(selectedMarketId ? [selectedMarketId] : []);
     setShareChannelIds(selectedChannelId ? [selectedChannelId] : []);
@@ -563,6 +867,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
     
     const product = products.find(p => p.id === productId);
     if (!product) return;
+    if (isSharedRow(product)) return;
     
     setSelectedProductIds(prev => {
       const newSet = new Set(prev);
@@ -614,7 +919,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
       
       return newSet;
     });
-  }, [products]);
+  }, [isSharedRow, products]);
 
   const handleSelectAll = useCallback(() => {
     const isAllSelectableSelected =
@@ -627,11 +932,13 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
       setSelectedProductIds(new Set(selectableProductIds));
     }
     setShareStatusMessage(null);
+    setBulkScopeStatusMessage(null);
   }, [selectableProductIds, selectedProductIds]);
 
   const handleClearSelection = useCallback(() => {
     setSelectedProductIds(new Set());
     setShareStatusMessage(null);
+    setBulkScopeStatusMessage(null);
   }, []);
 
   const fetchShareSetOptions = useCallback(async (): Promise<ProductShareSetOption[]> => {
@@ -815,9 +1122,143 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
 
   // Bulk action handlers
   const handleBulkEdit = () => {
-    // TODO: Open bulk edit modal with selected products
-    console.log('Bulk editing products:', Array.from(selectedProductIds));
+    if (selectedShareableProducts.length === 0) {
+      return;
+    }
+    setBulkScopeMode("set");
+    setBulkScopeValue(createGlobalAuthoringScope());
+    setBulkScopeError(null);
+    setBulkScopeDialogOpen(true);
   };
+
+  const handleApplyBulkScope = useCallback(async () => {
+    if (selectedShareableProducts.length === 0) {
+      setBulkScopeError("Select at least one product or variant.");
+      return;
+    }
+    if (bulkScopeMode === "add") {
+      const normalizedIncoming = normalizeAuthoringScope(bulkScopeValue);
+      const hasDimensions =
+        normalizedIncoming.mode === "scoped" &&
+        (normalizedIncoming.marketIds.length > 0 ||
+          normalizedIncoming.channelIds.length > 0 ||
+          normalizedIncoming.localeIds.length > 0 ||
+          normalizedIncoming.destinationIds.length > 0);
+      if (!hasDimensions) {
+        setBulkScopeError("Choose at least one scope dimension to add.");
+        return;
+      }
+    }
+
+    setBulkScopeSubmitting(true);
+    setBulkScopeError(null);
+    setBulkScopeStatusMessage(null);
+    const successfulUpdates = new Map<string, AuthoringScopeValue>();
+    const failures: string[] = [];
+
+    try {
+      const chunks: PIMProduct[][] = [];
+      const batchSize = 4;
+      for (let index = 0; index < selectedShareableProducts.length; index += batchSize) {
+        chunks.push(selectedShareableProducts.slice(index, index + batchSize));
+      }
+
+      for (const chunk of chunks) {
+        const results = await Promise.allSettled(
+          chunk.map(async (product) => {
+            const currentScope = getProductAuthoringScope(product);
+            const nextScope =
+              bulkScopeMode === "clear"
+                ? createGlobalAuthoringScope()
+                : bulkScopeMode === "add"
+                ? mergeAuthoringScopes(currentScope, bulkScopeValue)
+                : normalizeAuthoringScope(bulkScopeValue);
+
+            const response = await fetch(`/api/${tenantSlug}/products/${product.id}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                initialScope: nextScope,
+              }),
+            });
+
+            if (!response.ok) {
+              const payload = (await response.json().catch(() => ({}))) as {
+                error?: string;
+              };
+              throw new Error(payload.error || `Failed (${response.status})`);
+            }
+
+            return {
+              productId: product.id,
+              scope: nextScope,
+            };
+          })
+        );
+
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            successfulUpdates.set(result.value.productId, result.value.scope);
+            continue;
+          }
+          const reason =
+            result.reason instanceof Error
+              ? result.reason.message
+              : "Unknown scope update failure";
+          failures.push(reason);
+        }
+      }
+
+      if (successfulUpdates.size > 0) {
+        setProducts((previous) =>
+          previous.map((product) => {
+            const scope = successfulUpdates.get(product.id);
+            if (!scope) return product;
+            const productWithScope = product as PIMProduct & {
+              marketplaceContent?: Record<string, unknown> | null;
+              marketplace_content?: Record<string, unknown> | null;
+            };
+            return {
+              ...productWithScope,
+              marketplaceContent: {
+                ...(productWithScope.marketplaceContent || {}),
+                authoringScope: scope,
+              },
+              marketplace_content: {
+                ...(productWithScope.marketplace_content || {}),
+                authoringScope: scope,
+              },
+            } as PIMProduct;
+          })
+        );
+      }
+
+      if (failures.length > 0) {
+        setBulkScopeError(`Updated ${successfulUpdates.size}, failed ${failures.length}.`);
+      } else {
+        setBulkScopeDialogOpen(false);
+        setBulkScopeStatusMessage(
+          `Updated authoring scope for ${successfulUpdates.size} product${
+            successfulUpdates.size === 1 ? "" : "s"
+          }.`
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to apply authoring scope.";
+      setBulkScopeError(message);
+    } finally {
+      setBulkScopeSubmitting(false);
+    }
+  }, [
+    bulkScopeMode,
+    bulkScopeValue,
+    getProductAuthoringScope,
+    selectedShareableProducts,
+    tenantSlug,
+  ]);
 
   const handleBulkStatusUpdate = () => {
     // TODO: Open status update modal
@@ -844,6 +1285,9 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
 
   const handleStatusChange = async (product: Partial<PIMProduct>, status: ProductStatus) => {
     if (!product.id) {
+      return;
+    }
+    if (isSharedRow(product)) {
       return;
     }
     try {
@@ -978,19 +1422,20 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
           </div>
         ) : (
           <>
-            <div className="flex items-center gap-4 flex-1">
+            <div className="flex flex-1 flex-wrap items-center gap-3">
             {/* Search */}
             <SearchInput
               value={searchQuery}
               onChange={setSearchQuery}
               placeholder="Search name, SKU, SCIN, or barcode"
-              className="flex-1 min-w-[260px] max-w-2xl"
+              className="w-full min-w-[260px] flex-1 md:max-w-2xl"
+              inputClassName="h-8"
             />
-            
+
             {/* Status Filter */}
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-32 shrink-0">
-                <SelectValue placeholder="All Status" />
+              <SelectTrigger className="h-8 w-[140px] shrink-0">
+                <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="All">All Status</SelectItem>
@@ -1002,83 +1447,46 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                 <SelectItem value="Archived">Archived</SelectItem>
               </SelectContent>
             </Select>
-            
-            {/* Column Settings */}
-            <div className="relative">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowColumnSettings(!showColumnSettings)}
-                className="gap-2"
-              >
-                <Settings className="w-4 h-4" />
-                Columns
-              </Button>
-              
-              {showColumnSettings && (
-                <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-muted/30 rounded-lg shadow-lg z-50 p-4">
-                  <h3 className="font-medium text-gray-900 mb-3">Customize columns</h3>
-                  <div className="space-y-3 max-h-64 overflow-y-auto">
-                    {(['Essentials', 'Additional'] as const).map(group => (
-                      <div key={group}>
-                        <div className="text-xs font-medium text-muted-foreground mb-2">{group}</div>
-                        <div className="space-y-2">
-                          {COLUMN_OPTIONS.filter(option => option.group === group).map(option => (
-                            <label key={option.key} className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={visibleColumns[option.key]}
-                                onChange={(e) =>
-                                  setVisibleColumns(prev => ({ ...prev, [option.key]: e.target.checked }))
-                                }
-                                className="w-4 h-4 text-blue-600 border-input rounded focus:ring-blue-500"
-                              />
-                              <span className="text-sm text-gray-700">{option.label}</span>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-3 pt-3 border-t border-muted/30 flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setVisibleColumns(DEFAULT_VISIBLE_COLUMNS)}
-                    >
-                      Reset essentials
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        const next = { ...DEFAULT_VISIBLE_COLUMNS } as typeof DEFAULT_VISIBLE_COLUMNS;
-                        (Object.keys(next) as ColumnKey[]).forEach(key => {
-                          next[key] = true;
-                        });
-                        setVisibleColumns(next);
-                      }}
-                    >
-                      Show all
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setShowColumnSettings(false)}
-                    >
-                      Done
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
+
+            {/* Product Model Filter */}
+            <Select value={filterProductModel} onValueChange={setFilterProductModel}>
+              <SelectTrigger className="h-8 w-[190px] shrink-0">
+                <SelectValue placeholder="Product Model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={PRODUCT_MODEL_FILTER_ALL}>All Models</SelectItem>
+                <SelectItem value={PRODUCT_MODEL_FILTER_UNASSIGNED}>Unassigned</SelectItem>
+                {productModelOptions.map((model) => (
+                  <SelectItem key={model.value} value={model.value}>
+                    {model.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={scopeFilterMode} onValueChange={(value) => setScopeFilterMode(value as ScopeFilterMode)}>
+              <SelectTrigger className="h-8 w-[190px] shrink-0">
+                <SelectValue placeholder="Scope Filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Scopes</SelectItem>
+                <SelectItem value="in_scope">In Current Scope</SelectItem>
+                <SelectItem value="out_of_scope">Missing In Scope</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {outOfScopeCount > 0 ? (
+              <Badge variant="outline" className="px-2 py-0.5 text-xs">
+                {outOfScopeCount} missing in current scope
+              </Badge>
+            ) : null}
           </div>
 
           {/* Add Product Button on the right */}
           {canCreateProducts ? (
             <Button
               onClick={onCreateProduct}
-              className="flex items-center gap-2"
+              className="h-8 px-3 text-sm flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
               Add Product
@@ -1094,7 +1502,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
               {selectedShareableProducts.length} selected
             </span>
             {!isSharedBrandView ? (
-              <Button size="sm" variant="outline" onClick={handleBulkShare}>
+              <Button size="sm" variant="outline" className="h-8 px-3 text-sm" onClick={handleBulkShare}>
                 Share selected
               </Button>
             ) : null}
@@ -1102,14 +1510,17 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
               size="sm"
               variant="ghost"
               onClick={handleClearSelection}
-              className="h-6 w-6 p-0 hover:bg-blue-100"
+              className="h-8 w-8 p-0 hover:bg-blue-100"
             >
-              <X className="w-3 h-3" />
+              <X className="w-4 h-4" />
             </Button>
           </div>
         )}
         {shareStatusMessage ? (
           <p className="text-sm text-emerald-700">{shareStatusMessage}</p>
+        ) : null}
+        {bulkScopeStatusMessage ? (
+          <p className="text-sm text-blue-700">{bulkScopeStatusMessage}</p>
         ) : null}
       </div>
 
@@ -1208,7 +1619,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                     onClick={() => handleSort("family")}
                   >
                     <div className="flex items-center gap-1">
-                      Family
+                      Product Model
                       <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
@@ -1379,7 +1790,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                   {/* Family */}
                   {visibleColumns.family && (
                     <td className="px-6 py-4">
-                      {product.family || <span className="text-muted-foreground">Enter family...</span>}
+                      {product.family || <span className="text-muted-foreground">Select model...</span>}
                     </td>
                   )}
 
@@ -1446,6 +1857,8 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                 const nextProduct = filteredAndSortedProducts[index + 1];
                 const prevProduct = filteredAndSortedProducts[index - 1];
                 const isViewAllLink = (product as any).isViewAllLink;
+                const isSharedProductRow = isSharedRow(product);
+                const isInCurrentScope = isProductInCurrentScope(product);
                 
                 // Determine if this row is part of an expanded variant group
                 const isInExpandedGroup = (isVariantProduct(product) || isViewAllLink) && 
@@ -1509,6 +1922,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                     className={cn(
                       "hover:bg-muted/20 transition-colors cursor-pointer",
                       isSelected && "bg-blue-50 hover:bg-blue-100",
+                      !isInCurrentScope && "bg-amber-50/40",
                       // Visual grouping for expanded variants
                       isInExpandedGroup && "bg-blue-50/30",
                       isFirstInGroup && "border-t-2 border-gray-300",
@@ -1562,6 +1976,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                           checked={isSelected}
                           onChange={(e) => handleProductSelect(product.id, e)}
                           onClick={(e) => e.stopPropagation()}
+                          disabled={isSharedProductRow}
                           className="w-3 h-3 text-blue-600 border-input rounded focus:ring-blue-500"
                         />
                       </div>
@@ -1573,13 +1988,43 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                         <div className="flex items-start gap-3">
                           {/* Product Image */}
                           <div className="flex-shrink-0 w-12 h-12 bg-gray-100 rounded-lg border border-muted/30 flex items-center justify-center overflow-hidden">
-                            {product.assetsCount > 0 ? (
-                              <div className="w-full h-full bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
-                                <ImageIcon className="w-5 h-5 text-muted-foreground" />
-                              </div>
-                            ) : (
-                              <div className="text-xs text-muted-foreground text-center">No image</div>
-                            )}
+                            {(() => {
+                              const frontImage = frontImageByProductId[product.id];
+                              const canRenderFrontImage =
+                                Boolean(frontImage) &&
+                                !failedFrontImageAssetIds.has(frontImage.assetId);
+
+                              if (frontImage && canRenderFrontImage) {
+                                return (
+                                  <img
+                                    src={frontImage.previewUrl}
+                                    alt={frontImage.filename || `${product.productName} front image`}
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                    onError={() => {
+                                      setFailedFrontImageAssetIds((previous) => {
+                                        if (previous.has(frontImage.assetId)) {
+                                          return previous;
+                                        }
+                                        const next = new Set(previous);
+                                        next.add(frontImage.assetId);
+                                        return next;
+                                      });
+                                    }}
+                                  />
+                                );
+                              }
+
+                              if (product.assetsCount > 0) {
+                                return (
+                                  <div className="w-full h-full bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
+                                    <ImageIcon className="w-5 h-5 text-muted-foreground" />
+                                  </div>
+                                );
+                              }
+
+                              return <div className="text-xs text-muted-foreground text-center">No image</div>;
+                            })()}
                           </div>
                           
                           <div className="flex-1 min-w-0">
@@ -1605,6 +2050,11 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                                     ? 'Variant'
                                     : 'Single SKU'}
                                 </span>
+                                {!isInCurrentScope ? (
+                                  <Badge variant="outline" className="px-2 py-0.5 text-xs border-amber-300 text-amber-800">
+                                    Missing in scope
+                                  </Badge>
+                                ) : null}
                                 {/* Variation count indicator for parents */}
                                 {isParentProduct(product) && (
                                   <span className="text-sm text-muted-foreground whitespace-nowrap">
@@ -1674,7 +2124,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                     {visibleColumns.family && (
                       <td className="px-6 py-4">
                         <div className="text-sm text-foreground">
-                          {product.family || 'Uncategorized'}
+                          {product.family || "Unassigned"}
                         </div>
                       </td>
                     )}
@@ -1694,6 +2144,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                         <Select
                           value={product.status || "Draft"}
                           onValueChange={(value) => handleStatusChange(product, value as ProductStatus)}
+                          disabled={isSharedProductRow}
                         >
                           <SelectTrigger
                             className="h-8 w-[140px]"
@@ -1768,7 +2219,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                     {/* Actions */}
                     <td className="px-6 py-4 text-right text-sm font-medium">
                       <div className="flex items-center justify-end">
-                        {!isSharedBrandView ? (
+                        {!isSharedProductRow ? (
                           <DropdownMenu.Root>
                             <DropdownMenu.Trigger asChild>
                               <Button
@@ -1834,6 +2285,102 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
       </div>
 
       <Dialog
+        open={bulkScopeDialogOpen}
+        onOpenChange={(open) => {
+          setBulkScopeDialogOpen(open);
+          if (!open) {
+            setBulkScopeError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Bulk Edit Authoring Scope</DialogTitle>
+            <DialogDescription>
+              Apply scope changes to {selectedShareableProducts.length} selected product
+              {selectedShareableProducts.length === 1 ? "" : "s"} and variants.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+              Current view context:{" "}
+              <span className="font-medium text-foreground">
+                {selectedMarketId ? markets.find((market) => market.id === selectedMarketId)?.name || "Market selected" : "All markets"}
+              </span>
+              {" / "}
+              <span className="font-medium text-foreground">
+                {selectedChannel?.name || "All channels"}
+              </span>
+              {" / "}
+              <span className="font-medium text-foreground">
+                {selectedLocale?.code || "All languages"}
+              </span>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Operation</label>
+              <Select
+                value={bulkScopeMode}
+                onValueChange={(value) => setBulkScopeMode(value as ProductBulkScopeMode)}
+              >
+                <SelectTrigger className="h-8 w-[220px]">
+                  <SelectValue placeholder="Choose operation" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="set">Set scope</SelectItem>
+                  <SelectItem value="add">Add to scope</SelectItem>
+                  <SelectItem value="clear">Clear to global</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {bulkScopeMode === "set" || bulkScopeMode === "add" ? (
+              <AuthoringScopePicker
+                value={bulkScopeValue}
+                onChange={setBulkScopeValue}
+                title="Scope values"
+                description="Set replaces existing scope. Add merges with existing scope per product."
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Clear removes scoped limits and sets selected products to global authoring scope.
+              </p>
+            )}
+            <div className="rounded-md border border-border bg-muted/10 p-3 text-xs text-muted-foreground">
+              Result:{" "}
+              <span className="font-medium text-foreground">
+                {bulkScopeMode === "clear"
+                  ? "Global"
+                  : bulkScopeMode === "add"
+                  ? `Add ${getAuthoringScopeSummary(bulkScopeValue)}`
+                  : `Set to ${getAuthoringScopeSummary(bulkScopeValue)}`}
+              </span>
+            </div>
+            {bulkScopeError ? (
+              <p className="text-sm text-destructive">{bulkScopeError}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBulkScopeDialogOpen(false)}
+              disabled={bulkScopeSubmitting}
+              className="h-8 px-3 text-sm"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                void handleApplyBulkScope();
+              }}
+              disabled={bulkScopeSubmitting}
+              className="h-8 px-3 text-sm"
+            >
+              {bulkScopeSubmitting ? "Applying..." : "Apply Scope"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={isShareDialogOpen}
         onOpenChange={(open) => {
           setIsShareDialogOpen(open);
@@ -1859,7 +2406,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Product Set</label>
               <Select value={selectedShareSetId} onValueChange={setSelectedShareSetId}>
-                <SelectTrigger>
+                <SelectTrigger className="h-8">
                   <SelectValue placeholder="Select a product set" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1875,6 +2422,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                   type="button"
                   size="sm"
                   variant="outline"
+                  className="h-8 px-3 text-sm"
                   onClick={() => {
                     void fetchShareSetOptions();
                   }}
@@ -1896,6 +2444,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                       type="button"
                       size="sm"
                       variant="outline"
+                      className="h-8 px-3 text-sm"
                       onClick={applyCurrentScopeToShareSelection}
                     >
                       Use Current View
@@ -1904,6 +2453,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                       type="button"
                       size="sm"
                       variant="ghost"
+                      className="h-8 px-3 text-sm"
                       onClick={clearShareScopeConstraints}
                     >
                       Clear
@@ -1921,7 +2471,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                       options={shareMarketOptions}
                       value={shareMarketIds}
                       onChange={setShareMarketIds}
-                      placeholder="All markets"
+                      placeholder="Select one or more markets"
                     />
                   </div>
                   <div className="space-y-1">
@@ -1930,7 +2480,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                       options={shareChannelOptions}
                       value={shareChannelIds}
                       onChange={setShareChannelIds}
-                      placeholder="All channels"
+                      placeholder="Select one or more channels"
                     />
                   </div>
                   <div className="space-y-1">
@@ -1939,7 +2489,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                       options={shareLocaleOptions}
                       value={shareLocaleIds}
                       onChange={setShareLocaleIds}
-                      placeholder="All locales"
+                      placeholder="Select one or more locales"
                     />
                   </div>
                 </div>
@@ -1954,10 +2504,12 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                     onChange={(event) => setNewShareSetName(event.target.value)}
                     placeholder="Example: Retail Core Range"
                     disabled={isCreatingShareSet}
+                    className="h-8"
                   />
                   <Button
                     type="button"
                     size="sm"
+                    className="h-8 px-3 text-sm"
                     onClick={() => {
                       void handleCreateShareSetInline();
                     }}
@@ -1978,7 +2530,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsShareDialogOpen(false)}>
+            <Button variant="outline" className="h-8 px-3 text-sm" onClick={() => setIsShareDialogOpen(false)}>
               Cancel
             </Button>
             <Button
@@ -1986,6 +2538,7 @@ export function PIMTable({ tenantSlug, selectedBrandSlug, onProductClick, onCrea
                 void handleConfirmShareSelection();
               }}
               disabled={isSubmittingShare || !selectedShareSetId || selectedShareableProducts.length === 0}
+              className="h-8 px-3 text-sm"
             >
               {isSubmittingShare ? "Adding..." : "Add To Set"}
             </Button>

@@ -81,6 +81,16 @@ const PERCENT_COLUMN_KEYS = new Set(['percent_daily_value', 'percent_nrv', 'perc
 const SERVING_INFO_SECTION_KEY = 'serving_info';
 const SERVINGS_PER_CONTAINER_ROW_KEY = 'servings_per_container';
 
+const parseJsonSafely = async (response: Response): Promise<any | null> => {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
+
 function cloneDefinition(definition: TableDefinition | undefined): TableDefinition {
   if (!definition) {
     return {
@@ -125,7 +135,10 @@ export function TableFieldComponent({
         if (!response.ok) {
           throw new Error('Failed to load table templates.');
         }
-        const data = await response.json();
+        const data = await parseJsonSafely(response);
+        if (!data) {
+          throw new Error('Table templates API returned an empty or invalid response.');
+        }
         if (isMounted) {
           setTemplates(Array.isArray(data) ? data : []);
         }
@@ -155,7 +168,10 @@ export function TableFieldComponent({
         if (!response.ok) {
           throw new Error('Failed to load measurement families.');
         }
-        const data = await response.json();
+        const data = await parseJsonSafely(response);
+        if (!data) {
+          throw new Error('Measurement families API returned an empty or invalid response.');
+        }
         if (isMounted) {
           setMeasurementFamilies(Array.isArray(data) ? data : data.families ?? []);
         }
@@ -368,7 +384,7 @@ export function TableFieldComponent({
                     <div>
                       <div className="text-sm font-semibold text-foreground">{panelLabel}</div>
                       <div className="text-xs text-muted-foreground">
-                        {panelMeta.region ?? '—'} • {panelMeta.regulator ?? '—'} • {panelMeta.locale ?? '—'}
+                        {panelMeta.region ?? 'Ã¢â‚¬â€'} Ã¢â‚¬Â¢ {panelMeta.regulator ?? 'Ã¢â‚¬â€'} Ã¢â‚¬Â¢ {panelMeta.locale ?? 'Ã¢â‚¬â€'}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">

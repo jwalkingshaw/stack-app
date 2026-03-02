@@ -20,13 +20,21 @@ interface InvitationDetails {
   expiresAt: string;
 }
 
+type PartnerOrganizationOption = {
+  id: string;
+  name?: string | null;
+  slug?: string | null;
+};
+
 type AcceptSuccessPayload = {
   invitation_type: "team_member" | "partner";
   requires_onboarding?: boolean;
+  requires_partner_organization_selection?: boolean;
   invitation_token?: string;
   invitation_id?: string;
   brand_organization_id?: string;
   brand_organization_slug?: string | null;
+  partner_organization_options?: PartnerOrganizationOption[];
   partner_organization?: {
     id: string;
     name?: string | null;
@@ -56,6 +64,7 @@ type AcceptResponse = {
 
 type AcceptOptions = {
   auto?: boolean;
+  partnerOrganizationId?: string;
 };
 
 export default function InvitationAcceptClient() {
@@ -75,6 +84,12 @@ export default function InvitationAcceptClient() {
   const [nextUrl, setNextUrl] = useState<string | null>(null);
   const [profileRequired, setProfileRequired] = useState(false);
   const [showSwitchAccount, setShowSwitchAccount] = useState(false);
+  const [requiresPartnerOrgSelection, setRequiresPartnerOrgSelection] = useState(false);
+  const [partnerOrgOptions, setPartnerOrgOptions] = useState<PartnerOrganizationOption[]>([]);
+  const [selectedPartnerOrgId, setSelectedPartnerOrgId] = useState<string>("");
+  const [partnerOnboardingRedirectUrl, setPartnerOnboardingRedirectUrl] = useState<string | null>(null);
+  const [pendingBrandOrgId, setPendingBrandOrgId] = useState<string | null>(null);
+  const [pendingAccessLevel, setPendingAccessLevel] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -130,7 +145,9 @@ export default function InvitationAcceptClient() {
     (options?: { forceFresh?: boolean; loginHint?: string | null }) => {
       if (!isBrowser) return;
 
+      const returnUrl = token ? `/invitations/accept?token=${token}` : "/invitations/accept";
       sessionStorage.setItem(AUTO_ACCEPT_STORAGE_KEY, "1");
+      localStorage.setItem("post_login_redirect", returnUrl);
 
       const params = new URLSearchParams();
       if (options?.loginHint) {
@@ -139,6 +156,10 @@ export default function InvitationAcceptClient() {
       if (options?.forceFresh) {
         params.set("prompt", "login");
       }
+      params.set("post_login_redirect_url", returnUrl);
+      if (token) {
+        params.set("invitation_token", token);
+      }
 
       const destination = params.toString()
         ? `/api/auth/login?${params.toString()}`
@@ -146,11 +167,11 @@ export default function InvitationAcceptClient() {
 
       window.location.href = destination;
     },
-    [isBrowser]
+    [isBrowser, token]
   );
 
   const handleAccept = useCallback(
-    async ({ auto = false }: AcceptOptions = {}) => {
+    async ({ auto = false, partnerOrganizationId }: AcceptOptions = {}) => {
       if (!token) {
         setError("Invalid invitation link");
         return;
@@ -170,12 +191,23 @@ export default function InvitationAcceptClient() {
       setShowSwitchAccount(false);
       setNextUrl(null);
       setProfileRequired(false);
+      if (!partnerOrganizationId) {
+        setRequiresPartnerOrgSelection(false);
+        setPartnerOrgOptions([]);
+        setSelectedPartnerOrgId("");
+        setPartnerOnboardingRedirectUrl(null);
+        setPendingBrandOrgId(null);
+        setPendingAccessLevel(null);
+      }
 
       try {
         const response = await fetch("/api/invitations/accept", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ invitation_token: token }),
+          body: JSON.stringify({
+            invitation_token: token,
+            partner_organization_id: partnerOrganizationId,
+          }),
         });
 
         const data: AcceptResponse = await response
@@ -219,6 +251,33 @@ export default function InvitationAcceptClient() {
         const payload = data.data;
         if (!payload) {
           throw new Error(data.message || "Missing invitation response data");
+        }
+
+        if (
+          payload.requires_partner_organization_selection &&
+          Array.isArray(payload.partner_organization_options) &&
+          payload.partner_organization_options.length > 0
+        ) {
+          setRequiresPartnerOrgSelection(true);
+          setPartnerOrgOptions(payload.partner_organization_options);
+          setSelectedPartnerOrgId((current) => {
+            if (
+              current &&
+              payload.partner_organization_options?.some((org) => org.id === current)
+            ) {
+              return current;
+            }
+            return payload.partner_organization_options?.[0]?.id || "";
+          });
+          setPartnerOnboardingRedirectUrl(payload.redirect_url || null);
+          setPendingBrandOrgId(payload.brand_organization_id || null);
+          setPendingAccessLevel(payload.access_level || null);
+          setMessage(
+            data.message ||
+              "Select which partner workspace should receive this brand relationship."
+          );
+          setAccepting(false);
+          return;
         }
 
         setAccepted(true);
@@ -315,6 +374,26 @@ export default function InvitationAcceptClient() {
   const handleSwitchAccount = useCallback(() => {
     beginAuthFlow({ forceFresh: true, loginHint: invitation?.email || undefined });
   }, [beginAuthFlow, invitation?.email]);
+
+  const handleCreatePartnerWorkspace = useCallback(() => {
+    const fallbackParams = new URLSearchParams();
+    fallbackParams.set("type", "partner");
+    if (token) {
+      fallbackParams.set("token", token);
+    }
+    if (pendingBrandOrgId) {
+      fallbackParams.set("brand_id", pendingBrandOrgId);
+    }
+    if (pendingAccessLevel) {
+      fallbackParams.set("access_level", pendingAccessLevel);
+    }
+    const fallbackRedirect = `/onboarding?${fallbackParams.toString()}`;
+    const baseRedirect = partnerOnboardingRedirectUrl || fallbackRedirect;
+    const destination = baseRedirect.includes("create=")
+      ? baseRedirect
+      : `${baseRedirect}${baseRedirect.includes("?") ? "&" : "?"}create=1`;
+    router.push(destination);
+  }, [partnerOnboardingRedirectUrl, pendingAccessLevel, pendingBrandOrgId, router, token]);
 
   const handleDecline = async () => {
     if (!token) {
@@ -561,16 +640,61 @@ export default function InvitationAcceptClient() {
               </div>
             </div>
 
+            {requiresPartnerOrgSelection && partnerOrgOptions.length > 0 && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-blue-900">Choose Partner Workspace</h2>
+                  <p className="text-xs text-blue-800 mt-1">
+                    Link this invite to one of your existing partner workspaces to keep shared brand content and your own workspace data together.
+                  </p>
+                </div>
+                <select
+                  value={selectedPartnerOrgId}
+                  onChange={(event) => setSelectedPartnerOrgId(event.target.value)}
+                  className="w-full rounded-md border border-blue-200 bg-white px-3 py-2 text-sm text-foreground"
+                >
+                  {partnerOrgOptions.map((org) => (
+                    <option key={org.id} value={org.id}>
+                      {org.name || org.slug || org.id}
+                    </option>
+                  ))}
+                </select>
+                {message && <p className="text-xs text-blue-800">{message}</p>}
+              </div>
+            )}
+
             {/* Actions */}
             <div className="space-y-3">
-              <Button
-                onClick={() => handleAccept()}
-                disabled={accepting || declining}
-                className="w-full"
-                size="lg"
-              >
-                {accepting ? "Processing..." : "Accept Invitation"}
-              </Button>
+              {requiresPartnerOrgSelection ? (
+                <>
+                  <Button
+                    onClick={() => handleAccept({ partnerOrganizationId: selectedPartnerOrgId })}
+                    disabled={accepting || declining || !selectedPartnerOrgId}
+                    className="w-full"
+                    size="lg"
+                  >
+                    {accepting ? "Linking..." : "Link Selected Workspace"}
+                  </Button>
+
+                  <Button
+                    variant="secondary"
+                    onClick={handleCreatePartnerWorkspace}
+                    disabled={accepting || declining}
+                    className="w-full"
+                  >
+                    Create New Partner Workspace
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  onClick={() => handleAccept()}
+                  disabled={accepting || declining}
+                  className="w-full"
+                  size="lg"
+                >
+                  {accepting ? "Processing..." : "Accept Invitation"}
+                </Button>
+              )}
 
               <Button
                 variant="outline"

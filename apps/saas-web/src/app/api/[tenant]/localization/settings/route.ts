@@ -11,9 +11,6 @@ type LocalizationSettingsRow = {
   organization_id: string;
   translation_enabled: boolean;
   write_assist_enabled: boolean;
-  auto_create_pending_tasks_for_new_locale: boolean;
-  default_source_locale_id: string | null;
-  default_target_locale_ids: string[];
   deepl_glossary_id: string | null;
   brand_instructions: string;
   preferred_tone: string;
@@ -28,9 +25,6 @@ const SETTINGS_SELECT = `
   organization_id,
   translation_enabled,
   write_assist_enabled,
-  auto_create_pending_tasks_for_new_locale,
-  default_source_locale_id,
-  default_target_locale_ids,
   deepl_glossary_id,
   brand_instructions,
   preferred_tone,
@@ -49,26 +43,11 @@ const PREFERRED_TONES = new Set([
   "friendly",
 ]);
 
-function normalizeStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const unique = new Set<string>();
-  for (const item of value) {
-    if (typeof item !== "string") continue;
-    const trimmed = item.trim();
-    if (!trimmed) continue;
-    unique.add(trimmed);
-  }
-  return Array.from(unique);
-}
-
 function toSettingsPayload(row: LocalizationSettingsRow | null, organizationId: string) {
   return {
     organization_id: organizationId,
     translation_enabled: Boolean(row?.translation_enabled),
     write_assist_enabled: Boolean(row?.write_assist_enabled),
-    auto_create_pending_tasks_for_new_locale: Boolean(row?.auto_create_pending_tasks_for_new_locale),
-    default_source_locale_id: row?.default_source_locale_id || null,
-    default_target_locale_ids: normalizeStringArray(row?.default_target_locale_ids || []),
     deepl_glossary_id:
       typeof row?.deepl_glossary_id === "string" && row.deepl_glossary_id.trim().length > 0
         ? row.deepl_glossary_id.trim()
@@ -99,12 +78,12 @@ export async function GET(
 
     const { organization } = access.context;
     const [settingsResult, localesResult] = await Promise.all([
-      (supabaseServer as any)
+      supabaseServer
         .from("organization_localization_settings")
         .select(SETTINGS_SELECT)
         .eq("organization_id", organization.id)
         .maybeSingle(),
-      (supabaseServer as any)
+      supabaseServer
         .from("locales")
         .select("id,code,name,is_active")
         .eq("organization_id", organization.id)
@@ -164,18 +143,6 @@ export async function PUT(
     const body = await request.json().catch(() => ({}));
     const translationEnabled = Boolean(body?.translationEnabled ?? body?.translation_enabled);
     const writeAssistEnabled = Boolean(body?.writeAssistEnabled ?? body?.write_assist_enabled);
-    const autoCreatePendingTasksForNewLocale = Boolean(
-      body?.autoCreatePendingTasksForNewLocale ?? body?.auto_create_pending_tasks_for_new_locale
-    );
-    const defaultSourceLocaleId =
-      typeof body?.defaultSourceLocaleId === "string" && body.defaultSourceLocaleId.trim().length > 0
-        ? body.defaultSourceLocaleId.trim()
-        : typeof body?.default_source_locale_id === "string" && body.default_source_locale_id.trim().length > 0
-          ? body.default_source_locale_id.trim()
-          : null;
-    const defaultTargetLocaleIds = normalizeStringArray(
-      body?.defaultTargetLocaleIds ?? body?.default_target_locale_ids
-    );
     const deeplGlossaryIdRaw =
       typeof body?.deeplGlossaryId === "string"
         ? body.deeplGlossaryId
@@ -212,33 +179,7 @@ export async function PUT(
       );
     }
 
-    const { data: localeRows, error: localeError } = await (supabaseServer as any)
-      .from("locales")
-      .select("id")
-      .eq("organization_id", organization.id);
-
-    if (localeError) {
-      console.error("Failed to validate locales for localization settings:", localeError);
-      return NextResponse.json({ error: "Failed to validate locale options" }, { status: 500 });
-    }
-
-    const validLocaleIds = new Set(((localeRows || []) as Array<{ id: string }>).map((row) => row.id));
-    if (defaultSourceLocaleId && !validLocaleIds.has(defaultSourceLocaleId)) {
-      return NextResponse.json(
-        { error: "defaultSourceLocaleId must belong to this organization." },
-        { status: 400 }
-      );
-    }
-
-    const invalidTargetIds = defaultTargetLocaleIds.filter((id) => !validLocaleIds.has(id));
-    if (invalidTargetIds.length > 0) {
-      return NextResponse.json(
-        { error: "defaultTargetLocaleIds contains invalid locale IDs.", invalidLocaleIds: invalidTargetIds },
-        { status: 400 }
-      );
-    }
-
-    const { data: existingRow, error: existingError } = await (supabaseServer as any)
+    const { data: existingRow, error: existingError } = await supabaseServer
       .from("organization_localization_settings")
       .select("organization_id")
       .eq("organization_id", organization.id)
@@ -257,14 +198,12 @@ export async function PUT(
 
     let writeResult;
     if (existingRow?.organization_id) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       writeResult = await (supabaseServer as any)
         .from("organization_localization_settings")
         .update({
           translation_enabled: translationEnabled,
           write_assist_enabled: writeAssistEnabled,
-          auto_create_pending_tasks_for_new_locale: autoCreatePendingTasksForNewLocale,
-          default_source_locale_id: defaultSourceLocaleId,
-          default_target_locale_ids: defaultTargetLocaleIds,
           deepl_glossary_id: deeplGlossaryId,
           brand_instructions: brandInstructions,
           preferred_tone: preferredTone,
@@ -275,15 +214,13 @@ export async function PUT(
         .select(SETTINGS_SELECT)
         .single();
     } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       writeResult = await (supabaseServer as any)
         .from("organization_localization_settings")
         .insert({
           organization_id: organization.id,
           translation_enabled: translationEnabled,
           write_assist_enabled: writeAssistEnabled,
-          auto_create_pending_tasks_for_new_locale: autoCreatePendingTasksForNewLocale,
-          default_source_locale_id: defaultSourceLocaleId,
-          default_target_locale_ids: defaultTargetLocaleIds,
           deepl_glossary_id: deeplGlossaryId,
           brand_instructions: brandInstructions,
           preferred_tone: preferredTone,

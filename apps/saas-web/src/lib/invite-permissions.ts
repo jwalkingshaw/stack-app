@@ -50,6 +50,14 @@ const MODULE_PERMISSION_LEVEL_KEYS: Record<InviteModuleKey, Record<Exclude<Permi
 
 const VALID_MODULE_KEYS = new Set<InviteModuleKey>(['products', 'assets', 'share_links']);
 const VALID_LEVELS = new Set<PermissionLevel>(['none', 'view', 'edit', 'admin']);
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type SupabaseLike = SupabaseClient<any> | any;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
 
 function uniqueStrings(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
@@ -83,8 +91,9 @@ export function normalizeInvitePermissions(input: unknown): InvitePermissionsSna
     }
   }
 
-  const marketIds = uniqueStrings((rawScopes as any)?.market_ids);
-  const collectionIds = uniqueStrings((rawScopes as any)?.collection_ids);
+  const scopesRecord = asRecord(rawScopes);
+  const marketIds = uniqueStrings(scopesRecord?.market_ids);
+  const collectionIds = uniqueStrings(scopesRecord?.collection_ids);
 
   return {
     module_levels: moduleLevels,
@@ -96,7 +105,7 @@ export function normalizeInvitePermissions(input: unknown): InvitePermissionsSna
 }
 
 export async function validateInvitePermissionsForOrganization(params: {
-  supabase: SupabaseClient<any> | any;
+  supabase: SupabaseLike;
   organizationId: string;
   permissions: InvitePermissionsSnapshot;
 }): Promise<{ valid: true } | { valid: false; error: string }> {
@@ -162,7 +171,7 @@ function permissionKeysForModuleLevel(moduleKey: InviteModuleKey, level: Permiss
 }
 
 export async function applyInvitePermissions(params: {
-  supabase: SupabaseClient<any> | any;
+  supabase: SupabaseLike;
   organizationId: string;
   userId: string;
   userEmail: string;

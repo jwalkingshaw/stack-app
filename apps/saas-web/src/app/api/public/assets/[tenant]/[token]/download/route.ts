@@ -14,6 +14,13 @@ type AssetRow = {
   s3_key: string;
 };
 
+type ShareRow = {
+  asset_id: string;
+  public_enabled: boolean | null;
+  allow_downloads: boolean | null;
+  expires_at: string | null;
+};
+
 const isShareExpired = (expiresAt?: string) => {
   if (!expiresAt) return true;
   const ts = Date.parse(expiresAt);
@@ -36,32 +43,32 @@ const findSharedAsset = async (tenant: string, token: string): Promise<ShareLook
   if (!org) return null;
   const { planId } = await getOrganizationBillingLimits(org.id);
 
-  const { data: shareRow } = await (supabaseServer as any)
+  const { data: shareRow } = await supabaseServer
     .from("asset_shares")
     .select("asset_id, public_enabled, allow_downloads, expires_at")
     .eq("organization_id", org.id)
     .eq("token", token)
-    .maybeSingle();
+    .maybeSingle<ShareRow>();
   if (!shareRow) {
     return null;
   }
 
-  const { data: assetRow } = await (supabaseServer as any)
+  const { data: assetRow } = await supabaseServer
     .from("dam_assets")
     .select("id, original_filename, mime_type, s3_key")
     .eq("organization_id", org.id)
-    .eq("id", (shareRow as any).asset_id)
-    .maybeSingle();
+    .eq("id", shareRow.asset_id)
+    .maybeSingle<AssetRow>();
   if (!assetRow) {
     return null;
   }
 
   return {
     organizationId: org.id,
-    asset: assetRow as AssetRow,
-    publicEnabled: Boolean((shareRow as any).public_enabled),
-    allowDownloads: Boolean((shareRow as any).allow_downloads),
-    expiresAt: String((shareRow as any).expires_at),
+    asset: assetRow,
+    publicEnabled: Boolean(shareRow.public_enabled),
+    allowDownloads: Boolean(shareRow.allow_downloads),
+    expiresAt: String(shareRow.expires_at),
     forceAuthenticatedAccess: planId === "free",
   };
 };

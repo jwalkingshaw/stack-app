@@ -1,4 +1,7 @@
-type SupabaseLike = any;
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@tradetool/database";
+
+type SupabaseLike = SupabaseClient<Database>;
 
 type ResultOk<T> = { ok: true; data: T };
 type ResultErr = { ok: false; status: number; error: string };
@@ -15,10 +18,16 @@ export function normalizeShareSetIds(value: unknown): string[] {
   return Array.from(out);
 }
 
-function isMissingFoundationError(error: any): boolean {
-  if (!error) return false;
-  if (error?.code === "42P01" || error?.code === "PGRST205") return true;
-  const message = String(error?.message || "").toLowerCase();
+function isMissingFoundationError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const normalizedError = error as { code?: unknown; message?: unknown };
+  const code = typeof normalizedError.code === "string" ? normalizedError.code : "";
+  const message =
+    typeof normalizedError.message === "string"
+      ? normalizedError.message.toLowerCase()
+      : "";
+
+  if (code === "42P01" || code === "PGRST205") return true;
   return (
     message.includes("share_sets") ||
     message.includes("partner_share_set_grants") ||
@@ -26,10 +35,16 @@ function isMissingFoundationError(error: any): boolean {
   );
 }
 
-function isMissingColumnError(error: any): boolean {
-  if (!error) return false;
-  if (error?.code === "42703") return true;
-  const message = String(error?.message || "").toLowerCase();
+function isMissingColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const normalizedError = error as { code?: unknown; message?: unknown };
+  const code = typeof normalizedError.code === "string" ? normalizedError.code : "";
+  const message =
+    typeof normalizedError.message === "string"
+      ? normalizedError.message.toLowerCase()
+      : "";
+
+  if (code === "42703") return true;
   return message.includes("column");
 }
 

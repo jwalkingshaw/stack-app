@@ -9,6 +9,8 @@ import {
   parseShareScopeType,
 } from "@/lib/container-sharing";
 
+const supabase = supabaseServer;
+
 type ScopeGrantRow = {
   id: string;
   member_id: string;
@@ -30,21 +32,21 @@ async function loadScopeMaps(params: {
 
   const [marketsResult, channelsResult, collectionsResult] = await Promise.all([
     marketIds.length > 0
-      ? (supabaseServer as any)
+      ? supabase
           .from("markets")
           .select("id,name,code")
           .eq("organization_id", organizationId)
           .in("id", marketIds)
       : Promise.resolve({ data: [], error: null }),
     channelIds.length > 0
-      ? (supabaseServer as any)
+      ? supabase
           .from("channels")
           .select("id,name,code")
           .eq("organization_id", organizationId)
           .in("id", channelIds)
       : Promise.resolve({ data: [], error: null }),
     collectionIds.length > 0
-      ? (supabaseServer as any)
+      ? supabase
           .from("dam_collections")
           .select("id,name")
           .eq("organization_id", organizationId)
@@ -66,13 +68,13 @@ async function loadScopeMaps(params: {
   const channelMap = new Map<string, { id: string; name: string; code?: string | null }>();
   const collectionMap = new Map<string, { id: string; name: string }>();
 
-  for (const row of (marketsResult.data || []) as any[]) {
+  for (const row of (marketsResult.data || []) as Array<{ id: string; name: string; code?: string | null }>) {
     marketMap.set(row.id, { id: row.id, name: row.name, code: row.code ?? null });
   }
-  for (const row of (channelsResult.data || []) as any[]) {
+  for (const row of (channelsResult.data || []) as Array<{ id: string; name: string; code?: string | null }>) {
     channelMap.set(row.id, { id: row.id, name: row.name, code: row.code ?? null });
   }
-  for (const row of (collectionsResult.data || []) as any[]) {
+  for (const row of (collectionsResult.data || []) as Array<{ id: string; name: string }>) {
     collectionMap.set(row.id, { id: row.id, name: row.name });
   }
 
@@ -91,7 +93,7 @@ export async function GET(
 
     const { organization } = access.context;
 
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabase
       .from("member_scope_permissions")
       .select(
         "id,member_id,permission_key,scope_type,market_id,channel_id,collection_id,expires_at,created_at"
@@ -184,7 +186,7 @@ export async function POST(
       );
     }
 
-    const { data: member, error: memberError } = await (supabaseServer as any)
+    const { data: member, error: memberError } = await supabase
       .from("organization_members")
       .select("id")
       .eq("id", memberId)
@@ -196,7 +198,7 @@ export async function POST(
     }
 
     if (parsedScopeType === "market") {
-      const { data: market, error: marketError } = await (supabaseServer as any)
+      const { data: market, error: marketError } = await supabase
         .from("markets")
         .select("id")
         .eq("id", marketId)
@@ -208,7 +210,7 @@ export async function POST(
     }
 
     if (parsedScopeType === "channel") {
-      const { data: channel, error: channelError } = await (supabaseServer as any)
+      const { data: channel, error: channelError } = await supabase
         .from("channels")
         .select("id")
         .eq("id", channelId)
@@ -220,7 +222,7 @@ export async function POST(
     }
 
     if (parsedScopeType === "collection") {
-      const { data: collection, error: collectionError } = await (supabaseServer as any)
+      const { data: collection, error: collectionError } = await supabase
         .from("dam_collections")
         .select("id")
         .eq("id", collectionId)
@@ -234,7 +236,7 @@ export async function POST(
       }
     }
 
-    let existingQuery = (supabaseServer as any)
+    let existingQuery = supabase
       .from("member_scope_permissions")
       .select("id,market_id,channel_id,collection_id")
       .eq("organization_id", organization.id)
@@ -270,7 +272,7 @@ export async function POST(
     let grantId: string | null = null;
 
     if (targetMatch?.id) {
-      const { data: updated, error: updateError } = await (supabaseServer as any)
+      const { data: updated, error: updateError } = await supabase
         .from("member_scope_permissions")
         .update({
           expires_at: expiresAt,
@@ -287,7 +289,7 @@ export async function POST(
       }
       grantId = updated.id;
     } else {
-      const { data: inserted, error: insertError } = await (supabaseServer as any)
+      const { data: inserted, error: insertError } = await supabase
         .from("member_scope_permissions")
         .insert({
           organization_id: organization.id,
@@ -312,13 +314,13 @@ export async function POST(
     }
 
     try {
-      await (supabaseServer as any).rpc("log_security_event", {
+      await supabase.rpc("log_security_event", {
         organization_id_param: organization.id,
         actor_user_id_param: userId,
         action_param: "container.share.granted",
         resource_type_param: "member_scope_permission",
         resource_id_param: grantId,
-        user_agent_param: request.headers.get("user-agent"),
+        user_agent_param: request.headers.get("user-agent") || undefined,
         metadata_param: {
           member_id: memberId,
           permission_key: permissionKey,
@@ -357,7 +359,7 @@ export async function DELETE(
       return NextResponse.json({ error: "grantId is required" }, { status: 400 });
     }
 
-    const { data: existing, error: existingError } = await (supabaseServer as any)
+    const { data: existing, error: existingError } = await supabase
       .from("member_scope_permissions")
       .select(
         "id,member_id,permission_key,scope_type,market_id,channel_id,collection_id"
@@ -370,7 +372,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Scope grant not found" }, { status: 404 });
     }
 
-    const { error: deleteError } = await (supabaseServer as any)
+    const { error: deleteError } = await supabase
       .from("member_scope_permissions")
       .delete()
       .eq("id", grantId)
@@ -381,13 +383,13 @@ export async function DELETE(
     }
 
     try {
-      await (supabaseServer as any).rpc("log_security_event", {
+      await supabase.rpc("log_security_event", {
         organization_id_param: organization.id,
         actor_user_id_param: userId,
         action_param: "container.share.revoked",
         resource_type_param: "member_scope_permission",
         resource_id_param: grantId,
-        user_agent_param: request.headers.get("user-agent"),
+        user_agent_param: request.headers.get("user-agent") || undefined,
         metadata_param: {
           member_id: existing.member_id,
           permission_key: existing.permission_key,
@@ -407,3 +409,6 @@ export async function DELETE(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+
+

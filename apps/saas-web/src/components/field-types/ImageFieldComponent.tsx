@@ -20,7 +20,7 @@ export interface ImageAttributeValue {
   altText?: string;
   focalPoint?: { x: number; y: number };
   uploadedAt?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 interface ImageFieldComponentProps {

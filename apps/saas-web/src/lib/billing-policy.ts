@@ -1,5 +1,7 @@
 import { supabaseServer } from "@/lib/supabase";
 
+const supabase = supabaseServer;
+
 type PlanId = "free" | "starter" | "growth" | "scale" | "enterprise";
 
 type LimitSet = {
@@ -32,6 +34,9 @@ type MeterKey = keyof Pick<
   | "partnerInviteCount"
   | "deeplTotalCharCount"
 >;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
 
 const ACTIVE_SKU_STATUSES = new Set(["Draft", "Enrichment", "Review", "Active"]);
 const BILLABLE_SKU_TYPES = new Set(["variant", "standalone"]);
@@ -213,7 +218,7 @@ const LEGACY_PLAN_MAPPING: Record<string, PlanId> = {
   enterprise: "enterprise",
 };
 
-function isMissingSchemaError(error: any): boolean {
+function isMissingSchemaError(error: { code?: string } | null | undefined): boolean {
   return error?.code === "42P01" || error?.code === "42703";
 }
 
@@ -256,7 +261,7 @@ function applyAddonDeltas(base: LimitSet, addons: Array<{ addonId: string; quant
 
 async function resolvePlanIdForOrganization(organizationId: string): Promise<PlanId> {
   try {
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabase
       .from("organization_subscriptions")
       .select("plan_id,status,current_period_end")
       .eq("organization_id", organizationId)
@@ -275,22 +280,7 @@ async function resolvePlanIdForOrganization(organizationId: string): Promise<Pla
     console.error("Failed to read organization_subscriptions:", error);
   }
 
-  try {
-    const { data, error } = await (supabaseServer as any)
-      .from("organizations")
-      .select("subscription_tier")
-      .eq("id", organizationId)
-      .maybeSingle();
-
-    if (error && !isMissingSchemaError(error)) {
-      console.error("Failed to resolve legacy plan tier:", error);
-    }
-
-    return normalizePlanId(data?.subscription_tier);
-  } catch (error) {
-    console.error("Failed to read organization.subscription_tier:", error);
-    return "free";
-  }
+  return "free";
 }
 
 async function resolveActiveAddonsForOrganization(
@@ -298,7 +288,7 @@ async function resolveActiveAddonsForOrganization(
 ): Promise<Array<{ addonId: string; quantity: number }>> {
   const now = new Date();
   try {
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabase
       .from("organization_subscription_addons")
       .select("addon_id,quantity,status,expires_at")
       .eq("organization_id", organizationId)
@@ -311,7 +301,7 @@ async function resolveActiveAddonsForOrganization(
       return [];
     }
 
-    return ((data || []) as Array<any>)
+    return ((data || []) as Array<{ addon_id: string | null; quantity: number | null; expires_at: string | null }>)
       .filter((row) => {
         if (!row.expires_at) return true;
         const expiresAt = new Date(row.expires_at);
@@ -328,7 +318,7 @@ async function resolveActiveAddonsForOrganization(
 }
 
 async function countActiveSkus(organizationId: string): Promise<number> {
-  const { count, error } = await (supabaseServer as any)
+  const { count, error } = await supabase
     .from("products")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
@@ -343,7 +333,7 @@ async function countActiveSkus(organizationId: string): Promise<number> {
 }
 
 async function countInternalUsers(organizationId: string): Promise<number> {
-  const { count, error } = await (supabaseServer as any)
+  const { count, error } = await supabase
     .from("organization_members")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
@@ -358,30 +348,59 @@ async function countInternalUsers(organizationId: string): Promise<number> {
 
 async function countExternalPartnerInviteUsage(organizationId: string): Promise<number> {
   const now = new Date();
-  const nowIso = now.toISOString();
   const identityKeys = new Set<string>();
 
-  const baseQuery = (supabaseServer as any)
+  const baseQuery = supabase
     .from("invitations")
     .select("email,accepted_at,declined_at,revoked_at,expires_at,partner_organization_id")
     .eq("organization_id", organizationId)
     .eq("invitation_type", "partner");
 
-  let invitationsResult = await baseQuery;
+  const invitationsResult = await baseQuery;
+
+  let invitationRows: Array<{
+    email: string | null;
+    accepted_at: string | null;
+    declined_at: string | null;
+    revoked_at: string | null;
+    expires_at: string | null;
+    partner_organization_id: string | null;
+  }> = [];
+
   if (invitationsResult.error?.code === "42703") {
-    invitationsResult = await (supabaseServer as any)
+    const fallbackInvitationsResult = await supabase
       .from("invitations")
       .select("email,accepted_at,declined_at,expires_at,partner_organization_id")
       .eq("organization_id", organizationId)
       .eq("invitation_type", "partner");
-  }
 
-  if (invitationsResult.error) {
+    if (fallbackInvitationsResult.error) {
+      console.error("Failed to count external partner invite usage:", fallbackInvitationsResult.error);
+      return 0;
+    }
+
+    invitationRows = ((fallbackInvitationsResult.data || []) as Array<{
+      email: string | null;
+      accepted_at: string | null;
+      declined_at: string | null;
+      expires_at: string | null;
+      partner_organization_id: string | null;
+    }>).map((row) => ({ ...row, revoked_at: null }));
+  } else if (invitationsResult.error) {
     console.error("Failed to count external partner invite usage:", invitationsResult.error);
     return 0;
+  } else {
+    invitationRows = (invitationsResult.data || []) as Array<{
+      email: string | null;
+      accepted_at: string | null;
+      declined_at: string | null;
+      revoked_at: string | null;
+      expires_at: string | null;
+      partner_organization_id: string | null;
+    }>;
   }
 
-  for (const row of (invitationsResult.data || []) as Array<any>) {
+  for (const row of invitationRows) {
     const acceptedAt = row.accepted_at ? new Date(row.accepted_at) : null;
     const declinedAt = row.declined_at ? new Date(row.declined_at) : null;
     const revokedAt = row.revoked_at ? new Date(row.revoked_at) : null;
@@ -414,14 +433,15 @@ async function countExternalPartnerInviteUsage(organizationId: string): Promise<
   ];
 
   for (const attempt of relationshipAttempts) {
-    const relationshipsResult = await (supabaseServer as any)
+    const relationshipsResult = await supabase
       .from("brand_partner_relationships")
       .select(attempt.partnerColumn)
       .eq(attempt.brandColumn, organizationId)
       .eq("status", "active");
 
     if (!relationshipsResult.error) {
-      for (const row of (relationshipsResult.data || []) as Array<any>) {
+      const relationshipRows = (relationshipsResult.data || []) as unknown[];
+      for (const row of relationshipRows.filter(isRecord)) {
         const partnerId = row[attempt.partnerColumn];
         if (!partnerId) continue;
         identityKeys.add(`org:${String(partnerId)}`);
@@ -447,9 +467,9 @@ async function countMonthlyLocalizationUsage(params: {
     .toISOString()
     .slice(0, 10);
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabase
     .from("organization_usage_monthly_snapshots")
-    .select(params.meter)
+    .select("translation_chars,write_chars")
     .eq("organization_id", params.organizationId)
     .eq("period_start", periodStart)
     .maybeSingle();
@@ -461,7 +481,8 @@ async function countMonthlyLocalizationUsage(params: {
     return 0;
   }
 
-  const raw = data?.[params.meter];
+  const raw =
+    params.meter === "translation_chars" ? data?.translation_chars : data?.write_chars;
   if (!Number.isFinite(raw)) return 0;
   return Math.max(0, Number(raw));
 }
@@ -569,3 +590,6 @@ export async function assertBillingCapacity(params: {
     message: `You have reached your ${METER_LABELS[params.meter]} (${currentUsage}/${limit}). Upgrade your plan or purchase an add-on to continue.`,
   };
 }
+
+
+

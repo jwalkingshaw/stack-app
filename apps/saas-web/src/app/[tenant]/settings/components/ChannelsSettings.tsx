@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { PageLoader } from '@/components/ui/loading-spinner';
-import { PageContentContainer } from '@/components/ui/page-content-container';
+import { SettingsPageContent } from './settings-page-content';
 
 interface ChannelsSettingsProps {
   tenantSlug: string;
@@ -117,7 +117,7 @@ export default function ChannelsSettings({ tenantSlug }: ChannelsSettingsProps) 
   }
 
   return (
-    <PageContentContainer mode="content" className="space-y-8">
+    <SettingsPageContent page="channels">
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Channels</h1>
         <p className="text-sm text-muted-foreground">
@@ -164,7 +164,7 @@ export default function ChannelsSettings({ tenantSlug }: ChannelsSettingsProps) 
                 <div className="text-xs text-muted-foreground">{channel.code}</div>
               </div>
               <div className="flex items-center gap-3">
-                {!channel.is_active && <Badge variant="secondary">Inactive</Badge>}
+                {!channel.is_active && <Badge variant="neutral">Inactive</Badge>}
                 <Button
                   size="sm"
                   variant="secondary"
@@ -178,6 +178,6 @@ export default function ChannelsSettings({ tenantSlug }: ChannelsSettingsProps) 
           ))}
         </div>
       </section>
-    </PageContentContainer>
+    </SettingsPageContent>
   );
 }

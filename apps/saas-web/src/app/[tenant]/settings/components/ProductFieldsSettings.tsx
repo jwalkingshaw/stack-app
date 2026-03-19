@@ -1,11 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Grid3X3,
-  Plus,
-  Edit,
-  Trash2,
   Type,
   FileText,
   Calendar,
@@ -16,18 +12,17 @@ import {
   DollarSign,
   Ruler,
   Table,
-  Eye,
   KeyRound,
-  Lock
+  Search,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogPortal, DialogOverlay } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { DataTable, Column, createTableActions } from '@/components/ui/data-table';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { PageContentContainer } from '@/components/ui/page-content-container';
+import { SettingsPageContent } from './settings-page-content';
+import { ItemList } from '@/components/ui/item-list';
 import IdentifierField from '@/components/field-types/IdentifierField';
 import TextField from '@/components/field-types/TextField';
 import TextAreaField from '@/components/field-types/TextAreaField';
@@ -41,7 +36,6 @@ import FileField from '@/components/field-types/FileField';
 import ImageField from '@/components/field-types/ImageField';
 import PriceField from '@/components/field-types/PriceField';
 import { TableField, TableFieldOptions } from '@/components/field-types/TableField';
-import AttributeWorkflowChecklist from './AttributeWorkflowChecklist';
 
 interface ProductField {
   id: string;
@@ -58,8 +52,8 @@ interface ProductField {
   allowed_market_ids?: string[];
   sort_order: number;
   default_value?: string;
-  validation_rules?: any;
-  options?: any;
+  validation_rules?: Record<string, unknown>;
+  options?: Record<string, unknown>;
   template_id?: string | null;
   is_active: boolean;
   created_at: string;
@@ -104,6 +98,22 @@ interface ProductFieldsSettingsProps {
   tenantSlug: string;
 }
 
+interface FieldTypeOption {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  description: string;
+}
+
+interface ActiveRecord {
+  is_active?: boolean;
+}
+
+interface FieldGroupAssignment {
+  id: string;
+  product_fields?: Array<{ id?: string }>;
+}
+
 const SYSTEM_FIELD_CODES = new Set([
   'facts_panel',
   'title',
@@ -118,7 +128,7 @@ const SYSTEM_FIELD_CODES = new Set([
 const isSystemAttribute = (field: ProductField) =>
   SYSTEM_FIELD_CODES.has(field.code) || field.options?.is_system === true;
 
-const FIELD_TYPES = [
+const FIELD_TYPES: FieldTypeOption[] = [
   { id: "boolean", label: "Boolean", icon: ToggleLeft, description: "Boolean true/false" },
   { id: "date", label: "Date", icon: Calendar, description: "Date picker" },
   { id: "file", label: "File", icon: FileText, description: "File upload" },
@@ -153,6 +163,8 @@ const DEFAULT_TABLE_FIELD_DEFINITION = {
 const cloneDefaultTableDefinition = () =>
   JSON.parse(JSON.stringify(DEFAULT_TABLE_FIELD_DEFINITION));
 
+const DIALOG_FORM_WIDTH_CLASS = 'mx-auto w-full max-w-4xl';
+
 const generateCode = (name: string): string => {
   return name
     .toLowerCase()
@@ -171,6 +183,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   const [marketLocales, setMarketLocales] = useState<MarketLocaleAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Dialog states
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -178,7 +191,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [selectedField, setSelectedField] = useState<ProductField | null>(null);
-  const [selectedFieldType, setSelectedFieldType] = useState<any>(null);
+  const [selectedFieldType, setSelectedFieldType] = useState<FieldTypeOption | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   // Form states
@@ -197,8 +210,8 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
     sort_order: 1,
     default_value: '',
     validation_rules: {},
-    options: {} as Record<string, any>,
-    table_definition: undefined as any
+    options: {} as Record<string, unknown>,
+    table_definition: undefined as Record<string, unknown> | undefined
   });
   const [selectedFieldGroupId, setSelectedFieldGroupId] = useState<string | null>(null);
   const [formLoading, setFormLoading] = useState(false);
@@ -206,7 +219,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   const [hasCustomCode, setHasCustomCode] = useState(false);
 
   // Fetch data
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -248,7 +261,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
 
       if (channelsResponse.ok) {
         const channelsData = await channelsResponse.json();
-        setChannels((channelsData || []).filter((item: any) => item.is_active));
+        setChannels((channelsData || []).filter((item: ActiveRecord) => item.is_active));
       } else {
         console.error('Failed to fetch channels:', channelsResponse.status);
         setChannels([]);
@@ -256,7 +269,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
 
       if (localesResponse.ok) {
         const localesData = await localesResponse.json();
-        setLocales((localesData || []).filter((item: any) => item.is_active));
+        setLocales((localesData || []).filter((item: ActiveRecord) => item.is_active));
       } else {
         console.error('Failed to fetch locales:', localesResponse.status);
         setLocales([]);
@@ -264,7 +277,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
 
       if (marketsResponse.ok) {
         const marketsData = await marketsResponse.json();
-        setMarkets((marketsData || []).filter((item: any) => item.is_active));
+        setMarkets((marketsData || []).filter((item: ActiveRecord) => item.is_active));
       } else {
         console.error('Failed to fetch markets:', marketsResponse.status);
         setMarkets([]);
@@ -272,7 +285,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
 
       if (marketLocalesResponse.ok) {
         const marketLocalesData = await marketLocalesResponse.json();
-        setMarketLocales((marketLocalesData || []).filter((item: any) => item.is_active));
+        setMarketLocales((marketLocalesData || []).filter((item: ActiveRecord) => item.is_active));
       } else {
         console.error('Failed to fetch market locales:', marketLocalesResponse.status);
         setMarketLocales([]);
@@ -291,11 +304,11 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenantSlug]);
 
   useEffect(() => {
     fetchData();
-  }, [tenantSlug]);
+  }, [fetchData]);
 
   const marketLocaleMap = useMemo(() => {
     const localeById = new Map(locales.map((locale) => [locale.id, locale]));
@@ -477,7 +490,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
     setShowTypeSelector(true);
   };
 
-  const selectFieldType = (fieldType: any) => {
+  const selectFieldType = (fieldType: FieldTypeOption) => {
     setSelectedFieldType(fieldType);
     setFormData((prev) => {
       const isIdentifier = fieldType.id === 'identifier';
@@ -486,8 +499,8 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       const existingOptions =
         prev.options && typeof prev.options === 'object' ? prev.options : {};
 
-      let nextOptions: Record<string, any>;
-      let nextTableDefinition: any;
+      let nextOptions: Record<string, unknown>;
+      let nextTableDefinition: Record<string, unknown> | undefined;
 
       if (isTable) {
         const baseDefinition =
@@ -503,7 +516,9 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         };
         nextTableDefinition = JSON.parse(JSON.stringify(baseDefinition));
       } else {
-        const { table_definition, template_reference, ...rest } = existingOptions;
+        const rest = { ...existingOptions };
+        delete rest.table_definition;
+        delete rest.template_reference;
         nextOptions = rest;
         nextTableDefinition = undefined;
       }
@@ -530,7 +545,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
 
   const openEditDialog = (field: ProductField) => {
     setSelectedField(field);
-    setSelectedFieldType(FIELD_TYPES.find(t => t.id === field.field_type));
+    setSelectedFieldType(FIELD_TYPES.find(t => t.id === field.field_type) ?? null);
     const tableDefinition = field.options?.table_definition
       ? JSON.parse(JSON.stringify(field.options.table_definition))
       : undefined;
@@ -557,107 +572,31 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
     setShowEditDialog(true);
   };
 
-  const getAssignedGroupId = (fieldId: string) => {
-    const assigned = fieldGroups
-      .filter((group: any) =>
-        Array.isArray((group as any).product_fields) &&
-        (group as any).product_fields.some((f: any) => f?.id === fieldId)
+  const getAssignedGroupId = useCallback((fieldId: string) => {
+    const assigned = (fieldGroups as unknown as FieldGroupAssignment[])
+      .filter((group) =>
+        Array.isArray(group.product_fields) &&
+        group.product_fields.some((field) => field?.id === fieldId)
       )
       .map((group) => group.id);
     return assigned[0] || null;
-  };
+  }, [fieldGroups]);
 
   useEffect(() => {
     if (showEditDialog && selectedField) {
       setSelectedFieldGroupId(getAssignedGroupId(selectedField.id));
     }
-  }, [showEditDialog, selectedField, fieldGroups]);
+  }, [showEditDialog, selectedField, getAssignedGroupId]);
 
-  const openDeleteDialog = (field: ProductField) => {
-    setSelectedField(field);
-    setDeleteConfirmText('');
-    setShowDeleteDialog(true);
-  };
-
-  // Table columns
-  const columns: Column<ProductField>[] = [
-    {
-      key: 'name',
-      label: 'Attribute Name',
-      sortable: true,
-      width: '45%',
-      render: (value, field) => (
-        <div className="flex items-center gap-2">
-          <div className="font-medium text-foreground">{value}</div>
-          {isSystemAttribute(field) && (
-            <Badge variant="outline" className="text-xs">
-              <Lock className="mr-1 h-3 w-3" />
-              System
-            </Badge>
-          )}
-        </div>
-      )
-    },
-    {
-      key: 'is_required',
-      label: 'Properties',
-      sortable: false,
-      width: '35%',
-      render: (_, field) => (
-        <div className="flex gap-1 flex-wrap">
-          {field.is_required && (
-            <Badge variant="secondary" className="text-xs">Required</Badge>
-          )}
-          {field.is_unique && (
-            <Badge variant="secondary" className="text-xs">Unique</Badge>
-          )}
-          {field.is_localizable && (
-            <Badge variant="secondary" className="text-xs">Localizable</Badge>
-          )}
-          {isSystemAttribute(field) && (
-            <Badge variant="outline" className="text-xs">Locked</Badge>
-          )}
-        </div>
-      )
-    },
-    {
-      key: 'is_active',
-      label: 'Status',
-      sortable: true,
-      width: '20%',
-      render: (value) => (
-        <Badge variant={value ? 'default' : 'secondary'}>
-          {value ? 'Active' : 'Inactive'}
-        </Badge>
-      )
-    }
-  ];
-
-  // Table actions
-  const actions = [
-    createTableActions.view((field: ProductField) => {
-      if (isSystemAttribute(field)) {
-        return;
-      }
-      // TODO: Navigate to field detail view
-      console.log('View field:', field);
-    }),
-    createTableActions.edit((field: ProductField) => {
-      if (isSystemAttribute(field)) {
-        return;
-      }
-      openEditDialog(field);
-    }),
-    createTableActions.delete((field: ProductField) => {
-      if (isSystemAttribute(field)) {
-        return;
-      }
-      openDeleteDialog(field);
-    })
-  ];
+  const filteredFields = useMemo(
+    () => fields
+      .filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [fields, searchQuery]
+  );
 
   return (
-    <PageContentContainer mode="fluid" className="space-y-6">
+    <SettingsPageContent page="product-fields">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Attributes</h2>
@@ -666,8 +605,6 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         </p>
       </div>
 
-      <AttributeWorkflowChecklist tenantSlug={tenantSlug} />
-
       {/* Error Display */}
       {error && (
         <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
@@ -675,21 +612,36 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         </div>
       )}
 
-      {/* Data Table */}
-      <DataTable
-        data={fields}
-        columns={columns}
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search attributes..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9"
+        />
+      </div>
+
+      {/* List */}
+      <ItemList
+        items={filteredFields}
+        getKey={(f) => f.id}
+        renderTitle={(f) => f.name}
+        renderSubtitle={(f) => FIELD_TYPES.find(t => t.id === f.field_type)?.label ?? f.field_type}
+        renderRight={(f) => (
+          <Badge variant={f.is_active ? 'success' : 'neutral'}>
+            {f.is_active ? 'Active' : 'Inactive'}
+          </Badge>
+        )}
+        onClickItem={openEditDialog}
+        isLocked={isSystemAttribute}
         loading={loading}
-        actions={actions}
-        hideActions={(field: ProductField) => isSystemAttribute(field)}
-        searchPlaceholder="Search attributes..."
-        onCreateNew={openCreateDialog}
-        createNewLabel="Create Attribute"
-        emptyState={{
-          title: "No attributes found",
-          description: "Create your first attribute to capture custom product information.",
-          icon: <Grid3X3 className="w-8 h-8 text-muted-foreground" />
-        }}
+        loadingRows={8}
+        emptyMessage={searchQuery ? 'No attributes match your search.' : 'No attributes yet. Create your first attribute.'}
+        headerLabel="attributes"
+        onCreate={openCreateDialog}
+        createLabel="Add attribute"
       />
 
       {/* Field Type Selector Dialog */}
@@ -699,39 +651,43 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
           <DialogPrimitive.Content className="fixed inset-0 z-50 bg-background">
             <div className="flex h-full flex-col">
               {/* Header with X close button */}
-              <div className="flex items-center justify-between border-b border-border/60 px-8 py-6">
-                <DialogPrimitive.Title className="text-xl font-semibold text-foreground">Choose Attribute Type</DialogPrimitive.Title>
-                <button
-                  onClick={() => setShowTypeSelector(false)}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+              <div className="border-b border-border/60 py-6">
+                <div className={`${DIALOG_FORM_WIDTH_CLASS} flex items-center justify-between px-4 sm:px-6`}>
+                  <DialogPrimitive.Title className="text-xl font-semibold text-foreground">Choose Attribute Type</DialogPrimitive.Title>
+                  <button
+                    onClick={() => setShowTypeSelector(false)}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               {/* Centered content */}
-              <div className="flex-1 overflow-y-auto px-8 py-10">
-                <div className="grid w-full max-w-5xl gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  {FIELD_TYPES.map((type) => {
-                    const Icon = type.icon;
-                    return (
-                      <button
-                        key={type.id}
-                        onClick={() => selectFieldType(type)}
-                        className="group flex h-full flex-col gap-4 rounded-xl border border-border/60 bg-background p-4 text-left transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                      >
-                        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
-                          <Icon className="h-5 w-5" />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="text-sm font-semibold text-foreground">{type.label}</div>
-                          <p className="text-xs leading-5 text-muted-foreground">{type.description}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
+              <div className="flex-1 overflow-y-auto">
+                <div className={`${DIALOG_FORM_WIDTH_CLASS} flex min-h-full w-full items-center justify-center px-4 py-6 sm:px-6`}>
+                  <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {FIELD_TYPES.map((type) => {
+                      const Icon = type.icon;
+                      return (
+                        <button
+                          key={type.id}
+                          onClick={() => selectFieldType(type)}
+                          className="group flex h-28 w-full flex-col gap-2 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        >
+                          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+                            <Icon className="h-4 w-4" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <div className="text-sm font-semibold text-foreground">{type.label}</div>
+                            <p className="text-xs leading-[1.2] text-muted-foreground">{type.description}</p>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             </div>
@@ -752,32 +708,43 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
           <DialogPrimitive.Content className="fixed inset-0 z-50 bg-background">
             <div className="flex h-full flex-col">
               {/* Header with X close button */}
-              <div className="flex items-center justify-between border-b border-border/60 px-8 py-6">
-                <DialogPrimitive.Title className="text-xl font-semibold text-foreground">
-                  {showEditDialog ? 'Edit' : 'Create'} {selectedFieldType?.label} Attribute
-                </DialogPrimitive.Title>
-                <button
-                  onClick={() => {
-                    setShowCreateDialog(false);
-                    setShowEditDialog(false);
-                    resetForm();
-                  }}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+              <div className="border-b border-border/60 py-6">
+                <div className={`${DIALOG_FORM_WIDTH_CLASS} flex items-center justify-between px-4 sm:px-6`}>
+                  <DialogPrimitive.Title className="text-xl font-semibold text-foreground">
+                    {showEditDialog ? 'Edit' : 'Create'} {selectedFieldType?.label} Attribute
+                  </DialogPrimitive.Title>
+                  <button
+                    onClick={() => {
+                      setShowCreateDialog(false);
+                      setShowEditDialog(false);
+                      resetForm();
+                    }}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               {/* Scrollable content */}
-              <div className="flex-1 overflow-y-auto px-8 py-10">
-                <div className="flex w-full max-w-5xl flex-col gap-8">
+              <div className="flex-1 overflow-y-auto py-8">
+                <div className={`${DIALOG_FORM_WIDTH_CLASS} flex flex-col gap-8 px-4 sm:px-6`}>
                   {error && (
                     <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
                       {error}
                     </div>
                   )}
+
+                  <div className="space-y-10">
+                    <section className="space-y-6">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-semibold text-foreground">General</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Core attribute details visible to your team.
+                        </p>
+                      </div>
 
                   {/* Basic Information */}
                   <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -897,6 +864,16 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                     )}
                   </div>
 
+                    </section>
+
+                    <section className="space-y-6">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-semibold text-foreground">Validation</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Configure data rules and where this attribute can be used.
+                        </p>
+                      </div>
+
                   {/* Attribute Properties - Hidden for identifier fields since they're predetermined */}
                     {selectedFieldType?.id !== 'identifier' && (
                       <div className="rounded-lg border border-border/60 bg-muted/20 px-5 py-4">
@@ -962,6 +939,12 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                           <span className="text-sm leading-6 text-foreground">Channel</span>
                         </label>
                         </div>
+                      </div>
+                    )}
+
+                    {selectedFieldType?.id === 'identifier' && (
+                      <div className="rounded-lg border border-border/60 bg-muted/10 px-5 py-4 text-sm text-muted-foreground">
+                        Identifier attributes are always required, unique, and not scoped by channel or locale.
                       </div>
                     )}
 
@@ -1081,6 +1064,16 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                       </div>
                     )}
 
+                    </section>
+
+                    <section className="space-y-6">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-semibold text-foreground">Type-specific</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Additional settings for {selectedFieldType?.label?.toLowerCase() || 'this'} attributes.
+                        </p>
+                      </div>
+
                     {/* Type-specific settings */}
                   <div className="space-y-6">
                   {selectedFieldType?.id === 'identifier' && <IdentifierField />}
@@ -1090,23 +1083,28 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                       onChange={(options) => setFormData({ ...formData, options })}
                     />
                   )}
-                  {selectedFieldType?.id === 'textarea' && <TextAreaField />}
+                  {selectedFieldType?.id === 'textarea' && (
+                    <TextAreaField
+                      value={formData.options}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
+                    />
+                  )}
                   {selectedFieldType?.id === 'number' && (
                     <NumberField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                   {selectedFieldType?.id === 'boolean' && (
                     <BooleanField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                   {selectedFieldType?.id === 'date' && (
                     <DateField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                   {selectedFieldType?.id === 'measurement' && (
@@ -1123,8 +1121,8 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                       onChange={(options) =>
                         setFormData({
                           ...formData,
-                          options,
-                          table_definition: options.table_definition ?? formData.table_definition
+                          options: options as Record<string, unknown>,
+                          table_definition: (options.table_definition as Record<string, unknown> | undefined) ?? formData.table_definition
                         })
                       }
                     />
@@ -1132,41 +1130,58 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                   {selectedFieldType?.id === 'file' && (
                     <FileField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                   {selectedFieldType?.id === 'image' && (
                     <ImageField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                   {selectedFieldType?.id === 'price' && (
                     <PriceField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                 </div>
 
                 {selectedFieldType?.id === 'select' && (
                   <SelectField
-                    value={(formData.options && 'options' in formData.options) ? formData.options as any : { options: [] }}
-                    onChange={(options) => setFormData({ ...formData, options })}
+                    value={
+                      formData.options && 'options' in formData.options
+                        ? (formData.options as { options: Array<{ id: string; label: string; value: string; sort_order?: number }> })
+                        : { options: [] }
+                    }
+                    onChange={(options) => setFormData({ ...formData, options: options as unknown as Record<string, unknown> })}
                   />
                 )}
                 {selectedFieldType?.id === 'multiselect' && (
                   <MultiSelectField
-                    value={(formData.options && 'options' in formData.options) ? formData.options as any : { options: [] }}
-                    onChange={(options) => setFormData({ ...formData, options })}
+                    value={
+                      formData.options && 'options' in formData.options
+                        ? (formData.options as {
+                            options: Array<{ id: string; label: string; value: string; sort_order?: number }>;
+                            allowEmpty?: boolean;
+                            placeholder?: string;
+                            defaultValue?: string[];
+                            max_selections?: number;
+                            min_selections?: number;
+                          })
+                        : { options: [] }
+                    }
+                    onChange={(options) => setFormData({ ...formData, options: options as unknown as Record<string, unknown> })}
                   />
                 )}
+                    </section>
+                  </div>
               </div>
             </div>
 
             {/* Fixed footer with buttons */}
-            <div className="border-t border-border px-8 py-6">
-              <div className="flex w-full max-w-5xl justify-end gap-3">
+            <div className="border-t border-border py-5">
+              <div className={`${DIALOG_FORM_WIDTH_CLASS} flex justify-end gap-3 px-4 sm:px-6`}>
                 <Button variant="outline" onClick={() => {
                   setShowCreateDialog(false);
                   setShowEditDialog(false);
@@ -1258,7 +1273,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
           </div>
         </DialogContent>
       </Dialog>
-    </PageContentContainer>
+    </SettingsPageContent>
   );
 }
 

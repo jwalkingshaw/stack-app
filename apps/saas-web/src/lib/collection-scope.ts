@@ -2,10 +2,25 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type CollectionScopeParams = {
-  supabase: SupabaseClient<any>;
+  supabase: SupabaseClient;
   organizationId: string;
   collectionId?: string | null;
   assetId?: string | null;
+};
+
+type DamCollectionRow = {
+  id: string;
+  asset_ids: unknown;
+  folder_ids: unknown;
+};
+
+type FolderRow = {
+  id: string | null;
+  path: string | null;
+};
+
+type FolderIdRow = {
+  id: string | null;
 };
 
 export type CollectionScopeResult =
@@ -23,12 +38,13 @@ export async function enforceCollectionScope(
     return { ok: true, collectionId: null, assetIds: null };
   }
 
-  const { data: collection, error } = await (supabase as any)
+  const { data: collectionRaw, error } = await supabase
     .from("dam_collections")
     .select("id, asset_ids, folder_ids")
     .eq("id", collectionId)
     .eq("organization_id", organizationId)
     .maybeSingle();
+  const collection = collectionRaw as DamCollectionRow | null;
 
   if (error || !collection) {
     return {
@@ -53,34 +69,36 @@ export async function enforceCollectionScope(
 
   let folderScopedAssetIds: string[] = [];
   if (folderIds.length > 0) {
-    const { data: rootFolders } = await (supabase as any)
+    const { data: rootFoldersRaw } = await supabase
       .from("dam_folders")
       .select("id, path")
       .eq("organization_id", organizationId)
       .in("id", folderIds);
+    const rootFolders = (rootFoldersRaw || []) as FolderRow[];
 
     const folderPaths: string[] = Array.from(
       new Set(
         (rootFolders || [])
-          .map((folder: any) => folder.path)
+          .map((folder) => folder.path)
           .filter((path: unknown): path is string => typeof path === "string" && path.length > 0)
       )
     );
 
-    let descendantFolderIds = new Set<string>(
+    const descendantFolderIds = new Set<string>(
       (rootFolders || [])
-        .map((folder: any) => folder.id)
+        .map((folder) => folder.id)
         .filter((id: unknown): id is string => typeof id === "string")
     );
 
     for (const path of folderPaths) {
-      const { data: descendants } = await (supabase as any)
+      const { data: descendantsRaw } = await supabase
         .from("dam_folders")
         .select("id")
         .eq("organization_id", organizationId)
         .like("path", `${path}/%`);
+      const descendants = (descendantsRaw || []) as FolderIdRow[];
 
-      (descendants || []).forEach((folder: any) => {
+      (descendants || []).forEach((folder) => {
         if (typeof folder.id === "string") {
           descendantFolderIds.add(folder.id);
         }
@@ -89,16 +107,17 @@ export async function enforceCollectionScope(
 
     const allFolderIds = Array.from(descendantFolderIds);
     if (allFolderIds.length > 0) {
-      const { data: folderAssets } = await (supabase as any)
+      const { data: folderAssetsRaw } = await supabase
         .from("dam_assets")
         .select("id")
         .eq("organization_id", organizationId)
         .in("folder_id", allFolderIds);
+      const folderAssets = (folderAssetsRaw || []) as FolderIdRow[];
 
       folderScopedAssetIds = Array.from(
         new Set(
           (folderAssets || [])
-            .map((asset: any) => asset.id)
+            .map((asset) => asset.id)
             .filter((id: unknown): id is string => typeof id === "string")
         )
       );

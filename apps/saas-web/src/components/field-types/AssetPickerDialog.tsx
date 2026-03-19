@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
-import { Search, FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Search, FileText, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -72,7 +72,7 @@ const matchesAllowedMime = (mimeType: string, allowedGroups?: MimeGroup[]) => {
   return allowedGroups.some((group) => MIME_GROUP_MAP[group].test(mimeType));
 };
 
-const parseJsonSafely = async (response: Response): Promise<any | null> => {
+const parseJsonSafely = async (response: Response): Promise<unknown | null> => {
   const text = await response.text();
   if (!text) return null;
   try {
@@ -151,7 +151,14 @@ export function AssetPickerDialog({
         if (!response.ok) {
           throw new Error(`Failed to load assets (${response.status})`);
         }
-        const payload = await parseJsonSafely(response);
+        const payload = await parseJsonSafely(response) as {
+          data?: {
+            assets?: AssetSummary[];
+            pagination?: {
+              hasMore?: boolean;
+            };
+          };
+        } | null;
         if (!payload) {
           throw new Error('Assets API returned an empty or invalid response.');
         }
@@ -159,9 +166,10 @@ export function AssetPickerDialog({
         setAssets((prev) => (isInitial ? list : [...prev, ...list]));
         const pagination = payload?.data?.pagination;
         setHasMore(Boolean(pagination?.hasMore));
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Failed to fetch assets', err);
-        setError(err.message ?? 'Failed to fetch assets');
+        const message = err instanceof Error ? err.message : 'Failed to fetch assets';
+        setError(message);
       } finally {
         setLoading(false);
         setLoadingMore(false);

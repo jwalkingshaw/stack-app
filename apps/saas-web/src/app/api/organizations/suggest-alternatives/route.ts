@@ -19,7 +19,7 @@ async function isSlugAvailable(slug: string): Promise<boolean> {
       const existingOrg = await db.getOrganizationBySlug(slug);
       return !existingOrg;
     }
-  } catch (error) {
+  } catch {
     return false;
   }
 }

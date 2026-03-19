@@ -91,7 +91,7 @@ export async function GET(
 
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetDownloadDerivative,
@@ -109,7 +109,7 @@ export async function GET(
     const offset = parseInt(url.searchParams.get('offset') || '0');
 
     const collectionScope = await enforceCollectionScope({
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       organizationId: organization.id,
       collectionId,
     });
@@ -173,7 +173,7 @@ export async function POST(
 
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetUpload,

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Users, Building2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PageContentContainer } from "@/components/ui/page-content-container";
+import { PageHeader } from "@/components/ui/page-header";
+import { SettingsPageContent } from "../../components/settings-page-content";
 
 export default async function InviteTypeChooserPage({
   params,
@@ -12,13 +13,14 @@ export default async function InviteTypeChooserPage({
   const tenantSlug = resolvedParams.tenant;
 
   return (
-    <PageContentContainer mode="content" className="space-y-6">
-      <div>
-        <h1 className="text-lg font-semibold text-foreground">Invite User</h1>
-        <p className="text-sm text-muted-foreground">
-          Choose the journey that matches who you are inviting.
-        </p>
-      </div>
+    <SettingsPageContent page="team-invite">
+      <PageHeader
+        title="Invite User"
+        description="Choose the journey that matches who you are inviting."
+        backHref={`/${tenantSlug}/settings/team`}
+        backLabel="Back to Team"
+        sticky={false}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-lg border border-border bg-background p-5 space-y-3">
@@ -47,12 +49,6 @@ export default async function InviteTypeChooserPage({
           </Button>
         </div>
       </div>
-
-      <div>
-        <Button asChild variant="outline" size="sm">
-          <Link href={`/${tenantSlug}/settings/team`}>Back to Team</Link>
-        </Button>
-      </div>
-    </PageContentContainer>
+    </SettingsPageContent>
   );
 }

@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, Mail, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
-import { PageContentContainer } from "@/components/ui/page-content-container";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { defaultInviteModuleLevels, type PermissionLevel } from "@/lib/invite-permissions";
+import { SettingsPageContent } from "../../components/settings-page-content";
 
 type InviteModuleKey = "products" | "assets" | "share_links";
 type InvitationType = "team_member" | "partner";
@@ -210,8 +210,8 @@ export default function InviteWizardClient({
       setSelectedShareSetIds((current) =>
         current.filter((id) => nextSets.some((set) => set.id === id))
       );
-    } catch (error: any) {
-      setConfigError(error?.message || "Failed to load invite configuration");
+    } catch (error: unknown) {
+      setConfigError(error instanceof Error ? error.message : "Failed to load invite configuration");
     } finally {
       setLoadingConfig(false);
     }
@@ -330,8 +330,8 @@ export default function InviteWizardClient({
 
       setInviteSuccess(true);
       setInviteLink(payload?.data?.invitation?.invitation_link || "");
-    } catch (error: any) {
-      setSubmitError(error?.message || "Failed to send invitation");
+    } catch (error: unknown) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to send invitation");
     } finally {
       setIsSubmitting(false);
     }
@@ -366,16 +366,12 @@ export default function InviteWizardClient({
   };
 
   return (
-    <PageContentContainer mode="content" className="space-y-6">
+    <SettingsPageContent page="team-invite-wizard">
       <PageHeader
         title={title}
         description={description}
-        actions={[
-          {
-            label: "Back to Team",
-            onClick: () => router.push(`/${tenantSlug}/settings/team`),
-          },
-        ]}
+        backHref={`/${tenantSlug}/settings/team`}
+        backLabel="Back to Team"
       />
 
       <div className="rounded-lg border border-border bg-background p-4">
@@ -639,7 +635,11 @@ export default function InviteWizardClient({
               </div>
             )}
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => router.push(`/${tenantSlug}/settings/team`)}>
+              <Button
+                variant="outline"
+                className="border-0 shadow-none"
+                onClick={() => router.push(`/${tenantSlug}/settings/team`)}
+              >
                 Back to Team
               </Button>
               <Button onClick={handleInviteAnother}>Invite Another</Button>
@@ -647,6 +647,6 @@ export default function InviteWizardClient({
           </div>
         )}
       </div>
-    </PageContentContainer>
+    </SettingsPageContent>
   );
 }

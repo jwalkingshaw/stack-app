@@ -1,7 +1,6 @@
 // Legacy auth utilities - use auth-server.ts instead
 // This file is kept for backward compatibility but uses secure server-side session management
 
-import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { NextRequest } from "next/server";
 import { requireUser, requireOrganization, hasAccessToTenant } from "./auth-server";
 
@@ -31,6 +30,7 @@ function getTenantFromHost(
  * Get auth session using secure server-side verification (no JWT parsing)
  */
 export async function getAuthSession(request: NextRequest) {
+  void request;
   try {
     const user = await requireUser();
     const organization = await requireOrganization();

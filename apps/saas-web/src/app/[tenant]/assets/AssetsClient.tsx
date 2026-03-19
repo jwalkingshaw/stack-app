@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, type ChangeEvent } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, type ChangeEvent } from "react";
+import NextImage from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -46,6 +47,7 @@ import { AssetViewPanel } from "@/components/dam/asset-view-panel";
 import { BulkActionToolbar } from "@/components/dam/bulk-action-toolbar";
 import { BulkEditorPanel } from "@/components/dam/bulk-editor-panel";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContentContainer } from "@/components/ui/page-content-container";
 import type {
   AssetCategory,
   AssetCategoryAssignment,
@@ -103,6 +105,47 @@ type AssetRecord = DamAsset & {
   tenantOwned?: boolean;
 };
 
+type AssetApiRecord = Partial<AssetRecord> & {
+  organization_id?: string;
+  folder_id?: string | null;
+  original_filename?: string;
+  file_type?: string;
+  asset_type?: string;
+  asset_scope?: string;
+  current_version_number?: number | null;
+  current_version_comment?: string | null;
+  current_version_effective_from?: string | null;
+  current_version_effective_to?: string | null;
+  current_version_changed_by?: string | null;
+  current_version_changed_at?: string | null;
+  file_size?: number | string;
+  mime_type?: string;
+  file_path?: string;
+  s3_key?: string;
+  s3_url?: string;
+  thumbnail_urls?: DamAsset["thumbnailUrls"];
+  product_identifiers?: string[];
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  tenant_owned?: boolean;
+  tagAssignments?: AssetTagAssignment[];
+  categoryAssignments?: AssetCategoryAssignment[];
+  categories?: string[];
+  previewUrl?: string | null;
+  favorite?: boolean;
+};
+
+type AssetsListResponsePayload = {
+  data?: {
+    assets?: AssetApiRecord[];
+    folders?: FolderRecord[];
+    tags?: AssetTag[];
+    categories?: AssetCategory[];
+    permissions?: UserPermissions | null;
+  };
+};
+
 type ProductOption = {
   id: string;
   sku?: string;
@@ -150,7 +193,7 @@ const getAssetTagNames = (asset: AssetRecord): string[] => {
     .filter((name): name is string => Boolean(name));
 };
 
-const mapAssetApiToClient = (asset: any): Partial<AssetRecord> => ({
+const mapAssetApiToClient = (asset: AssetApiRecord): Partial<AssetRecord> => ({
   id: asset?.id,
   organizationId: asset?.organization_id ?? asset?.organizationId,
   folderId: asset?.folder_id ?? asset?.folderId ?? null,
@@ -178,7 +221,7 @@ const mapAssetApiToClient = (asset: any): Partial<AssetRecord> => ({
   thumbnailUrls: asset?.thumbnail_urls ?? asset?.thumbnailUrls,
   metadata: asset?.metadata,
   tags: Array.isArray(asset?.tags) ? asset.tags : [],
-  description: asset?.description ?? null,
+  description: asset?.description ?? undefined,
   productIdentifiers:
     asset?.product_identifiers ?? asset?.productIdentifiers ?? [],
   createdBy: asset?.created_by ?? asset?.createdBy ?? "",
@@ -192,7 +235,7 @@ const mapAssetApiToClient = (asset: any): Partial<AssetRecord> => ({
         : undefined,
 });
 
-const normalizeAssetRecord = (asset: any): AssetRecord => ({
+const normalizeAssetRecord = (asset: AssetApiRecord): AssetRecord => ({
   ...(mapAssetApiToClient(asset) as AssetRecord),
   tagAssignments: Array.isArray(asset?.tagAssignments) ? asset.tagAssignments : [],
   categoryAssignments: Array.isArray(asset?.categoryAssignments)
@@ -302,12 +345,12 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [filterTag, setFilterTag] = useState("");
   const [newContentFilter, setNewContentFilter] = useState<string>("all");
   const [updatedContentFilter, setUpdatedContentFilter] = useState<string>("all");
-  const [isQuickFiltersCollapsed, setIsQuickFiltersCollapsed] = useState(false);
   const [sortBy, setSortBy] = useState("name"); // name, date, size, type
   const [selectedAsset, setSelectedAsset] = useState<AssetRecord | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
-  const [isBulkMode, setIsBulkMode] = useState(false);
   const [isBulkEditorOpen, setIsBulkEditorOpen] = useState(false);
+  const [isFoldersSectionCollapsed, setIsFoldersSectionCollapsed] = useState(false);
+  const [isAssetsSectionCollapsed, setIsAssetsSectionCollapsed] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderParentId, setNewFolderParentId] = useState<string | null>(null);
@@ -347,7 +390,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const newContentParam = searchParams.get("new");
   const updatedContentParam = searchParams.get("updated");
 
-  const buildScopedQuery = () => {
+  const buildScopedQuery = useCallback(() => {
     const queryParams = new URLSearchParams();
     if (isPartnerAllView) {
       queryParams.set("view", "all");
@@ -383,9 +426,17 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     }
 
     return queryParams.toString();
-  };
+  }, [
+    isPartnerAllView,
+    selectedFolderId,
+    selectedProductIds,
+    selectedBrandSlug,
+    newContentFilter,
+    updatedContentFilter,
+    lastVisitedAt,
+  ]);
 
-  const buildAssetPreviewProxyUrl = (assetId: string, versionToken?: string | null) => {
+  const buildAssetPreviewProxyUrl = useCallback((assetId: string, versionToken?: string | null) => {
     const queryParams = new URLSearchParams();
     if (isPartnerAllView) {
       queryParams.set("view", "all");
@@ -398,16 +449,16 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     }
     const queryString = queryParams.toString();
     return `/api/${tenantSlug}/assets/${assetId}/preview${queryString ? `?${queryString}` : ""}`;
-  };
+  }, [isPartnerAllView, selectedBrandSlug, tenantSlug]);
 
-  const withPreviewUrls = (assetList: AssetRecord[]): AssetRecord[] =>
+  const withPreviewUrls = useCallback((assetList: AssetRecord[]): AssetRecord[] =>
     assetList.map((asset) => ({
       ...asset,
       previewUrl: buildAssetPreviewProxyUrl(
         asset.id,
         asset.currentVersionChangedAt || asset.updatedAt || null
       ),
-    }));
+    })), [buildAssetPreviewProxyUrl]);
 
   useEffect(() => {
     if (!folderParam) {
@@ -483,24 +534,23 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
           throw new Error(`Failed to fetch assets: ${response.status}`);
         }
 
-        const { data } = await response.json();
+        const payload = (await response.json()) as AssetsListResponsePayload;
+        const data = payload.data;
         console.log('📥 Assets data received:', data);
 
+        const assetList = Array.isArray(data?.assets) ? data.assets : [];
         setAssets(
-          withPreviewUrls(((data.assets || []) as any[]).map((asset) => normalizeAssetRecord(asset)))
+          withPreviewUrls(assetList.map((asset) => normalizeAssetRecord(asset)))
         );
-        const folderList = (data.folders || []) as FolderRecord[];
+        const folderList = Array.isArray(data?.folders) ? data.folders : [];
         setFolders(folderList);
         setFolderTree(buildFolderTree(folderList));
-        setAvailableTags((data.tags || []) as AssetTag[]);
-        setAvailableCategories((data.categories || []) as AssetCategory[]);
-        setUserPermissions((data.permissions || null) as UserPermissions | null);
+        setAvailableTags(Array.isArray(data?.tags) ? data.tags : []);
+        setAvailableCategories(Array.isArray(data?.categories) ? data.categories : []);
+        setUserPermissions(data?.permissions ?? null);
       } catch (error) {
-        if ((error as Error)?.name === "AbortError") {
-          return;
-        }
+        if (controller.signal.aborted) return;
         console.error('Failed to fetch assets data:', error);
-        // Fallback to empty arrays on error
         setAssets([]);
         setFolders([]);
         setFolderTree([]);
@@ -515,9 +565,9 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     };
 
     if (tenantSlug) {
-      fetchAssetsData();
+      void fetchAssetsData();
     }
-    return () => controller.abort();
+    return () => { controller.abort(); };
   }, [
     tenantSlug,
     selectedFolderId,
@@ -526,10 +576,12 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     newContentFilter,
     updatedContentFilter,
     lastVisitedAt,
+    buildScopedQuery,
+    withPreviewUrls,
   ]);
 
   // Refresh assets function
-  const refreshAssets = async () => {
+  const refreshAssets = useCallback(async () => {
     try {
       console.log('🔄 Refreshing assets...');
       const queryString = buildScopedQuery();
@@ -538,21 +590,23 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         throw new Error(`Failed to fetch assets: ${response.status}`);
       }
 
-      const { data } = await response.json();
+      const payload = (await response.json()) as AssetsListResponsePayload;
+      const data = payload.data;
+      const assetList = Array.isArray(data?.assets) ? data.assets : [];
       setAssets(
-        withPreviewUrls(((data.assets || []) as any[]).map((asset) => normalizeAssetRecord(asset)))
+        withPreviewUrls(assetList.map((asset) => normalizeAssetRecord(asset)))
       );
-      const folderList = (data.folders || []) as FolderRecord[];
+      const folderList = Array.isArray(data?.folders) ? data.folders : [];
       setFolders(folderList);
       setFolderTree(buildFolderTree(folderList));
-      setAvailableTags((data.tags || []) as AssetTag[]);
-      setAvailableCategories((data.categories || []) as AssetCategory[]);
-      setUserPermissions((data.permissions || null) as UserPermissions | null);
+      setAvailableTags(Array.isArray(data?.tags) ? data.tags : []);
+      setAvailableCategories(Array.isArray(data?.categories) ? data.categories : []);
+      setUserPermissions(data?.permissions ?? null);
       console.log('✅ Assets refreshed');
     } catch (error) {
       console.error('Failed to refresh assets:', error);
     }
-  };
+  }, [buildScopedQuery, tenantSlug, withPreviewUrls]);
 
   useEffect(() => {
     if (!tenantSlug) return;
@@ -589,9 +643,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     fetchProductOptions();
     return () => controller.abort();
   }, [isPartnerAllView, tenantSlug, selectedBrandSlug]);
-
-  const storageUsed = 1024 * 1024 * 500; // 500MB
-  const storageLimit = 5368709120; // 5GB
 
   const filteredAssets = assets
     .filter(asset => {
@@ -1170,17 +1221,21 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   const canEditAssets = !isSharedBrandView && Boolean(userPermissions?.can_edit_products);
   const canManageLibrary = canEditAssets;
-  const isAssetOwnedByTenant = (asset: AssetRecord | null | undefined) => {
+  const isAssetOwnedByTenant = useCallback((asset: AssetRecord | null | undefined) => {
     if (!asset) return false;
     if (typeof asset.tenantOwned === "boolean") {
       return asset.tenantOwned;
     }
     return !isSharedBrandView;
-  };
-  const canMutateAsset = (asset: AssetRecord | null | undefined) =>
-    canEditAssets && isAssetOwnedByTenant(asset);
-  const selectableAssetIds = new Set(
-    filteredAssets.filter((asset) => canMutateAsset(asset)).map((asset) => asset.id)
+  }, [isSharedBrandView]);
+  const canMutateAsset = useCallback((asset: AssetRecord | null | undefined) =>
+    canEditAssets && isAssetOwnedByTenant(asset), [canEditAssets, isAssetOwnedByTenant]);
+  const selectableAssetIds = useMemo(
+    () =>
+      new Set(
+        filteredAssets.filter((asset) => canMutateAsset(asset)).map((asset) => asset.id)
+      ),
+    [filteredAssets, canMutateAsset]
   );
   const selectedAssetCount = selectedAssetIds.size;
   const selectedFolderCount = selectedFolderIds.size;
@@ -1496,7 +1551,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     }
   };
 
-  const handleVersionCreated = async (updatedAsset: Record<string, any>) => {
+  const handleVersionCreated = async (updatedAsset: AssetApiRecord) => {
     if (!updatedAsset?.id) {
       await refreshAssets();
       return;
@@ -1569,7 +1624,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     });
   };
 
-  const handleSelectAll = () => {
+  const handleSelectAll = useCallback(() => {
     const selectableIds = filteredAssets
       .filter((asset) => selectableAssetIds.has(asset.id))
       .map((asset) => asset.id);
@@ -1583,12 +1638,11 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       // Select all filtered assets
       setSelectedAssetIds(new Set(selectableIds));
     }
-  };
+  }, [filteredAssets, selectableAssetIds, selectedAssetIds]);
 
   const handleClearSelection = () => {
     setSelectedAssetIds(new Set());
     setSelectedFolderIds(new Set());
-    setIsBulkMode(false);
     setIsBulkEditorOpen(false);
   };
 
@@ -1608,7 +1662,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     // TODO: Implement folder selection modal
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = useCallback(async () => {
     const deletableAssetIds = Array.from(selectedAssetIds).filter((assetId) => {
       const asset = assets.find((row) => row.id === assetId);
       return canMutateAsset(asset);
@@ -1635,8 +1689,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         prevAssets.filter((asset) => !deletableAssetIds.includes(asset.id))
       );
       setSelectedAssetIds(new Set());
-      setIsBulkMode(false);
-      setIsBulkEditorOpen(false);
+        setIsBulkEditorOpen(false);
 
       if (selectedAsset && deletableAssetIds.includes(selectedAsset.id)) {
         setIsViewOpen(false);
@@ -1648,7 +1701,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       console.error('Failed to bulk delete assets:', error);
       throw error;
     }
-  };
+  }, [selectedAssetIds, assets, canMutateAsset, tenantSlug, selectedAsset, refreshAssets]);
 
   const handleBulkShare = () => {
     void openShareDialog();
@@ -1731,7 +1784,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
-        data?: Record<string, any>;
+        data?: AssetApiRecord;
       };
 
       if (!response.ok) {
@@ -1862,43 +1915,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const selectableCount = selectableAssetIds.size;
   const selectedSelectableCount = selectedAssets.length;
   const isAllSelected = selectableCount > 0 && selectedSelectableCount === selectableCount;
-  const isPartiallySelected =
-    selectedSelectableCount > 0 && selectedSelectableCount < selectableCount;
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + A for select all
-      if ((e.metaKey || e.ctrlKey) && e.key === 'a' && filteredAssets.length > 0) {
-        e.preventDefault();
-        handleSelectAll();
-      }
-      // Escape to clear selection
-      if (e.key === 'Escape' && totalSelectedShareItems > 0) {
-        handleClearSelection();
-      }
-      // Delete key for bulk delete
-      if (
-        e.key === 'Delete' &&
-        selectedAssetIds.size > 0 &&
-        !isViewOpen &&
-        !isBulkEditorOpen &&
-        !isSharedBrandView
-      ) {
-        handleBulkDelete();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    filteredAssets.length,
-    selectedAssetIds.size,
-    totalSelectedShareItems,
-    isViewOpen,
-    isBulkEditorOpen,
-    isSharedBrandView,
-  ]);
+  // Keyboard shortcuts intentionally disabled.
 
   const getGridClasses = () => {
     switch (viewMode) {
@@ -1970,190 +1988,146 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Assets" />
-      {isSharedBrandView ? (
-        <div className="mx-6 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          Viewing shared assets from <span className="font-medium text-foreground">{selectedBrandSlug}</span>.
-          Uploading and editing are disabled in shared view.
-        </div>
-      ) : isPartnerAllView ? (
-        <div className="mx-6 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          Viewing your library plus brand-shared assets in one workspace.
-          Shared brand assets are read-only.
-        </div>
-      ) : null}
-      <div className="flex gap-4 p-4">
-        {/* Folder Sidebar */}
-        <aside className="w-64 shrink-0 space-y-4">
-          <div className="rounded-xl bg-muted/20 p-4">
+      <PageHeader
+        title="Assets"
+        description="Upload, organize, and share assets with scoped filters and partner-safe permissions."
+      />
+      <PageContentContainer mode="fluid" padding="page" className="space-y-4">
+        {isSharedBrandView ? (
+          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Viewing shared assets from <span className="font-medium text-foreground">{selectedBrandSlug}</span>.
+            Uploading and editing are disabled in shared view.
+          </div>
+        ) : isPartnerAllView ? (
+          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Viewing your library plus brand-shared assets in one workspace.
+            Shared brand assets are read-only.
+          </div>
+        ) : null}
+        <div className="flex gap-4">
+        {/* Sidebar */}
+        <aside className="w-56 shrink-0 space-y-5">
+          {/* Library Navigation */}
+          <div className="space-y-0.5">
             <button
-              type="button"
-              onClick={() => setIsQuickFiltersCollapsed((prev) => !prev)}
-              className="flex w-full items-center justify-between text-left"
+              onClick={() => handleSelectFolder(null)}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                !selectedFolderId ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+              }`}
             >
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">Quick Filters</h3>
-                {activeQuickFilterCount > 0 ? (
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                    {activeQuickFilterCount} active
-                  </span>
-                ) : null}
-              </div>
-              <ChevronRight
-                className={`h-4 w-4 text-muted-foreground transition-transform ${
-                  isQuickFiltersCollapsed ? "" : "rotate-90"
-                }`}
-              />
+              <Home className="h-4 w-4 shrink-0" />
+              All Assets
             </button>
-            {!isQuickFiltersCollapsed ? (
-              <div className="mt-3 space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                    Product
-                  </label>
-                  <MultiSelect
-                    options={productFilterOptions}
-                    value={selectedProductIds}
-                    onChange={handleSelectProducts}
-                    placeholder="Select one or more products"
-                    className="h-9"
-                    contentClassName="max-h-72 overflow-y-auto"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                    New content
-                  </label>
-                  <Select
-                    value={newContentFilter}
-                    onValueChange={handleSelectNewContentFilter}
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Any time" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {NEW_CONTENT_FILTER_OPTIONS.map((option) => (
-                        <SelectItem
-                          key={option.value}
-                          value={option.value}
-                          disabled={option.value === "since_last_visit" && !lastVisitedAt}
-                        >
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                    Updated
-                  </label>
-                  <Select
-                    value={updatedContentFilter}
-                    onValueChange={handleSelectUpdatedContentFilter}
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Any time" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {UPDATED_FILTER_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                    Tags
-                  </label>
-                  <Select
-                    value={filterTag || "all"}
-                    onValueChange={(value) => setFilterTag(value === "all" ? "" : value)}
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="All tags" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All tags</SelectItem>
-                      {allTags.map((tag) => (
-                        <SelectItem key={tag} value={tag}>
-                          {tag}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                    Sort
-                  </label>
-                  <Select value={sortBy} onValueChange={setSortBy}>
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Sort by name" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="name">Sort by name</SelectItem>
-                      <SelectItem value="date">Sort by date</SelectItem>
-                      <SelectItem value="size">Sort by size</SelectItem>
-                      <SelectItem value="type">Sort by type</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            ) : null}
+            <button
+              onClick={() => handleSelectFolder("unfiled")}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                selectedFolderId === "unfiled" ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+              }`}
+            >
+              <Files className="h-4 w-4 shrink-0" />
+              Unfiled
+            </button>
           </div>
 
-          <div className="rounded-xl bg-muted/20 p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">Library</h3>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="ghost" onClick={() => handleSelectFolder(null)}>
-                  All
+          <div className="border-t border-border" />
+
+          {/* Folders */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Folders</span>
+              {canManageLibrary ? (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  onClick={() => openCreateFolder(selectedFolderId && selectedFolderId !== "unfiled" ? selectedFolderId : null)}
+                  title="New folder"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
                 </Button>
-                {canManageLibrary ? (
-                  <Button size="icon" variant="ghost" onClick={() => openCreateFolder(null)}>
-                    <FolderPlus className="h-4 w-4" />
-                  </Button>
-                ) : null}
-              </div>
+              ) : null}
             </div>
-            <div className="mt-3 space-y-1">
-              <button
-                onClick={() => handleSelectFolder(null)}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors ${
-                  !selectedFolderId ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                }`}
-              >
-                <Home className="h-4 w-4" />
-                All Assets
-              </button>
-              <button
-                onClick={() => handleSelectFolder("unfiled")}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors ${
-                  selectedFolderId === "unfiled" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                }`}
-              >
-                <Folder className="h-4 w-4" />
-                Unfiled
-              </button>
-              <div className="pt-2">
-                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Folders</div>
-                <div className="space-y-1 max-h-[420px] overflow-y-auto pr-1">
-                  {folderTree.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center">
-                      <p className="text-xs text-muted-foreground mb-2">No folders yet.</p>
-                      {canManageLibrary ? (
-                        <Button size="sm" variant="outline" onClick={() => openCreateFolder(null)}>
-                          Create your first folder
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : (
-                    renderFolderTree(folderTree)
-                  )}
+            <div className="space-y-1 max-h-[260px] overflow-y-auto pr-1">
+              {folderTree.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border px-3 py-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-2">No folders yet.</p>
+                  {canManageLibrary ? (
+                    <Button size="sm" variant="outline" onClick={() => openCreateFolder(null)}>
+                      Create folder
+                    </Button>
+                  ) : null}
                 </div>
+              ) : (
+                renderFolderTree(folderTree)
+              )}
+            </div>
+          </div>
+
+          <div className="border-t border-border" />
+
+          {/* Filters */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Filters</span>
+              {activeQuickFilterCount > 0 ? (
+                <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">{activeQuickFilterCount}</span>
+              ) : null}
+            </div>
+            <div className="space-y-2.5">
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">Product</label>
+                <MultiSelect
+                  options={productFilterOptions}
+                  value={selectedProductIds}
+                  onChange={handleSelectProducts}
+                  placeholder="Filter by product"
+                  className="h-8 text-xs"
+                  contentClassName="max-h-72 overflow-y-auto"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">New content</label>
+                <Select value={newContentFilter} onValueChange={handleSelectNewContentFilter}>
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue placeholder="Any time" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {NEW_CONTENT_FILTER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value} disabled={option.value === "since_last_visit" && !lastVisitedAt}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">Updated</label>
+                <Select value={updatedContentFilter} onValueChange={handleSelectUpdatedContentFilter}>
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue placeholder="Any time" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UPDATED_FILTER_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">Tag</label>
+                <Select value={filterTag || "all"} onValueChange={(value) => setFilterTag(value === "all" ? "" : value)}>
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue placeholder="All tags" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All tags</SelectItem>
+                    {allTags.map((tag) => (
+                      <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>
@@ -2161,7 +2135,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
         {/* Main Content */}
         <div
-          className="relative flex-1 space-y-6"
+          className="relative flex-1 space-y-4"
           onDragEnter={handleUploadDropEnter}
           onDragOver={handleUploadDropOver}
           onDragLeave={handleUploadDropLeave}
@@ -2180,225 +2154,154 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
               </div>
             </div>
           ) : null}
-          {/* Enhanced Search Section */}
-          <div className="bg-background px-1 py-1">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              {/* Search Bar */}
-              <div className="flex-1 max-w-2xl">
-                <SearchInput
-                  value={searchQuery}
-                  onChange={setSearchQuery}
-                  placeholder="Search by filename, tags, description, or product..."
-                  className="max-w-none"
-                />
-                {searchQuery && (
-                  <p className="text-sm text-muted-foreground mt-2 ml-1">
-                    {filteredAssets.length} {filteredAssets.length === 1 ? 'result' : 'results'} for "{searchQuery}"
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {!isSharedBrandView ? (
-                  <Button onClick={handleNavigateToUpload} className="gap-2">
-                    <Upload className="w-4 h-4" />
-                    Upload Assets
-                  </Button>
-                ) : null}
-              </div>
+          {/* Search + Upload Row */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <SearchInput
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search by filename, tags, description, or product..."
+                className="max-w-none"
+              />
             </div>
+            {!isSharedBrandView ? (
+              <Button onClick={handleNavigateToUpload} className="gap-2 shrink-0">
+                <Upload className="w-4 h-4" />
+                Upload Assets
+              </Button>
+            ) : null}
           </div>
 
-          <div className="rounded-lg bg-muted/20 px-4 py-3">
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
+          {/* Context Bar: breadcrumb/count + filter chips + sort + view switcher */}
+          <div className="flex items-center justify-between gap-3 min-h-[32px]">
+            <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+              {totalSelectedShareItems > 0 ? (
+                <>
                   <button
-                    onClick={() => handleSelectFolder(null)}
-                    className={`rounded px-1.5 py-1 transition-colors ${
-                      !selectedFolderId
-                        ? "bg-primary/10 font-medium text-primary"
-                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                    }`}
+                    onClick={handleClearSelection}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors border border-blue-200"
                   >
-                    Folders
+                    <X className="w-3.5 h-3.5" />
+                    <span className="font-medium">{selectionSummaryLabel} selected</span>
                   </button>
-                  {canManageLibrary ? (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() =>
-                        openCreateFolder(
-                          selectedFolderId && selectedFolderId !== "unfiled"
-                            ? selectedFolderId
-                            : null
-                        )
-                      }
-                      aria-label="Create folder"
-                      title="Create folder"
-                      className="h-7 w-7"
-                    >
-                      <FolderPlus className="h-4 w-4" />
+                  {selectedAssetCount > 0 ? (
+                    <button onClick={handleSelectAll} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                      {isAllSelected ? "Deselect all" : "Select all"}
+                    </button>
+                  ) : null}
+                  {!isSharedBrandView && canManageLibrary ? (
+                    <Button size="sm" variant="outline" onClick={handleBulkShare} className="gap-1.5 h-7 text-xs">
+                      <Share2 className="h-3.5 w-3.5" />
+                      Share
                     </Button>
                   ) : null}
-                  {selectedFolderId === "unfiled" ? (
-                    <>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      <span className="rounded bg-primary/10 px-2 py-1 font-medium text-primary">
-                        Unfiled
-                      </span>
-                    </>
-                  ) : (
-                    folderBreadcrumb.map((folder, index) => {
-                      const isLast = index === folderBreadcrumb.length - 1;
-                      return (
-                        <div key={folder.id} className="flex items-center gap-2">
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                          {isLast ? (
-                            <span className="rounded bg-primary/10 px-2 py-1 font-medium text-primary">
-                              {folder.name}
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => handleSelectFolder(folder.id)}
-                              className="rounded px-1.5 py-1 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-                            >
-                              {folder.name}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-              {selectedFolderId === "unfiled" ? (
-                <p className="text-xs text-muted-foreground">
-                  Unfiled assets are not inside any folder.
-                </p>
-              ) : childFoldersForMainNav.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {childFoldersForMainNav.map((folder) => (
-                    <button
-                      key={folder.id}
-                      onClick={() => handleSelectFolder(folder.id)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
-                    >
-                      <Folder className="h-4 w-4" />
-                      <span className="truncate max-w-[180px]">{folder.name}</span>
-                    </button>
-                  ))}
-                </div>
+                </>
               ) : (
-                <p className="text-xs text-muted-foreground">
-                  No subfolders at this level.
-                </p>
+                <>
+                  {/* Breadcrumb or count */}
+                  {selectedFolderId === "unfiled" ? (
+                    <nav className="flex items-center gap-1 text-sm">
+                      <button onClick={() => handleSelectFolder(null)} className="text-muted-foreground hover:text-foreground transition-colors">All Assets</button>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="font-medium text-foreground">Unfiled</span>
+                    </nav>
+                  ) : selectedFolderId ? (
+                    <nav className="flex items-center gap-1 text-sm">
+                      <button onClick={() => handleSelectFolder(null)} className="text-muted-foreground hover:text-foreground transition-colors">All Assets</button>
+                      {folderBreadcrumb.map((folder, index) => {
+                        const isLast = index === folderBreadcrumb.length - 1;
+                        return (
+                          <div key={folder.id} className="flex items-center gap-1">
+                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                            {isLast ? (
+                              <span className="font-medium text-foreground">{folder.name}</span>
+                            ) : (
+                              <button onClick={() => handleSelectFolder(folder.id)} className="text-muted-foreground hover:text-foreground transition-colors">
+                                {folder.name}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </nav>
+                  ) : searchQuery ? (
+                    <span className="text-sm text-muted-foreground">
+                      {filteredAssets.length} result{filteredAssets.length !== 1 ? "s" : ""} for &ldquo;{searchQuery}&rdquo;
+                    </span>
+                  ) : null}
+                  {/* Active filter chips */}
+                  {filterTag ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs border border-primary/20">
+                      <Tag className="w-3 h-3" />
+                      {filterTag}
+                      <button onClick={() => setFilterTag("")} className="ml-0.5 hover:bg-primary/20 rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">×</button>
+                    </span>
+                  ) : null}
+                  {selectedProductIds.length > 0 ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs border border-primary/20">
+                      {selectedProductIds.length} product{selectedProductIds.length !== 1 ? "s" : ""}
+                      <button onClick={() => handleSelectProducts([])} className="ml-0.5 hover:bg-primary/20 rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">×</button>
+                    </span>
+                  ) : null}
+                  {newContentFilter !== "all" ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs border border-primary/20">
+                      {NEW_CONTENT_FILTER_OPTIONS.find((o) => o.value === newContentFilter)?.label}
+                      <button onClick={() => handleSelectNewContentFilter("all")} className="ml-0.5 hover:bg-primary/20 rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">×</button>
+                    </span>
+                  ) : null}
+                  {updatedContentFilter !== "all" ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs border border-primary/20">
+                      {UPDATED_FILTER_OPTIONS.find((o) => o.value === updatedContentFilter)?.label}
+                      <button onClick={() => handleSelectUpdatedContentFilter("all")} className="ml-0.5 hover:bg-primary/20 rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">×</button>
+                    </span>
+                  ) : null}
+                  {selectableCount > 0 && !searchQuery ? (
+                    <button onClick={handleSelectAll} className="text-xs text-muted-foreground hover:text-foreground transition-colors ml-1">
+                      Select all
+                    </button>
+                  ) : null}
+                </>
               )}
+              {shareStatusMessage ? (
+                <span className="text-sm text-emerald-700 ml-2">{shareStatusMessage}</span>
+              ) : null}
             </div>
-          </div>
 
-          {/* Enhanced Toolbar */}
-          <div className="bg-background px-4 py-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-3">
-                  {totalSelectedShareItems > 0 ? (
-                    <>
-                      <button
-                        onClick={handleClearSelection}
-                        className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors border border-blue-200"
-                      >
-                        <X className="w-4 h-4" />
-                        <span className="font-medium">{selectionSummaryLabel} selected</span>
-                      </button>
-                      {selectedAssetCount > 0 ? (
-                        <button
-                          onClick={handleSelectAll}
-                          className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                        >
-                          {isAllSelected ? 'Deselect all files' : 'Select all files'}
-                        </button>
-                      ) : null}
-                      {!isSharedBrandView && canManageLibrary ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleBulkShare}
-                          className="gap-2"
-                        >
-                          <Share2 className="h-4 w-4" />
-                          Share selected
-                        </Button>
-                      ) : null}
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-lg font-semibold text-foreground">
-                        {filteredAssets.length} {filteredAssets.length === 1 ? 'asset' : 'assets'}
-                      </span>
-                      {selectableCount > 0 && (
-                        <button
-                          onClick={handleSelectAll}
-                          className="text-sm text-gray-500 hover:text-gray-700"
-                        >
-                          Select all
-                        </button>
-                      )}
-                    </>
-                  )}
-                  {filterTag && (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 text-primary rounded text-sm border border-primary/20 shadow-soft">
-                      <Tag className="w-4 h-4" />
-                      <span className="font-medium">{filterTag}</span>
-                      <button
-                        onClick={() => setFilterTag("")}
-                        className="ml-1 hover:bg-primary/20 rounded-full p-1 transition-colors w-5 h-5 flex items-center justify-center"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Enhanced View Switcher */}
-              <div className="flex items-center bg-muted/50 border border-border rounded p-1.5">
+            {/* Sort + View switcher */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="h-8 w-[110px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name">Name</SelectItem>
+                  <SelectItem value="date">Date</SelectItem>
+                  <SelectItem value="size">Size</SelectItem>
+                  <SelectItem value="type">Type</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex items-center bg-muted/50 border border-border rounded p-0.5">
                 <button
                   onClick={() => setViewMode("grid")}
-                  className={`px-3 py-2 text-sm transition-all duration-200 rounded-lg ${
-                    viewMode === "grid"
-                      ? "bg-background text-primary border border-primary/20"
-                      : "hover:bg-background/50 text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`p-1.5 rounded transition-all ${viewMode === "grid" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                 >
-                  <Grid3X3 className="w-4 h-4" />
+                  <Grid3X3 className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setViewMode("list")}
-                  className={`px-3 py-2 text-sm transition-all duration-200 rounded-lg ${
-                    viewMode === "list"
-                      ? "bg-background text-primary border border-primary/20"
-                      : "hover:bg-background/50 text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`p-1.5 rounded transition-all ${viewMode === "list" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                 >
-                  <List className="w-4 h-4" />
+                  <List className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setViewMode("visual")}
-                  className={`px-3 py-2 text-sm transition-all duration-200 rounded-lg ${
-                    viewMode === "visual"
-                      ? "bg-background text-primary border border-primary/20"
-                      : "hover:bg-background/50 text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`p-1.5 rounded transition-all ${viewMode === "visual" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                   title="Visual scan"
                 >
-                  <LayoutGrid className="w-4 h-4" />
+                  <LayoutGrid className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
-            {shareStatusMessage ? (
-              <p className="mt-3 text-sm text-emerald-700">{shareStatusMessage}</p>
-            ) : null}
           </div>
 
           {/* Content Area */}
@@ -2415,6 +2318,52 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                 ))}
               </div>
             ) : (
+              <>
+                {/* Folders section */}
+                {!searchQuery && childFoldersForMainNav.length > 0 ? (
+                  <div className="pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsFoldersSectionCollapsed((v) => !v)}
+                      className="flex items-center gap-2 mb-3 group"
+                    >
+                      <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isFoldersSectionCollapsed ? "" : "rotate-90"}`} />
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
+                        Folders
+                      </span>
+                      <span className="text-xs text-muted-foreground/60">{childFoldersForMainNav.length}</span>
+                    </button>
+                    {!isFoldersSectionCollapsed && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+                        {childFoldersForMainNav.map((folder) => (
+                          <button
+                            key={`folder-${folder.id}`}
+                            type="button"
+                            onClick={() => handleSelectFolder(folder.id)}
+                            className="group flex items-center gap-2.5 rounded-lg border border-border bg-muted/60 px-3 py-3 text-left transition-all hover:border-primary/40 hover:bg-muted/80"
+                          >
+                            <Folder className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+                            <span className="text-sm font-medium truncate text-foreground leading-none">{folder.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="border-t border-border mt-5 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => setIsAssetsSectionCollapsed((v) => !v)}
+                        className="flex items-center gap-2 mb-4 group"
+                      >
+                        <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isAssetsSectionCollapsed ? "" : "rotate-90"}`} />
+                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
+                          Assets
+                        </span>
+                        <span className="text-xs text-muted-foreground/60">{filteredAssets.length}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              {(!isAssetsSectionCollapsed || !childFoldersForMainNav.length || searchQuery) && (
               <div className={getGridClasses()}>
                 {filteredAssets.map((asset) => {
                   const isSelected = selectedAssetIds.has(asset.id);
@@ -2454,10 +2403,13 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
                         <div className="w-14 h-14 bg-muted/30 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden border border-border/50">
                           {isImage && previewUrl ? (
-                            <img
+                            <NextImage
                               src={previewUrl}
                               alt={asset.originalFilename}
                               className="w-full h-full object-cover"
+                              width={56}
+                              height={56}
+                              unoptimized
                             />
                           ) : (
                             getFileIcon(asset.mimeType)
@@ -2515,10 +2467,13 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
                         <div className="bg-muted/20">
                           {isImage && previewUrl ? (
-                            <img
+                            <NextImage
                               src={previewUrl}
                               alt={asset.originalFilename}
                               className="w-full h-auto object-cover"
+                              width={640}
+                              height={360}
+                              unoptimized
                             />
                           ) : (
                             <div className="flex h-40 w-full items-center justify-center">
@@ -2569,10 +2524,13 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
                       <div className="bg-muted/30 relative aspect-square">
                         {isImage && previewUrl ? (
-                          <img
+                          <NextImage
                             src={previewUrl}
                             alt={asset.originalFilename}
                             className="w-full h-full object-cover"
+                            width={512}
+                            height={512}
+                            unoptimized
                           />
                         ) : (
                           <div className="w-full h-32 flex items-center justify-center">
@@ -2597,6 +2555,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                   );
                 })}
               </div>
+              )}
+            </>
             )}
 
             {!loading && filteredAssets.length === 0 && (
@@ -2610,6 +2570,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
           </div>
         </div>
       </div>
+      </PageContentContainer>
 
       <input
         ref={replaceFileInputRef}

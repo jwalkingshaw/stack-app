@@ -15,11 +15,13 @@ import {
   Trash2,
   ChevronRight
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { SettingsPageContent } from "../settings/components/settings-page-content";
 
 interface TeamMember {
   id: string;
@@ -165,7 +167,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
   const [sharingAvailable, setSharingAvailable] = useState<boolean | null>(null);
   const [sharingError, setSharingError] = useState("");
   const [shareMarkets, setShareMarkets] = useState<ShareContainer[]>([]);
-  const [shareChannels, setShareChannels] = useState<ShareContainer[]>([]);
+  const [, setShareChannels] = useState<ShareContainer[]>([]);
   const [shareCollections, setShareCollections] = useState<ShareContainer[]>([]);
   const [shareGrants, setShareGrants] = useState<ShareScopeGrant[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState("");
@@ -422,8 +424,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
 
       // Refresh team list to remove deleted invitation
       await fetchTeam();
-    } catch (error: any) {
-      alert(`Error: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to delete invitation";
+      alert(`Error: ${message}`);
     } finally {
       setDeletingInviteId(null);
       setInvitationToDelete(null);
@@ -491,8 +494,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       }
 
       await fetchSharing();
-    } catch (error: any) {
-      setSharingError(error.message || "Failed to apply permissions");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to apply permissions";
+      setSharingError(message);
     } finally {
       setSavingShare(false);
     }
@@ -571,8 +575,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       }
 
       await fetchSharing();
-    } catch (error: any) {
-      setSharingError(error.message || "Failed to apply collection permissions");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to apply collection permissions";
+      setSharingError(message);
     } finally {
       setSavingCollectionGrant(false);
     }
@@ -590,8 +595,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
         throw new Error(errorPayload?.error || "Failed to revoke sharing scope");
       }
       await fetchSharing();
-    } catch (error: any) {
-      setSharingError(error.message || "Failed to revoke sharing scope");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to revoke sharing scope";
+      setSharingError(message);
     } finally {
       setRemovingGrantId(null);
     }
@@ -643,8 +649,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       if (savedId) {
         setSelectedCollectionId(savedId);
       }
-    } catch (error: any) {
-      setSharingError(error.message || "Failed to save collection");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to save collection";
+      setSharingError(message);
     } finally {
       setCollectionSaving(false);
     }
@@ -665,25 +672,20 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       }
       handleNewCollection();
       await Promise.all([fetchCollections(), fetchSharing()]);
-    } catch (error: any) {
-      setSharingError(error.message || "Failed to delete collection");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to delete collection";
+      setSharingError(message);
     } finally {
       setCollectionDeleting(false);
     }
   };
 
-  const getRoleBadgeColor = (role: string) => {
+  const getRoleVariant = (role: string): "purple" | "info" | "success" | "neutral" => {
     switch (role) {
-      case "owner":
-        return "bg-purple-100 text-purple-700 border-purple-200";
-      case "admin":
-        return "bg-blue-100 text-blue-700 border-blue-200";
-      case "editor":
-        return "bg-green-100 text-green-700 border-green-200";
-      case "viewer":
-        return "bg-gray-100 text-gray-700 border-gray-200";
-      default:
-        return "bg-gray-100 text-gray-700 border-gray-200";
+      case "owner": return "purple";
+      case "admin": return "info";
+      case "editor": return "success";
+      default: return "neutral";
     }
   };
 
@@ -720,7 +722,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
   );
 
   return (
-    <div className="space-y-6">
+    <SettingsPageContent page="team">
       <PageHeader
         title={headerTitle}
         description={headerDescription}
@@ -797,13 +799,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                         </h3>
                       </div>
                       <div className="flex items-center gap-2 mt-1">
-                        <span
-                          className={`inline-block px-2 py-0.5 text-xs font-medium rounded border ${getRoleBadgeColor(
-                            member.role
-                          )}`}
-                        >
+                        <Badge variant={getRoleVariant(member.role)}>
                           {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
-                        </span>
+                        </Badge>
                         <span className="text-xs text-muted-foreground">
                           {getRoleDescription(member.role)}
                         </span>
@@ -867,18 +865,12 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                       </div>
                       <div className="flex items-center gap-2 mt-1">
                         {invitation.invitation_type === "partner" && (
-                          <span className="inline-block px-2 py-0.5 text-xs font-medium rounded border bg-purple-100 text-purple-700 border-purple-200">
-                            Partner
-                          </span>
+                          <Badge variant="purple">Partner</Badge>
                         )}
-                        <span
-                          className={`inline-block px-2 py-0.5 text-xs font-medium rounded border ${getRoleBadgeColor(
-                            invitation.role_or_access_level
-                          )}`}
-                        >
+                        <Badge variant={getRoleVariant(invitation.role_or_access_level)}>
                           {invitation.role_or_access_level.charAt(0).toUpperCase() +
                             invitation.role_or_access_level.slice(1)}
-                        </span>
+                        </Badge>
                         <span className="text-xs text-muted-foreground">
                           Expires{" "}
                           {new Date(invitation.expires_at).toLocaleDateString()}
@@ -985,17 +977,11 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                         </h3>
                       </div>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="inline-block px-2 py-0.5 text-xs font-medium rounded border bg-purple-100 text-purple-700 border-purple-200">
-                          Partner
-                        </span>
-                        <span
-                          className={`inline-block px-2 py-0.5 text-xs font-medium rounded border ${getRoleBadgeColor(
-                            invitation.role_or_access_level
-                          )}`}
-                        >
+                        <Badge variant="purple">Partner</Badge>
+                        <Badge variant={getRoleVariant(invitation.role_or_access_level)}>
                           {invitation.role_or_access_level.charAt(0).toUpperCase() +
                             invitation.role_or_access_level.slice(1)}
-                        </span>
+                        </Badge>
                         <span className="text-xs text-muted-foreground">
                           Expires{" "}
                           {new Date(invitation.expires_at).toLocaleDateString()}
@@ -1458,6 +1444,6 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
         </DialogContent>
       </Dialog>
 
-    </div>
+    </SettingsPageContent>
   );
 }

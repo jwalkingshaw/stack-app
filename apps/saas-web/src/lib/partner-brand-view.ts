@@ -129,21 +129,27 @@ function normalizeOrganizationType(raw: unknown): "brand" | "partner" {
 }
 
 function toOrganizationSummary(raw: Organization): OrganizationSummary {
+  const organization = raw as Organization & {
+    organizationType?: unknown;
+    type?: unknown;
+  };
   return {
     id: raw.id,
     slug: raw.slug,
     name: raw.name,
     organizationType: normalizeOrganizationType(
-      (raw as any).organizationType ?? (raw as any).type
+      organization.organizationType ?? organization.type
     ),
   };
 }
 
-function isMissingColumnError(error: any): boolean {
+function isMissingColumnError(error: { code?: string } | null | undefined): boolean {
   return error?.code === "42703";
 }
 
-function isMissingShareSetFoundationError(error: any): boolean {
+function isMissingShareSetFoundationError(
+  error: { code?: string; message?: string } | null | undefined
+): boolean {
   if (!error) return false;
   if (error?.code === "42P01" || error?.code === "PGRST205") return true;
   const message = String(error?.message || "").toLowerCase();
@@ -162,7 +168,7 @@ async function resolveActivePartnerShareSetIds(params: {
   const { brandOrganizationId, partnerOrganizationId, moduleKey } = params;
   const now = Date.now();
 
-  const { data: grants, error: grantsError } = await (supabaseServer as any)
+  const { data: grants, error: grantsError } = await supabaseServer
     .from("partner_share_set_grants")
     .select("share_set_id,expires_at")
     .eq("organization_id", brandOrganizationId)
@@ -195,7 +201,7 @@ async function resolveActivePartnerShareSetIds(params: {
     return { foundationAvailable: true, setIds: [] };
   }
 
-  const { data: sets, error: setsError } = await (supabaseServer as any)
+  const { data: sets, error: setsError } = await supabaseServer
     .from("share_sets")
     .select("id")
     .eq("organization_id", brandOrganizationId)
@@ -228,7 +234,7 @@ async function hasActiveBrandRelationship(params: {
 }): Promise<boolean> {
   const { brandOrganizationId, partnerOrganizationId } = params;
 
-  const v2 = await (supabaseServer as any)
+  const v2 = await supabaseServer
     .from("brand_partner_relationships")
     .select("id")
     .eq("brand_organization_id", brandOrganizationId)
@@ -244,7 +250,7 @@ async function hasActiveBrandRelationship(params: {
     return false;
   }
 
-  const v1 = await (supabaseServer as any)
+  const v1 = await supabaseServer
     .from("brand_partner_relationships")
     .select("id")
     .eq("brand_id", brandOrganizationId)
@@ -264,7 +270,7 @@ export async function resolvePartnerSharedBrandOrganizationIds(params: {
 }): Promise<string[]> {
   const { partnerOrganizationId } = params;
 
-  const v2 = await (supabaseServer as any)
+  const v2 = await supabaseServer
     .from("brand_partner_relationships")
     .select("brand_organization_id")
     .eq("partner_organization_id", partnerOrganizationId)
@@ -282,27 +288,10 @@ export async function resolvePartnerSharedBrandOrganizationIds(params: {
 
   if (!isMissingColumnError(v2.error)) {
     console.error("Failed to resolve partner shared brands:", v2.error);
-    return [];
+  } else {
+    console.error("Failed to resolve partner shared brands due missing v2 columns:", v2.error);
   }
-
-  const v1 = await (supabaseServer as any)
-    .from("brand_partner_relationships")
-    .select("brand_id")
-    .eq("partner_id", partnerOrganizationId)
-    .eq("status", "active");
-
-  if (v1.error) {
-    console.error("Failed to resolve partner shared brands (legacy):", v1.error);
-    return [];
-  }
-
-  return Array.from(
-    new Set(
-      ((v1.data || []) as Array<{ brand_id: string | null }>)
-        .map((row) => row.brand_id)
-        .filter((id): id is string => Boolean(id))
-    )
-  );
+  return [];
 }
 
 async function resolveBrandMemberId(params: {
@@ -312,7 +301,7 @@ async function resolveBrandMemberId(params: {
 }): Promise<string | null> {
   const { organizationId, userId, userEmail } = params;
 
-  const byUser = await (supabaseServer as any)
+  const byUser = await supabaseServer
     .from("organization_members")
     .select("id")
     .eq("organization_id", organizationId)
@@ -329,7 +318,7 @@ async function resolveBrandMemberId(params: {
     return null;
   }
 
-  const byEmail = await (supabaseServer as any)
+  const byEmail = await supabaseServer
     .from("organization_members")
     .select("id,kinde_user_id")
     .eq("organization_id", organizationId)
@@ -343,7 +332,7 @@ async function resolveBrandMemberId(params: {
 
   const row = byEmail.data[0] as { id: string; kinde_user_id: string | null };
   if (row.kinde_user_id !== userId) {
-    await (supabaseServer as any)
+    await supabaseServer
       .from("organization_members")
       .update({
         kinde_user_id: userId,
@@ -398,7 +387,7 @@ export async function resolveTenantBrandViewContext(params: {
     };
   }
 
-  const { data: brandOrg, error: brandOrgError } = await (supabaseServer as any)
+  const { data: brandOrg, error: brandOrgError } = await supabaseServer
     .from("organizations")
     .select("id,name,slug,organization_type")
     .eq("slug", selectedBrandSlug)
@@ -471,7 +460,7 @@ export async function getScopedPermissionSummary(params: {
   }
 
   const nowIso = new Date().toISOString();
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("member_scope_permissions")
     .select("scope_type,market_id,channel_id,collection_id,expires_at")
     .eq("organization_id", organizationId)
@@ -537,7 +526,7 @@ export async function resolveCollectionAssetIds(params: {
     return [];
   }
 
-  const { data: collections, error: collectionsError } = await (supabaseServer as any)
+  const { data: collections, error: collectionsError } = await supabaseServer
     .from("dam_collections")
     .select("id,asset_ids,folder_ids")
     .eq("organization_id", organizationId)
@@ -550,7 +539,7 @@ export async function resolveCollectionAssetIds(params: {
   const assetIds = new Set<string>();
   const rootFolderIds = new Set<string>();
 
-  for (const collection of collections as Array<any>) {
+  for (const collection of collections as Array<{ asset_ids?: unknown; folder_ids?: unknown }>) {
     for (const assetId of dedupeStringArray(collection.asset_ids)) {
       assetIds.add(assetId);
     }
@@ -563,7 +552,7 @@ export async function resolveCollectionAssetIds(params: {
     return Array.from(assetIds);
   }
 
-  const { data: rootFolders, error: rootFolderError } = await (supabaseServer as any)
+  const { data: rootFolders, error: rootFolderError } = await supabaseServer
     .from("dam_folders")
     .select("id,path")
     .eq("organization_id", organizationId)
@@ -582,7 +571,7 @@ export async function resolveCollectionAssetIds(params: {
   }
 
   for (const path of folderPaths) {
-    const { data: descendants } = await (supabaseServer as any)
+    const { data: descendants } = await supabaseServer
       .from("dam_folders")
       .select("id")
       .eq("organization_id", organizationId)
@@ -594,7 +583,7 @@ export async function resolveCollectionAssetIds(params: {
   }
 
   if (descendantFolderIds.size > 0) {
-    const { data: folderAssets } = await (supabaseServer as any)
+    const { data: folderAssets } = await supabaseServer
       .from("dam_assets")
       .select("id")
       .eq("organization_id", organizationId)
@@ -625,7 +614,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
     return { foundationAvailable: true, assetIds: [] };
   }
 
-  const { data: items, error: itemsError } = await (supabaseServer as any)
+  const { data: items, error: itemsError } = await supabaseServer
     .from("share_set_items")
     .select("resource_type,resource_id,include_descendants")
     .eq("organization_id", params.brandOrganizationId)
@@ -664,7 +653,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
   }
 
   if (folderIdsDirect.size > 0) {
-    const { data: directAssets, error: directAssetsError } = await (supabaseServer as any)
+    const { data: directAssets, error: directAssetsError } = await supabaseServer
       .from("dam_assets")
       .select("id")
       .eq("organization_id", params.brandOrganizationId)
@@ -678,7 +667,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
   }
 
   if (folderIdsRecursive.size > 0) {
-    const { data: rootFolders, error: rootFoldersError } = await (supabaseServer as any)
+    const { data: rootFolders, error: rootFoldersError } = await supabaseServer
       .from("dam_folders")
       .select("id,path")
       .eq("organization_id", params.brandOrganizationId)
@@ -694,7 +683,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
       }
 
       for (const path of rootPaths) {
-        const { data: descendants } = await (supabaseServer as any)
+        const { data: descendants } = await supabaseServer
           .from("dam_folders")
           .select("id")
           .eq("organization_id", params.brandOrganizationId)
@@ -706,7 +695,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
       }
 
       if (folderIds.size > 0) {
-        const { data: folderAssets } = await (supabaseServer as any)
+        const { data: folderAssets } = await supabaseServer
           .from("dam_assets")
           .select("id")
           .eq("organization_id", params.brandOrganizationId)
@@ -723,7 +712,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
   // Older backfilled sets can carry metadata.legacy_collection_id while not yet
   // having explicit share_set_items rows. Include those assets so legacy data
   // remains visible during migration rollout.
-  const { data: setRows, error: setRowsError } = await (supabaseServer as any)
+  const { data: setRows, error: setRowsError } = await supabaseServer
     .from("share_sets")
     .select("id,metadata")
     .eq("organization_id", params.brandOrganizationId)
@@ -811,7 +800,7 @@ async function resolvePartnerGrantedProductIdsUncached(params: {
     return { foundationAvailable: true, productIds: [] };
   }
 
-  const { data: items, error: itemsError } = await (supabaseServer as any)
+  const { data: items, error: itemsError } = await supabaseServer
     .from("share_set_items")
     .select("resource_type,resource_id,include_descendants")
     .eq("organization_id", params.brandOrganizationId)
@@ -843,7 +832,7 @@ async function resolvePartnerGrantedProductIdsUncached(params: {
   }
 
   if (parentIdsWithDescendants.size > 0) {
-    const { data: descendants } = await (supabaseServer as any)
+    const { data: descendants } = await supabaseServer
       .from("products")
       .select("id")
       .eq("organization_id", params.brandOrganizationId)
@@ -893,3 +882,7 @@ export async function resolvePartnerGrantedProductIds(params: {
   partnerGrantedProductIdsInFlight.set(cacheKey, computePromise);
   return clonePartnerGrantedProductIdsResult(await computePromise);
 }
+
+
+
+

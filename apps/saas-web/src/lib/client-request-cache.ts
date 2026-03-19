@@ -1,4 +1,4 @@
-type JsonFetchResult<T = any> = {
+type JsonFetchResult<T = unknown> = {
   ok: boolean;
   status: number;
   data: T | null;
@@ -12,7 +12,7 @@ type CacheEntry = {
 const responseCache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<JsonFetchResult>>();
 
-async function parseJsonSafely(response: Response): Promise<any | null> {
+async function parseJsonSafely(response: Response): Promise<unknown | null> {
   const text = await response.text();
   if (!text) return null;
   try {
@@ -25,7 +25,7 @@ async function parseJsonSafely(response: Response): Promise<any | null> {
 /**
  * Deduplicate identical GET requests across components/mounts (including React Strict Mode remounts in dev).
  */
-export async function fetchJsonWithDedupe<T = any>(
+export async function fetchJsonWithDedupe<T = unknown>(
   url: string,
   options?: {
     ttlMs?: number;

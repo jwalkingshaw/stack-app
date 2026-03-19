@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Database, Json } from "@tradetool/database";
 import { supabaseServer } from "@/lib/supabase";
 import {
   isMissingTableError,
@@ -39,10 +40,12 @@ type ShareSetDynamicRule = {
 
 const ALLOWED_PRODUCT_TYPES = new Set(["parent", "variant", "standalone"]);
 
-function isMissingRuleFoundationError(error: any): boolean {
+function isMissingRuleFoundationError(error: unknown): boolean {
   if (!error) return false;
-  if (isMissingTableError(error) || error?.code === "PGRST205" || error?.code === "42703") return true;
-  const message = String(error?.message || "").toLowerCase();
+  if (typeof error !== "object") return false;
+  const code = (error as { code?: string }).code;
+  if (isMissingTableError(error) || code === "PGRST205" || code === "42703") return true;
+  const message = String((error as { message?: string }).message || "").toLowerCase();
   return (
     message.includes("share_set_dynamic_rules") ||
     message.includes("share_set_items") ||
@@ -205,7 +208,7 @@ async function getShareSet(params: {
   organizationId: string;
   setId: string;
 }): Promise<{ ok: true; data: ShareSetRecord } | { ok: false; status: number; error: string }> {
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("share_sets")
     .select("id,module_key")
     .eq("organization_id", params.organizationId)
@@ -246,7 +249,7 @@ export async function GET(
       return NextResponse.json({ error: setResult.error }, { status: setResult.status });
     }
 
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabaseServer
       .from("share_set_dynamic_rules")
       .select(
         "id,share_set_id,organization_id,name,is_active,priority,include_tags,include_folder_ids,include_usage_group_ids,include_product_types,include_product_family_ids,include_product_name_contains,exclude_tags,exclude_folder_ids,exclude_product_types,exclude_product_family_ids,exclude_product_name_contains,metadata,created_by,created_at,updated_at"
@@ -302,7 +305,7 @@ export async function POST(
       return NextResponse.json({ error: validation.error }, { status: validation.status });
     }
 
-    const payload = {
+    const payload: Database["public"]["Tables"]["share_set_dynamic_rules"]["Insert"] = {
       organization_id: organization.id,
       share_set_id: setResult.data.id,
       name: input!.name,
@@ -319,11 +322,11 @@ export async function POST(
       exclude_product_types: input!.excludeProductTypes,
       exclude_product_family_ids: input!.excludeProductFamilyIds,
       exclude_product_name_contains: input!.excludeProductNameContains,
-      metadata: input!.metadata,
+      metadata: input!.metadata as Json,
       created_by: userId,
     };
 
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabaseServer
       .from("share_set_dynamic_rules")
       .insert(payload)
       .select(
@@ -376,25 +379,27 @@ export async function PATCH(
       return NextResponse.json({ error: validation.error }, { status: validation.status });
     }
 
-    const { data, error } = await (supabaseServer as any)
+    const updatePayload: Database["public"]["Tables"]["share_set_dynamic_rules"]["Update"] = {
+      name: input!.name,
+      is_active: input!.isActive,
+      priority: input!.priority,
+      include_tags: input!.includeTags,
+      include_folder_ids: input!.includeFolderIds,
+      include_usage_group_ids: input!.includeUsageGroupIds,
+      include_product_types: input!.includeProductTypes,
+      include_product_family_ids: input!.includeProductFamilyIds,
+      include_product_name_contains: input!.includeProductNameContains,
+      exclude_tags: input!.excludeTags,
+      exclude_folder_ids: input!.excludeFolderIds,
+      exclude_product_types: input!.excludeProductTypes,
+      exclude_product_family_ids: input!.excludeProductFamilyIds,
+      exclude_product_name_contains: input!.excludeProductNameContains,
+      metadata: input!.metadata as Json,
+    };
+
+    const { data, error } = await supabaseServer
       .from("share_set_dynamic_rules")
-      .update({
-        name: input!.name,
-        is_active: input!.isActive,
-        priority: input!.priority,
-        include_tags: input!.includeTags,
-        include_folder_ids: input!.includeFolderIds,
-        include_usage_group_ids: input!.includeUsageGroupIds,
-        include_product_types: input!.includeProductTypes,
-        include_product_family_ids: input!.includeProductFamilyIds,
-        include_product_name_contains: input!.includeProductNameContains,
-        exclude_tags: input!.excludeTags,
-        exclude_folder_ids: input!.excludeFolderIds,
-        exclude_product_types: input!.excludeProductTypes,
-        exclude_product_family_ids: input!.excludeProductFamilyIds,
-        exclude_product_name_contains: input!.excludeProductNameContains,
-        metadata: input!.metadata,
-      })
+      .update(updatePayload)
       .eq("organization_id", organization.id)
       .eq("share_set_id", setResult.data.id)
       .eq("id", ruleId)
@@ -445,7 +450,7 @@ export async function DELETE(
       return NextResponse.json({ error: "ruleId is required" }, { status: 400 });
     }
 
-    const { error } = await (supabaseServer as any)
+    const { error } = await supabaseServer
       .from("share_set_dynamic_rules")
       .delete()
       .eq("organization_id", organization.id)

@@ -37,7 +37,7 @@ async function getAssetById(params: {
   assetId: string;
   organizationId: string;
 }): Promise<AssetRow | null> {
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("dam_assets")
     .select("id,organization_id,asset_scope,s3_key,s3_url,mime_type,thumbnail_urls")
     .eq("id", params.assetId)
@@ -86,7 +86,7 @@ export async function GET(
       });
       const scopedOrganizationIds = [tenantOrganizationId, ...brandOrganizationIds];
 
-      const { data: row, error: rowError } = await (supabaseServer as any)
+      const { data: row, error: rowError } = await supabaseServer
         .from("dam_assets")
         .select("id,organization_id,asset_scope,s3_key,s3_url,mime_type,thumbnail_urls")
         .eq("id", assetId)
@@ -98,6 +98,9 @@ export async function GET(
       }
 
       if (row.organization_id !== tenantOrganizationId) {
+        if (!row.organization_id) {
+          return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+        }
         const granted = await resolvePartnerGrantedAssetIds({
           brandOrganizationId: row.organization_id,
           partnerOrganizationId: tenantOrganizationId,

@@ -45,7 +45,7 @@ export async function PATCH(
       familyId: familyContext.familyId,
       attributeId,
     });
-    if (existing.error) {
+  if (existing.error) {
       console.error("Error fetching variant attribute for patch:", existing.error);
       return NextResponse.json({ error: "Failed to fetch variant axis." }, { status: 500 });
     }
@@ -53,8 +53,9 @@ export async function PATCH(
       return NextResponse.json({ error: "Variant axis not found." }, { status: 404 });
     }
 
-    const body = await request.json().catch(() => ({}));
-    const updates: Record<string, any> = {};
+    const body =
+      (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const updates: Record<string, unknown> = {};
 
     if (typeof body?.is_required === "boolean") {
       updates.is_required = body.is_required;

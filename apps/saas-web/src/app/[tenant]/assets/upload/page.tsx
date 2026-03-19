@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import NextImage from "next/image";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   Upload,
@@ -57,6 +58,15 @@ type VariantSummary = {
   productName: string;
   parentId: string;
   imageUrl?: string | null;
+};
+
+type VariantApiRecord = {
+  id: string;
+  sku?: string;
+  product_name?: string;
+  productName?: string;
+  primary_image_url?: string | null;
+  primaryImageUrl?: string | null;
 };
 
 type ProductSelection = {
@@ -729,7 +739,14 @@ const ProductLinkDialog = ({
                         />
                         <div className="h-8 w-8 overflow-hidden rounded-md border border-border bg-muted/30">
                           {product.imageUrl ? (
-                            <img src={product.imageUrl} alt={product.productName || "Product"} className="h-full w-full object-cover" />
+                            <NextImage
+                              src={product.imageUrl}
+                              alt={product.productName || "Product"}
+                              className="h-full w-full object-cover"
+                              width={32}
+                              height={32}
+                              unoptimized
+                            />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">IMG</div>
                           )}
@@ -766,7 +783,14 @@ const ProductLinkDialog = ({
                                 />
                                 <div className="h-6 w-6 overflow-hidden rounded border border-border bg-muted/30">
                                   {variant.imageUrl ? (
-                                    <img src={variant.imageUrl} alt={variant.productName || "Variant"} className="h-full w-full object-cover" />
+                                    <NextImage
+                                      src={variant.imageUrl}
+                                      alt={variant.productName || "Variant"}
+                                      className="h-full w-full object-cover"
+                                      width={24}
+                                      height={24}
+                                      unoptimized
+                                    />
                                   ) : null}
                                 </div>
                                 <span className="flex-1">
@@ -842,7 +866,7 @@ export default function ModernUploadPage() {
   const [bulkScopeValue, setBulkScopeValue] = useState<AuthoringScopeValue>(createGlobalAuthoringScope());
   const [lastBulkEditSnapshot, setLastBulkEditSnapshot] = useState<BulkEditUndoSnapshot | null>(null);
   const [productError, setProductError] = useState<string | null>(null);
-  const [savingState, setSavingState] = useState<Record<string, "idle" | "saving" | "error">>({});
+  const [, setSavingState] = useState<Record<string, "idle" | "saving" | "error">>({});
   const [selectedUploadProfileId, setSelectedUploadProfileId] = useState<string>("standard");
   const [uploadAuthoringScope, setUploadAuthoringScope] = useState<AuthoringScopeValue>(
     createGlobalAuthoringScope()
@@ -850,6 +874,7 @@ export default function ModernUploadPage() {
   const assetsRef = useRef<AssetUpload[]>([]);
   const saveTimers = useRef<Record<string, NodeJS.Timeout>>({});
   const stagedUploadTokenRef = useRef<string | null>(null);
+  const startUploadingRef = useRef<(assetsToUpload: AssetUpload[]) => Promise<void>>(async () => {});
   const activeUploadProfile = useMemo(
     () => UPLOAD_PROFILES.find((profile) => profile.id === selectedUploadProfileId) || UPLOAD_PROFILES[1],
     [selectedUploadProfileId]
@@ -945,10 +970,11 @@ export default function ModernUploadPage() {
           throw new Error("Failed to load variants");
         }
         const payload = await response.json();
-        const variants = (payload?.data || []).map((variant: any) => ({
+        const variantRows = Array.isArray(payload?.data) ? (payload.data as VariantApiRecord[]) : [];
+        const variants = variantRows.map((variant) => ({
           id: variant.id,
           sku: variant.sku,
-          productName: variant.product_name || variant.productName,
+          productName: variant.product_name || variant.productName || "Variant",
           parentId: productId,
           imageUrl: variant.primary_image_url || variant.primaryImageUrl || null
         }));
@@ -1297,7 +1323,7 @@ export default function ModernUploadPage() {
     setAssets((prev) =>
       prev.map((asset) => {
         if (!selectedSet.has(asset.id)) return asset;
-        let nextMetadata = cloneAssetMetadata(asset.metadata);
+        const nextMetadata = cloneAssetMetadata(asset.metadata);
 
         if (bulkUsageGroupMode === "set" && bulkUsageGroupId) {
           nextMetadata.usageGroupId = bulkUsageGroupId;
@@ -1503,7 +1529,7 @@ export default function ModernUploadPage() {
     handleFilesAdded(files);
   };
 
-  const handleFilesAdded = (files: File[], folderOverride?: string | null) => {
+  const handleFilesAdded = useCallback((files: File[], folderOverride?: string | null) => {
     const targetFolderId = folderOverride === undefined ? selectedFolderId : folderOverride;
     const newAssets: AssetUpload[] = files.map((file) => {
       const suggestedProductLink = suggestProductLinksFromFilename(
@@ -1549,10 +1575,10 @@ export default function ModernUploadPage() {
     );
     if (readyAssets.length > 0) {
       setTimeout(() => {
-        void startUploading(readyAssets);
+        void startUploadingRef.current(readyAssets);
       }, 300);
     }
-  };
+  }, [activeUploadProfile, products, selectedFolderId, uploadAuthoringScope]);
 
   useEffect(() => {
     if (!stagedUploadToken) return;
@@ -1675,6 +1701,8 @@ export default function ModernUploadPage() {
     setIsUploading(false);
   };
 
+  startUploadingRef.current = startUploading;
+
   const uploadReadyPendingAssets = () => {
     if (isUploading) return;
     if (pendingReadyAssets.length === 0) return;
@@ -1794,7 +1822,14 @@ export default function ModernUploadPage() {
           <div className="flex items-center gap-3">
             <div className="h-12 w-12 overflow-hidden rounded-md border border-border bg-muted/30">
               {item.preview ? (
-                <img src={item.preview} alt={item.file.name} className="h-full w-full object-cover" />
+                <NextImage
+                  src={item.preview}
+                  alt={item.file.name}
+                  className="h-full w-full object-cover"
+                  width={48}
+                  height={48}
+                  unoptimized
+                />
               ) : (
                 <div className="flex h-full w-full items-center justify-center">
                   <FileIcon className="h-5 w-5 text-muted-foreground" />
@@ -2054,7 +2089,12 @@ export default function ModernUploadPage() {
       <div className="max-w-6xl mx-auto space-y-8">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <Button variant="ghost" size="sm" onClick={() => router.push(`/${tenantSlug}/assets`)} className="text-gray-600">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => router.push(`/${tenantSlug}/assets`)}
+              className="border-0 text-gray-600"
+            >
               <ArrowLeft className="w-4 h-4 mr-2" />
               Back to Assets
             </Button>

@@ -5,14 +5,16 @@ import { Type } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
+type TextFieldValue = {
+  max_length?: number;
+  field_purpose?: string;
+  serving_type?: string;
+  serving_unit?: string;
+};
+
 interface TextFieldProps {
-  value?: {
-    max_length?: number;
-    field_purpose?: string;
-    serving_type?: string;
-    serving_unit?: string;
-  };
-  onChange?: (value: any) => void;
+  value?: TextFieldValue;
+  onChange?: (value: TextFieldValue) => void;
 }
 
 const SERVING_TYPE_OPTIONS = [
@@ -60,7 +62,7 @@ export default function TextField({ value, onChange }: TextFieldProps) {
     [servingType]
   );
 
-  const updateValue = (changes: Partial<NonNullable<TextFieldProps['value']>>) => {
+  const updateValue = (changes: Partial<TextFieldValue>) => {
     onChange?.({
       ...value,
       ...changes
@@ -199,6 +201,18 @@ export default function TextField({ value, onChange }: TextFieldProps) {
                     : '"30", "60", "90"'}
                 </p>
               </div>
+            </div>
+          </div>
+        )}
+
+        {fieldPurpose !== 'serving' && (
+          <div className="rounded-lg border border-border/60 bg-background px-5 py-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preview</p>
+            <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+              <div className="h-10 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-foreground">
+                Example text value
+              </div>
+              <p>Maximum length: {maxLength} characters</p>
             </div>
           </div>
         )}

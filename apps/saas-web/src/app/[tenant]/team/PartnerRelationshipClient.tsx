@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, Users } from "lucide-react";
+import { Loader2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
-import { PageContentContainer } from "@/components/ui/page-content-container";
+import { BackLinkButton } from "@/components/ui/back-link-button";
+import { SettingsPageContent } from "../settings/components/settings-page-content";
 
 type ShareSet = {
   id: string;
@@ -62,7 +62,6 @@ export default function PartnerRelationshipClient({
   tenantSlug: string;
   partnerOrganizationId: string;
 }) {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,8 +86,8 @@ export default function PartnerRelationshipClient({
       const nextData = payload.data as PartnerPayload;
       setData(nextData);
       setSelectedAccessLevel(nextData.relationship.access_level || "view");
-    } catch (fetchError: any) {
-      setError(fetchError?.message || "Failed to load partner relationship");
+    } catch (fetchError: unknown) {
+      setError(fetchError instanceof Error ? fetchError.message : "Failed to load partner relationship");
     } finally {
       setLoading(false);
     }
@@ -132,8 +131,8 @@ export default function PartnerRelationshipClient({
         throw new Error(payload?.error || "Failed to update partner relationship");
       }
       await fetchDetails();
-    } catch (updateError: any) {
-      setError(updateError?.message || "Failed to update partner relationship");
+    } catch (updateError: unknown) {
+      setError(updateError instanceof Error ? updateError.message : "Failed to update partner relationship");
     } finally {
       setSaving(false);
     }
@@ -160,8 +159,8 @@ export default function PartnerRelationshipClient({
         throw new Error(payload?.error || "Failed to assign set");
       }
       await fetchDetails();
-    } catch (assignError: any) {
-      setError(assignError?.message || "Failed to assign set");
+    } catch (assignError: unknown) {
+      setError(assignError instanceof Error ? assignError.message : "Failed to assign set");
     } finally {
       setAssigning(false);
     }
@@ -183,8 +182,8 @@ export default function PartnerRelationshipClient({
         throw new Error(payload?.error || "Failed to revoke set assignment");
       }
       await fetchDetails();
-    } catch (revokeError: any) {
-      setError(revokeError?.message || "Failed to revoke set assignment");
+    } catch (revokeError: unknown) {
+      setError(revokeError instanceof Error ? revokeError.message : "Failed to revoke set assignment");
     } finally {
       setRevokingGrantId(null);
     }
@@ -192,27 +191,22 @@ export default function PartnerRelationshipClient({
 
   if (loading) {
     return (
-      <PageContentContainer mode="content" className="space-y-4">
+      <SettingsPageContent page="team-partner-detail" className="space-y-4">
         <div className="h-10 w-64 animate-pulse rounded bg-muted" />
         <div className="h-28 animate-pulse rounded-lg border border-border bg-muted/40" />
         <div className="h-36 animate-pulse rounded-lg border border-border bg-muted/40" />
-      </PageContentContainer>
+      </SettingsPageContent>
     );
   }
 
   if (!data) {
     return (
-      <div className="space-y-4">
-        <Link href={`/${tenantSlug}/settings/team/partners`}>
-          <Button variant="outline" size="sm" className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back to Partners
-          </Button>
-        </Link>
+      <SettingsPageContent page="team-partner-detail" className="space-y-4">
+        <BackLinkButton href={`/${tenantSlug}/settings/team/partners`} label="Back to Partners" />
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error || "Partner relationship was not found."}
         </div>
-      </div>
+      </SettingsPageContent>
     );
   }
 
@@ -233,16 +227,11 @@ export default function PartnerRelationshipClient({
       <PageHeader
         title={partner.name}
         description={partner.slug ? `/${partner.slug}` : undefined}
-        actions={[
-          {
-            label: "Back to Partners",
-            onClick: () => router.push(`/${tenantSlug}/settings/team/partners`),
-            icon: ArrowLeft,
-          },
-        ]}
+        backHref={`/${tenantSlug}/settings/team/partners`}
+        backLabel="Back to Partners"
       />
 
-      <PageContentContainer mode="content" className="space-y-6">
+      <SettingsPageContent page="team-partner-detail">
         <div className="rounded-lg border border-border bg-background p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -448,7 +437,7 @@ export default function PartnerRelationshipClient({
           {error}
         </div>
       ) : null}
-      </PageContentContainer>
+      </SettingsPageContent>
     </div>
   );
 }

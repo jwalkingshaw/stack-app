@@ -383,7 +383,7 @@ export default function OnboardingPage() {
                   </div>
                 )}
 
-                <p className="mt-1 text-xs text-muted-foreground">This will be your organization's unique URL.</p>
+                <p className="mt-1 text-xs text-muted-foreground">This will be your organization&apos;s unique URL.</p>
               </div>
 
               <div>
@@ -534,7 +534,7 @@ export default function OnboardingPage() {
             </div>
             <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">STACKCESS</span>
             <CardTitle className="text-[var(--font-size-2xl)] font-semibold leading-tight tracking-tight">Ready to create {formData.companyName}?</CardTitle>
-            <p className="text-[var(--font-size-sm)] text-muted-foreground">We'll set up your digital asset management workspace.</p>
+            <p className="text-[var(--font-size-sm)] text-muted-foreground">We&apos;ll set up your digital asset management workspace.</p>
           </CardHeader>
 
           <CardContent className="space-y-4 px-6 pb-8 pt-0 sm:px-8">
@@ -609,7 +609,7 @@ export default function OnboardingPage() {
               <Button
                 onClick={() => setStep(1)}
                 variant="ghost"
-                className="h-12 w-full rounded-[0.5rem] text-base font-semibold"
+                className="h-12 w-full rounded-[0.5rem] border-0 text-base font-semibold"
               >
                 Back to edit
               </Button>

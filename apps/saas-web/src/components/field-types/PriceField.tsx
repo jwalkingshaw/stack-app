@@ -247,6 +247,25 @@ export default function PriceField({ value, onChange }: PriceFieldProps) {
             Allow negative values (for credits, discounts, etc.)
           </span>
         </label>
+
+        <div className="rounded-lg border border-border/60 bg-background px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preview</p>
+          <div className="mt-3 flex items-start gap-2">
+            <Input
+              type="number"
+              value=""
+              placeholder="0.00"
+              readOnly
+              className="h-10 max-w-[180px]"
+            />
+            <div className="inline-flex h-10 items-center rounded-md border border-border/60 bg-muted/20 px-3 text-sm text-foreground">
+              {defaultCurrency}
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Allowed currencies: {allowedCurrencies.join(', ')}
+          </p>
+        </div>
       </div>
     </div>
   );

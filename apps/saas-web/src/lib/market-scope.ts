@@ -4,7 +4,7 @@ import { AuthService } from "@tradetool/auth";
 
 export type MarketScopeParams = {
   authService: AuthService;
-  supabase: SupabaseClient<any>;
+  supabase: SupabaseClient;
   userId: string;
   organizationId: string;
   permissionKey: string;
@@ -61,7 +61,7 @@ export async function enforceMarketScopedAccess(
     return { ok: true, marketId: null };
   }
 
-  const { data: market, error: marketError } = await (supabase as any)
+  const { data: market, error: marketError } = await supabase
     .from("markets")
     .select("id")
     .eq("id", marketId)
@@ -99,7 +99,7 @@ export async function enforceMarketScopedAccess(
   }
 
   if (localeCode) {
-    const { data: marketLocale, error: marketLocaleError } = await (supabase as any)
+    const { data: marketLocale, error: marketLocaleError } = await supabase
       .from("market_locales")
       .select("id, locales!inner(code)")
       .eq("market_id", marketId)

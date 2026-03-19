@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { Edit, Tag, Trash2, FolderIcon, X, Share2 } from "lucide-react";
+import { Edit, Languages, Tag, Trash2, FolderIcon, X, Share2, PackagePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +12,10 @@ interface BulkActionToolbarProps {
   onDelete: () => void;
   onShare: () => void;
   onClear: () => void;
+  /** When provided, a Translate button is shown. Omit or pass undefined to hide it. */
+  onTranslate?: () => void;
+  /** When provided, an Add to Kit button is shown. */
+  onAddToKit?: () => void;
   className?: string;
 }
 
@@ -24,11 +27,11 @@ export function BulkActionToolbar({
   onDelete,
   onShare,
   onClear,
+  onTranslate,
+  onAddToKit,
   className
 }: BulkActionToolbarProps) {
-  const [isVisible, setIsVisible] = useState(true);
-
-  if (selectedCount === 0 || !isVisible) {
+  if (selectedCount === 0) {
     return null;
   }
 
@@ -94,6 +97,32 @@ export function BulkActionToolbar({
             <Share2 className="w-4 h-4" />
             <span className="hidden sm:inline ml-1">Share</span>
           </Button>
+
+          {onAddToKit && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onAddToKit}
+              className="h-8 px-3 hover:bg-violet-50 hover:text-violet-600"
+              title="Add to Kit"
+            >
+              <PackagePlus className="w-4 h-4" />
+              <span className="hidden sm:inline ml-1">Add to Kit</span>
+            </Button>
+          )}
+
+          {onTranslate && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onTranslate}
+              className="h-8 px-3 hover:bg-violet-50 hover:text-violet-600"
+              title="Translate selected products"
+            >
+              <Languages className="w-4 h-4" />
+              <span className="hidden sm:inline ml-1">Translate</span>
+            </Button>
+          )}
 
           {/* Separator */}
           <div className="w-px h-6 bg-gray-200 mx-1" />

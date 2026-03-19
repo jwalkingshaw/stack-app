@@ -1,3 +1,6 @@
+import { readOrganizationProfile } from "@/lib/organization-profile";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 export interface WorkspaceMembership {
   memberId: string;
   role: string;
@@ -9,6 +12,7 @@ export interface WorkspaceMembership {
     slug: string;
     organizationType: "brand" | "partner";
     partnerCategory: "retailer" | "distributor" | "wholesaler" | null;
+    logoUrl: string | null;
     storageUsed: number;
     storageLimit: number;
   };
@@ -16,7 +20,12 @@ export interface WorkspaceMembership {
 
 export interface WorkspaceNotificationEvent {
   id: string;
-  type: "asset_added" | "product_added" | "share_granted";
+  type:
+    | "asset_added"
+    | "product_added"
+    | "share_granted"
+    | "update_published"
+    | "update_reminder";
   organizationId: string;
   organizationName: string;
   organizationSlug: string;
@@ -25,6 +34,22 @@ export interface WorkspaceNotificationEvent {
   createdAt: string;
   isRead: boolean;
   href: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function resolveDirectPartnerOrganizationIds(
+  memberships: WorkspaceMembership[]
+): string[] {
+  return memberships
+    .filter(
+      (membership) =>
+        membership.organization.organizationType === "partner" &&
+        !membership.memberId.startsWith("partner:")
+    )
+    .map((membership) => membership.organization.id);
 }
 
 function isMissingRelationError(error: unknown): boolean {
@@ -40,7 +65,7 @@ function isMissingRelationError(error: unknown): boolean {
 }
 
 export async function getActiveWorkspaceMemberships(
-  supabase: any,
+  supabase: SupabaseClient,
   userId: string,
   userEmail?: string | null,
   options?: {
@@ -54,15 +79,7 @@ export async function getActiveWorkspaceMemberships(
       role,
       created_at,
       last_accessed_at,
-      organization:organizations (
-        id,
-        name,
-        slug,
-        organization_type,
-        partner_category,
-        storage_used,
-        storage_limit
-      )
+      organization:organizations (*)
     `;
 
   const { data, error } = await supabase
@@ -75,9 +92,9 @@ export async function getActiveWorkspaceMemberships(
     throw error || new Error("Failed to load workspace memberships");
   }
 
-  const rowsById = new Map<string, any>();
-  for (const row of data as any[]) {
-    if (row?.id) rowsById.set(row.id, row);
+  const rowsById = new Map<string, Record<string, unknown>>();
+  for (const row of (data || []) as unknown[]) {
+    if (isRecord(row) && typeof row.id === "string") rowsById.set(row.id, row);
   }
 
   const includeEmailLookup = options?.includeEmailLookup ?? true;
@@ -94,8 +111,8 @@ export async function getActiveWorkspaceMemberships(
     }
 
     const relinkIds: string[] = [];
-    for (const row of (emailData || []) as any[]) {
-      if (row?.id) {
+    for (const row of (emailData || []) as unknown[]) {
+      if (isRecord(row) && typeof row.id === "string") {
         rowsById.set(row.id, row);
         if (row.kinde_user_id !== userId) {
           relinkIds.push(row.id);
@@ -120,20 +137,32 @@ export async function getActiveWorkspaceMemberships(
       const organization = Array.isArray(rawOrganization)
         ? rawOrganization[0]
         : rawOrganization;
-      if (!organization?.id || !organization?.slug) return null;
+      if (!isRecord(organization) || !organization.id || !organization.slug) return null;
+      const profile = readOrganizationProfile(organization as Record<string, unknown>);
       return {
-        memberId: membership.id,
-        role: membership.role,
-        createdAt: membership.created_at ?? null,
-        lastAccessedAt: membership.last_accessed_at ?? null,
+        memberId: String(membership.id),
+        role: String(membership.role ?? "member"),
+        createdAt: typeof membership.created_at === "string" ? membership.created_at : null,
+        lastAccessedAt:
+          typeof membership.last_accessed_at === "string" ? membership.last_accessed_at : null,
         organization: {
-          id: organization.id,
-          name: organization.name ?? organization.slug,
-          slug: organization.slug,
-          organizationType: organization.organization_type ?? "brand",
-          partnerCategory: organization.partner_category ?? null,
-          storageUsed: organization.storage_used ?? 0,
-          storageLimit: organization.storage_limit ?? 1073741824,
+          id: String(organization.id),
+          name: String(organization.name ?? organization.slug),
+          slug: String(organization.slug),
+          organizationType: organization.organization_type === "partner" ? "partner" : "brand",
+          partnerCategory:
+            organization.partner_category === "retailer" ||
+            organization.partner_category === "distributor" ||
+            organization.partner_category === "wholesaler"
+              ? organization.partner_category
+              : null,
+          logoUrl: profile.logoUrl ?? null,
+          storageUsed:
+            typeof organization.storage_used === "number" ? organization.storage_used : 0,
+          storageLimit:
+            typeof organization.storage_limit === "number"
+              ? organization.storage_limit
+              : 1073741824,
         },
       } satisfies WorkspaceMembership;
     })
@@ -166,11 +195,11 @@ export async function getActiveWorkspaceMemberships(
   }> = [];
 
   if (!partnerRowsV2Error && Array.isArray(partnerRowsV2)) {
-    partnerRows = (partnerRowsV2 as Array<any>)
-      .filter((row) => row?.brand_organization_id)
+    partnerRows = (partnerRowsV2 as Array<unknown>)
+      .filter((row): row is Record<string, unknown> => isRecord(row) && !!row.brand_organization_id)
       .map((row) => ({
         id: String(row.id),
-        created_at: row.created_at ?? null,
+        created_at: typeof row.created_at === "string" ? row.created_at : null,
         brand_id: String(row.brand_organization_id),
       }));
   } else {
@@ -182,11 +211,11 @@ export async function getActiveWorkspaceMemberships(
       .eq("status", "active");
 
     if (!partnerRowsV1Error && Array.isArray(partnerRowsV1)) {
-      partnerRows = (partnerRowsV1 as Array<any>)
-        .filter((row) => row?.brand_id)
+      partnerRows = (partnerRowsV1 as Array<unknown>)
+        .filter((row): row is Record<string, unknown> => isRecord(row) && !!row.brand_id)
         .map((row) => ({
           id: String(row.id),
-          created_at: row.created_at ?? null,
+          created_at: typeof row.created_at === "string" ? row.created_at : null,
           brand_id: String(row.brand_id),
         }));
     }
@@ -199,16 +228,16 @@ export async function getActiveWorkspaceMemberships(
   const brandIds = Array.from(new Set(partnerRows.map((row) => row.brand_id)));
   const { data: brands, error: brandsError } = await supabase
     .from("organizations")
-    .select("id, name, slug, organization_type, partner_category, storage_used, storage_limit")
+    .select("*")
     .in("id", brandIds);
 
   if (brandsError || !Array.isArray(brands)) {
     return directMemberships;
   }
 
-  const brandsById = new Map<string, any>();
-  for (const brand of brands as Array<any>) {
-    if (brand?.id) {
+  const brandsById = new Map<string, Record<string, unknown>>();
+  for (const brand of brands as Array<unknown>) {
+    if (isRecord(brand) && brand.id) {
       brandsById.set(String(brand.id), brand);
     }
   }
@@ -221,21 +250,31 @@ export async function getActiveWorkspaceMemberships(
   for (const row of partnerRows) {
     const brand = brandsById.get(row.brand_id);
     if (!brand?.id || !brand?.slug) continue;
-    if (merged.has(brand.id)) continue;
+    const brandId = String(brand.id);
+    const brandSlug = String(brand.slug);
+    if (merged.has(brandId)) continue;
+    const profile = readOrganizationProfile(brand as Record<string, unknown>);
 
-    merged.set(brand.id, {
+    merged.set(brandId, {
       memberId: `partner:${String(row.id)}`,
       role: "partner",
       createdAt: row.created_at ?? null,
       lastAccessedAt: null,
       organization: {
-        id: String(brand.id),
-        name: brand.name ?? brand.slug,
-        slug: brand.slug,
-        organizationType: brand.organization_type ?? "brand",
-        partnerCategory: brand.partner_category ?? null,
-        storageUsed: brand.storage_used ?? 0,
-        storageLimit: brand.storage_limit ?? 1073741824,
+        id: brandId,
+        name: String(brand.name ?? brandSlug),
+        slug: brandSlug,
+        organizationType: brand.organization_type === "partner" ? "partner" : "brand",
+        partnerCategory:
+          brand.partner_category === "retailer" ||
+          brand.partner_category === "distributor" ||
+          brand.partner_category === "wholesaler"
+            ? brand.partner_category
+            : null,
+        logoUrl: profile.logoUrl ?? null,
+        storageUsed: typeof brand.storage_used === "number" ? brand.storage_used : 0,
+        storageLimit:
+          typeof brand.storage_limit === "number" ? brand.storage_limit : 1073741824,
       },
     });
   }
@@ -244,7 +283,7 @@ export async function getActiveWorkspaceMemberships(
 }
 
 export async function getWorkspaceNotificationStateMap(
-  supabase: any,
+  supabase: SupabaseClient,
   userId: string,
   organizationIds: string[]
 ): Promise<Map<string, string>> {
@@ -284,12 +323,13 @@ function toIsoOrFallback(value: string | null | undefined, fallback: Date): stri
 }
 
 export async function getWorkspaceUnreadCounts(
-  supabase: any,
+  supabase: SupabaseClient,
   memberships: WorkspaceMembership[],
   stateByWorkspace: Map<string, string>
 ): Promise<Map<string, number>> {
   const unreadByWorkspace = new Map<string, number>();
   const fallbackWindowStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const partnerOrganizationIds = resolveDirectPartnerOrganizationIds(memberships);
 
   await Promise.all(
     memberships.map(async (membership) => {
@@ -298,8 +338,12 @@ export async function getWorkspaceUnreadCounts(
       const baseline = lastReadAt || membership.lastAccessedAt;
       const sinceIso = toIsoOrFallback(baseline, fallbackWindowStart);
 
-      const [{ count: assetCount }, { count: productCount }, { count: shareCount }] =
-        await Promise.all([
+      const [
+        { count: assetCount },
+        { count: productCount },
+        { count: shareCount },
+        { count: updateCount },
+      ] = await Promise.all([
           supabase
             .from("dam_assets")
             .select("id", { count: "exact", head: true })
@@ -316,11 +360,24 @@ export async function getWorkspaceUnreadCounts(
             .eq("organization_id", organizationId)
             .eq("action", "container.share.granted")
             .gt("created_at", sinceIso),
+          membership.organization.organizationType === "brand" &&
+          partnerOrganizationIds.length > 0
+            ? supabase
+                .from("partner_update_recipients")
+                .select("id", { count: "exact", head: true })
+                .eq("organization_id", organizationId)
+                .in("partner_organization_id", partnerOrganizationIds)
+                .gt("updated_at", sinceIso)
+                .neq("status", "muted")
+            : Promise.resolve({ count: 0 }),
         ]);
 
       unreadByWorkspace.set(
         organizationId,
-        (assetCount ?? 0) + (productCount ?? 0) + (shareCount ?? 0)
+        (assetCount ?? 0) +
+          (productCount ?? 0) +
+          (shareCount ?? 0) +
+          (updateCount ?? 0)
       );
     })
   );
@@ -329,7 +386,7 @@ export async function getWorkspaceUnreadCounts(
 }
 
 export async function getWorkspaceNotificationEvents(
-  supabase: any,
+  supabase: SupabaseClient,
   memberships: WorkspaceMembership[],
   stateByWorkspace: Map<string, string>,
   limit: number,
@@ -354,8 +411,15 @@ export async function getWorkspaceNotificationEvents(
 
   const queryLimit = Math.max(limit * 3, 60);
   const fallbackWindowStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const partnerOrganizationIds = resolveDirectPartnerOrganizationIds(memberships);
 
-  const [{ data: assets }, { data: products }, { data: shares }] = await Promise.all([
+  const [
+    { data: assets },
+    { data: products },
+    { data: shares },
+    { data: updateRecipients },
+    { data: reminderEvents },
+  ] = await Promise.all([
     supabase
       .from("dam_assets")
       .select("id,organization_id,filename,created_at")
@@ -378,6 +442,30 @@ export async function getWorkspaceNotificationEvents(
       .gte("created_at", fallbackWindowStart)
       .order("created_at", { ascending: false })
       .limit(queryLimit),
+    partnerOrganizationIds.length > 0
+      ? supabase
+          .from("partner_update_recipients")
+          .select(
+            "id,organization_id,partner_update_id,partner_organization_id,status,first_notified_at,updated_at,created_at"
+          )
+          .in("organization_id", filteredOrganizationIds)
+          .in("partner_organization_id", partnerOrganizationIds)
+          .neq("status", "muted")
+          .gte("updated_at", fallbackWindowStart)
+          .order("updated_at", { ascending: false })
+          .limit(queryLimit)
+      : Promise.resolve({ data: [] }),
+    partnerOrganizationIds.length > 0
+      ? supabase
+          .from("partner_update_activity")
+          .select("id,organization_id,partner_update_id,partner_organization_id,event_at,metadata")
+          .in("organization_id", filteredOrganizationIds)
+          .in("partner_organization_id", partnerOrganizationIds)
+          .eq("event_type", "reminder_sent")
+          .gte("event_at", fallbackWindowStart)
+          .order("event_at", { ascending: false })
+          .limit(queryLimit)
+      : Promise.resolve({ data: [] }),
   ]);
 
   const events: WorkspaceNotificationEvent[] = [];
@@ -480,13 +568,141 @@ export async function getWorkspaceNotificationEvents(
     });
   }
 
+  const updateRecipientRows = (updateRecipients || []) as Array<{
+    id: string;
+    organization_id: string;
+    partner_update_id: string;
+    partner_organization_id: string;
+    status: string | null;
+    first_notified_at: string | null;
+    updated_at: string | null;
+    created_at: string | null;
+  }>;
+
+  const updateIds = Array.from(
+    new Set(
+      updateRecipientRows
+        .map((row) => row.partner_update_id)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
+  const updateMap = new Map<
+    string,
+    {
+      id: string;
+      organization_id: string;
+      title: string | null;
+      urgency: string | null;
+      due_at: string | null;
+      published_at: string | null;
+    }
+  >();
+  if (updateIds.length > 0) {
+    const { data: updates } = await supabase
+      .from("partner_updates")
+      .select("id,organization_id,title,urgency,due_at,published_at,status")
+      .in("id", updateIds)
+      .in("organization_id", filteredOrganizationIds)
+      .eq("status", "published");
+
+    for (const row of (updates || []) as Array<{
+      id: string;
+      organization_id: string;
+      title: string | null;
+      urgency: string | null;
+      due_at: string | null;
+      published_at: string | null;
+    }>) {
+      updateMap.set(row.id, row);
+    }
+  }
+
+  for (const row of updateRecipientRows) {
+    const update = updateMap.get(row.partner_update_id);
+    if (!update) continue;
+    const organization = organizationsById.get(row.organization_id);
+    const membership = membershipsById.get(row.organization_id);
+    if (!organization) continue;
+
+    const createdAt =
+      row.first_notified_at ||
+      update.published_at ||
+      row.updated_at ||
+      row.created_at ||
+      fallbackWindowStart;
+    const isSharedBrand =
+      membership?.role === "partner" && organization.organizationType === "brand";
+    const sharedBrandHref = getSharedBrandHref(
+      organization.slug,
+      `/updates/${encodeURIComponent(update.id)}`
+    );
+    const lastReadAt = stateByWorkspace.get(row.organization_id);
+    const isRead = Boolean(lastReadAt && new Date(createdAt) <= new Date(lastReadAt));
+    const dueSuffix = update.due_at ? ` | Due ${new Date(update.due_at).toLocaleDateString()}` : "";
+
+    events.push({
+      id: `update-published:${row.id}`,
+      type: "update_published",
+      organizationId: row.organization_id,
+      organizationName: organization.name,
+      organizationSlug: organization.slug,
+      title: "New update published",
+      description: `${update.title || "Untitled update"} | ${update.urgency || "normal"}${dueSuffix}`,
+      createdAt,
+      isRead,
+      href: isSharedBrand
+        ? sharedBrandHref
+        : `/${organization.slug}/updates/${encodeURIComponent(update.id)}`,
+    });
+  }
+
+  for (const row of (reminderEvents || []) as Array<{
+    id: string;
+    organization_id: string;
+    partner_update_id: string | null;
+    event_at: string | null;
+  }>) {
+    if (!row.partner_update_id) continue;
+    const update = updateMap.get(row.partner_update_id);
+    if (!update) continue;
+    const organization = organizationsById.get(row.organization_id);
+    const membership = membershipsById.get(row.organization_id);
+    if (!organization) continue;
+
+    const createdAt = row.event_at || fallbackWindowStart;
+    const isSharedBrand =
+      membership?.role === "partner" && organization.organizationType === "brand";
+    const sharedBrandHref = getSharedBrandHref(
+      organization.slug,
+      `/updates/${encodeURIComponent(update.id)}`
+    );
+    const lastReadAt = stateByWorkspace.get(row.organization_id);
+    const isRead = Boolean(lastReadAt && new Date(createdAt) <= new Date(lastReadAt));
+
+    events.push({
+      id: `update-reminder:${row.id}`,
+      type: "update_reminder",
+      organizationId: row.organization_id,
+      organizationName: organization.name,
+      organizationSlug: organization.slug,
+      title: "Update reminder",
+      description: update.title || "Untitled update",
+      createdAt,
+      isRead,
+      href: isSharedBrand
+        ? sharedBrandHref
+        : `/${organization.slug}/updates/${encodeURIComponent(update.id)}`,
+    });
+  }
+
   return events
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, Math.max(1, limit));
 }
 
 export async function markWorkspaceNotificationsRead(
-  supabase: any,
+  supabase: SupabaseClient,
   userId: string,
   organizationIds: string[]
 ): Promise<void> {

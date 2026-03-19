@@ -1,25 +1,16 @@
 'use client';
 
-import { use, useState, useEffect } from 'react';
+import { use, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import {
-  ArrowLeft,
-  Edit,
-  List,
-  Plus,
-  Search,
-  Tag,
-  Trash2,
-  Eye,
-  Minus,
-  Type
-} from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { ItemList } from '@/components/ui/item-list';
+import { ChevronLeft, Lock, Plus, Search, Trash2 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/loading-spinner';
-import { PageContentContainer } from '@/components/ui/page-content-container';
+import { SettingsSecondLevelPage } from '../../components/settings-page-content';
 
 const LOCKED_GROUP_CODES = new Set(['basic_info', 'documentation']);
 const LOCKED_CORE_FIELD_CODES = new Set([
@@ -32,7 +23,60 @@ const LOCKED_CORE_FIELD_CODES = new Set([
   'sfp_documents',
 ]);
 
-// This will be the detailed view for a specific field group
+interface FieldGroup {
+  id: string;
+  name: string;
+  code: string;
+  description?: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+interface AssignedField {
+  id: string;
+  assignment_id: string;
+  name: string;
+  code: string;
+  field_type?: string;
+  type?: string;
+  description?: string | null;
+  sort_order: number;
+  is_required?: boolean;
+  is_unique?: boolean;
+  is_localizable?: boolean;
+  is_channelable?: boolean;
+}
+
+interface AvailableField {
+  id: string;
+  name: string;
+  code: string;
+  field_type?: string;
+  type?: string;
+  description?: string | null;
+  is_assigned?: boolean;
+}
+
+interface AssignedFieldResponse {
+  id: string;
+  sort_order: number;
+  product_fields?: AssignedField | null;
+}
+
+interface ErrorResponse {
+  error?: string;
+}
+
+async function parseJsonSafely<T = unknown>(response: Response): Promise<T | null> {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return null;
+  }
+}
+
 export default function FieldGroupDetailPage({
   params
 }: {
@@ -40,561 +84,554 @@ export default function FieldGroupDetailPage({
 }) {
   const { tenant, groupCode } = use(params);
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState('properties');
-  const [showAddFieldsDialog, setShowAddFieldsDialog] = useState(false);
-  const [availableFieldsSearch, setAvailableFieldsSearch] = useState("");
-  const [selectedFieldsToAdd, setSelectedFieldsToAdd] = useState<string[]>([]);
 
-  const [fieldGroup, setFieldGroup] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [assignedFields, setAssignedFields] = useState<any[]>([]);
-  const [availableFields, setAvailableFields] = useState<any[]>([]);
+  const [fieldGroup, setFieldGroup] = useState<FieldGroup | null>(null);
+  const [assignedFields, setAssignedFields] = useState<AssignedField[]>([]);
+  const [availableFields, setAvailableFields] = useState<AvailableField[]>([]);
+  const [availableFieldsSearch, setAvailableFieldsSearch] = useState('');
+  const [selectedFieldsToAdd, setSelectedFieldsToAdd] = useState<string[]>([]);
+  const [showAddFieldsDialog, setShowAddFieldsDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [detailsName, setDetailsName] = useState('');
+  const [detailsDescription, setDetailsDescription] = useState('');
+  const [detailsSaving, setDetailsSaving] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
   const [availableFieldsLoading, setAvailableFieldsLoading] = useState(false);
   const [availableFieldsError, setAvailableFieldsError] = useState<string | null>(null);
-  const isLockedGroup = LOCKED_GROUP_CODES.has(groupCode);
+  const [hasLoadedAvailableFields, setHasLoadedAvailableFields] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchFieldGroup();
+    setAvailableFields([]);
+    setAvailableFieldsSearch('');
+    setSelectedFieldsToAdd([]);
+    setAvailableFieldsError(null);
+    setHasLoadedAvailableFields(false);
   }, [tenant, groupCode]);
 
-  useEffect(() => {
-    if (showAddFieldsDialog) {
-      fetchAvailableFields();
-    }
-  }, [showAddFieldsDialog, tenant]);
+  const isLockedGroup = LOCKED_GROUP_CODES.has((fieldGroup?.code || groupCode).toLowerCase());
 
-  const fetchFieldGroup = async () => {
+  const sortedAssignedFields = useMemo(
+    () => [...assignedFields].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+    [assignedFields]
+  );
+
+  const filteredAvailableFields = useMemo(() => {
+    const search = availableFieldsSearch.trim().toLowerCase();
+    return availableFields.filter((field) => {
+      if (!search) return true;
+      return (
+        field.name.toLowerCase().includes(search) ||
+        field.code.toLowerCase().includes(search) ||
+        (field.description || '').toLowerCase().includes(search)
+      );
+    });
+  }, [availableFields, availableFieldsSearch]);
+
+  const fetchFieldGroup = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
+
       const groupResponse = await fetch(`/api/${tenant}/field-groups/${groupCode}`);
-      const groupResult = await groupResponse.json();
+      const groupResult = await parseJsonSafely<FieldGroup & ErrorResponse>(groupResponse);
 
-      if (groupResponse.ok) {
-        setFieldGroup(groupResult);
-
-        // Fetch assigned fields
-        const fieldsResponse = await fetch(`/api/${tenant}/field-groups/${groupResult.id}/fields`);
-        const fieldsResult = await fieldsResponse.json();
-
-        if (fieldsResponse.ok) {
-          setAssignedFields(fieldsResult.map((a: any) => ({
-            ...a.product_fields,
-            assignment_id: a.id,
-            sort_order: a.sort_order
-          })));
-        }
-      } else {
-        setError(groupResult.error || 'Failed to fetch field group');
+      if (!groupResponse.ok || !groupResult?.id) {
+        throw new Error(groupResult?.error || 'Failed to fetch field group');
       }
-    } catch (error) {
-      console.error('Error fetching field group:', error);
-      setError('Failed to fetch field group');
+
+      setFieldGroup(groupResult);
+      setDetailsName(groupResult.name || '');
+      setDetailsDescription(groupResult.description || '');
+
+      const fieldsResponse = await fetch(`/api/${tenant}/field-groups/${groupResult.id}/fields`);
+      const fieldsResult = await parseJsonSafely<AssignedFieldResponse[] & ErrorResponse>(fieldsResponse);
+      if (!fieldsResponse.ok) {
+        throw new Error(fieldsResult?.error || 'Failed to fetch attributes');
+      }
+
+      const normalized = Array.isArray(fieldsResult)
+        ? fieldsResult
+            .map((assignment) => {
+              const field = assignment.product_fields;
+              if (!field?.id || !field.name || !field.code) return null;
+              return {
+                ...field,
+                assignment_id: assignment.id,
+                sort_order: assignment.sort_order,
+              };
+            })
+            .filter((field): field is AssignedField => Boolean(field))
+        : [];
+
+      setAssignedFields(normalized);
+    } catch (fetchError) {
+      console.error('Error fetching field group detail:', fetchError);
+      setError(fetchError instanceof Error ? fetchError.message : 'Failed to fetch field group');
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenant, groupCode]);
 
-  const fetchAvailableFields = async () => {
+  const fetchAvailableFields = useCallback(async (force = false) => {
+    if (availableFieldsLoading) return;
+    if (!force && hasLoadedAvailableFields) return;
+
     try {
       setAvailableFieldsLoading(true);
       setAvailableFieldsError(null);
-      const response = await fetch(`/api/${tenant}/field-groups/${groupCode}/available-fields`, {
-        cache: 'no-store',
-        headers: { 'Cache-Control': 'no-cache' }
-      });
-      const result = await response.json();
+
+      const response = await fetch(`/api/${tenant}/field-groups/${groupCode}/available-fields`);
+      const result = await parseJsonSafely<AvailableField[] & ErrorResponse>(response);
+
       if (!response.ok) {
         throw new Error(result?.error || 'Failed to fetch available attributes');
       }
+
       setAvailableFields(Array.isArray(result) ? result : []);
-    } catch (error) {
-      console.error('Error fetching available fields:', error);
+      setHasLoadedAvailableFields(true);
+    } catch (fetchError) {
+      console.error('Error fetching available fields:', fetchError);
       setAvailableFields([]);
       setAvailableFieldsError(
-        error instanceof Error ? error.message : 'Failed to fetch available attributes'
+        fetchError instanceof Error ? fetchError.message : 'Failed to fetch available attributes'
       );
     } finally {
       setAvailableFieldsLoading(false);
     }
-  };
+  }, [availableFieldsLoading, hasLoadedAvailableFields, tenant, groupCode]);
 
-  const [fieldGroupHistory, setFieldGroupHistory] = useState([
-    {
-      id: "1",
-      action: "field_added",
-      field_name: "Brand Name",
-      user: "John Doe",
-      timestamp: "2024-01-15T14:30:00Z",
-      details: "Added Brand Name attribute to Basic Information group"
+  useEffect(() => {
+    void fetchFieldGroup();
+  }, [fetchFieldGroup]);
+
+  useEffect(() => {
+    if (!loading && fieldGroup && !hasLoadedAvailableFields) {
+      void fetchAvailableFields();
     }
-  ]);
+  }, [loading, fieldGroup, hasLoadedAvailableFields, fetchAvailableFields]);
 
-  // Field type definitions
-  const fieldTypes = [
-    { id: "text", label: "Text", icon: Type, description: "Single line text input" },
-    { id: "measurement", label: "Measurement", icon: Type, description: "Values with units" },
-  ];
+  useEffect(() => {
+    if (showAddFieldsDialog) {
+      void fetchAvailableFields();
+    }
+  }, [showAddFieldsDialog, fetchAvailableFields]);
 
-  // Helper functions
-  const getFieldTypeInfo = (type: string) => {
-    const fieldType = fieldTypes.find(ft => ft.id === type);
-    return fieldType || { id: type, label: type, icon: Type, description: "" };
-  };
-
-  const getGroupFields = () => {
-    return assignedFields.sort((a, b) => a.sort_order - b.sort_order);
-  };
-
-  const getAvailableFields = () => {
-    const search = availableFieldsSearch.trim().toLowerCase();
-    return availableFields.filter(field =>
-      (
-        !search ||
-        field.name.toLowerCase().includes(search) ||
-        field.code.toLowerCase().includes(search)
-      )
+  const toggleFieldSelection = (fieldId: string) => {
+    setSelectedFieldsToAdd((prev) =>
+      prev.includes(fieldId) ? prev.filter(id => id !== fieldId) : [...prev, fieldId]
     );
   };
 
   const handleAddFieldsToGroup = async () => {
-    if (selectedFieldsToAdd.length === 0 || !fieldGroup) return;
+    if (!fieldGroup || selectedFieldsToAdd.length === 0) return;
 
     try {
-      const newFields = selectedFieldsToAdd.filter(id => !assignedFields.find(f => f.id === id));
+      const alreadyAssignedIds = new Set(sortedAssignedFields.map(field => field.id));
+      const newFieldIds = selectedFieldsToAdd.filter(id => !alreadyAssignedIds.has(id));
 
-      // Add new fields
-      for (const fieldId of newFields) {
-        await fetch(`/api/${tenant}/field-groups/${fieldGroup.id}/fields`, {
+      for (let index = 0; index < newFieldIds.length; index += 1) {
+        const fieldId = newFieldIds[index];
+        const response = await fetch(`/api/${tenant}/field-groups/${fieldGroup.id}/fields`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             product_field_id: fieldId,
-            sort_order: assignedFields.length + 1
+            sort_order: sortedAssignedFields.length + index + 1
           })
         });
+
+        if (!response.ok) {
+          const result = await parseJsonSafely<ErrorResponse>(response);
+          throw new Error(result?.error || 'Failed to add attributes');
+        }
       }
 
       await fetchFieldGroup();
+      setHasLoadedAvailableFields(false);
       setSelectedFieldsToAdd([]);
+      setAvailableFieldsSearch('');
       setShowAddFieldsDialog(false);
-    } catch (error) {
-      console.error('Error adding fields:', error);
-      setError('Failed to add attributes to group');
+    } catch (saveError) {
+      console.error('Error adding attributes to group:', saveError);
+      setError(saveError instanceof Error ? saveError.message : 'Failed to add attributes');
     }
   };
 
-  const handleRemoveFieldFromGroup = async (fieldId: string) => {
-    const field = assignedFields.find(f => f.id === fieldId);
-    if (!fieldGroup || !confirm(`Remove "${field?.name}" from this field group?`)) return;
+  const handleRemoveFieldFromGroup = async (field: AssignedField) => {
+    if (!fieldGroup) return;
+
+    const confirmed = confirm(`Remove "${field.name}" from this attribute group?`);
+    if (!confirmed) return;
 
     try {
-      await fetch(`/api/${tenant}/field-groups/${fieldGroup.id}/fields?fieldId=${fieldId}`, {
-        method: 'DELETE'
-      });
-
+      const response = await fetch(
+        `/api/${tenant}/field-groups/${fieldGroup.id}/fields?fieldId=${field.id}`,
+        { method: 'DELETE' }
+      );
+      const result = await parseJsonSafely<ErrorResponse>(response);
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to remove attribute');
+      }
       await fetchFieldGroup();
-    } catch (error) {
-      console.error('Error removing field:', error);
-      setError('Failed to remove field from group');
+      setHasLoadedAvailableFields(false);
+    } catch (removeError) {
+      console.error('Error removing attribute from group:', removeError);
+      setError(removeError instanceof Error ? removeError.message : 'Failed to remove attribute');
     }
   };
 
+  const handleDeleteGroup = async () => {
+    if (isLockedGroup || deleteConfirmation.trim().toLowerCase() !== 'delete') return;
+
+    try {
+      setDeleteLoading(true);
+      setDeleteError(null);
+
+      const response = await fetch(`/api/${tenant}/field-groups/${groupCode}`, {
+        method: 'DELETE'
+      });
+      const result = await parseJsonSafely<ErrorResponse>(response);
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to delete attribute group');
+      }
+
+      setShowDeleteDialog(false);
+      router.push(`/${tenant}/settings/field-groups`);
+    } catch (deleteErr) {
+      console.error('Error deleting attribute group:', deleteErr);
+      setDeleteError(deleteErr instanceof Error ? deleteErr.message : 'Failed to delete attribute group');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleSaveDetails = async (
+    nextName: string = detailsName,
+    nextDescription: string = detailsDescription
+  ) => {
+    if (!fieldGroup || isLockedGroup) return;
+
+    const name = nextName.trim();
+    const description = nextDescription.trim();
+    const currentName = fieldGroup.name.trim();
+    const currentDescription = (fieldGroup.description || '').trim();
+
+    if (!name) {
+      setDetailsError('Group name is required');
+      setDetailsName(fieldGroup.name);
+      return;
+    }
+
+    if (name === currentName && description === currentDescription) return;
+
+    try {
+      setDetailsSaving(true);
+      setDetailsError(null);
+
+      const response = await fetch(`/api/${tenant}/field-groups/${groupCode}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          description
+        })
+      });
+      const result = await parseJsonSafely<Partial<FieldGroup> & ErrorResponse>(response);
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to update attribute group');
+      }
+
+      setFieldGroup((prev) =>
+        prev
+          ? {
+              ...prev,
+              name: result?.name ?? name,
+              description: result?.description ?? description
+            }
+          : prev
+      );
+      setDetailsName((result?.name ?? name) || '');
+      setDetailsDescription((result?.description ?? description) || '');
+    } catch (saveError) {
+      console.error('Error updating attribute group details:', saveError);
+      setDetailsError(
+        saveError instanceof Error ? saveError.message : 'Failed to update attribute group'
+      );
+    } finally {
+      setDetailsSaving(false);
+    }
+  };
 
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading field group..." size="lg" />
+        <PageLoader text="Loading attribute group..." size="lg" />
       </div>
     );
   }
 
-  if (error) {
+  if (error || !fieldGroup) {
     return (
       <div className="h-full bg-background flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-600 mb-4">{error}</p>
-          <Button variant="outline" onClick={fetchFieldGroup}>Try Again</Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!fieldGroup) {
-    return (
-      <div className="h-full bg-background flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-muted-foreground">Field group not found</p>
+          <p className="text-red-600 mb-4">{error || 'Attribute group not found'}</p>
+          <Button variant="outline" onClick={() => router.push(`/${tenant}/settings/field-groups`)}>
+            Back to Attribute Groups
+          </Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full bg-background">
-      {/* Header with breadcrumb */}
-      <div className="border-b border-border bg-white">
-        <PageContentContainer mode="content" className="px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => router.push(`/${tenant}/settings?section=field-groups`)}
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to Groups
-              </Button>
-              <span className="text-muted-foreground">/</span>
-              <span className="font-medium">{fieldGroup.name}</span>
-              {isLockedGroup && (
-                <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200">
-                  System Group
-                </Badge>
-              )}
-              <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
-                {getGroupFields().length} attributes
+    <>
+      <SettingsSecondLevelPage
+        page="field-group-detail"
+        backLink={
+          <Link
+            href={`/${tenant}/settings/field-groups`}
+            className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            <span>Attribute Groups</span>
+          </Link>
+        }
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="w-full max-w-2xl space-y-2">
+            {isLockedGroup ? (
+              <>
+                <h2 className="text-2xl font-semibold text-foreground">{fieldGroup.name}</h2>
+                <p className="text-muted-foreground">
+                  {sortedAssignedFields.length} attributes | System group
+                </p>
+                {fieldGroup.description ? (
+                  <p className="mt-1 text-sm text-muted-foreground">{fieldGroup.description}</p>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={detailsName}
+                  onChange={(e) => setDetailsName(e.target.value)}
+                  onBlur={(e) => {
+                    void handleSaveDetails(e.target.value, detailsDescription);
+                  }}
+                  placeholder="Untitled attribute group"
+                  className="inline-edit-plain m-0 block w-full appearance-none border-0 bg-transparent p-0 text-2xl font-semibold text-foreground shadow-none outline-none ring-0 placeholder:text-muted-foreground focus:outline-none focus:ring-0 focus:border-0"
+                  aria-label="Attribute group name"
+                />
+
+                <textarea
+                  value={detailsDescription}
+                  onChange={(e) => setDetailsDescription(e.target.value)}
+                  onBlur={(e) => {
+                    void handleSaveDetails(detailsName, e.target.value);
+                  }}
+                  placeholder="Add a short description..."
+                  rows={1}
+                  className="inline-edit-plain m-0 block w-full appearance-none resize-none border-0 bg-transparent p-0 text-sm text-muted-foreground shadow-none outline-none ring-0 placeholder:text-muted-foreground focus:outline-none focus:ring-0 focus:border-0"
+                  aria-label="Attribute group description"
+                />
+                <p className="text-sm text-muted-foreground">
+                  {sortedAssignedFields.length} attributes
+                </p>
+                {detailsError ? (
+                  <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
+                    {detailsError}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {isLockedGroup ? (
+              <Badge variant="neutral" className="gap-1">
+                <Lock className="h-3 w-3" />
+                Locked
               </Badge>
-            </div>
-            {!isLockedGroup && (
-              <Button variant="secondary" onClick={() => router.push(`/${tenant}/settings/field-groups/${groupCode}/edit`)}>
-                <Edit className="w-4 h-4" />
-                Edit Group
-              </Button>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                  disabled={detailsSaving}
+                  onClick={() => {
+                    setDeleteError(null);
+                    setDeleteConfirmation('');
+                    setShowDeleteDialog(true);
+                  }}
+                >
+                  Delete group
+                </Button>
+              </>
             )}
           </div>
-        </PageContentContainer>
-      </div>
+        </div>
 
-      {/* Main content */}
-      <PageContentContainer mode="content" className="px-6 py-6">
-        <Card>
-          <CardHeader className="pb-0">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <List className="w-5 h-5" />
-                  {fieldGroup.name}
-                </CardTitle>
-                <CardDescription>
-                  {fieldGroup.description || "No description"}
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-
-          {/* Three-tab interface */}
-          <div className="border-b border-border">
-            <div className="flex space-x-8 px-6">
-              <button
-                onClick={() => setActiveTab('properties')}
-                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'properties'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Properties
-              </button>
-              <button
-                onClick={() => setActiveTab('fields')}
-                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'fields'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Attributes
-                <Badge variant="secondary" className="ml-2">
-                  {getGroupFields().length}
-                </Badge>
-              </button>
-              <button
-                onClick={() => setActiveTab('history')}
-                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'history'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                History
-              </button>
-            </div>
+        <section className="space-y-3">
+          <div>
+            <h3 className="text-lg font-medium">Attributes</h3>
+            <p className="text-sm text-muted-foreground">
+              Assign attributes to this group. Visibility is controlled at the product model level.
+            </p>
           </div>
 
-          <CardContent className="p-0">
-            {/* Properties Tab */}
-            {activeTab === 'properties' && (
-              <div className="p-6 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-2 block">
-                      Group Name
-                    </label>
-                    <div className="text-sm text-foreground p-3 bg-muted/30 rounded-lg">
-                      {fieldGroup.name}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-2 block">
-                      Group Code
-                    </label>
-                    <div className="text-sm text-foreground p-3 bg-muted/30 rounded-lg font-mono">
-                      {fieldGroup.code}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-2 block">
-                      Sort Order
-                    </label>
-                    <div className="text-sm text-foreground p-3 bg-muted/30 rounded-lg">
-                      {fieldGroup.sort_order}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-2 block">
-                      Created
-                    </label>
-                    <div className="text-sm text-foreground p-3 bg-muted/30 rounded-lg">
-                      {new Date(fieldGroup.created_at).toLocaleDateString('en-US', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </div>
-                  </div>
-                </div>
-                {fieldGroup.description && (
-                  <div>
-                    <label className="text-sm font-medium text-foreground mb-2 block">
-                      Description
-                    </label>
-                    <div className="text-sm text-foreground p-3 bg-muted/30 rounded-lg">
-                      {fieldGroup.description}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Attributes Tab */}
-            {activeTab === 'fields' && (
-              <div>
-                {/* Attributes header with Add button */}
-                <div className="p-6 border-b border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-medium">Attributes</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Assign attributes to this group. Visibility is controlled at the product family level.
-                      </p>
-                    </div>
-                    <Button variant="accent-blue" onClick={() => setShowAddFieldsDialog(true)}>
-                      <Plus className="w-4 h-4" />
-                      ADD ATTRIBUTES
+          <ItemList
+            items={sortedAssignedFields}
+            getKey={(field) => field.id}
+            renderTitle={(field) => field.name}
+            renderSubtitle={(field) => field.description || field.field_type || field.type || 'No description'}
+            renderRight={(field) => {
+              const fieldCode = (field.code || '').toLowerCase();
+              const canRemove = !(isLockedGroup && LOCKED_CORE_FIELD_CODES.has(fieldCode));
+              return (
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    {field.field_type || field.type || 'attribute'}
+                  </Badge>
+                  {field.is_required ? (
+                    <Badge variant="secondary" className="text-xs bg-red-50 text-red-700">
+                      Required
+                    </Badge>
+                  ) : null}
+                  {field.is_unique ? (
+                    <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700">
+                      Unique
+                    </Badge>
+                  ) : null}
+                  {field.is_localizable ? (
+                    <Badge variant="secondary" className="text-xs bg-green-50 text-green-700">
+                      Localizable
+                    </Badge>
+                  ) : null}
+                  {field.is_channelable ? (
+                    <Badge variant="secondary" className="text-xs bg-yellow-50 text-yellow-700">
+                      Channel
+                    </Badge>
+                  ) : null}
+                  {canRemove ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 text-red-600 hover:text-red-700"
+                      onClick={() => handleRemoveFieldFromGroup(field)}
+                      aria-label={`Remove ${field.name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
                     </Button>
-                  </div>
+                  ) : null}
                 </div>
+              );
+            }}
+            headerLabel="attributes"
+            headerAction={
+              !isLockedGroup ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAddFieldsDialog(true)}
+                  className="inline-flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-foreground/80"
+                  aria-label="Add attributes"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add attributes
+                </button>
+              ) : null
+            }
+            emptyMessage={
+              isLockedGroup
+                ? 'No attributes in this system group.'
+                : 'No attributes assigned yet. Add attributes to build this group.'
+            }
+          />
+        </section>
+      </SettingsSecondLevelPage>
 
-                {/* Attributes table */}
-                {getGroupFields().length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <Tag className="w-12 h-12 text-muted-foreground/50 mb-4" />
-                    <h3 className="text-lg font-medium text-foreground mb-2">No Attributes Assigned</h3>
-                    <p className="text-muted-foreground mb-6 max-w-md">
-                      This field group doesn't have any attributes assigned yet. Add attributes to create the template for this section.
-                    </p>
-                    <Button variant="accent-blue" onClick={() => setShowAddFieldsDialog(true)}>
-                      <Plus className="w-4 h-4" />
-                      Add Your First Attribute
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border/60">
-                    {getGroupFields().map((field) => {
-                      const typeInfo = getFieldTypeInfo(field.field_type || field.type);
-                      const TypeIcon = typeInfo.icon;
-
-                      return (
-                        <div key={field.id} className="p-4">
-                          <div className="grid gap-3 md:grid-cols-[minmax(240px,320px),1fr,auto] md:items-start">
-                            <div className="flex items-start gap-3">
-                              <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
-                                <TypeIcon className="h-4 w-4 text-muted-foreground" />
-                              </div>
-                              <div>
-                                <div className="text-sm font-medium text-foreground">
-                                  {field.name}
-                                </div>
-                                <div className="font-mono text-xs text-muted-foreground">{field.code}</div>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Badge variant="outline" className="text-xs">
-                                {field.field_type || field.type}
-                              </Badge>
-                              {field.is_required && (
-                                <Badge variant="secondary" className="text-xs bg-red-50 text-red-700">
-                                  Required
-                                </Badge>
-                              )}
-                              {field.is_unique && (
-                                <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700">
-                                  Unique
-                                </Badge>
-                              )}
-                              {field.is_localizable && (
-                                <Badge variant="secondary" className="text-xs bg-green-50 text-green-700">
-                                  Localizable
-                                </Badge>
-                              )}
-                              {field.is_channelable && (
-                                <Badge variant="secondary" className="text-xs bg-yellow-50 text-yellow-700">
-                                  Channel
-                                </Badge>
-                              )}
-                              {field.description && (
-                                <p className="w-full text-xs text-muted-foreground">{field.description}</p>
-                              )}
-                            </div>
-                            {!(isLockedGroup && LOCKED_CORE_FIELD_CODES.has(field.code)) && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
-                                onClick={() => handleRemoveFieldFromGroup(field.id)}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* History Tab */}
-            {activeTab === 'history' && (
-              <div className="p-6">
-                <div className="space-y-4">
-                  {fieldGroupHistory.map((entry) => (
-                    <div key={entry.id} className="flex items-start gap-3 p-4 bg-muted/30 rounded-lg">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        entry.action === 'field_added' ? 'bg-green-100' : 'bg-red-100'
-                      }`}>
-                        {entry.action === 'field_added' ? (
-                          <Plus className={`w-4 h-4 text-green-600`} />
-                        ) : (
-                          <Minus className={`w-4 h-4 text-red-600`} />
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-foreground">{entry.user}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(entry.timestamp).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">{entry.details}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </PageContentContainer>
-
-      {/* Add Attributes Dialog */}
-      <Dialog open={showAddFieldsDialog} onOpenChange={setShowAddFieldsDialog}>
-        <DialogContent className="max-w-4xl">
+      <Dialog
+        open={showAddFieldsDialog}
+        onOpenChange={(open) => {
+          setShowAddFieldsDialog(open);
+          if (!open) {
+            setSelectedFieldsToAdd([]);
+            setAvailableFieldsSearch('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Add Attributes to {fieldGroup.name}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-6">
-            {/* Search */}
+          <div className="space-y-4">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-              <input
-                type="text"
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
                 value={availableFieldsSearch}
                 onChange={(e) => setAvailableFieldsSearch(e.target.value)}
-                placeholder="Search attributes by name or code"
-                className="w-full pl-10 pr-4 py-2 border border-input rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                placeholder="Search attributes..."
+                className="pl-9"
               />
             </div>
 
-            {/* Available attributes list */}
-            <div className="max-h-96 overflow-y-auto border rounded-lg">
-              {availableFieldsLoading ? (
-                <div className="p-8 text-center text-muted-foreground">
-                  Loading attributes...
-                </div>
-              ) : availableFieldsError ? (
-                <div className="p-8 text-center text-muted-foreground">
-                  {availableFieldsError}
-                </div>
-              ) : getAvailableFields().length === 0 ? (
-                <div className="p-8 text-center text-muted-foreground">
-                  No available attributes found
-                </div>
-              ) : (
-                <div className="divide-y">
-                  {getAvailableFields().map((field) => {
-                    const isAssigned = Boolean(field.is_assigned);
-                    return (
-                      <label
-                        key={field.id}
-                        className={`flex items-center gap-3 p-4 ${
-                          isAssigned ? 'opacity-60 cursor-not-allowed' : 'hover:bg-muted/50 cursor-pointer'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedFieldsToAdd.includes(field.id)}
-                          disabled={isAssigned}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedFieldsToAdd([...selectedFieldsToAdd, field.id]);
-                            } else {
-                              setSelectedFieldsToAdd(selectedFieldsToAdd.filter(id => id !== field.id));
-                            }
-                          }}
-                          className="rounded"
-                        />
-                        <div className="flex-1">
-                          <div className="font-medium">{field.name}</div>
-                          <div className="text-sm text-muted-foreground">{field.code}</div>
-                        </div>
-                        {isAssigned && (
-                          <Badge variant="secondary">Already in group</Badge>
-                        )}
-                        <Badge variant="outline">{field.field_type}</Badge>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            {availableFieldsLoading ? (
+              <div className="rounded-lg border border-border/60 px-4 py-12 text-center text-sm text-muted-foreground">
+                Loading attributes...
+              </div>
+            ) : availableFieldsError ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-12 text-center text-sm text-red-700">
+                {availableFieldsError}
+              </div>
+            ) : (
+              <div className="max-h-96 overflow-y-auto">
+                <ItemList
+                  items={filteredAvailableFields}
+                  getKey={(field) => field.id}
+                  renderTitle={(field) => field.name}
+                  renderSubtitle={(field) => field.description || undefined}
+                  renderRight={(field) => (
+                    <div className="flex items-center gap-2">
+                      {field.is_assigned ? (
+                        <Badge variant="secondary" className="text-xs">
+                          Already in group
+                        </Badge>
+                      ) : null}
+                      <input
+                        type="checkbox"
+                        checked={selectedFieldsToAdd.includes(field.id)}
+                        disabled={Boolean(field.is_assigned)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => {
+                          if (field.is_assigned) return;
+                          toggleFieldSelection(field.id);
+                        }}
+                        className="h-4 w-4 rounded border-border/60"
+                      />
+                    </div>
+                  )}
+                  onClickItem={(field) => {
+                    if (field.is_assigned) return;
+                    toggleFieldSelection(field.id);
+                  }}
+                  headerLabel="available attributes"
+                  showIndicator={false}
+                  emptyMessage="No available attributes found."
+                />
+              </div>
+            )}
 
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-3 pt-2">
               <Button
                 variant="outline"
                 onClick={() => {
                   setShowAddFieldsDialog(false);
                   setSelectedFieldsToAdd([]);
-                  setAvailableFieldsSearch("");
+                  setAvailableFieldsSearch('');
                 }}
               >
                 Cancel
@@ -610,7 +647,54 @@ export default function FieldGroupDetailPage({
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+
+      <Dialog
+        open={showDeleteDialog}
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open);
+          if (!open) {
+            setDeleteConfirmation('');
+            setDeleteError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Attribute Group</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Delete &quot;{fieldGroup.name}&quot; permanently. This action cannot be undone.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Type <span className="font-mono bg-muted px-1 rounded">delete</span> to confirm:
+            </p>
+            <Input
+              value={deleteConfirmation}
+              onChange={(e) => setDeleteConfirmation(e.target.value)}
+              placeholder="Type 'delete' to confirm"
+            />
+            {deleteError ? (
+              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
+                {deleteError}
+              </div>
+            ) : null}
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowDeleteDialog(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteGroup}
+                disabled={deleteLoading || deleteConfirmation.trim().toLowerCase() !== 'delete'}
+                className="flex-1"
+              >
+                {deleteLoading ? 'Deleting...' : 'Delete group'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
-

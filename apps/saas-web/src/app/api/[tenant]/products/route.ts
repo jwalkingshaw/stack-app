@@ -105,6 +105,71 @@ type ProductAuthoringScope = {
   destinationIds: string[];
 };
 
+type ScopeSelection = {
+  marketId: string | null;
+  channelId: string | null;
+  localeId: string | null;
+  destinationId: string | null;
+  channelCode: string | null;
+  localeCode: string | null;
+  destinationCode: string | null;
+};
+
+type ProductFieldRow = {
+  id: string;
+  code: string;
+};
+
+type ProductFieldValueRow = {
+  product_id: string;
+  product_field_id: string;
+  value_text: string | null;
+  value_number: number | null;
+  value_boolean: boolean | null;
+  value_date: string | null;
+  value_datetime: string | null;
+  value_json: unknown;
+  market_id: string | null;
+  channel_id: string | null;
+  locale_id: string | null;
+  destination_id: string | null;
+  channel: string | null;
+  locale: string | null;
+};
+
+type ProductListRow = Record<string, unknown> & {
+  id?: string;
+  organization_id?: string;
+  created_at?: string;
+  barcode?: string | null;
+  upc?: string | null;
+  marketplace_content?: Record<string, unknown> | null;
+  marketplaceContent?: Record<string, unknown> | null;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+
+const SCOPED_FIELD_CODE_CANDIDATES: Record<string, string[]> = {
+  product_name: ["title", "product_name"],
+  sku: ["sku"],
+  barcode: ["barcode", "upc"],
+  short_description: ["short_description"],
+  long_description: ["long_description", "description"],
+  features: ["features", "bullet_points", "bullets"],
+  specifications: ["specifications"],
+  keywords: ["keywords"],
+  meta_title: ["meta_title", "seo_title"],
+  meta_description: ["meta_description", "seo_description"],
+  brand_line: ["brand_line", "brand"],
+  weight_g: ["weight_g", "weight"],
+  dimensions: ["dimensions"],
+};
+
+const SCOPED_PRODUCT_LIST_COLUMNS = new Set(Object.keys(SCOPED_FIELD_CODE_CANDIDATES));
+
 function normalizeBarcodeInput(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
@@ -150,10 +215,329 @@ function normalizeProductAuthoringScope(raw: unknown): ProductAuthoringScope | n
   return normalized;
 }
 
-function withNormalizedBarcode<T extends Record<string, any>>(row: T): T & { barcode: string | null } {
+function getProductAuthoringScopeFromRow(row: ProductListRow): ProductAuthoringScope | null {
+  const legacyContent = asRecord(row.marketplace_content);
+  const modernContent = asRecord(row.marketplaceContent);
+  const rawScope = legacyContent?.authoringScope ?? modernContent?.authoringScope ?? null;
+  return normalizeProductAuthoringScope(rawScope);
+}
+
+function isProductVisibleForMarketScope(params: {
+  product: ProductListRow;
+  scope: ScopeSelection;
+}): boolean {
+  const selectedMarketId = params.scope.marketId;
+  if (!selectedMarketId) return true;
+
+  const authoringScope = getProductAuthoringScopeFromRow(params.product);
+  if (!authoringScope || authoringScope.mode !== "scoped") {
+    return true;
+  }
+  if (authoringScope.marketIds.length === 0) {
+    // Scoped with no explicit market constraint behaves like "all markets".
+    return true;
+  }
+  return authoringScope.marketIds.includes(selectedMarketId);
+}
+
+function applyMarketVisibilityFilter(params: {
+  products: ProductListRow[];
+  scope: ScopeSelection;
+}): ProductListRow[] {
+  if (!params.scope.marketId) return params.products;
+  return params.products.filter((product) =>
+    isProductVisibleForMarketScope({ product, scope: params.scope })
+  );
+}
+
+function normalizeScopeToken(value: string | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeScopeCode(value: string | null): string | null {
+  const token = normalizeScopeToken(value);
+  return token ? token.toLowerCase() : null;
+}
+
+function parseScopeSelectionFromSearchParams(searchParams: URLSearchParams): ScopeSelection {
+  return {
+    marketId: normalizeScopeToken(searchParams.get("marketId")),
+    channelId: normalizeScopeToken(searchParams.get("channelId")),
+    localeId: normalizeScopeToken(searchParams.get("localeId")),
+    destinationId: normalizeScopeToken(searchParams.get("destinationId")),
+    channelCode: normalizeScopeCode(searchParams.get("channel")),
+    localeCode: normalizeScopeCode(searchParams.get("locale")),
+    destinationCode: normalizeScopeCode(searchParams.get("destination")),
+  };
+}
+
+function hasScopedSelection(scope: ScopeSelection): boolean {
+  return Boolean(
+    scope.marketId ||
+      scope.channelId ||
+      scope.localeId ||
+      scope.destinationId ||
+      scope.channelCode ||
+      scope.localeCode ||
+      scope.destinationCode
+  );
+}
+
+function scoreDimensionByIdOrCode(params: {
+  rowId: string | null;
+  rowCode?: string | null;
+  selectedId: string | null;
+  selectedCode?: string | null;
+  weight: number;
+}): number {
+  const rowCode = params.rowCode ? params.rowCode.toLowerCase() : null;
+  const selectedCode = params.selectedCode ? params.selectedCode.toLowerCase() : null;
+
+  if (params.selectedId) {
+    if (params.rowId === params.selectedId) return params.weight;
+    if (selectedCode && rowCode && rowCode === selectedCode) return params.weight - 4;
+    if (!params.rowId && !rowCode) return 1;
+    return -1000;
+  }
+
+  if (selectedCode) {
+    if (rowCode && rowCode === selectedCode) return params.weight;
+    if (!params.rowId && !rowCode) return 1;
+    return -1000;
+  }
+
+  if (!params.rowId && !rowCode) return 2;
+  return -1000;
+}
+
+function scoreScopedFieldValueRow(row: ProductFieldValueRow, scope: ScopeSelection): number {
+  return (
+    scoreDimensionByIdOrCode({
+      rowId: row.market_id,
+      selectedId: scope.marketId,
+      weight: 32,
+    }) +
+    scoreDimensionByIdOrCode({
+      rowId: row.channel_id,
+      rowCode: row.channel,
+      selectedId: scope.channelId,
+      selectedCode: scope.channelCode,
+      weight: 24,
+    }) +
+    scoreDimensionByIdOrCode({
+      rowId: row.locale_id,
+      rowCode: row.locale,
+      selectedId: scope.localeId,
+      selectedCode: scope.localeCode,
+      weight: 24,
+    }) +
+    scoreDimensionByIdOrCode({
+      rowId: row.destination_id,
+      selectedId: scope.destinationId,
+      selectedCode: scope.destinationCode,
+      weight: 16,
+    })
+  );
+}
+
+function toTypedFieldValue(row: ProductFieldValueRow): unknown {
+  if (row.value_text !== null && typeof row.value_text !== "undefined") return row.value_text;
+  if (row.value_number !== null && typeof row.value_number !== "undefined") return row.value_number;
+  if (row.value_boolean !== null && typeof row.value_boolean !== "undefined") return row.value_boolean;
+  if (row.value_date !== null && typeof row.value_date !== "undefined") return row.value_date;
+  if (row.value_datetime !== null && typeof row.value_datetime !== "undefined") return row.value_datetime;
+  if (row.value_json !== null && typeof row.value_json !== "undefined") return row.value_json;
+  return null;
+}
+
+async function resolveScopedFieldMap(params: {
+  organizationId: string;
+  columns: string[];
+}): Promise<Map<string, ProductFieldRow>> {
+  const uniqueColumns = Array.from(
+    new Set(
+      params.columns
+        .map((column) => String(column || "").trim().toLowerCase())
+        .filter((column) => column.length > 0)
+    )
+  );
+  if (uniqueColumns.length === 0) return new Map();
+
+  const candidateCodes = Array.from(
+    new Set(
+      uniqueColumns
+        .flatMap((column) => SCOPED_FIELD_CODE_CANDIDATES[column] || [column])
+        .map((code) => code.toLowerCase())
+    )
+  );
+  if (candidateCodes.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("product_fields")
+    .select("id,code")
+    .eq("organization_id", params.organizationId)
+    .in("code", candidateCodes);
+
+  if (error) {
+    console.error("Failed to resolve scoped product fields for list:", error);
+    return new Map();
+  }
+
+  const byCode = new Map<string, ProductFieldRow>();
+  ((data || []) as ProductFieldRow[]).forEach((row) => {
+    const code = String(row.code || "").trim().toLowerCase();
+    if (!code) return;
+    byCode.set(code, row);
+  });
+
+  const mapped = new Map<string, ProductFieldRow>();
+  uniqueColumns.forEach((column) => {
+    const candidates = SCOPED_FIELD_CODE_CANDIDATES[column] || [column];
+    for (const code of candidates) {
+      const row = byCode.get(code.toLowerCase());
+      if (row) {
+        mapped.set(column, row);
+        break;
+      }
+    }
+  });
+
+  return mapped;
+}
+
+async function applyScopedOverridesForOrganization(params: {
+  organizationId: string;
+  products: ProductListRow[];
+  scope: ScopeSelection;
+}): Promise<ProductListRow[]> {
+  if (!hasScopedSelection(params.scope)) return params.products;
+  if (params.products.length === 0) return params.products;
+
+  const fieldMap = await resolveScopedFieldMap({
+    organizationId: params.organizationId,
+    columns: Array.from(SCOPED_PRODUCT_LIST_COLUMNS),
+  });
+  if (fieldMap.size === 0) return params.products;
+
+  const productIds = Array.from(
+    new Set(params.products.map((product) => String(product.id || "").trim()).filter(Boolean))
+  );
+  if (productIds.length === 0) return params.products;
+
+  const fieldIds = Array.from(new Set(Array.from(fieldMap.values()).map((row) => row.id)));
+  if (fieldIds.length === 0) return params.products;
+
+  const { data, error } = await supabase
+    .from("product_field_values")
+    .select(
+      "product_id,product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,channel,locale"
+    )
+    .in("product_id", productIds)
+    .in("product_field_id", fieldIds);
+
+  if (error) {
+    console.error("Failed to load scoped product field values for list:", error);
+    return params.products;
+  }
+
+  const scopedRowsByProductField = new Map<string, ProductFieldValueRow[]>();
+  ((data || []) as ProductFieldValueRow[]).forEach((row) => {
+    const productId = String(row.product_id || "").trim();
+    const fieldId = String(row.product_field_id || "").trim();
+    if (!productId || !fieldId) return;
+    const key = `${productId}::${fieldId}`;
+    const rows = scopedRowsByProductField.get(key) || [];
+    rows.push(row);
+    scopedRowsByProductField.set(key, rows);
+  });
+
+  const productOverrides = new Map<string, Record<string, unknown>>();
+  for (const product of params.products) {
+    const productId = String(product.id || "").trim();
+    if (!productId) continue;
+
+    const overrides: Record<string, unknown> = {};
+    fieldMap.forEach((field, column) => {
+      const key = `${productId}::${field.id}`;
+      const rows = scopedRowsByProductField.get(key) || [];
+      if (rows.length === 0) return;
+
+      const winner = rows
+        .map((row) => ({ row, score: scoreScopedFieldValueRow(row, params.scope) }))
+        .filter((entry) => entry.score > -500)
+        .sort((a, b) => b.score - a.score)[0]?.row;
+
+      if (!winner) return;
+      const typedValue = toTypedFieldValue(winner);
+      if (typedValue === null || typeof typedValue === "undefined") return;
+      overrides[column] = typedValue;
+    });
+
+    if (Object.keys(overrides).length > 0) {
+      productOverrides.set(productId, overrides);
+    }
+  }
+
+  if (productOverrides.size === 0) return params.products;
+
+  return params.products.map((product) => {
+    const productId = String(product.id || "").trim();
+    const overrides = productOverrides.get(productId);
+    if (!overrides) return product;
+    return {
+      ...product,
+      ...overrides,
+    };
+  });
+}
+
+async function applyScopedOverridesToProducts(params: {
+  products: ProductListRow[];
+  scope: ScopeSelection;
+}): Promise<ProductListRow[]> {
+  if (!hasScopedSelection(params.scope)) return params.products;
+  if (params.products.length === 0) return params.products;
+
+  const groups = new Map<string, ProductListRow[]>();
+  for (const product of params.products) {
+    const organizationId = String(product.organization_id || "").trim();
+    if (!organizationId) continue;
+    const rows = groups.get(organizationId) || [];
+    rows.push(product);
+    groups.set(organizationId, rows);
+  }
+
+  if (groups.size === 0) return params.products;
+
+  const overridesByProductId = new Map<string, ProductListRow>();
+  for (const [organizationId, products] of groups.entries()) {
+    const overridden = await applyScopedOverridesForOrganization({
+      organizationId,
+      products,
+      scope: params.scope,
+    });
+    overridden.forEach((product) => {
+      const productId = String(product.id || "").trim();
+      if (!productId) return;
+      overridesByProductId.set(productId, product);
+    });
+  }
+
+  return params.products.map((product) => {
+    const productId = String(product.id || "").trim();
+    return overridesByProductId.get(productId) || product;
+  });
+}
+
+function withNormalizedBarcode<T extends Record<string, unknown>>(row: T): T & { barcode: string | null } {
+  const barcodeValue = typeof row.barcode === "string" ? row.barcode : null;
+  const upcValue = typeof row.upc === "string" ? row.upc : null;
+
   return {
     ...row,
-    barcode: row.barcode ?? row.upc ?? null,
+    barcode: barcodeValue ?? upcValue,
   };
 }
 
@@ -188,10 +572,16 @@ async function fetchProductsForOrganization(params: {
     productsResult = await buildProductQuery(PRODUCT_SELECT_WITH_UPC);
   }
 
+  const rows = Array.isArray(productsResult.data)
+    ? (productsResult.data as unknown[])
+        .filter(
+          (row): row is ProductListRow =>
+            typeof row === "object" && row !== null && !("error" in (row as Record<string, unknown>))
+        )
+    : [];
+
   return {
-    products: (productsResult.data || []).map((row: Record<string, any>) =>
-      withNormalizedBarcode(row)
-    ),
+    products: rows.map((row) => withNormalizedBarcode(row)),
     error: productsResult.error,
   };
 }
@@ -201,7 +591,7 @@ async function resolveOrganizationLookup(organizationIds: string[]): Promise<Org
     return {};
   }
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("organizations")
     .select("id,slug,name")
     .in("id", organizationIds);
@@ -229,6 +619,7 @@ export async function GET(
   try {
     const { tenant } = await params;
     const requestUrl = new URL(request.url);
+    const scopeSelection = parseScopeSelectionFromSearchParams(requestUrl.searchParams);
     const selectedBrandSlug = requestUrl.searchParams.get("brand");
     const requestedViewScope = (requestUrl.searchParams.get("view") || "")
       .trim()
@@ -305,7 +696,7 @@ export async function GET(
         }
       }
 
-      const mergedProductsById = new Map<string, Record<string, any>>();
+      const mergedProductsById = new Map<string, ProductListRow>();
       for (const row of ownProductsResult.products) {
         mergedProductsById.set(String(row.id), row);
       }
@@ -315,19 +706,26 @@ export async function GET(
         }
       }
 
-      const mergedProducts = Array.from(mergedProductsById.values());
+      const mergedProducts = await applyScopedOverridesToProducts({
+        products: Array.from(mergedProductsById.values()),
+        scope: scopeSelection,
+      });
+      const visibilityFilteredProducts = applyMarketVisibilityFilter({
+        products: mergedProducts,
+        scope: scopeSelection,
+      });
       const organizationLookup = await resolveOrganizationLookup(
         Array.from(
           new Set(
-            mergedProducts
+            visibilityFilteredProducts
               .map((product) => String(product.organization_id || "").trim())
               .filter((id) => id.length > 0)
           )
         )
       );
 
-      const products = mergedProducts
-        .map((product: Record<string, any>) => {
+      const products = visibilityFilteredProducts
+        .map((product: ProductListRow) => {
           const organizationId = String(product.organization_id || "").trim();
           const sourceOrg = organizationLookup[organizationId];
           return {
@@ -337,7 +735,7 @@ export async function GET(
           };
         })
         .sort(
-          (a: Record<string, any>, b: Record<string, any>) =>
+          (a: ProductListRow, b: ProductListRow) =>
             new Date(String(b.created_at || 0)).getTime() -
             new Date(String(a.created_at || 0)).getTime()
         );
@@ -420,7 +818,7 @@ export async function GET(
           const scopedIds = new Set<string>();
           for (const channelId of scopedPermissions.channelIds) {
             const productIds = await getChannelScopedProductIds({
-              supabase: supabase as any,
+              supabase,
               organizationId: targetOrganizationId,
               channelId,
             });
@@ -460,7 +858,16 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch products" }, { status: 500 });
     }
 
-    const products = productsResult.products.map((product) => ({
+    const scopedProducts = await applyScopedOverridesToProducts({
+      products: productsResult.products,
+      scope: scopeSelection,
+    });
+    const visibleProducts = applyMarketVisibilityFilter({
+      products: scopedProducts,
+      scope: scopeSelection,
+    });
+
+    const products = visibleProducts.map((product) => ({
       ...product,
       organization_slug: context.targetOrganization.slug,
       organization_name: context.targetOrganization.name,
@@ -689,7 +1096,7 @@ export async function POST(
       );
     }
 
-    const insertPayload: Record<string, any> = {
+    const insertPayload: Record<string, unknown> = {
       organization_id: organizationId,
       type,
       parent_id: cleanParentId,
@@ -727,7 +1134,7 @@ export async function POST(
 
     // Backward compatibility for older schemas still using upc.
     if (productResult.error?.code === UPC_MISSING_COLUMN_ERROR) {
-      const legacyPayload: Record<string, any> = {
+      const legacyPayload: Record<string, unknown> = {
         ...insertPayload,
         upc: insertPayload.barcode,
       };
@@ -741,7 +1148,7 @@ export async function POST(
     }
 
     const product = productResult.data
-      ? withNormalizedBarcode(productResult.data as Record<string, any>)
+      ? withNormalizedBarcode(productResult.data as ProductListRow)
       : null;
     const productError = productResult.error;
 

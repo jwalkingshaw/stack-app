@@ -30,7 +30,7 @@ export default function UnauthorizedPage() {
                 <Link href="/api/auth/register">Create Account</Link>
               </Button>
 
-              <Button asChild variant="ghost" className="h-11 w-full rounded-[0.5rem] text-sm font-medium">
+              <Button asChild variant="ghost" className="h-11 w-full rounded-[0.5rem] border-0 text-sm font-medium">
                 <Link href="/">Back to Home</Link>
               </Button>
             </CardContent>

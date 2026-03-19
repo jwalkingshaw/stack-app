@@ -22,6 +22,7 @@ interface AllBrandsClientProps {
     slug: string;
     organizationType: "brand" | "partner";
     partnerCategory: "retailer" | "distributor" | "wholesaler" | null;
+    logoUrl?: string | null;
     storageUsed: number;
     storageLimit: number;
   };
@@ -29,7 +30,12 @@ interface AllBrandsClientProps {
 
 interface NotificationItem {
   id: string;
-  type: "asset_added" | "product_added" | "share_granted";
+  type:
+    | "asset_added"
+    | "product_added"
+    | "share_granted"
+    | "update_published"
+    | "update_reminder";
   organizationId: string;
   organizationName: string;
   organizationSlug: string;
@@ -257,14 +263,13 @@ export default function AllBrandsClient({
                     slug: sidebarOrganization.slug,
                     organizationType: sidebarOrganization.organizationType,
                     partnerCategory: sidebarOrganization.partnerCategory,
+                    logoUrl: sidebarOrganization.logoUrl ?? null,
                   }
                 : null
             }
             orgSlug={sidebarOrganization?.slug}
             currentPath={currentPath}
             workspaces={sortedWorkspaces}
-            storageUsed={sidebarOrganization?.storageUsed ?? 0}
-            storageLimit={sidebarOrganization?.storageLimit ?? 0}
             user={
               userEmail
                 ? {

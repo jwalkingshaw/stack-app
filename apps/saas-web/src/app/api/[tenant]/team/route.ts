@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@tradetool/auth';
 import { DatabaseQueries } from '@tradetool/database';
+import type { Database } from '@tradetool/database';
 
 import { supabaseServer } from '@/lib/supabase';
 import { sendInvitationEmail } from '@/lib/email';
@@ -19,18 +20,78 @@ import {
   validateShareSetIdsForOrganization,
 } from '@/lib/invitation-share-sets';
 
-function isMissingColumnError(error: any): boolean {
+const supabase = supabaseServer;
+
+type PartnerRelationshipRow = {
+  id: string;
+  partner_organization_id: string | null;
+  status: string;
+  access_level: 'view' | 'edit';
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type RpcPartnerRow = {
+  partner_id: string | null;
+  partner_name: string | null;
+  partner_slug: string | null;
+  relationship_status?: string | null;
+  access_level: string | null;
+  permissions?: Record<string, unknown> | null;
+  invited_by?: string | null;
+  relationship_created_at: string | null;
+};
+
+type PartnerOrganizationRow = {
+  id: string;
+  name: string;
+  slug: string | null;
+  partner_category: string | null;
+  organization_type: string | null;
+};
+
+type PartnerShareSetGrantRow = {
+  partner_organization_id: string | null;
+  share_set_id: string | null;
+};
+
+type InvitationRow = {
+  id: string;
+  email: string;
+  role_or_access_level: string;
+  invitation_type: string;
+  token: string;
+  expires_at: string;
+  invited_by: string;
+  created_at: string;
+  permission_bundle_id?: string | null;
+  invite_permissions?: Record<string, unknown> | null;
+  organization_id?: string;
+  accepted_at?: string | null;
+  declined_at?: string | null;
+  revoked_at?: string | null;
+};
+
+type ExistingPartnerMemberRow = {
+  organization_id: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isMissingColumnError(error: { code?: string } | null | undefined): boolean {
   return error?.code === '42703';
 }
 
-function normalizeRelationshipAccessLevel(row: any): 'view' | 'edit' {
+function normalizeRelationshipAccessLevel(row: Record<string, unknown>): 'view' | 'edit' {
   const direct = typeof row?.access_level === 'string' ? row.access_level.toLowerCase() : '';
   if (direct === 'edit' || direct === 'view') {
     return direct;
   }
 
-  const permissions = row?.permissions;
-  if (permissions && typeof permissions === 'object') {
+  const permissions = isRecord(row?.permissions) ? row.permissions : null;
+  if (permissions) {
     const fromPermissions =
       typeof permissions.access_level === 'string'
         ? permissions.access_level.toLowerCase()
@@ -46,7 +107,16 @@ function normalizeRelationshipAccessLevel(row: any): 'view' | 'edit' {
   return 'view';
 }
 
-function normalizeOrganizationType(organization: any): 'brand' | 'partner' {
+function normalizeOrganizationType(
+  organization:
+    | {
+        organizationType?: unknown;
+        type?: unknown;
+        organization_type?: unknown;
+      }
+    | null
+    | undefined
+): 'brand' | 'partner' {
   const raw =
     organization?.organizationType ??
     organization?.type ??
@@ -61,7 +131,7 @@ async function countPendingInvitesForType(
 ): Promise<number> {
   const nowIso = new Date().toISOString();
 
-  let result = await (supabaseServer as any)
+  let result = await supabase
     .from('invitations')
     .select('id', { count: 'exact', head: true })
     .eq('organization_id', organizationId)
@@ -73,7 +143,7 @@ async function countPendingInvitesForType(
 
   // Backward compatibility for schemas before revoked_at.
   if (result.error?.code === '42703') {
-    result = await (supabaseServer as any)
+    result = await supabase
       .from('invitations')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', organizationId)
@@ -113,12 +183,12 @@ export async function GET(
     const permissions = await authService.getUserPermissions(userId, organization.id);
     const members = await db.getOrganizationMembers(organization.id);
 
-    let invitations: any[] = [];
-    let partnerRelationships: any[] = [];
+    let invitations: InvitationRow[] = [];
+    let partnerRelationships: Array<Record<string, unknown>> = [];
     const canManageInvites = permissions.is_admin || permissions.is_owner;
 
     if (canManageInvites) {
-      const { data: pendingInvites, error: invitesError } = await (supabaseServer as any)
+      const { data: pendingInvites, error: invitesError } = await supabase
         .from('invitations')
         .select(`
           id,
@@ -135,18 +205,18 @@ export async function GET(
         .is('declined_at', null)
         .is('revoked_at', null)
         .gt('expires_at', new Date().toISOString())
-        .order('created_at', { ascending: false });
+          .order('created_at', { ascending: false });
 
       if (!invitesError) {
-        invitations = pendingInvites || [];
+        invitations = (pendingInvites || []) as InvitationRow[];
       }
     }
 
     const organizationType = normalizeOrganizationType(organization);
 
     if (organizationType === 'brand') {
-      let rawRelationships: Array<any> = [];
-      let rpcPartnerRows: Array<any> = [];
+      let rawRelationships: PartnerRelationshipRow[] = [];
+      let rpcPartnerRows: RpcPartnerRow[] = [];
       const relationshipQueryAttempts: Array<{
         select: string;
         brandColumn: string;
@@ -187,7 +257,7 @@ export async function GET(
       ];
 
       for (const attempt of relationshipQueryAttempts) {
-        const result = await (supabaseServer as any)
+        const result = await supabase
           .from('brand_partner_relationships')
           .select(attempt.select)
           .eq(attempt.brandColumn, organization.id)
@@ -195,14 +265,22 @@ export async function GET(
           .order('created_at', { ascending: false });
 
         if (!result.error) {
-          rawRelationships = ((result.data || []) as Array<any>)
+          const relationshipRows = (result.data || []) as unknown[];
+          rawRelationships = relationshipRows
+            .filter(isRecord)
             .map((row) => ({
-              id: row.id,
-              partner_organization_id: row[attempt.partnerColumn],
-              status: row.status || 'active',
+              id: String(row.id || crypto.randomUUID()),
+              partner_organization_id: (() => {
+                const partnerOrgId = row[attempt.partnerColumn];
+                return typeof partnerOrgId === 'string' ? partnerOrgId : null;
+              })(),
+              status: typeof row.status === 'string' ? row.status : 'active',
               access_level: normalizeRelationshipAccessLevel(row),
-              created_at: row.created_at || null,
-              updated_at: row.updated_at || row.status_updated_at || row.created_at || null,
+              created_at: typeof row.created_at === 'string' ? row.created_at : null,
+              updated_at:
+                (typeof row.updated_at === 'string' ? row.updated_at : null) ||
+                (typeof row.status_updated_at === 'string' ? row.status_updated_at : null) ||
+                (typeof row.created_at === 'string' ? row.created_at : null),
             }))
             .filter((row) => Boolean(row.partner_organization_id));
           break;
@@ -215,11 +293,11 @@ export async function GET(
       }
 
       if (rawRelationships.length === 0) {
-        const rpcPartners = await (supabaseServer as any).rpc('get_brand_partners', {
+        const rpcPartners = await supabase.rpc('get_brand_partners', {
           brand_org_id: organization.id,
         });
         if (!rpcPartners.error && Array.isArray(rpcPartners.data)) {
-          rpcPartnerRows = rpcPartners.data as Array<any>;
+          rpcPartnerRows = rpcPartners.data as RpcPartnerRow[];
           rawRelationships = rpcPartnerRows
             .map((row) => ({
               id: row.partner_id || crypto.randomUUID(),
@@ -244,11 +322,11 @@ export async function GET(
         )
       );
 
-      let partnersById = new Map<string, any>();
+      let partnersById = new Map<string, PartnerOrganizationRow>();
       if (rpcPartnerRows.length > 0) {
         partnersById = new Map(
           rpcPartnerRows
-            .filter((row) => Boolean(row.partner_id))
+            .filter((row): row is RpcPartnerRow & { partner_id: string } => Boolean(row.partner_id))
             .map((row) => [
               row.partner_id,
               {
@@ -262,19 +340,17 @@ export async function GET(
         );
       }
       if (partnerOrgIds.length > 0) {
-        const { data: partnerRows } = await (supabaseServer as any)
+        const { data: partnerRows } = await supabase
           .from('organizations')
           .select('id,name,slug,partner_category,organization_type')
           .in('id', partnerOrgIds);
 
-        partnersById = new Map(
-          ((partnerRows || []) as Array<any>).map((row) => [row.id, row])
-        );
+        partnersById = new Map(((partnerRows || []) as PartnerOrganizationRow[]).map((row) => [row.id, row]));
       }
 
       let setCountByPartner = new Map<string, number>();
       if (partnerOrgIds.length > 0) {
-        const grants = await (supabaseServer as any)
+        const grants = await supabase
           .from('partner_share_set_grants')
           .select('partner_organization_id,share_set_id')
           .eq('organization_id', organization.id)
@@ -283,7 +359,7 @@ export async function GET(
 
         if (!grants.error) {
           const setIdsByPartner = new Map<string, Set<string>>();
-          for (const row of (grants.data || []) as Array<any>) {
+          for (const row of (grants.data || []) as PartnerShareSetGrantRow[]) {
             const partnerId = row.partner_organization_id;
             const shareSetId = row.share_set_id;
             if (!partnerId || !shareSetId) continue;
@@ -301,7 +377,8 @@ export async function GET(
       }
 
       partnerRelationships = rawRelationships.map((relationship) => {
-        const partner = partnersById.get(relationship.partner_organization_id) || null;
+        const partnerId = relationship.partner_organization_id;
+        const partner = partnerId ? partnersById.get(partnerId) || null : null;
         return {
           ...relationship,
           partner_organization: partner
@@ -314,7 +391,7 @@ export async function GET(
               }
             : null,
           share_set_count:
-            setCountByPartner.get(relationship.partner_organization_id) || 0,
+            (partnerId ? setCountByPartner.get(partnerId) : 0) || 0,
         };
       });
     }
@@ -430,7 +507,7 @@ export async function POST(
     }
 
     if (permission_bundle_id) {
-      const { data: bundle, error: bundleError } = await (supabaseServer as any)
+      const { data: bundle, error: bundleError } = await supabase
         .from('permission_bundles')
         .select('id')
         .eq('id', permission_bundle_id)
@@ -548,7 +625,7 @@ export async function POST(
       );
     }
 
-    const { data: existingMemberRows, error: existingMemberLookupError } = await (supabaseServer as any)
+    const { data: existingMemberRows, error: existingMemberLookupError } = await supabase
       .from('organization_members')
       .select('id')
       .eq('organization_id', organization.id)
@@ -561,7 +638,7 @@ export async function POST(
       return NextResponse.json({ error: 'Could not verify existing membership' }, { status: 500 });
     }
 
-    const existingMember = existingMemberRows?.[0] ?? null;
+    const existingMember = ((existingMemberRows || []) as Array<{ id: string }>)[0] ?? null;
     if (existingMember && invitation_type === 'team_member') {
       return NextResponse.json(
         { error: 'This user is already a member of the organization' },
@@ -573,7 +650,7 @@ export async function POST(
     let requiresOnboarding = false;
 
     if (invitation_type === 'partner') {
-      const { data: existingPartnerMember, error: partnerCheckError } = await (supabaseServer as any)
+      const { data: existingPartnerMemberRaw, error: partnerCheckError } = await supabase
         .from('organization_members')
         .select(`
           organization_id,
@@ -583,6 +660,7 @@ export async function POST(
         .eq('status', 'active')
         .eq('organizations.organization_type', 'partner')
         .single();
+      const existingPartnerMember = existingPartnerMemberRaw as ExistingPartnerMemberRow | null;
 
       if (existingPartnerMember && !partnerCheckError) {
         partnerOrganizationId = existingPartnerMember.organization_id;
@@ -606,7 +684,7 @@ export async function POST(
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    const invitationData: any = {
+    const invitationData: Record<string, unknown> = {
       email: normalizedEmail,
       organization_id: organization.id,
       invitation_type,
@@ -625,15 +703,16 @@ export async function POST(
       invitationData.requires_onboarding = requiresOnboarding;
     }
 
-    const { data: invitation, error: invitationError } = await (supabaseServer as any)
+    const { data: invitationRaw, error: invitationError } = await supabase
       .from('invitations')
-      .insert(invitationData)
+      .insert(invitationData as unknown as Database['public']['Tables']['invitations']['Insert'])
       .select()
       .single();
+    const invitation = invitationRaw as InvitationRow | null;
 
-    if (invitationError) {
+    if (invitationError || !invitation) {
       console.error('Error creating invitation:', invitationError);
-      if ((invitationError as any).code === '23505') {
+      if ((invitationError as { code?: string }).code === '23505') {
         return NextResponse.json(
           { error: 'A pending invitation already exists for this email and role scope.' },
           { status: 409 }
@@ -654,7 +733,7 @@ export async function POST(
 
       if (!assignmentResult.ok) {
         // Keep invitation + assignment setup consistent on initial create failures.
-        await (supabaseServer as any)
+        await supabase
           .from('invitations')
           .delete()
           .eq('id', invitation.id);
@@ -669,13 +748,13 @@ export async function POST(
     }
 
     try {
-      await (supabaseServer as any).rpc('log_security_event', {
+      await supabase.rpc('log_security_event', {
         organization_id_param: organization.id,
         actor_user_id_param: userId,
         action_param: 'invite.created',
         resource_type_param: 'invitation',
         resource_id_param: invitation.id,
-        user_agent_param: request.headers.get('user-agent'),
+        user_agent_param: request.headers.get('user-agent') || undefined,
         metadata_param: {
           invitation_type,
           invited_email: normalizedEmail,
@@ -796,11 +875,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'Invitation ID is required' }, { status: 400 });
     }
 
-    const { data: invitation, error: fetchError } = await (supabaseServer as any)
+    const { data: invitationRaw, error: fetchError } = await supabase
       .from('invitations')
       .select('id, email, organization_id, accepted_at, declined_at, revoked_at')
       .eq('id', invitationId)
       .single();
+    const invitation = invitationRaw as InvitationRow | null;
 
     if (fetchError || !invitation) {
       return NextResponse.json({ error: 'Invitation not found' }, { status: 404 });
@@ -820,7 +900,7 @@ export async function DELETE(
       );
     }
 
-    const { error: revokeError } = await (supabaseServer as any)
+    const { error: revokeError } = await supabase
       .from('invitations')
       .update({ revoked_at: new Date().toISOString() })
       .eq('id', invitationId)
@@ -833,13 +913,13 @@ export async function DELETE(
     }
 
     try {
-      await (supabaseServer as any).rpc('log_security_event', {
+      await supabase.rpc('log_security_event', {
         organization_id_param: organization.id,
         actor_user_id_param: userId,
         action_param: 'invite.deleted',
         resource_type_param: 'invitation',
         resource_id_param: invitation.id,
-        user_agent_param: request.headers.get('user-agent'),
+        user_agent_param: request.headers.get('user-agent') || undefined,
         metadata_param: {
           invited_email: invitation.email,
         },

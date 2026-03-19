@@ -43,19 +43,3 @@ export function createServerClientWithAuth(accessToken: string) {
     },
   });
 }
-
-// Set custom JWT for Supabase to enforce RLS based on Kinde org
-export function setSupabaseJWT(client: ReturnType<typeof createClient>, kindeOrgCode: string, kindeUserId: string) {
-  // Create a custom JWT payload that Supabase RLS can use
-  const customPayload = {
-    sub: kindeUserId,
-    org_code: kindeOrgCode,
-    role: 'authenticated',
-    iat: Math.floor(Date.now() / 1000),
-    exp: Math.floor(Date.now() / 1000) + 60 * 60, // 1 hour
-  };
-  
-  // Note: In production, you'd want to sign this JWT with your Supabase JWT secret
-  // For now, we'll rely on the organization filtering in RLS policies
-  return client;
-}

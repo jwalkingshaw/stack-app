@@ -38,6 +38,9 @@ type ShareSetOption = {
   module_key: ShareSetModule;
 };
 
+type PermissionBundleRow = Omit<PermissionBundle, "rules">;
+type PermissionBundleRuleRow = PermissionBundle["rules"][number];
+
 function parseInvitationType(value: string | null): InvitationType | null {
   if (!value) return "team_member";
   if (value === "team_member" || value === "partner") return value;
@@ -48,7 +51,9 @@ function toSubjectType(invitationType: InvitationType): SubjectType {
   return invitationType === "partner" ? "partner" : "team_member";
 }
 
-function isMissingShareSetFoundationError(error: any): boolean {
+function isMissingShareSetFoundationError(
+  error: { code?: string; message?: string } | null | undefined
+): boolean {
   if (!error) return false;
   if (isMissingTableError(error)) return true;
   if (error?.code === "PGRST205") return true;
@@ -60,7 +65,7 @@ async function queryPermissionBundles(
   organizationId: string,
   subjectType: SubjectType
 ): Promise<PermissionBundle[]> {
-  let bundleQuery = (supabaseServer as any)
+  const bundleQuery = supabaseServer
     .from("permission_bundles")
     .select("id, name, description, subject_type, is_default")
     .eq("organization_id", organizationId)
@@ -76,12 +81,13 @@ async function queryPermissionBundles(
     throw bundlesError;
   }
 
-  const bundleIds = (bundles || []).map((bundle: any) => bundle.id);
+  const bundleRows = (bundles || []) as PermissionBundleRow[];
+  const bundleIds = bundleRows.map((bundle) => bundle.id);
   if (bundleIds.length === 0) {
-    return (bundles || []).map((bundle: any) => ({ ...bundle, rules: [] }));
+    return bundleRows.map((bundle) => ({ ...bundle, rules: [] }));
   }
 
-  const { data: rules, error: rulesError } = await (supabaseServer as any)
+  const { data: rules, error: rulesError } = await (supabaseServer)
     .from("permission_bundle_rules")
     .select("id, permission_bundle_id, module_key, level, scope_defaults")
     .in("permission_bundle_id", bundleIds)
@@ -89,26 +95,26 @@ async function queryPermissionBundles(
 
   if (rulesError) {
     if (isMissingTableError(rulesError)) {
-      return (bundles || []).map((bundle: any) => ({ ...bundle, rules: [] }));
+      return bundleRows.map((bundle) => ({ ...bundle, rules: [] }));
     }
     throw rulesError;
   }
 
-  const rulesByBundleId = new Map<string, any[]>();
-  for (const rule of rules || []) {
+  const rulesByBundleId = new Map<string, PermissionBundleRuleRow[]>();
+  for (const rule of (rules || []) as PermissionBundleRuleRow[]) {
     const list = rulesByBundleId.get(rule.permission_bundle_id) || [];
     list.push(rule);
     rulesByBundleId.set(rule.permission_bundle_id, list);
   }
 
-  return (bundles || []).map((bundle: any) => ({
+  return bundleRows.map((bundle) => ({
     ...bundle,
     rules: rulesByBundleId.get(bundle.id) || [],
   }));
 }
 
 async function queryMarkets(organizationId: string): Promise<ShareContainer[]> {
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await (supabaseServer)
     .from("markets")
     .select("id,name,code,is_active")
     .eq("organization_id", organizationId)
@@ -126,7 +132,7 @@ async function queryMarkets(organizationId: string): Promise<ShareContainer[]> {
 }
 
 async function queryShareSets(organizationId: string): Promise<ShareSetOption[]> {
-  const result = await (supabaseServer as any)
+  const result = await (supabaseServer)
     .from("share_sets")
     .select("id,name,module_key")
     .eq("organization_id", organizationId)
@@ -135,7 +141,7 @@ async function queryShareSets(organizationId: string): Promise<ShareSetOption[]>
     .limit(200);
 
   if (!result.error) {
-    return ((result.data || []) as Array<any>)
+    return ((result.data || []) as Array<{ id: string; name: string; module_key: string }>)
       .filter((row) => row.module_key === "assets" || row.module_key === "products")
       .map((row) => ({
         id: row.id,
@@ -148,7 +154,7 @@ async function queryShareSets(organizationId: string): Promise<ShareSetOption[]>
     throw result.error;
   }
 
-  const legacyResult = await (supabaseServer as any)
+  const legacyResult = await (supabaseServer)
     .from("dam_collections")
     .select("id,name")
     .eq("organization_id", organizationId)
@@ -165,7 +171,7 @@ async function queryShareSets(organizationId: string): Promise<ShareSetOption[]>
     throw legacyResult.error;
   }
 
-  return ((legacyResult.data || []) as Array<any>).map((row) => ({
+  return ((legacyResult.data || []) as Array<{ id: string; name: string }>).map((row) => ({
     id: row.id,
     name: row.name,
     module_key: "assets",
@@ -236,3 +242,4 @@ export async function GET(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+

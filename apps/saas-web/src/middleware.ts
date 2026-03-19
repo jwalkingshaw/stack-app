@@ -55,28 +55,22 @@ export async function middleware(request: NextRequest) {
     }
   }
   
-  console.log('🛡️ Middleware: Checking route:', pathname);
-  
   // Always allow public routes
   if (isPublicRoute(pathname)) {
-    console.log('📂 Public route, allowing access:', pathname);
     return NextResponse.next();
   }
-  
+
   // For protected routes, let server components handle auth
   if (isProtectedRoute(pathname)) {
-    console.log('🔒 Protected route detected, will verify auth in server component:', pathname);
     return NextResponse.next();
   }
-  
+
   // For tenant routes, let server components handle tenant verification
   if (isTenantRoute(pathname)) {
-    console.log('🏢 Tenant route detected, will verify access in server component:', pathname);
     return NextResponse.next();
   }
-  
+
   // Default: allow through (auth verification happens server-side)
-  console.log('➡️ Default route, allowing through:', pathname);
   return NextResponse.next();
 }
 

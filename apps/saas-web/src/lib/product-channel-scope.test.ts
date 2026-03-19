@@ -5,6 +5,9 @@ import {
   resolveProductChannelScope,
 } from "./product-channel-scope";
 
+type ResolveProductChannelScopeInput = Parameters<typeof resolveProductChannelScope>[0];
+type ProductChannelIdsInput = Parameters<typeof getChannelScopedProductIds>[0];
+
 function createSupabaseStub(config: {
   channelExists?: boolean;
   productIds?: string[];
@@ -12,12 +15,12 @@ function createSupabaseStub(config: {
 }) {
   return {
     from(table: string) {
-      const state: Record<string, any> = { table };
+      const state: Record<string, unknown> = { table };
       const chain = {
-        select(_value: string) {
+        select() {
           return chain;
         },
-        eq(key: string, value: any) {
+        eq(key: string, value: unknown) {
           state[key] = value;
           return chain;
         },
@@ -30,7 +33,7 @@ function createSupabaseStub(config: {
           }
           return { data: null, error: null };
         },
-        async then(resolve: any) {
+        async then(resolve: (value: { data: unknown; error: { message: string } | null }) => unknown) {
           if (table === "product_field_values") {
             if (config.productIdsError) {
               return resolve({ data: null, error: { message: "query failed" } });
@@ -60,10 +63,22 @@ function createAuthStub(config: {
   };
 }
 
+function asResolveAuth(stub: ReturnType<typeof createAuthStub>): ResolveProductChannelScopeInput["authService"] {
+  return stub as unknown as ResolveProductChannelScopeInput["authService"];
+}
+
+function asResolveSupabase(stub: ReturnType<typeof createSupabaseStub>): ResolveProductChannelScopeInput["supabase"] {
+  return stub as unknown as ResolveProductChannelScopeInput["supabase"];
+}
+
+function asIdsSupabase(stub: ReturnType<typeof createSupabaseStub>): ProductChannelIdsInput["supabase"] {
+  return stub as unknown as ProductChannelIdsInput["supabase"];
+}
+
 test("denies when channel is missing and user lacks org-wide permission", async () => {
   const result = await resolveProductChannelScope({
-    authService: createAuthStub({ orgWide: false }) as any,
-    supabase: createSupabaseStub({}) as any,
+    authService: asResolveAuth(createAuthStub({ orgWide: false })),
+    supabase: asResolveSupabase(createSupabaseStub({})),
     userId: "u1",
     organizationId: "org1",
     permissionKey: "product.market.scope.read",
@@ -78,8 +93,8 @@ test("denies when channel is missing and user lacks org-wide permission", async 
 
 test("denies when requested channel does not exist", async () => {
   const result = await resolveProductChannelScope({
-    authService: createAuthStub({ channelAllowed: true }) as any,
-    supabase: createSupabaseStub({ channelExists: false }) as any,
+    authService: asResolveAuth(createAuthStub({ channelAllowed: true })),
+    supabase: asResolveSupabase(createSupabaseStub({ channelExists: false })),
     userId: "u1",
     organizationId: "org1",
     permissionKey: "product.market.scope.read",
@@ -94,8 +109,8 @@ test("denies when requested channel does not exist", async () => {
 
 test("allows org-wide access when channel is not specified", async () => {
   const result = await resolveProductChannelScope({
-    authService: createAuthStub({ orgWide: true }) as any,
-    supabase: createSupabaseStub({}) as any,
+    authService: asResolveAuth(createAuthStub({ orgWide: true })),
+    supabase: asResolveSupabase(createSupabaseStub({})),
     userId: "u1",
     organizationId: "org1",
     permissionKey: "product.market.scope.read",
@@ -110,8 +125,8 @@ test("allows org-wide access when channel is not specified", async () => {
 
 test("resolves channel scope and returns scoped product IDs", async () => {
   const scope = await resolveProductChannelScope({
-    authService: createAuthStub({ channelAllowed: true }) as any,
-    supabase: createSupabaseStub({ channelExists: true }) as any,
+    authService: asResolveAuth(createAuthStub({ channelAllowed: true })),
+    supabase: asResolveSupabase(createSupabaseStub({ channelExists: true })),
     userId: "u1",
     organizationId: "org1",
     permissionKey: "product.market.scope.read",
@@ -120,7 +135,7 @@ test("resolves channel scope and returns scoped product IDs", async () => {
   assert.equal(scope.ok, true);
 
   const ids = await getChannelScopedProductIds({
-    supabase: createSupabaseStub({ productIds: ["p1", "p2"] }) as any,
+    supabase: asIdsSupabase(createSupabaseStub({ productIds: ["p1", "p2"] })),
     organizationId: "org1",
     channelId: "ch_1",
   });
@@ -129,7 +144,7 @@ test("resolves channel scope and returns scoped product IDs", async () => {
 
 test("deduplicates scoped product IDs for a channel", async () => {
   const ids = await getChannelScopedProductIds({
-    supabase: createSupabaseStub({ productIds: ["p1", "p2", "p1"] }) as any,
+    supabase: asIdsSupabase(createSupabaseStub({ productIds: ["p1", "p2", "p1"] })),
     organizationId: "org1",
     channelId: "ch_1",
   });
@@ -139,7 +154,7 @@ test("deduplicates scoped product IDs for a channel", async () => {
 
 test("returns null product IDs when channel scope is org-wide", async () => {
   const ids = await getChannelScopedProductIds({
-    supabase: createSupabaseStub({ productIds: ["p1"] }) as any,
+    supabase: asIdsSupabase(createSupabaseStub({ productIds: ["p1"] })),
     organizationId: "org1",
     channelId: null,
   });
@@ -149,7 +164,7 @@ test("returns null product IDs when channel scope is org-wide", async () => {
 
 test("returns empty list when channel product lookup fails", async () => {
   const ids = await getChannelScopedProductIds({
-    supabase: createSupabaseStub({ productIdsError: true }) as any,
+    supabase: asIdsSupabase(createSupabaseStub({ productIdsError: true })),
     organizationId: "org1",
     channelId: "ch_1",
   });

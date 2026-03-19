@@ -1,12 +1,15 @@
 // Backend validation for product data against field configurations
 
 import { supabaseServer } from '@/lib/supabase';
+import type { Json } from '@tradetool/database';
 import { ProductField, validateProductData, ValidationResult } from '@/lib/field-validation';
 
-const isPlainObject = (value: unknown): value is Record<string, any> =>
+type ComparableJson = Exclude<Json, null>;
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
 
-const isEmptyComposite = (value: any): boolean => {
+const isEmptyComposite = (value: unknown): boolean => {
   if (value === null || value === undefined) return true;
   if (Array.isArray(value)) return value.length === 0;
   if (isPlainObject(value)) return Object.keys(value).length === 0;
@@ -15,8 +18,11 @@ const isEmptyComposite = (value: any): boolean => {
 
 const buildUniqueCheckValue = (
   fieldType: string,
-  value: any
-): { column: 'value_text' | 'value_number' | 'value_boolean' | 'value_date' | 'value_datetime' | 'value_json'; value: any } | null => {
+  value: unknown
+): {
+  column: 'value_text' | 'value_number' | 'value_boolean' | 'value_date' | 'value_datetime' | 'value_json';
+  value: ComparableJson;
+} | null => {
   if (value === null || value === undefined) return null;
 
   switch (fieldType) {
@@ -41,39 +47,41 @@ const buildUniqueCheckValue = (
     }
     case 'date': {
       if (value === '') return null;
+      if (typeof value !== 'string') return null;
       return { column: 'value_date', value };
     }
     case 'datetime': {
       if (value === '') return null;
+      if (typeof value !== 'string') return null;
       return { column: 'value_datetime', value };
     }
     case 'multiselect':
     case 'multi_select': {
       if (Array.isArray(value)) {
         if (value.length === 0) return null;
-        return { column: 'value_json', value };
+        return { column: 'value_json', value: value as ComparableJson };
       }
-      return { column: 'value_json', value: [value] };
+      return { column: 'value_json', value: [value] as ComparableJson };
     }
     case 'table': {
       if (!Array.isArray(value) || value.length === 0) return null;
-      return { column: 'value_json', value };
+      return { column: 'value_json', value: value as ComparableJson };
     }
     case 'measurement':
     case 'price':
     case 'file':
     case 'image': {
       if (isEmptyComposite(value)) return null;
-      return { column: 'value_json', value };
+      return { column: 'value_json', value: value as ComparableJson };
     }
     default: {
       if (isEmptyComposite(value)) return null;
-      return { column: 'value_json', value };
+      return { column: 'value_json', value: value as ComparableJson };
     }
   }
 };
 
-const formatUniqueValue = (value: any): string => {
+const formatUniqueValue = (value: unknown): string => {
   if (typeof value === 'string') return value;
   try {
     return JSON.stringify(value);
@@ -98,14 +106,23 @@ export async function getProductFieldsForOrganization(organizationId: string): P
     throw new Error('Failed to fetch product fields');
   }
 
-  return fields || [];
+  return (fields || []).map((field) => ({
+    id: String(field.id),
+    code: String(field.code),
+    name: String(field.name),
+    field_type: String(field.field_type),
+    is_required: Boolean(field.is_required),
+    is_unique: Boolean(field.is_unique),
+    options: isPlainObject(field.options) ? (field.options as Record<string, unknown>) : {},
+    validation_rules: isPlainObject(field.validation_rules) ? (field.validation_rules as Record<string, unknown>) : {}
+  }));
 }
 
 /**
  * Validate product data against organization's field configurations
  */
 export async function validateProductDataForOrganization(
-  productData: Record<string, any>,
+  productData: Record<string, unknown>,
   organizationId: string,
   excludeFields: string[] = []
 ): Promise<ValidationResult> {
@@ -137,7 +154,7 @@ export async function validateProductDataForOrganization(
  * Check for unique field violations
  */
 export async function checkUniqueFieldViolations(
-  productData: Record<string, any>,
+  productData: Record<string, unknown>,
   organizationId: string,
   productId?: string // Exclude this product ID when updating
 ): Promise<ValidationResult> {
@@ -199,7 +216,7 @@ export async function checkUniqueFieldViolations(
  * Comprehensive product validation combining field and uniqueness checks
  */
 export async function validateProductForOrganization(
-  productData: Record<string, any>,
+  productData: Record<string, unknown>,
   organizationId: string,
   productId?: string,
   options: {
@@ -256,11 +273,11 @@ export async function validateProductForOrganization(
  * Extract custom field data from product data
  */
 export async function extractCustomFieldData(
-  productData: Record<string, any>,
+  productData: Record<string, unknown>,
   organizationId: string
-): Promise<Record<string, any>> {
+): Promise<Record<string, unknown>> {
   const fields = await getProductFieldsForOrganization(organizationId);
-  const customFieldData: Record<string, any> = {};
+  const customFieldData: Record<string, unknown> = {};
 
   for (const field of fields) {
     if (productData.hasOwnProperty(field.code)) {

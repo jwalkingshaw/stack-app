@@ -85,7 +85,7 @@ export async function verifyTenantAccess(
     }
 
     const userId = session.user?.id || "";
-    const { data: membershipRows, error: membershipError } = await (supabaseServer as any)
+    const { data: membershipRows, error: membershipError } = await supabaseServer
       .from("organization_members")
       .select("id")
       .eq("organization_id", organization.id)

@@ -111,7 +111,15 @@ const FIELD_GROUP_SELECT_LEGACY = `
   )
 `;
 
-function isMissingColumnError(error: any): boolean {
+type PostgrestLikeError = { code?: string | null } | null | undefined;
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function isMissingColumnError(error: PostgrestLikeError): boolean {
   return error?.code === "42703";
 }
 
@@ -122,14 +130,17 @@ function parseHiddenFields(input: unknown): string[] {
     .filter((value) => value.length > 0);
 }
 
-function normalizeFamilyFieldGroups(data: any[] | null): any[] {
-  return (data || []).map((group: any) => {
-    const assignments = Array.isArray(group?.field_groups?.product_field_group_assignments)
-      ? group.field_groups.product_field_group_assignments
+function normalizeFamilyFieldGroups(data: unknown[] | null): Record<string, unknown>[] {
+  return (data || []).map((entry) => {
+    const group = asRecord(entry);
+    const fieldGroup = asRecord(group.field_groups);
+    const assignments = Array.isArray(fieldGroup.product_field_group_assignments)
+      ? fieldGroup.product_field_group_assignments
       : [];
 
-    const normalizedAssignments = assignments.map((assignment: any) => {
-      const field = assignment?.product_fields || {};
+    const normalizedAssignments = assignments.map((assignmentEntry) => {
+      const assignment = asRecord(assignmentEntry);
+      const field = asRecord(assignment.product_fields);
       return {
         ...assignment,
         product_fields: {
@@ -150,9 +161,9 @@ function normalizeFamilyFieldGroups(data: any[] | null): any[] {
 
     return {
       ...group,
-      hidden_fields: parseHiddenFields(group?.hidden_fields),
+      hidden_fields: parseHiddenFields(group.hidden_fields),
       field_groups: {
-        ...group.field_groups,
+        ...fieldGroup,
         product_field_group_assignments: normalizedAssignments,
       },
     };
@@ -161,7 +172,7 @@ function normalizeFamilyFieldGroups(data: any[] | null): any[] {
 
 async function fetchFamilyFieldGroups(
   familyId: string
-): Promise<{ data: any[] | null; error: any }> {
+): Promise<{ data: unknown[] | null; error: PostgrestLikeError }> {
   const runQuery = (selectClause: string) =>
     supabase
       .from("product_family_field_groups")
@@ -174,7 +185,10 @@ async function fetchFamilyFieldGroups(
     result = await runQuery(FIELD_GROUP_SELECT_LEGACY);
   }
 
-  return result;
+  return {
+    data: Array.isArray(result.data) ? (result.data as unknown[]) : null,
+    error: result.error as PostgrestLikeError,
+  };
 }
 
 // GET /api/[tenant]/product-families/[familyId]/field-groups
@@ -244,7 +258,7 @@ export async function POST(
       );
     }
 
-    const body = await request.json().catch(() => ({}));
+    const body = asRecord(await request.json().catch(() => ({})));
     const fieldGroupId =
       typeof body?.field_group_id === "string" ? body.field_group_id.trim() : "";
     if (!fieldGroupId) {
@@ -268,7 +282,7 @@ export async function POST(
       return NextResponse.json({ error: "Field group not found." }, { status: 404 });
     }
 
-    const insertPayload: Record<string, any> = {
+    const insertPayload: Record<string, unknown> = {
       product_family_id: familyContext.familyId,
       field_group_id: fieldGroupId,
       sort_order: sortOrder,
@@ -298,7 +312,7 @@ export async function POST(
     }
 
     const normalized = normalizeFamilyFieldGroups(data);
-    const created = normalized.find((item: any) => item.field_group_id === fieldGroupId);
+    const created = normalized.find((item) => item.field_group_id === fieldGroupId);
 
     if (!created) {
       return NextResponse.json({ error: "Failed to resolve assignment after write." }, { status: 500 });

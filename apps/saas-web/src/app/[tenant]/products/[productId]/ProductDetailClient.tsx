@@ -8,11 +8,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@tradetool/ui";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@tradetool/ui";
 import { VariantManagement } from "@/components/products/variant-management";
-import { DynamicFieldRenderer } from "@/components/field-types/DynamicFieldRenderer";
+import { TranslationPanel } from "@/components/products/TranslationPanel";
+import { InlineDynamicFieldEditor } from "@/components/inline-edit";
+import type { ProductField } from "@/components/field-types/DynamicFieldRenderer";
 import { VariantNavigationHeader } from "@/components/products/VariantNavigationHeader";
 import { PageContentContainer } from "@/components/ui/page-content-container";
+import { ItemList } from "@/components/ui/item-list";
+import { ScopeToolbar } from "@/components/scope-toolbar";
 import {
   buildCanonicalProductIdentifier,
   generateVariantUrl,
@@ -23,9 +33,9 @@ import { useMarketContext } from "@/components/market-context";
 import { buildTenantPathForScope } from "@/lib/tenant-view-scope";
 import {
   createGlobalAuthoringScope,
-  getAuthoringScopeSummary,
   normalizeAuthoringScope,
 } from "@/components/scope/authoring-scope-picker";
+import { toast } from "@/components/ui/toast";
 
 interface ProductDetailClientProps {
   tenantSlug: string;
@@ -81,6 +91,127 @@ type FolderRecord = {
   parent_id?: string | null;
 };
 
+type ProductType = "parent" | "variant" | "standalone";
+
+type ProductFieldLike = ProductField & {
+  description?: string;
+  field_type: string;
+  is_required: boolean;
+  is_unique: boolean;
+  is_channelable?: boolean;
+  is_localizable?: boolean;
+  allowed_channel_ids?: string[];
+  allowed_market_ids?: string[];
+  allowed_locale_ids?: string[];
+  sort_order?: number;
+  options: Record<string, unknown> & {
+    system_key?: string;
+    allow_multiple?: boolean;
+    document_slot?: string;
+    table_definition?: {
+      meta?: {
+        uses_panel_instances?: boolean;
+      };
+    };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+};
+
+type ProductFieldGroupLike = {
+  id: string;
+  field_group_id: string;
+  field_group: {
+    code: string;
+    name: string;
+    description?: string;
+    [key: string]: unknown;
+  };
+  hidden_fields?: string[];
+  sort_order?: number;
+  fields: ProductFieldLike[];
+  [key: string]: unknown;
+};
+
+type DamAssetLike = {
+  id: string;
+  filename?: string;
+  originalFilename?: string;
+  mime_type?: string;
+  mimeType?: string;
+  file_type?: string;
+  fileType?: string;
+  current_version_changed_at?: string | null;
+  currentVersionChangedAt?: string | null;
+  updated_at?: string | null;
+  updatedAt?: string | null;
+  [key: string]: unknown;
+};
+
+type ProductLinkLike = {
+  id: string;
+  asset_id?: string;
+  product_field_id?: string;
+  document_slot_code?: string;
+  link_context?: string;
+  link_type?: string;
+  confidence?: number;
+  dam_assets?: DamAssetLike | null;
+  [key: string]: unknown;
+};
+
+type ProductState = {
+  id: string;
+  scin: string;
+  productName: string;
+  product_name?: string | null;
+  sku: string;
+  upc: string;
+  barcode?: string | null;
+  status: string;
+  type: ProductType;
+  parentId?: string | null;
+  parent_id?: string | null;
+  parentSku?: string | null;
+  parentName?: string | null;
+  hasVariants?: boolean;
+  has_variants?: boolean;
+  variantCount?: number;
+  variant_count?: number;
+  family_id?: string | null;
+  variants?: Record<string, unknown>[];
+  marketplace_content: Record<string, unknown>;
+  marketplaceContent: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+type ApiEnvelope<T = unknown> = {
+  success?: boolean;
+  data?: T;
+  error?: string;
+  details?: unknown;
+  [key: string]: unknown;
+};
+
+type ProductSectionBase = {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  isSystem: boolean;
+  layoutType: "form" | "full-width";
+};
+
+type ProductSystemSection = ProductSectionBase & {
+  isFieldGroup: false;
+};
+
+type ProductFieldGroupSection = ProductSectionBase & {
+  isFieldGroup: true;
+  fieldGroup: ProductFieldGroupLike;
+};
+
+type ProductSection = ProductSystemSection | ProductFieldGroupSection;
+
 const PRODUCT_IMAGE_SLOTS: ProductImageSlot[] = [
   { code: "image_front", label: "Front", hint: "Primary front-of-pack view." },
   { code: "image_back", label: "Back", hint: "Back label and ingredient panel." },
@@ -104,8 +235,57 @@ const PRIMARY_IMAGE_SLOT_CODES = new Set([
 ]);
 const PRIMARY_DOCUMENT_SLOT_CODES = new Set(["coa", "legal", "sfp"]);
 const DOCUMENTATION_GROUP_CODE = "documentation";
+const BASIC_INFORMATION_GROUP_CODE = "basic_information";
+const MUTABLE_PRODUCT_COLUMNS = new Set([
+  "type",
+  "parent_id",
+  "product_name",
+  "sku",
+  "barcode",
+  "brand_line",
+  "family_id",
+  "variant_axis",
+  "status",
+  "launch_date",
+  "msrp",
+  "cost_of_goods",
+  "margin_percent",
+  "assets_count",
+  "content_score",
+  "short_description",
+  "long_description",
+  "features",
+  "specifications",
+  "meta_title",
+  "meta_description",
+  "keywords",
+  "weight_g",
+  "dimensions",
+  "inheritance",
+  "is_inherited",
+  "marketplace_content",
+]);
+const PRODUCT_STATUS_OPTIONS = [
+  "Draft",
+  "Enrichment",
+  "Review",
+  "Active",
+  "Discontinued",
+  "Archived",
+] as const;
+type ProductStatusOption = (typeof PRODUCT_STATUS_OPTIONS)[number];
 
-async function parseJsonSafely(response: Response): Promise<any | null> {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asApiEnvelope<T = unknown>(value: unknown): ApiEnvelope<T> {
+  const payload = asRecord(value);
+  return payload ? (payload as ApiEnvelope<T>) : {};
+}
+
+async function parseJsonSafely(response: Response): Promise<unknown | null> {
   const text = await response.text();
   if (!text) return null;
   try {
@@ -115,6 +295,127 @@ async function parseJsonSafely(response: Response): Promise<any | null> {
   }
 }
 
+function toErrorMessage(payload: ApiEnvelope | null | undefined, fallback: string): string {
+  if (payload && typeof payload.error === "string" && payload.error.trim().length > 0) {
+    return payload.error;
+  }
+  return fallback;
+}
+
+function toStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function toProductType(value: unknown): ProductType {
+  if (value === "parent" || value === "variant" || value === "standalone") {
+    return value;
+  }
+  return "standalone";
+}
+
+function toTextValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
+function normalizeProductField(value: unknown): ProductFieldLike | null {
+  const field = asRecord(value);
+  if (!field) return null;
+
+  const id = String(field.id ?? "").trim();
+  const code = String(field.code ?? "").trim();
+  if (!id || !code) return null;
+
+  const options = asRecord(field.options) ?? {};
+  const tableDefinition = asRecord(options.table_definition);
+  const tableMeta = asRecord(tableDefinition?.meta);
+
+  return {
+    ...field,
+    id,
+    code,
+    name: typeof field.name === "string" && field.name.trim().length > 0 ? field.name : code,
+    description: typeof field.description === "string" ? field.description : undefined,
+    field_type:
+      typeof field.field_type === "string" && field.field_type.trim().length > 0
+        ? field.field_type
+        : "text",
+    is_required: field.is_required === true,
+    is_unique: field.is_unique === true,
+    is_channelable: field.is_channelable === true,
+    is_localizable: field.is_localizable === true,
+    allowed_channel_ids: toStringList(field.allowed_channel_ids),
+    allowed_market_ids: toStringList(field.allowed_market_ids),
+    allowed_locale_ids: toStringList(field.allowed_locale_ids),
+    sort_order: typeof field.sort_order === "number" ? field.sort_order : 0,
+    options: {
+      ...options,
+      system_key: typeof options.system_key === "string" ? options.system_key : undefined,
+      allow_multiple: typeof options.allow_multiple === "boolean" ? options.allow_multiple : undefined,
+      document_slot: typeof options.document_slot === "string" ? options.document_slot : undefined,
+      table_definition: tableDefinition
+        ? {
+            ...tableDefinition,
+            meta: tableMeta
+              ? {
+                  ...tableMeta,
+                  uses_panel_instances:
+                    typeof tableMeta.uses_panel_instances === "boolean"
+                      ? tableMeta.uses_panel_instances
+                      : undefined,
+                }
+              : undefined,
+          }
+        : undefined,
+    },
+  };
+}
+
+function normalizeProductFieldGroup(value: unknown): ProductFieldGroupLike | null {
+  const groupAssignment = asRecord(value);
+  if (!groupAssignment) return null;
+
+  const fieldGroup = asRecord(groupAssignment.field_groups) ?? asRecord(groupAssignment.field_group);
+  if (!fieldGroup) return null;
+
+  const code = String(fieldGroup.code ?? "").trim().toLowerCase();
+  if (!code) return null;
+
+  const assignments = Array.isArray(fieldGroup.product_field_group_assignments)
+    ? fieldGroup.product_field_group_assignments
+    : [];
+  const allFields = assignments
+    .map((assignment) => normalizeProductField(asRecord(assignment)?.product_fields))
+    .filter((field): field is ProductFieldLike => Boolean(field))
+    .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
+
+  const hiddenFields = toStringList(groupAssignment.hidden_fields);
+  const hiddenFieldSet = new Set(hiddenFields);
+  const visibleFields = allFields.filter((field) => !hiddenFieldSet.has(field.id));
+
+  return {
+    ...groupAssignment,
+    id: String(groupAssignment.id ?? `${code}-assignment`),
+    field_group_id: String(groupAssignment.field_group_id ?? fieldGroup.id ?? code),
+    field_group: {
+      ...fieldGroup,
+      code,
+      name:
+        typeof fieldGroup.name === "string" && fieldGroup.name.trim().length > 0
+          ? fieldGroup.name
+          : code,
+      description: typeof fieldGroup.description === "string" ? fieldGroup.description : undefined,
+    },
+    hidden_fields: hiddenFields,
+    sort_order: typeof groupAssignment.sort_order === "number" ? groupAssignment.sort_order : 0,
+    fields: visibleFields,
+  };
+}
+
 function formatAuditDateTime(value: string | null | undefined): string {
   if (!value) return "Unknown";
   const parsed = new Date(value);
@@ -122,18 +423,19 @@ function formatAuditDateTime(value: string | null | undefined): string {
   return parsed.toLocaleString();
 }
 
-function isImageLikeAsset(asset: any): boolean {
-  const mimeType = String(asset?.mime_type || asset?.mimeType || "").toLowerCase();
+function isImageLikeAsset(asset: unknown): boolean {
+  const normalizedAsset = asRecord(asset);
+  const mimeType = String(normalizedAsset?.mime_type || normalizedAsset?.mimeType || "").toLowerCase();
   if (mimeType.startsWith("image/")) {
     return true;
   }
 
-  const fileType = String(asset?.file_type || asset?.fileType || "").toLowerCase();
+  const fileType = String(normalizedAsset?.file_type || normalizedAsset?.fileType || "").toLowerCase();
   if (["jpg", "jpeg", "png", "webp", "gif", "avif", "svg", "tif", "tiff", "bmp"].includes(fileType)) {
     return true;
   }
 
-  const name = String(asset?.filename || asset?.originalFilename || "").toLowerCase();
+  const name = String(normalizedAsset?.filename || normalizedAsset?.originalFilename || "").toLowerCase();
   return /\.(jpg|jpeg|png|webp|gif|avif|svg|tif|tiff|bmp)$/.test(name);
 }
 
@@ -217,11 +519,12 @@ function extractFirstDocumentFile(dataTransfer: DataTransfer | null): File | nul
   return null;
 }
 
-function isDocumentLikeAsset(asset: any): boolean {
+function isDocumentLikeAsset(asset: unknown): boolean {
   if (!asset) return false;
   if (isImageLikeAsset(asset)) return true;
 
-  const mimeType = String(asset?.mime_type || asset?.mimeType || "").toLowerCase();
+  const normalizedAsset = asRecord(asset);
+  const mimeType = String(normalizedAsset?.mime_type || normalizedAsset?.mimeType || "").toLowerCase();
   if (
     mimeType.includes("pdf") ||
     mimeType.startsWith("text/") ||
@@ -233,16 +536,16 @@ function isDocumentLikeAsset(asset: any): boolean {
     return true;
   }
 
-  const fileType = String(asset?.file_type || asset?.fileType || "").toLowerCase();
+  const fileType = String(normalizedAsset?.file_type || normalizedAsset?.fileType || "").toLowerCase();
   if (["pdf", "doc", "docx", "txt", "csv", "xls", "xlsx"].includes(fileType)) {
     return true;
   }
 
-  const name = String(asset?.filename || asset?.originalFilename || "").toLowerCase();
+  const name = String(normalizedAsset?.filename || normalizedAsset?.originalFilename || "").toLowerCase();
   return /\.(pdf|doc|docx|txt|csv|xls|xlsx)$/.test(name);
 }
 
-function resolveDocumentSlotCode(field: any): string | null {
+function resolveDocumentSlotCode(field: ProductFieldLike): string | null {
   const fromOption = String(field?.options?.document_slot || "")
     .trim()
     .toLowerCase();
@@ -281,11 +584,11 @@ export function ProductDetailClient({
 }: ProductDetailClientProps) {
   const TABLE_HEAVY_FIELD_TYPES = ['table', 'gallery', 'asset_collection', 'data_grid'];
 
-  const isConstrainedPanelTable = (field: any) =>
+  const isConstrainedPanelTable = (field: ProductFieldLike) =>
     field?.field_type === 'table' &&
     field?.options?.table_definition?.meta?.uses_panel_instances === true;
 
-  const isLayoutWideField = (field: any) => {
+  const isLayoutWideField = (field: ProductFieldLike) => {
     if (!field) return false;
     if (field.field_type !== 'table') {
       return TABLE_HEAVY_FIELD_TYPES.includes(field.field_type);
@@ -308,21 +611,22 @@ export function ProductDetailClient({
   }, [selectedBrandSlug]);
   const isSharedBrandView =
     selectedBrandSlug.length > 0 && selectedBrandSlug !== tenantSlug.toLowerCase();
-  const [activeSection, setActiveSection] = useState('overview');
-  const [product, setProduct] = useState<any>(null);
+  const [activeSection, setActiveSection] = useState('attributes-all');
+  const hasAutoSelectedInitialSectionRef = useRef(false);
+  const [product, setProduct] = useState<ProductState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [fieldGroups, setFieldGroups] = useState<any[]>([]);
-  const [loadingFieldGroups, setLoadingFieldGroups] = useState(false);
-  const fieldGroupsCacheRef = useRef<Map<string, any[]>>(new Map());
-  const [fieldValues, setFieldValues] = useState<Record<string, any>>({});
-  const [pendingFieldChanges, setPendingFieldChanges] = useState<Record<string, any>>({});
-  const [linkedAssets, setLinkedAssets] = useState<any[]>([]);
+  const [fieldGroups, setFieldGroups] = useState<ProductFieldGroupLike[]>([]);
+  const [, setLoadingFieldGroups] = useState(false);
+  const fieldGroupsCacheRef = useRef<Map<string, ProductFieldGroupLike[]>>(new Map());
+  const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
+  const [pendingFieldChanges, setPendingFieldChanges] = useState<Record<string, unknown>>({});
+  const [linkedAssets, setLinkedAssets] = useState<ProductLinkLike[]>([]);
   const [loadingLinkedAssets, setLoadingLinkedAssets] = useState(false);
   const [linkedAssetsError, setLinkedAssetsError] = useState<string | null>(null);
   const [isLinkAssetDialogOpen, setIsLinkAssetDialogOpen] = useState(false);
-  const [availableAssets, setAvailableAssets] = useState<any[]>([]);
+  const [availableAssets, setAvailableAssets] = useState<DamAssetLike[]>([]);
   const [availableAssetQuery, setAvailableAssetQuery] = useState("");
   const [selectedAssetIdsToLink, setSelectedAssetIdsToLink] = useState<Set<string>>(new Set());
   const [isAssignSlotDialogOpen, setIsAssignSlotDialogOpen] = useState(false);
@@ -358,7 +662,7 @@ export function ProductDetailClient({
   const [slotVersionEffectiveTo, setSlotVersionEffectiveTo] = useState("");
   const [slotVersionDialogError, setSlotVersionDialogError] = useState<string | null>(null);
   const slotFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const [completeness, setCompleteness] = useState<{
+  const [, setCompleteness] = useState<{
     percent: number;
     requiredCount: number;
     completeCount: number;
@@ -366,11 +670,12 @@ export function ProductDetailClient({
     isComplete: boolean;
     familyId?: string | null;
   } | null>(null);
-  const [completenessLoading, setCompletenessLoading] = useState(false);
+  const [, setCompletenessLoading] = useState(false);
   const [localizationEligibilityLoading, setLocalizationEligibilityLoading] = useState(false);
   const [canUseTranslateProduct, setCanUseTranslateProduct] = useState(false);
-  const [translateRestrictionMessage, setTranslateRestrictionMessage] = useState<string | null>(null);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isTranslatePanelOpen, setIsTranslatePanelOpen] = useState(false);
+  const [isDeletingProduct, setIsDeletingProduct] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   const {
     channels,
@@ -380,7 +685,6 @@ export function ProductDetailClient({
     selectedMarketId,
     selectedLocaleId,
     selectedDestinationId,
-    selectedMarket,
     selectedChannel,
     selectedLocale,
     selectedDestination,
@@ -407,17 +711,92 @@ export function ProductDetailClient({
     selectedDestination?.code,
   ]);
 
-  const resolveSystemFieldCode = (field: any): string =>
-    String(field?.options?.system_key || field?.code || '')
-      .trim()
-      .toLowerCase();
+  const canEditFields = !isSharedBrandView && isScopeReady;
 
-  const isScinSystemField = (field: any): boolean =>
-    resolveSystemFieldCode(field) === 'scin';
+  const fieldCodeToSystemKeyMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const group of fieldGroups) {
+      const fields = Array.isArray(group?.fields) ? group.fields : [];
+      for (const field of fields) {
+        const code = String(field?.code || "")
+          .trim()
+          .toLowerCase();
+        const systemKey = String(field?.options?.system_key || "")
+          .trim()
+          .toLowerCase();
+        if (!code || !systemKey) continue;
+        map.set(code, systemKey);
+      }
+    }
+    return map;
+  }, [fieldGroups]);
+
+  const mapFieldKeyToProductColumn = useCallback(
+    (rawFieldKey: string): string | null => {
+      const trimmedKey = rawFieldKey.trim();
+      const normalizedKey = trimmedKey.toLowerCase();
+
+      if (normalizedKey === "scin") return null;
+      if (normalizedKey === "title") return "product_name";
+
+      const mappedSystemKey = fieldCodeToSystemKeyMap.get(normalizedKey);
+      if (mappedSystemKey && MUTABLE_PRODUCT_COLUMNS.has(mappedSystemKey)) {
+        return mappedSystemKey;
+      }
+      if (MUTABLE_PRODUCT_COLUMNS.has(trimmedKey)) {
+        return trimmedKey;
+      }
+
+      // Allow custom product field codes to flow to API scoped/global field-value persistence.
+      return trimmedKey || null;
+    },
+    [fieldCodeToSystemKeyMap]
+  );
+
+  const authoringScope = useMemo(() => {
+    const rawScope =
+      product?.marketplace_content?.authoringScope ??
+      product?.marketplaceContent?.authoringScope ??
+      null;
+    return normalizeAuthoringScope(rawScope) || createGlobalAuthoringScope();
+  }, [product]);
+
+  const isCurrentViewInsideAuthoringScope = useMemo(() => {
+    if (authoringScope.mode !== "scoped") return true;
+
+    const matchesDimension = (selectedId: string | null, allowedIds: string[]) =>
+      allowedIds.length === 0 || (selectedId ? allowedIds.includes(selectedId) : false);
+
+    return (
+      matchesDimension(selectedMarketId, authoringScope.marketIds) &&
+      matchesDimension(selectedChannelId, authoringScope.channelIds) &&
+      matchesDimension(selectedLocaleId, authoringScope.localeIds) &&
+      matchesDimension(selectedDestinationId, authoringScope.destinationIds)
+    );
+  }, [
+    authoringScope,
+    selectedMarketId,
+    selectedChannelId,
+    selectedLocaleId,
+    selectedDestinationId,
+  ]);
+
+  const resolveSystemFieldCode = useCallback(
+    (field: ProductFieldLike): string =>
+      String(field?.options?.system_key || field?.code || "")
+        .trim()
+        .toLowerCase(),
+    []
+  );
+
+  const isScinSystemField = useCallback(
+    (field: ProductFieldLike): boolean => resolveSystemFieldCode(field) === "scin",
+    [resolveSystemFieldCode]
+  );
 
   // Handle field value changes with auto-save
-  const handleFieldChange = (fieldCode: string, value: any) => {
-    if (isSharedBrandView) return;
+  const handleFieldChange = (fieldCode: string, value: unknown) => {
+    if (!canEditFields) return;
     if (fieldCode === 'scin') return;
     console.log(`Ã°Å¸â€œÂ Field "${fieldCode}" changed to:`, value);
     console.log(`Ã°Å¸â€œÂ Field type:`, typeof value);
@@ -440,50 +819,74 @@ export function ProductDetailClient({
     }));
 
     if (fieldCode === 'title' || fieldCode === 'sku' || fieldCode === 'barcode') {
-      setProduct((prev: any) => {
+      const nextTextValue = toTextValue(value);
+      setProduct((prev) => {
         if (!prev) return prev;
         if (fieldCode === 'title') {
-          return { ...prev, productName: value ?? '' };
+          return { ...prev, productName: nextTextValue };
         }
         if (fieldCode === 'sku') {
-          return { ...prev, sku: value ?? '' };
+          return { ...prev, sku: nextTextValue };
         }
-        return { ...prev, upc: value ?? '' };
+        return { ...prev, upc: nextTextValue };
       });
     }
 
-    // Debounce save - wait 1 second after last change
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    saveTimeoutRef.current = setTimeout(async () => {
-      await saveFieldValues({ [fieldCode]: value });
-    }, 1000);
   };
 
   // Save field values to API
-  const saveFieldValues = async (fieldsToSave: Record<string, any>) => {
+  const saveFieldValues = async (
+    fieldsToSave: Record<string, unknown>,
+    options?: { forceGlobalScope?: boolean }
+  ) => {
     if (isSharedBrandView) return;
+    if (!options?.forceGlobalScope && !canEditFields) return;
     if (!product?.id) {
       console.error('Ã¢ÂÅ’ Cannot save: product.id is missing');
       return;
     }
 
-    const normalizedFieldsToSave: Record<string, any> = {};
+    const normalizedFieldsToSave: Record<string, unknown> = {};
+    const droppedFields: string[] = [];
     Object.entries(fieldsToSave).forEach(([key, value]) => {
-      const normalizedKey = key.trim().toLowerCase();
-      if (normalizedKey === 'scin') {
+      const mappedKey = mapFieldKeyToProductColumn(key);
+      if (!mappedKey) {
+        droppedFields.push(key);
         return;
       }
-      if (normalizedKey === 'title') {
-        normalizedFieldsToSave.product_name = value;
-        return;
-      }
-      normalizedFieldsToSave[key] = value;
+      normalizedFieldsToSave[mappedKey] = value;
     });
 
+    if (droppedFields.length > 0) {
+      console.warn('Skipping unsupported product fields during save:', droppedFields);
+      setPendingFieldChanges((prev) => {
+        const next = { ...prev };
+        droppedFields.forEach((key) => {
+          delete next[key];
+        });
+        return next;
+      });
+    }
+
     if (Object.keys(normalizedFieldsToSave).length === 0) {
+      return;
+    }
+
+    const requiredFieldViolations: string[] = [];
+    if (Object.prototype.hasOwnProperty.call(normalizedFieldsToSave, "product_name")) {
+      const productName = normalizedFieldsToSave.product_name;
+      if (typeof productName !== "string" || productName.trim().length === 0) {
+        requiredFieldViolations.push("Title");
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(normalizedFieldsToSave, "sku")) {
+      const sku = normalizedFieldsToSave.sku;
+      if (typeof sku !== "string" || sku.trim().length === 0) {
+        requiredFieldViolations.push("SKU");
+      }
+    }
+    if (requiredFieldViolations.length > 0) {
+      console.error(`${requiredFieldViolations.join(" and ")} cannot be empty`);
       return;
     }
 
@@ -493,14 +896,23 @@ export function ProductDetailClient({
       console.log('Ã°Å¸â€™Â¾ Product ID:', product.id);
       console.log('Ã°Å¸â€™Â¾ Tenant slug:', tenantSlug);
 
+      const useScopedTarget = !options?.forceGlobalScope;
+      const targetMarketId = useScopedTarget ? selectedMarketId : null;
+      const targetChannelId = useScopedTarget ? selectedChannelId : null;
+      const targetLocaleId = useScopedTarget ? selectedLocaleId : null;
+      const targetDestinationId = useScopedTarget ? selectedDestinationId : null;
+      const targetLocaleCode = useScopedTarget ? selectedLocale?.code : null;
+      const targetChannelCode = useScopedTarget ? selectedChannel?.code : null;
+      const targetDestinationCode = useScopedTarget ? selectedDestination?.code : null;
+
       const query = new URLSearchParams();
-      if (selectedMarketId) query.set('marketId', selectedMarketId);
-      if (selectedChannelId) query.set('channelId', selectedChannelId);
-      if (selectedLocaleId) query.set('localeId', selectedLocaleId);
-      if (selectedDestinationId) query.set('destinationId', selectedDestinationId);
-      if (selectedLocale?.code) query.set('locale', selectedLocale.code);
-      if (selectedChannel?.code) query.set('channel', selectedChannel.code);
-      if (selectedDestination?.code) query.set('destination', selectedDestination.code);
+      if (targetMarketId) query.set('marketId', targetMarketId);
+      if (targetChannelId) query.set('channelId', targetChannelId);
+      if (targetLocaleId) query.set('localeId', targetLocaleId);
+      if (targetDestinationId) query.set('destinationId', targetDestinationId);
+      if (targetLocaleCode) query.set('locale', targetLocaleCode);
+      if (targetChannelCode) query.set('channel', targetChannelCode);
+      if (targetDestinationCode) query.set('destination', targetDestinationCode);
       if (selectedBrandSlug) query.set('brand', selectedBrandSlug);
       const url = query.toString()
         ? `/api/${tenantSlug}/products/${product.id}?${query.toString()}`
@@ -512,42 +924,39 @@ export function ProductDetailClient({
         body: JSON.stringify(normalizedFieldsToSave)
       });
 
-      const responseData = await parseJsonSafely(response);
+      const responseData = asApiEnvelope(await parseJsonSafely(response));
       console.log('Ã°Å¸â€œÂ¤ Server response:', responseData);
 
       if (!response.ok) {
-        console.error('Ã¢ÂÅ’ Server returned error:', responseData);
+        console.error('Save request failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: responseData,
+        });
         if (responseData?.details) {
-          console.error('Ã¢ÂÅ’ Validation details:', JSON.stringify(responseData.details, null, 2));
+          console.error('Validation details:', JSON.stringify(responseData.details, null, 2));
         }
-        throw new Error(responseData?.error || 'Failed to save field values');
+        throw new Error(toErrorMessage(responseData, `Failed to save field values (${response.status})`));
       }
 
       console.log('Ã¢Å“â€¦ Field values saved successfully');
-      setPendingFieldChanges({});
+      setPendingFieldChanges((prev) => {
+        const remaining = { ...prev };
+        Object.keys(fieldsToSave).forEach((key) => {
+          delete remaining[key];
+        });
+        return remaining;
+      });
       await fetchCompleteness();
     } catch (error) {
-      console.error('Ã¢ÂÅ’ Error saving field values:', error);
-      // TODO: Implement proper toast notification system
-      // toast({
-      //   title: 'Error',
-      //   description: 'Failed to save changes. Please try again.',
-      //   variant: 'destructive'
-      // });
+      console.error('Error saving field values:', error);
+      throw error;
     } finally {
       setSaving(false);
     }
   };
 
-  const staticSections = [
-    {
-      id: 'overview',
-      label: 'Overview',
-      icon: Package,
-      isSystem: true,
-      isFieldGroup: false,
-      layoutType: 'form',
-    },
+  const staticSections = useMemo<ProductSystemSection[]>(() => [
     {
       id: 'attributes-all',
       label: 'All Attributes',
@@ -588,9 +997,9 @@ export function ProductDetailClient({
       isFieldGroup: false,
       layoutType: 'full-width',
     },
-  ];
+  ], []);
 
-  const parentOnlySections = product?.type === 'parent'
+  const parentOnlySections = useMemo<ProductSystemSection[]>(() => product?.type === 'parent'
     ? [
         {
           id: 'product-settings',
@@ -601,14 +1010,14 @@ export function ProductDetailClient({
           layoutType: 'form',
         },
       ]
-    : [];
+    : [], [product?.type]);
 
 
-  const isTableHeavyFieldGroup = (fieldGroup: any) => {
+  const isTableHeavyFieldGroup = (fieldGroup: ProductFieldGroupLike) => {
     const fields = Array.isArray(fieldGroup?.fields) ? fieldGroup.fields : [];
     if (fields.length === 0) return false;
 
-    const wideFieldCount = fields.filter((field: any) => isLayoutWideField(field)).length;
+    const wideFieldCount = fields.filter((field: ProductFieldLike) => isLayoutWideField(field)).length;
 
     if (wideFieldCount === 0) return false;
 
@@ -631,7 +1040,7 @@ export function ProductDetailClient({
     }
 
     // For field groups, check if they contain wide field types
-    if (section.isFieldGroup && 'fieldGroup' in section && section.fieldGroup?.fields) {
+    if (section.isFieldGroup) {
       if (isTableHeavyFieldGroup(section.fieldGroup)) {
         return 'full-width';
       }
@@ -641,15 +1050,7 @@ export function ProductDetailClient({
     return section.layoutType || 'form';
   };
 
-  // Check if a field group needs special rendering
-  const needsWideLayout = (fieldGroup: any) => {
-    if (!fieldGroup?.fields) return false;
-    return fieldGroup.fields.some((field: any) =>
-      ['table', 'gallery', 'asset_collection', 'data_grid', 'repeater', 'image', 'file'].includes(field.field_type)
-    );
-  };
-
-  const isFieldValueFilled = (value: any) => {
+  const isFieldValueFilled = (value: unknown) => {
     if (value === null || value === undefined) return false;
     if (typeof value === 'string') return value.trim().length > 0;
     if (Array.isArray(value)) return value.length > 0;
@@ -664,7 +1065,7 @@ export function ProductDetailClient({
     }
   };
 
-  const isFieldAllowed = useCallback((field: any) => {
+  const isFieldAllowed = useCallback((field: ProductFieldLike) => {
     if (field?.is_channelable && Array.isArray(field.allowed_channel_ids) && field.allowed_channel_ids.length > 0) {
       if (selectedChannelId && !field.allowed_channel_ids.includes(selectedChannelId)) {
         return false;
@@ -684,12 +1085,29 @@ export function ProductDetailClient({
   }, [selectedChannelId, selectedMarketId, selectedLocaleId]);
 
   const filteredFieldGroups = useMemo(() => {
-    return fieldGroups.map((group) => ({
+    const processedGroups = fieldGroups.map((group) => ({
       ...group,
       fields: Array.isArray(group.fields)
         ? group.fields.filter(isFieldAllowed)
         : group.fields
     }));
+
+    return processedGroups.sort((a, b) => {
+      const aCode = String(a?.field_group?.code || "").trim().toLowerCase();
+      const bCode = String(b?.field_group?.code || "").trim().toLowerCase();
+      const aIsBasic = aCode === BASIC_INFORMATION_GROUP_CODE;
+      const bIsBasic = bCode === BASIC_INFORMATION_GROUP_CODE;
+      if (aIsBasic && !bIsBasic) return -1;
+      if (!aIsBasic && bIsBasic) return 1;
+
+      const aSortOrder = Number(a?.sort_order ?? Number.MAX_SAFE_INTEGER);
+      const bSortOrder = Number(b?.sort_order ?? Number.MAX_SAFE_INTEGER);
+      if (aSortOrder !== bSortOrder) return aSortOrder - bSortOrder;
+
+      const aName = String(a?.field_group?.name || "").trim().toLowerCase();
+      const bName = String(b?.field_group?.name || "").trim().toLowerCase();
+      return aName.localeCompare(bName);
+    });
   }, [fieldGroups, isFieldAllowed]);
 
   const documentationFieldGroup = useMemo(
@@ -716,8 +1134,8 @@ export function ProductDetailClient({
       ? documentationFieldGroup.fields
       : [];
     return fields
-      .filter((field: any) => field?.field_type === "file" || field?.field_type === "image")
-      .map((field: any) => {
+      .filter((field: ProductFieldLike) => field?.field_type === "file" || field?.field_type === "image")
+      .map((field: ProductFieldLike) => {
         const slotCode = resolveDocumentSlotCode(field);
         if (!slotCode) return null;
         return {
@@ -731,8 +1149,8 @@ export function ProductDetailClient({
       })
       .filter((slot: ProductDocumentFieldSlot | null): slot is ProductDocumentFieldSlot => Boolean(slot))
       .sort((a: ProductDocumentFieldSlot, b: ProductDocumentFieldSlot) => {
-        const aField = fields.find((field: any) => String(field.id) === a.fieldId);
-        const bField = fields.find((field: any) => String(field.id) === b.fieldId);
+        const aField = fields.find((field: ProductFieldLike) => String(field.id) === a.fieldId);
+        const bField = fields.find((field: ProductFieldLike) => String(field.id) === b.fieldId);
         return Number(aField?.sort_order || 0) - Number(bField?.sort_order || 0);
       });
   }, [documentationFieldGroup]);
@@ -747,23 +1165,30 @@ export function ProductDetailClient({
     [documentationSlotCodeSet]
   );
 
-  const dynamicFieldGroupSections = filteredFieldGroups.map(group => ({
-    id: `fieldgroup-${group.field_group.code}`,
-    label: group.field_group.name,
-    icon: Zap,
-    isFieldGroup: true,
-    isSystem: false,
-    layoutType: 'form', // Default, but can be overridden by field types
-    fieldGroup: group,
-  }));
+  const dynamicFieldGroupSections = useMemo<ProductFieldGroupSection[]>(
+    () =>
+      filteredFieldGroups.map((group) => ({
+        id: `fieldgroup-${group.field_group.code}`,
+        label: group.field_group.name,
+        icon: Zap,
+        isFieldGroup: true,
+        isSystem: false,
+        layoutType: 'form', // Default, but can be overridden by field types
+        fieldGroup: group,
+      })),
+    [filteredFieldGroups]
+  );
 
-  const sections = [...staticSections, ...parentOnlySections, ...dynamicFieldGroupSections];
+  const sections = useMemo<ProductSection[]>(
+    () => [...staticSections, ...parentOnlySections, ...dynamicFieldGroupSections],
+    [dynamicFieldGroupSections, parentOnlySections, staticSections]
+  );
 
   const variantInheritanceConfig = useMemo(() => {
-    const rawConfig =
+    const rawConfig = asRecord(
       product?.marketplace_content?.variantInheritance ??
-      product?.marketplaceContent?.variantInheritance ??
-      {};
+      product?.marketplaceContent?.variantInheritance
+    );
 
     const inheritByDefault =
       typeof rawConfig?.inheritByDefault === "boolean"
@@ -780,53 +1205,66 @@ export function ProductDetailClient({
     };
   }, [product]);
 
-  const updateVariantInheritanceConfig = useCallback(
-    async (partial: Partial<{ inheritByDefault: boolean; allowChildOverrides: boolean }>) => {
-      if (isSharedBrandView || !product || product.type !== "parent") return;
+  const updateVariantInheritanceConfig = async (
+    partial: Partial<{ inheritByDefault: boolean; allowChildOverrides: boolean }>
+  ) => {
+    if (
+      isSharedBrandView ||
+      !canEditFields ||
+      !product ||
+      product.type !== "parent"
+    ) {
+      return;
+    }
 
-      const nextConfig = {
-        inheritByDefault: partial.inheritByDefault ?? variantInheritanceConfig.inheritByDefault,
-        allowChildOverrides:
-          partial.allowChildOverrides ?? variantInheritanceConfig.allowChildOverrides,
-      };
+    const nextConfig = {
+      inheritByDefault: partial.inheritByDefault ?? variantInheritanceConfig.inheritByDefault,
+      allowChildOverrides:
+        partial.allowChildOverrides ?? variantInheritanceConfig.allowChildOverrides,
+    };
 
-      const currentMarketplaceContent =
-        product.marketplace_content &&
-        typeof product.marketplace_content === "object" &&
-        !Array.isArray(product.marketplace_content)
-          ? { ...(product.marketplace_content as Record<string, unknown>) }
-          : {};
+    const currentMarketplaceContent =
+      product.marketplace_content &&
+      typeof product.marketplace_content === "object" &&
+      !Array.isArray(product.marketplace_content)
+        ? { ...(product.marketplace_content as Record<string, unknown>) }
+        : {};
 
-      const nextMarketplaceContent = {
-        ...currentMarketplaceContent,
-        variantInheritance: {
-          inheritByDefault: nextConfig.inheritByDefault,
-          allowChildOverrides: nextConfig.allowChildOverrides,
-          updatedAt: new Date().toISOString(),
-        },
-      };
+    const nextMarketplaceContent = {
+      ...currentMarketplaceContent,
+      variantInheritance: {
+        inheritByDefault: nextConfig.inheritByDefault,
+        allowChildOverrides: nextConfig.allowChildOverrides,
+        updatedAt: new Date().toISOString(),
+      },
+    };
 
-      setProduct((prev: any) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          marketplace_content: nextMarketplaceContent,
-          marketplaceContent: nextMarketplaceContent,
-        };
-      });
-
-      await saveFieldValues({
+    setProduct((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
         marketplace_content: nextMarketplaceContent,
-      });
-    },
-    [isSharedBrandView, product, variantInheritanceConfig]
-  );
+        marketplaceContent: nextMarketplaceContent,
+      };
+    });
+
+    try {
+      await saveFieldValues(
+        {
+          marketplace_content: nextMarketplaceContent,
+        },
+        { forceGlobalScope: true }
+      );
+    } catch (error) {
+      console.error("Failed to update variant inheritance defaults:", error);
+    }
+  };
 
   const fieldGroupStats = useMemo(() => {
     return filteredFieldGroups.map((group) => {
       const fields = Array.isArray(group.fields) ? group.fields : [];
-      const requiredFields = fields.filter((field: any) => field?.is_required);
-      const completeRequired = requiredFields.filter((field: any) => {
+      const requiredFields = fields.filter((field: ProductFieldLike) => field?.is_required);
+      const completeRequired = requiredFields.filter((field: ProductFieldLike) => {
         const value = isScinSystemField(field)
           ? (product?.scin || product?.id || '')
           : fieldValues[field.code];
@@ -841,7 +1279,7 @@ export function ProductDetailClient({
         missingRequiredCount: Math.max(requiredFields.length - completeRequired, 0),
       };
     });
-  }, [filteredFieldGroups, fieldValues, product?.id, product?.scin]);
+  }, [filteredFieldGroups, fieldValues, isScinSystemField, product?.id, product?.scin]);
 
   const requiredFieldGroupStats = useMemo(
     () => fieldGroupStats.filter((stats) => stats.requiredFieldCount > 0),
@@ -855,15 +1293,68 @@ export function ProductDetailClient({
   useEffect(() => {
     const validSections = new Set(sections.map((section) => section.id));
     if (!validSections.has(activeSection)) {
-      setActiveSection('overview');
+      setActiveSection('attributes-all');
     }
   }, [activeSection, sections]);
+
+  useEffect(() => {
+    const requestedSection = (searchParams.get("section") || "").trim().toLowerCase();
+    if (!requestedSection) return;
+    const normalizedRequestedSection =
+      requestedSection === "overview" ? "attributes-all" : requestedSection;
+
+    const alwaysSupportedSections = new Set([
+      "attributes-all",
+      "attributes-required",
+      "attributes-missing",
+      "variants",
+      "media",
+      "product-settings",
+    ]);
+    const dynamicSectionIds = new Set(sections.map((section) => section.id));
+
+    if (
+      alwaysSupportedSections.has(normalizedRequestedSection) ||
+      dynamicSectionIds.has(normalizedRequestedSection)
+    ) {
+      setActiveSection(normalizedRequestedSection);
+    }
+  }, [searchParams, sections]);
+
+  useEffect(() => {
+    if (hasAutoSelectedInitialSectionRef.current) return;
+
+    const requestedSection = (searchParams.get("section") || "").trim().toLowerCase();
+    if (requestedSection) {
+      hasAutoSelectedInitialSectionRef.current = true;
+      return;
+    }
+
+    if (activeSection !== 'attributes-all') {
+      hasAutoSelectedInitialSectionRef.current = true;
+      return;
+    }
+
+    if (dynamicFieldGroupSections.length === 0) return;
+
+    const preferredSectionId =
+      dynamicFieldGroupSections.find((section) => {
+        const code = String(section.fieldGroup?.field_group?.code || '').trim().toLowerCase();
+        const name = String(section.label || '').trim().toLowerCase();
+        return code === BASIC_INFORMATION_GROUP_CODE || name === 'basic information';
+      })?.id ?? dynamicFieldGroupSections[0]?.id;
+
+    if (preferredSectionId) {
+      setActiveSection(preferredSectionId);
+      hasAutoSelectedInitialSectionRef.current = true;
+    }
+  }, [activeSection, dynamicFieldGroupSections, searchParams]);
   const linkedAssetIdSet = useMemo(
     () => new Set(linkedAssets.map((link) => link?.asset_id || link?.dam_assets?.id).filter(Boolean)),
     [linkedAssets]
   );
   const imageSlotLinks = useMemo(() => {
-    const byCode: Record<string, any | null> = {};
+    const byCode: Record<string, ProductLinkLike | null> = {};
     for (const slot of PRODUCT_IMAGE_SLOTS) {
       byCode[slot.code] = null;
     }
@@ -881,7 +1372,7 @@ export function ProductDetailClient({
     return byCode;
   }, [linkedAssets]);
   const documentSlotLinksByFieldId = useMemo(() => {
-    const byFieldId: Record<string, any | null> = {};
+    const byFieldId: Record<string, ProductLinkLike | null> = {};
     const slotByCode = new Map<string, ProductDocumentFieldSlot>();
     documentationSlotFields.forEach((slot) => {
       byFieldId[slot.fieldId] = null;
@@ -906,7 +1397,7 @@ export function ProductDetailClient({
     return byFieldId;
   }, [documentationSlotFields, linkedAssets]);
   const visibleDocumentSlotFields = useMemo(() => {
-    let slots = documentationSlotFields;
+    const slots = documentationSlotFields;
     if (showMissingOnlyDocumentSlots) {
       return slots.filter((slot) => !Boolean(documentSlotLinksByFieldId[slot.fieldId]));
     }
@@ -926,7 +1417,7 @@ export function ProductDetailClient({
     showMissingOnlyDocumentSlots,
   ]);
   const visibleImageSlots = useMemo(() => {
-    let slots = PRODUCT_IMAGE_SLOTS;
+    const slots = PRODUCT_IMAGE_SLOTS;
     if (showMissingOnlyImageSlots) {
       return slots.filter((slot) => !Boolean(imageSlotLinks[slot.code]));
     }
@@ -981,8 +1472,9 @@ export function ProductDetailClient({
       if (!response.ok) {
         throw new Error(`Failed to fetch linked assets (${response.status})`);
       }
-      const payload = await parseJsonSafely(response);
-      setLinkedAssets(((payload?.data as any[]) || []) as any[]);
+      const payload = asRecord(await parseJsonSafely(response));
+      const payloadData = Array.isArray(payload?.data) ? (payload.data as ProductLinkLike[]) : [];
+      setLinkedAssets(payloadData);
     } catch (error) {
       console.error("Failed to fetch linked assets:", error);
       setLinkedAssets([]);
@@ -1005,8 +1497,8 @@ export function ProductDetailClient({
       if (!response.ok) {
         throw new Error(`Failed to fetch folders (${response.status})`);
       }
-      const payload = await parseJsonSafely(response);
-      setAssetFolders((payload?.data || []) as FolderRecord[]);
+      const payload = asApiEnvelope<unknown[]>(await parseJsonSafely(response));
+      setAssetFolders(Array.isArray(payload.data) ? (payload.data as FolderRecord[]) : []);
     } catch (error) {
       console.error("Failed to fetch asset folders:", error);
       setAssetFolders([]);
@@ -1031,9 +1523,10 @@ export function ProductDetailClient({
       if (!response.ok) {
         throw new Error(`Failed to fetch assets (${response.status})`);
       }
-      const payload = await parseJsonSafely(response);
-      setAvailableAssets((payload?.data?.assets || []) as any[]);
-      setAssetFolders((payload?.data?.folders || []) as FolderRecord[]);
+      const payload = asRecord(await parseJsonSafely(response));
+      const data = asRecord(payload?.data);
+      setAvailableAssets(Array.isArray(data?.assets) ? (data.assets as DamAssetLike[]) : []);
+      setAssetFolders(Array.isArray(data?.folders) ? (data.folders as FolderRecord[]) : []);
     } catch (error) {
       console.error("Failed to fetch available assets:", error);
       setAvailableAssets([]);
@@ -1063,7 +1556,7 @@ export function ProductDetailClient({
     }
   };
 
-  const handleRelinkAsset = async (link: any) => {
+  const handleRelinkAsset = async (link: ProductLinkLike) => {
     if (isSharedBrandView) return;
     if (!product?.id) return;
     const assetId = link?.asset_id || link?.dam_assets?.id;
@@ -1234,8 +1727,8 @@ export function ProductDetailClient({
             })();
 
         if (!response.ok) {
-          const payload = await parseJsonSafely(response);
-          const message = payload?.error || `Failed to upload asset (${response.status})`;
+          const payload = asApiEnvelope(await parseJsonSafely(response));
+          const message = toErrorMessage(payload, `Failed to upload asset (${response.status})`);
           setSlotUploadError(message);
           throw new Error(message);
         }
@@ -1311,7 +1804,7 @@ export function ProductDetailClient({
 
   const openAssignSlotDialog = async (
     context: SlotAssignmentContext,
-    existingLink?: any | null
+    existingLink?: ProductLinkLike | null
   ) => {
     setSlotAssignmentContext(context);
     const existing = existingLink || imageSlotLinks[context.slotCode];
@@ -1331,11 +1824,11 @@ export function ProductDetailClient({
           `/api/${tenantSlug}/assets/${assetId}/versions${selectedBrandQuery ? `?${selectedBrandQuery}` : ""}`
         );
         if (!response.ok) {
-          const payload = await parseJsonSafely(response);
-          throw new Error(payload?.error || `Failed to load version history (${response.status})`);
+          const payload = asApiEnvelope(await parseJsonSafely(response));
+          throw new Error(toErrorMessage(payload, `Failed to load version history (${response.status})`));
         }
-        const payload = await parseJsonSafely(response);
-        const records = Array.isArray(payload?.data) ? payload.data : [];
+        const payload = asApiEnvelope<unknown[]>(await parseJsonSafely(response));
+        const records = Array.isArray(payload.data) ? payload.data : [];
         setVersionHistoryRecords(records as AssetVersionHistoryRecord[]);
       } catch (error) {
         console.error("Failed to load slot version history:", error);
@@ -1376,8 +1869,8 @@ export function ProductDetailClient({
           }
         );
         if (!response.ok) {
-          const payload = await parseJsonSafely(response);
-          throw new Error(payload?.error || `Failed to restore version (${response.status})`);
+          const payload = asApiEnvelope(await parseJsonSafely(response));
+          throw new Error(toErrorMessage(payload, `Failed to restore version (${response.status})`));
         }
         await fetchLinkedAssets();
         await fetchSlotVersionHistory(versionHistoryAssetId);
@@ -1486,8 +1979,8 @@ export function ProductDetailClient({
         }
       );
       if (!response.ok) {
-        const payload = await parseJsonSafely(response);
-        throw new Error(payload?.error || `Failed to assign slot (${response.status})`);
+        const payload = asApiEnvelope(await parseJsonSafely(response));
+        throw new Error(toErrorMessage(payload, `Failed to assign slot (${response.status})`));
       }
       setIsAssignSlotDialogOpen(false);
       setSlotAssignmentContext(null);
@@ -1524,11 +2017,14 @@ export function ProductDetailClient({
         }),
       });
       if (!response.ok) {
-        const payload = await parseJsonSafely(response);
-        throw new Error(payload?.error || `Failed to create folder (${response.status})`);
+        const payload = asApiEnvelope(await parseJsonSafely(response));
+        throw new Error(toErrorMessage(payload, `Failed to create folder (${response.status})`));
       }
-      const createdFolder = await parseJsonSafely(response);
-      const createdFolderId = String(createdFolder?.id || "");
+      const createdFolder = asApiEnvelope(await parseJsonSafely(response));
+      const createdFolderId =
+        typeof createdFolder.data === "object" && createdFolder.data
+          ? String((createdFolder.data as Record<string, unknown>).id || "")
+          : "";
       await fetchAssetFolders();
       if (createdFolderId) {
         setSelectedUploadFolderId(createdFolderId);
@@ -1603,32 +2099,13 @@ export function ProductDetailClient({
         if (!parsed) {
           throw new Error('Field groups API returned an empty or invalid response');
         }
-        const groupsData = parsed || [];
+        const groupsData = Array.isArray(parsed) ? parsed : [];
         console.log('Ã°Å¸â€œÂ¥ Field groups response received in:', Date.now() - startTime, 'ms');
         console.log('Ã°Å¸â€œÅ  Field groups data:', groupsData);
 
-        // Transform the data - extract fields from nested structure
-        const processedGroups = groupsData.map((item: any) => {
-          // Extract fields from the nested product_field_group_assignments structure
-          const allFields = (item.field_groups?.product_field_group_assignments || [])
-            .map((assignment: any) => assignment.product_fields)
-            .filter(Boolean)
-            .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0));
-
-          // Filter out hidden fields
-          const visibleFields = allFields.filter((field: any) =>
-            !item.hidden_fields?.includes(field.id)
-          );
-
-          return {
-            id: item.id,
-            field_group_id: item.field_group_id,
-            field_group: item.field_groups,
-            hidden_fields: item.hidden_fields || [],
-            sort_order: item.sort_order,
-            fields: visibleFields
-          };
-        });
+        const processedGroups = groupsData
+          .map((item) => normalizeProductFieldGroup(item))
+          .filter((group): group is ProductFieldGroupLike => Boolean(group));
 
         console.log('Ã¢Å“â€¦ Field groups processed:', processedGroups.length, 'groups');
         console.log('Ã°Å¸â€Â First field from first group:', processedGroups[0]?.fields?.[0]);
@@ -1637,7 +2114,7 @@ export function ProductDetailClient({
         fieldGroupsCacheRef.current.set(familyId, processedGroups);
         setFieldGroups(processedGroups);
       } else {
-        const errorData = await parseJsonSafely(response);
+        const errorData = asApiEnvelope(await parseJsonSafely(response));
         console.error('Ã¢ÂÅ’ Field groups API error:', response.status, errorData);
       }
     } catch (err) {
@@ -1655,6 +2132,9 @@ export function ProductDetailClient({
       setCompletenessLoading(true);
       const query = new URLSearchParams();
       if (selectedMarketId) query.set('marketId', selectedMarketId);
+      if (selectedChannelId) query.set('channelId', selectedChannelId);
+      if (selectedLocaleId) query.set('localeId', selectedLocaleId);
+      if (selectedDestinationId) query.set('destinationId', selectedDestinationId);
       if (selectedLocale?.code) query.set('locale', selectedLocale.code);
       if (selectedChannel?.code) query.set('channel', selectedChannel.code);
       if (selectedDestination?.code) query.set('destination', selectedDestination.code);
@@ -1666,14 +2146,21 @@ export function ProductDetailClient({
         url,
         { cache: 'no-store' }
       );
-      const data = await parseJsonSafely(response);
+      const data = asApiEnvelope(await parseJsonSafely(response));
 
       if (!response.ok) {
         console.warn('Completeness API error:', response.status, data);
         return;
       }
 
-      setCompleteness(data?.data ?? null);
+      setCompleteness(asRecord(data.data) as {
+        percent: number;
+        requiredCount: number;
+        completeCount: number;
+        missingAttributes: Array<{ code: string; label: string }>;
+        isComplete: boolean;
+        familyId?: string | null;
+      } | null);
     } catch (err) {
       console.error('Error fetching completeness:', err);
     } finally {
@@ -1703,6 +2190,9 @@ export function ProductDetailClient({
 
         const query = new URLSearchParams();
         if (selectedMarketId) query.set('marketId', selectedMarketId);
+        if (selectedChannelId) query.set('channelId', selectedChannelId);
+        if (selectedLocaleId) query.set('localeId', selectedLocaleId);
+        if (selectedDestinationId) query.set('destinationId', selectedDestinationId);
         if (selectedLocale?.code) query.set('locale', selectedLocale.code);
         if (selectedChannel?.code) query.set('channel', selectedChannel.code);
         if (selectedDestination?.code) query.set('destination', selectedDestination.code);
@@ -1713,58 +2203,71 @@ export function ProductDetailClient({
         const response = await fetch(url);
         console.log('Ã°Å¸â€œÂ¥ GET Response status:', response.status);
 
-        const data = await parseJsonSafely(response);
+        const rawData = await parseJsonSafely(response);
+        const data = asApiEnvelope<Record<string, unknown>>(rawData);
         console.log('Ã°Å¸â€œÂ¥ GET Response data:', data);
 
         if (!response.ok) {
-          throw new Error(data?.error || 'Failed to fetch product');
+          throw new Error(toErrorMessage(data, 'Failed to fetch product'));
         }
 
         if (data?.success && data?.data) {
+          const productPayload = data.data;
+          const parentProduct = asRecord(data.data.parent_product);
+          const productFamily = asRecord(data.data.product_families);
+          const marketplaceContent = asRecord(data.data.marketplace_content) ?? {};
+          const variants = Array.isArray(data.data.variants)
+            ? data.data.variants
+                .map((variant) => asRecord(variant))
+                .filter((variant): variant is Record<string, unknown> => Boolean(variant))
+            : [];
           // Transform API data to component state format
-          const productData = {
-            id: data.data.id,
-            productName: data.data.product_name,
-            scin: data.data.scin,
-            sku: data.data.sku,
-            upc: data.data.barcode ?? data.data.upc,
-            brand: data.data.brand_line || '',
-            category: data.data.product_families?.name || '',
-            shortDescription: data.data.short_description || '',
-            longDescription: data.data.long_description || '',
-            status: data.data.status,
-            type: data.data.type,
-            parentId: data.data.parent_id,
-            parentSku: data.data.parent_product?.sku || '',
-            parentName: data.data.parent_product?.product_name || '',
-            hasVariants: data.data.has_variants,
-            variantCount: data.data.variant_count,
-            variants: data.data.variants || [],
+          const productData: ProductState = {
+            id: String(data.data.id ?? productId),
+            productName:
+              toTextValue(data.data.product_name) ||
+              toTextValue(data.data.sku) ||
+              String(data.data.id ?? ""),
+            scin: toTextValue(data.data.scin) || String(data.data.id ?? ""),
+            sku: toTextValue(data.data.sku),
+            upc: toTextValue(data.data.barcode ?? data.data.upc),
+            brand: toTextValue(data.data.brand_line),
+            category: toTextValue(productFamily?.name),
+            shortDescription: toTextValue(data.data.short_description),
+            longDescription: toTextValue(data.data.long_description),
+            status: toTextValue(data.data.status) || "Draft",
+            type: toProductType(data.data.type),
+            parentId: typeof data.data.parent_id === "string" ? data.data.parent_id : null,
+            parentSku: toTextValue(parentProduct?.sku),
+            parentName: toTextValue(parentProduct?.product_name),
+            hasVariants: data.data.has_variants === true,
+            variantCount: typeof data.data.variant_count === "number" ? data.data.variant_count : 0,
+            variants,
             msrp: data.data.msrp,
             costOfGoods: data.data.cost_of_goods,
             marginPercent: data.data.margin_percent,
             assetsCount: data.data.assets_count,
             contentScore: data.data.content_score,
             features: data.data.features || [],
-            specifications: data.data.specifications || {},
+            specifications: asRecord(data.data.specifications) ?? {},
             metaTitle: data.data.meta_title,
             metaDescription: data.data.meta_description,
             keywords: data.data.keywords || [],
             weightG: data.data.weight_g,
-            dimensions: data.data.dimensions || {},
-            marketplace_content: data.data.marketplace_content || {},
-            marketplaceContent: data.data.marketplace_content || {},
+            dimensions: asRecord(data.data.dimensions) ?? {},
+            marketplace_content: marketplaceContent,
+            marketplaceContent: marketplaceContent,
             createdAt: data.data.created_at,
             updatedAt: data.data.updated_at,
-            family_id: data.data.family_id
+            family_id: typeof data.data.family_id === "string" ? data.data.family_id : null,
           };
 
           setProduct(productData);
 
           // Initialize field values from product data
           // Custom fields are stored directly on the product object with their field codes
-          const customFieldValues: Record<string, any> = {};
-          Object.keys(data.data).forEach(key => {
+          const customFieldValues: Record<string, unknown> = {};
+          Object.keys(productPayload).forEach(key => {
             // Skip system fields
             const systemFields = ['id', 'organization_id', 'type', 'parent_id', 'product_name', 'scin', 'sku', 'barcode',
               'brand_line', 'family_id', 'status', 'launch_date', 'msrp', 'cost_of_goods', 'margin_percent',
@@ -1774,18 +2277,22 @@ export function ProductDetailClient({
               'updated_at', 'created_by', 'last_modified_by', 'has_variants', 'variant_count',
               'product_families', 'parent_product', 'variants'];
 
-            if (!systemFields.includes(key) && data.data[key] !== null && data.data[key] !== undefined) {
-              customFieldValues[key] = data.data[key];
+            if (
+              !systemFields.includes(key) &&
+              productPayload[key] !== null &&
+              productPayload[key] !== undefined
+            ) {
+              customFieldValues[key] = productPayload[key];
             }
           });
-          customFieldValues.title = data.data.product_name ?? '';
-          customFieldValues.sku = data.data.sku ?? '';
-          customFieldValues.barcode = data.data.barcode ?? data.data.upc ?? '';
-          customFieldValues.scin = data.data.scin ?? data.data.id ?? '';
+          customFieldValues.title = toTextValue(data.data.product_name);
+          customFieldValues.sku = toTextValue(data.data.sku);
+          customFieldValues.barcode = toTextValue(data.data.barcode ?? data.data.upc);
+          customFieldValues.scin = toTextValue(data.data.scin) || String(data.data.id ?? "");
           setFieldValues(customFieldValues);
           console.log('Ã°Å¸â€œÂ¦ Loaded custom field values:', customFieldValues);
 
-          if (data.data.family_id) {
+          if (typeof data.data.family_id === "string" && data.data.family_id) {
             console.log('Ã°Å¸â€â€” Product has family_id:', data.data.family_id);
             fetchFieldGroups(data.data.family_id);
           } else {
@@ -1797,7 +2304,7 @@ export function ProductDetailClient({
           if (productData.type === 'variant') {
             const unscopedVariantUrl = generateVariantUrl(
               tenantSlug,
-              productData.parentId || productData.parentSku,
+              String(productData.parentId || productData.parentSku || ""),
               productData.id,
               {
                 parentLabel: productData.parentName || productData.parentSku || null,
@@ -1872,6 +2379,9 @@ export function ProductDetailClient({
     productId,
     tenantSlug,
     selectedMarketId,
+    selectedChannelId,
+    selectedLocaleId,
+    selectedDestinationId,
     selectedLocale?.code,
     selectedChannel?.code,
     selectedDestination?.code,
@@ -1890,7 +2400,6 @@ export function ProductDetailClient({
   useEffect(() => {
     if (isSharedBrandView) {
       setCanUseTranslateProduct(false);
-      setTranslateRestrictionMessage(null);
       return;
     }
 
@@ -1900,31 +2409,20 @@ export function ProductDetailClient({
         setLocalizationEligibilityLoading(true);
         const response = await fetch(`/api/${tenantSlug}/localization/eligibility`);
         if (!response.ok) {
-          if (!isCancelled) {
-            setCanUseTranslateProduct(false);
-            setTranslateRestrictionMessage('Translation is currently unavailable.');
-          }
+          if (!isCancelled) setCanUseTranslateProduct(false);
           return;
         }
 
-        const payload = await parseJsonSafely(response);
+        const payload = asApiEnvelope(await parseJsonSafely(response));
         if (isCancelled) return;
 
-        const canTranslate = Boolean(payload?.data?.canTranslateProduct);
-        setCanUseTranslateProduct(canTranslate);
-        setTranslateRestrictionMessage(
-          canTranslate ? null : String(payload?.data?.restrictions?.translateProduct || 'Translation is unavailable on this plan.')
-        );
+        const payloadData = asRecord(payload.data);
+        setCanUseTranslateProduct(Boolean(payloadData?.canTranslateProduct));
       } catch (eligibilityError) {
         console.error('Failed to load localization eligibility:', eligibilityError);
-        if (!isCancelled) {
-          setCanUseTranslateProduct(false);
-          setTranslateRestrictionMessage('Translation is currently unavailable.');
-        }
+        if (!isCancelled) setCanUseTranslateProduct(false);
       } finally {
-        if (!isCancelled) {
-          setLocalizationEligibilityLoading(false);
-        }
+        if (!isCancelled) setLocalizationEligibilityLoading(false);
       }
     };
 
@@ -1936,17 +2434,74 @@ export function ProductDetailClient({
 
   const handleTranslateThisProduct = useCallback(() => {
     if (!product?.id || !canUseTranslateProduct) return;
+    setIsTranslatePanelOpen(true);
+  }, [canUseTranslateProduct, product?.id]);
 
-    const basePath = buildTenantPathForScope({
-      tenantSlug,
-      scope: selectedBrandSlug || null,
-      suffix: '/settings/localization',
-    });
-    const query = new URLSearchParams();
-    query.set('productId', product.id);
-    query.set('mode', 'translate');
-    router.push(`${basePath}?${query.toString()}`);
-  }, [canUseTranslateProduct, product?.id, router, selectedBrandSlug, tenantSlug]);
+  const handleProductStatusChange = async (nextStatus: string) => {
+    if (!product?.id || !canEditFields || isSharedBrandView || isUpdatingStatus) return;
+    if (!PRODUCT_STATUS_OPTIONS.includes(nextStatus as ProductStatusOption)) return;
+    if (nextStatus === product.status) return;
+
+    const previousStatus = product.status;
+    setIsUpdatingStatus(true);
+    setProduct((prev) => (prev ? { ...prev, status: nextStatus } : prev));
+
+    try {
+      await saveFieldValues({ status: nextStatus });
+      toast.success(`Status updated to ${nextStatus}.`);
+    } catch (error) {
+      setProduct((prev) => (prev ? { ...prev, status: previousStatus } : prev));
+      console.error("Failed to update product status:", error);
+      toast.error("Failed to update product status.");
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleDeleteProduct = useCallback(async () => {
+    if (!product?.id || isSharedBrandView || isDeletingProduct) return;
+
+    const deleteLabel = product.type === "variant" ? "variant" : "product";
+    const confirmed = window.confirm(
+      `Delete this ${deleteLabel}? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingProduct(true);
+    try {
+      const response = await fetch(
+        `/api/${tenantSlug}/products/${product.id}${selectedBrandQuery ? `?${selectedBrandQuery}` : ""}`,
+        { method: "DELETE" }
+      );
+      const payload = asApiEnvelope(await parseJsonSafely(response));
+      if (!response.ok) {
+        throw new Error(toErrorMessage(payload, `Failed to delete ${deleteLabel}.`));
+      }
+
+      toast.success(`${deleteLabel[0].toUpperCase()}${deleteLabel.slice(1)} deleted.`);
+      router.push(
+        buildTenantPathForScope({
+          tenantSlug,
+          scope: selectedBrandSlug || null,
+          suffix: "/products",
+        })
+      );
+    } catch (error) {
+      console.error("Failed to delete product:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to delete product.");
+    } finally {
+      setIsDeletingProduct(false);
+    }
+  }, [
+    isDeletingProduct,
+    isSharedBrandView,
+    product?.id,
+    product?.type,
+    router,
+    selectedBrandQuery,
+    selectedBrandSlug,
+    tenantSlug,
+  ]);
 
   // Show loading state
   if (loading) {
@@ -1993,96 +2548,23 @@ export function ProductDetailClient({
     );
   }
 
-  const completenessPercent =
-    completeness?.percent ??
-    (completeness?.requiredCount === 0 ? 100 : 0);
-
-  const missingAttributeLabels = (completeness?.missingAttributes || []).map(
-    (attr) => attr.label || attr.code
-  );
-  const missingPreview = missingAttributeLabels.slice(0, 6).join(', ');
-  const missingSuffix =
-    missingAttributeLabels.length > 6
-      ? ` +${missingAttributeLabels.length - 6} more`
-      : '';
   const attributeFilterSections = ['attributes-all', 'attributes-required', 'attributes-missing'];
-  const totalRequiredFieldCount = fieldGroupStats.reduce(
-    (sum, group) => sum + group.requiredFieldCount,
-    0
+  const parentVariantCount = Math.max(
+    Number(product?.variantCount || 0),
+    Array.isArray(product?.variants) ? product.variants.length : 0
   );
-  const totalMissingRequiredCount = fieldGroupStats.reduce(
-    (sum, group) => sum + group.missingRequiredCount,
-    0
-  );
-  const completenessRequiredCount = completeness?.requiredCount ?? totalRequiredFieldCount;
-  const completenessMissingCount =
-    completeness?.missingAttributes?.length ?? totalMissingRequiredCount;
-  const hasCompletenessRequirements = completenessRequiredCount > 0;
-  const isCompletenessComplete =
-    hasCompletenessRequirements && completenessMissingCount === 0 && completenessPercent >= 100;
-  const completenessTargetSection =
-    completenessMissingCount > 0 ? 'attributes-missing' : 'attributes-required';
-  const completenessBadgeClass = completenessLoading
-    ? 'border-border/60 bg-background text-muted-foreground'
-    : !hasCompletenessRequirements
-    ? 'border-border/60 bg-background text-muted-foreground'
-    : isCompletenessComplete
-    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-    : 'border-amber-200 bg-amber-50 text-amber-700';
-  const completenessBadgeLabel = completenessLoading
-    ? 'Completeness...'
-    : !hasCompletenessRequirements
-    ? 'Completeness N/A'
-    : isCompletenessComplete
-    ? 'Complete 100%'
-    : `Completeness ${completenessPercent}%`;
-  const completenessBadgeTitle = completenessLoading
-    ? 'Loading attribute completeness...'
-    : !hasCompletenessRequirements
-    ? product?.family_id
-      ? 'No required attributes for this family yet.'
-      : 'Assign a product family to track completeness.'
-    : isCompletenessComplete
-    ? `${completenessRequiredCount}/${completenessRequiredCount} required attributes complete.`
-    : `Missing ${completenessMissingCount} required: ${missingPreview}${missingSuffix}`;
+  const isParentDeleteBlocked = product?.type === "parent" && parentVariantCount > 0;
 
-  const authoringScope = useMemo(() => {
-    const rawScope =
-      product?.marketplace_content?.authoringScope ??
-      product?.marketplaceContent?.authoringScope ??
-      null;
-    return normalizeAuthoringScope(rawScope) || createGlobalAuthoringScope();
-  }, [product]);
-
-  const isCurrentViewInsideAuthoringScope = useMemo(() => {
-    if (authoringScope.mode !== "scoped") return true;
-
-    const matchesDimension = (selectedId: string | null, allowedIds: string[]) =>
-      allowedIds.length === 0 || (selectedId ? allowedIds.includes(selectedId) : false);
-
-    return (
-      matchesDimension(selectedMarketId, authoringScope.marketIds) &&
-      matchesDimension(selectedChannelId, authoringScope.channelIds) &&
-      matchesDimension(selectedLocaleId, authoringScope.localeIds) &&
-      matchesDimension(selectedDestinationId, authoringScope.destinationIds)
-    );
-  }, [
-    authoringScope,
-    selectedMarketId,
-    selectedChannelId,
-    selectedLocaleId,
-    selectedDestinationId,
-  ]);
-  const scopePillClass =
-    "inline-flex h-6 items-center rounded-full border border-border/60 bg-background px-2.5 text-xs text-muted-foreground";
-  const scopeAuthoringPillClass =
-    "inline-flex h-6 items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 text-xs text-indigo-700";
+  const headerStatusPillClass =
+    "inline-flex h-8 items-center rounded-full border border-border/60 bg-background px-3 text-xs text-muted-foreground";
   const scopeAlertPillClass =
     "inline-flex h-6 items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 text-xs text-rose-700";
   const sidebarGroupLabelClass =
     'px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground';
   const sidebarNavButtonBaseClass =
     'w-full flex min-h-9 items-center justify-between rounded-md px-3 py-2 text-left text-sm font-normal leading-5 transition-colors';
+  const contentSectionHeadingClass = 'text-base font-semibold text-foreground';
+  const contentSectionHintClass = 'text-xs text-muted-foreground';
   const getSidebarNavButtonStateClass = (isActive: boolean) =>
     isActive
       ? 'bg-muted text-foreground'
@@ -2101,8 +2583,9 @@ export function ProductDetailClient({
           <div className="w-72 shrink-0 border-r border-border/60 bg-background" aria-hidden="true" />
           <div className="min-w-0 flex-1 px-6 py-3">
             <PageContentContainer mode="form">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="space-y-1.5">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="space-y-1.5">
               {/* Variant Navigation Header with Cascading Dropdowns */}
               {product.type === 'parent' && product.family_id ? (
                 <VariantNavigationHeader
@@ -2116,7 +2599,7 @@ export function ProductDetailClient({
               ) : product.type === 'variant' && (product.parentId || product.parentSku) && product.family_id ? (
                 <VariantNavigationHeader
                   tenantSlug={tenantSlug}
-                  parentIdentifier={product.parentId || product.parentSku}
+                  parentIdentifier={String(product.parentId || product.parentSku || "")}
                   parentName={
                     product.parentName || product.productName.split(' - ')[0]
                   }
@@ -2130,7 +2613,7 @@ export function ProductDetailClient({
                 <h1 className="text-lg font-semibold text-foreground">
                   {product.productName}
                 </h1>
-                <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                <span className={`inline-flex h-6 items-center rounded-md px-2.5 text-xs font-medium ${
                   product.status === 'Active' ? 'bg-green-100 text-green-700' :
                   product.status === 'Draft' ? 'bg-yellow-100 text-yellow-700' :
                   product.status === 'Enrichment' ? 'bg-blue-100 text-blue-700' :
@@ -2142,116 +2625,129 @@ export function ProductDetailClient({
                 </span>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                 <span>SCIN: {product.scin || product.id}</span>
                 <span>SKU: {product.sku || '-'}</span>
                 <span>Barcode: {product.upc || '-'}</span>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                <span className="text-muted-foreground">View scope:</span>
-                <span className={scopePillClass}>
-                  {selectedMarketId ? selectedMarket?.name || "Market" : "All markets"}
-                </span>
-                <span className={scopePillClass}>
-                  {selectedChannelId ? selectedChannel?.name || "Channel" : "All channels"}
-                </span>
-                <span className={scopePillClass}>
-                  {selectedLocaleId ? selectedLocale?.code || "Language" : "All languages"}
-                </span>
-                <span className={scopePillClass}>
-                  {selectedDestination?.name || "All destinations"}
-                </span>
-                <span className={scopeAuthoringPillClass}>
-                  Authoring: {getAuthoringScopeSummary(authoringScope)}
-                </span>
-                {!isCurrentViewInsideAuthoringScope ? (
-                  <button
-                    type="button"
-                    className={scopeAlertPillClass}
-                    onClick={() => setActiveSection('attributes-missing')}
-                    title="Current viewing scope is outside this product's authoring scope."
-                  >
-                    Missing in this scope
-                  </button>
-                ) : null}
-              </div>
-              </div>
+                  </div>
 
-              <div className="flex w-full lg:w-auto lg:justify-end">
-                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                  {!isSharedBrandView ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleTranslateThisProduct}
-                      disabled={localizationEligibilityLoading || !canUseTranslateProduct || !product?.id}
-                      title={!canUseTranslateProduct ? translateRestrictionMessage || 'Translation unavailable' : 'Translate this product'}
-                    >
-                      <Languages className="mr-1.5 h-3.5 w-3.5" />
-                      Translate this product
-                    </Button>
-                  ) : null}
-                  <span className={scopePillClass}>
-                    {saving
-                      ? 'Saving changes...'
-                      : Object.keys(pendingFieldChanges).length > 0
-                      ? 'Unsaved changes'
-                      : 'All changes saved'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setActiveSection(completenessTargetSection)}
-                    className={`inline-flex h-6 items-center rounded-full border px-2.5 text-xs transition-colors hover:brightness-95 ${completenessBadgeClass}`}
-                    title={completenessBadgeTitle}
-                  >
-                    {completenessBadgeLabel}
-                  </button>
-                  {!isCurrentViewInsideAuthoringScope ? (
-                    <span
-                      className={scopeAlertPillClass}
-                      title="Current view scope is outside product authoring scope."
-                    >
-                      Out of authoring scope
-                    </span>
-                  ) : null}
-                  {!isSharedBrandView && !canUseTranslateProduct && !localizationEligibilityLoading ? (
-                    <span className={scopeAlertPillClass} title={translateRestrictionMessage || undefined}>
-                      Translation locked on Starter
-                    </span>
-                  ) : null}
+                  <div className="flex w-full flex-col gap-2 xl:w-auto xl:items-end">
+                    <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                      {!isSharedBrandView ? (
+                        saving || Object.keys(pendingFieldChanges).length > 0 ? (
+                          <span className={headerStatusPillClass}>
+                            {saving ? 'Saving changes...' : 'Unsaved changes'}
+                          </span>
+                        ) : null
+                      ) : null}
+                      {!isCurrentViewInsideAuthoringScope ? (
+                        <span
+                          className={scopeAlertPillClass}
+                          title="Current view scope is outside product authoring scope."
+                        >
+                          Out of authoring scope
+                        </span>
+                      ) : null}
+                      {!isScopeReady ? (
+                        <span className={scopeAlertPillClass}>Select scope in header</span>
+                      ) : null}
+                      {!isSharedBrandView ? (
+                        <Select
+                          value={String(product.status || "Draft")}
+                          onValueChange={(nextValue) => {
+                            void handleProductStatusChange(nextValue);
+                          }}
+                          disabled={saving || isUpdatingStatus || !canEditFields}
+                        >
+                          <SelectTrigger className="h-8 w-[150px] rounded-full border border-border/60 bg-background px-3 text-xs">
+                            <SelectValue placeholder="Status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PRODUCT_STATUS_OPTIONS.map((statusOption) => (
+                              <SelectItem key={statusOption} value={statusOption}>
+                                {statusOption}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : null}
+                      {!isSharedBrandView ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              aria-label="Open product actions"
+                              disabled={isDeletingProduct || isUpdatingStatus}
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48">
+                            <DropdownMenuItem
+                              onSelect={() => handleTranslateThisProduct()}
+                              disabled={
+                                localizationEligibilityLoading ||
+                                !canUseTranslateProduct ||
+                                !product?.id
+                              }
+                            >
+                              <Languages className="mr-1.5 h-3.5 w-3.5" />
+                              Translate
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onSelect={() => {
+                                void handleDeleteProduct();
+                              }}
+                              disabled={isDeletingProduct || isParentDeleteBlocked}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              {isParentDeleteBlocked
+                                ? `Delete variants first (${parentVariantCount})`
+                                : isDeletingProduct
+                                ? "Deleting..."
+                                : product?.type === "variant"
+                                ? "Delete variant"
+                                : "Delete product"}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
+
+                <div className="border-t border-border/50 pt-2">
+                  <ScopeToolbar showCycleControls />
                 </div>
+
               </div>
             </PageContentContainer>
           </div>
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex h-full min-h-0 flex-1">
         {/* Sidebar navigation */}
-        <div className="w-72 bg-background border-r border-border/60 h-full overflow-y-auto">
+        <div className="w-72 shrink-0 border-r border-border/60 bg-background overflow-y-auto">
           <div className="px-2 py-3">
             <nav className="space-y-4">
-              <div>
-                <p className={sidebarGroupLabelClass}>Sections</p>
-                <div className="space-y-0.5">
-                  <button
-                    onClick={() => setActiveSection('overview')}
-                    className={`${sidebarNavButtonBaseClass} ${getSidebarNavButtonStateClass(activeSection === 'overview')}`}
-                  >
-                    <span className="truncate">Overview</span>
-                  </button>
-                  {product?.type === 'parent' ? (
+              {product?.type === 'parent' ? (
+                <div>
+                  <p className={sidebarGroupLabelClass}>Sections</p>
+                  <div className="space-y-0.5">
                     <button
                       onClick={() => setActiveSection('product-settings')}
                       className={`${sidebarNavButtonBaseClass} ${getSidebarNavButtonStateClass(activeSection === 'product-settings')}`}
                     >
                       <span className="truncate">Product Settings</span>
                     </button>
-                  ) : null}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               <div>
                 <p className={sidebarGroupLabelClass}>
@@ -2292,72 +2788,21 @@ export function ProductDetailClient({
         </div>
 
         {/* Main content area */}
-        <div className="flex-1 h-full overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="p-6">
             <PageContentContainer
               mode={getContentLayout(activeSection) === 'full-width' ? 'fluid' : 'form'}
             >
-              <div className="mb-6">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              <div className="mb-6 space-y-1">
+                <h2 className={contentSectionHeadingClass}>
                   {sections.find(s => s.id === activeSection)?.label || 'Variants'}
                 </h2>
+                <p className={contentSectionHintClass}>
+                  Review and update fields in this section.
+                </p>
               </div>
 
               <div className="w-full">
-                {activeSection === 'overview' && (
-                  <div className="mx-auto w-full max-w-4xl space-y-4">
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                      <div className="rounded-lg border border-border/60 bg-card p-4">
-                        <p className="text-xs text-muted-foreground">Attribute groups</p>
-                        <p className="mt-1 text-xl font-semibold text-foreground">{fieldGroupStats.length}</p>
-                      </div>
-                      <div className="rounded-lg border border-border/60 bg-card p-4">
-                        <p className="text-xs text-muted-foreground">Fields in scope</p>
-                        <p className="mt-1 text-xl font-semibold text-foreground">
-                          {fieldGroupStats.reduce((sum, group) => sum + group.totalFieldCount, 0)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-border/60 bg-card p-4">
-                        <p className="text-xs text-muted-foreground">Required fields</p>
-                        <p className="mt-1 text-xl font-semibold text-foreground">
-                          {fieldGroupStats.reduce((sum, group) => sum + group.requiredFieldCount, 0)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-border/60 bg-card p-4">
-                        <p className="text-xs text-muted-foreground">Missing required</p>
-                        <p className="mt-1 text-xl font-semibold text-foreground">
-                          {fieldGroupStats.reduce((sum, group) => sum + group.missingRequiredCount, 0)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-border/60 bg-card p-4">
-                      <p className="text-sm font-medium text-foreground">Quick actions</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Button variant="outline" size="sm" onClick={() => setActiveSection('attributes-all')}>
-                          Browse attributes
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => setActiveSection('attributes-missing')}>
-                          Fix missing required
-                        </Button>
-                        {product?.type === 'parent' ? (
-                          <Button variant="outline" size="sm" onClick={() => setActiveSection('variants')}>
-                            Manage variants
-                          </Button>
-                        ) : null}
-                        {product?.type === 'parent' ? (
-                          <Button variant="outline" size="sm" onClick={() => setActiveSection('product-settings')}>
-                            Parent settings
-                          </Button>
-                        ) : null}
-                        <Button variant="outline" size="sm" onClick={() => setActiveSection('media')}>
-                          Manage assets
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {activeSection === 'product-settings' && product?.type === 'parent' && (
                   <div className="mx-auto w-full max-w-4xl space-y-4">
                     <div className="rounded-lg border border-border/60 bg-card p-4">
@@ -2379,7 +2824,7 @@ export function ProductDetailClient({
                               type="button"
                               variant={variantInheritanceConfig.inheritByDefault ? 'default' : 'outline'}
                               size="sm"
-                              disabled={isSharedBrandView || saving}
+                              disabled={isSharedBrandView || !canEditFields || saving}
                               onClick={() => void updateVariantInheritanceConfig({ inheritByDefault: true })}
                             >
                               Inherit by default
@@ -2388,7 +2833,7 @@ export function ProductDetailClient({
                               type="button"
                               variant={!variantInheritanceConfig.inheritByDefault ? 'default' : 'outline'}
                               size="sm"
-                              disabled={isSharedBrandView || saving}
+                              disabled={isSharedBrandView || !canEditFields || saving}
                               onClick={() => void updateVariantInheritanceConfig({ inheritByDefault: false })}
                             >
                               Start editable
@@ -2408,7 +2853,7 @@ export function ProductDetailClient({
                               type="button"
                               variant={variantInheritanceConfig.allowChildOverrides ? 'default' : 'outline'}
                               size="sm"
-                              disabled={isSharedBrandView || saving}
+                              disabled={isSharedBrandView || !canEditFields || saving}
                               onClick={() => void updateVariantInheritanceConfig({ allowChildOverrides: true })}
                             >
                               Allow overrides
@@ -2417,7 +2862,7 @@ export function ProductDetailClient({
                               type="button"
                               variant={!variantInheritanceConfig.allowChildOverrides ? 'default' : 'outline'}
                               size="sm"
-                              disabled={isSharedBrandView || saving}
+                              disabled={isSharedBrandView || !canEditFields || saving}
                               onClick={() => void updateVariantInheritanceConfig({ allowChildOverrides: false })}
                             >
                               Lock inherited
@@ -2482,52 +2927,35 @@ export function ProductDetailClient({
                         <p className="text-sm text-muted-foreground">{description}</p>
                       </div>
 
-                      {groupsToShow.length === 0 ? (
-                        <div className="rounded-lg border border-border/60 bg-card p-6 text-sm text-muted-foreground">
-                          No matching attribute groups in this view.
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {groupsToShow.map((stats) => (
-                            <button
-                              key={stats.sectionId}
-                              type="button"
-                              onClick={() => setActiveSection(stats.sectionId)}
-                              className="w-full rounded-lg border border-border/60 bg-card p-4 text-left transition-colors hover:bg-muted/20"
+                      <ItemList
+                        items={groupsToShow}
+                        getKey={(stats) => stats.sectionId}
+                        renderTitle={(stats) => stats.group.field_group.name}
+                        renderSubtitle={(stats) =>
+                          stats.group.field_group.description || `${stats.totalFieldCount} fields`
+                        }
+                        renderRight={(stats) => (
+                          <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                              {stats.requiredFieldCount} required
+                            </span>
+                            <span
+                              className={`rounded-full px-2 py-0.5 ${
+                                stats.missingRequiredCount > 0
+                                  ? 'bg-amber-50 text-amber-700'
+                                  : 'bg-emerald-50 text-emerald-700'
+                              }`}
                             >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-sm font-medium text-foreground">
-                                  {stats.group.field_group.name}
-                                </p>
-                                <span className="text-xs text-muted-foreground">
-                                  {stats.totalFieldCount} fields
-                                </span>
-                              </div>
-                              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                                <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
-                                  {stats.requiredFieldCount} required
-                                </span>
-                                <span
-                                  className={`rounded-full px-2 py-0.5 ${
-                                    stats.missingRequiredCount > 0
-                                      ? 'bg-amber-50 text-amber-700'
-                                      : 'bg-emerald-50 text-emerald-700'
-                                  }`}
-                                >
-                                  {stats.missingRequiredCount > 0
-                                    ? `${stats.missingRequiredCount} missing`
-                                    : 'Required complete'}
-                                </span>
-                              </div>
-                              {stats.group.field_group.description ? (
-                                <p className="mt-2 text-xs text-muted-foreground">
-                                  {stats.group.field_group.description}
-                                </p>
-                              ) : null}
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                              {stats.missingRequiredCount > 0
+                                ? `${stats.missingRequiredCount} missing`
+                                : 'Required complete'}
+                            </span>
+                          </div>
+                        )}
+                        onClickItem={(stats) => setActiveSection(stats.sectionId)}
+                        emptyMessage="No matching attribute groups in this view."
+                        className="border-border/60 bg-card"
+                      />
                     </div>
                   );
                 })()}
@@ -2545,7 +2973,7 @@ export function ProductDetailClient({
                         tenantSlug={tenantSlug}
                         productType={product.type}
                         productName={product.productName}
-                        productFamilyId={product.family_id}
+                        productFamilyId={product.family_id ?? undefined}
                         onProductTypeChange={handleProductTypeChange}
                       />
                     )}
@@ -2555,7 +2983,7 @@ export function ProductDetailClient({
 
                 {activeSection.startsWith('fieldgroup-') && (() => {
                   const section = sections.find(s => s.id === activeSection);
-                  if (!section || !section.isFieldGroup || !('fieldGroup' in section)) return null;
+                  if (!section || !section.isFieldGroup) return null;
 
                   const fieldGroup = section.fieldGroup;
                   const groupCode = String(fieldGroup?.field_group?.code || "").trim().toLowerCase();
@@ -2564,19 +2992,6 @@ export function ProductDetailClient({
                     documentationSlotFields.map((slot) => slot.fieldId)
                   );
                   const isWideFieldGroup = isTableHeavyFieldGroup(fieldGroup);
-                  const requiredFields = fieldGroup.fields.filter((f: any) => f.is_required);
-                  const completedRequired = requiredFields.filter((field: any) => {
-                    if (isScinSystemField(field)) {
-                      return isFieldValueFilled(product?.scin || product?.id || "");
-                    }
-                    if (isDocumentationGroup && documentationSlotFieldIds.has(String(field.id))) {
-                      return Boolean(
-                        documentSlotLinksByFieldId[String(field.id)] || fieldValues[field.code]
-                      );
-                    }
-                    return isFieldValueFilled(fieldValues[field.code]);
-                  }).length;
-                  const missingRequired = requiredFields.length - completedRequired;
 
                   return (
                     <div
@@ -2586,34 +3001,8 @@ export function ProductDetailClient({
                           : 'mx-auto w-full max-w-4xl space-y-5'
                       }
                     >
-                      {fieldGroup.field_group.description && (
-                        <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
-                          <p className="text-sm text-muted-foreground">
-                            {fieldGroup.field_group.description}
-                          </p>
-                        </div>
-                      )}
-
                       {fieldGroup.fields && fieldGroup.fields.length > 0 ? (
                         <div className="space-y-4">
-                          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
-                            <div>
-                              <p className="text-sm font-medium text-foreground">Attributes in this section</p>
-                              <p className="text-xs text-muted-foreground">
-                                {fieldGroup.field_group.name}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span>{fieldGroup.fields.length} total</span>
-                              <span>|</span>
-                              <span>{requiredFields.length} required</span>
-                              <span>|</span>
-                              <span className={missingRequired > 0 ? 'text-amber-700' : 'text-emerald-700'}>
-                                {missingRequired > 0 ? `${missingRequired} missing` : 'All required complete'}
-                              </span>
-                            </div>
-                          </div>
-
                           {isDocumentationGroup && documentationSlotFields.length > 0 && (
                             <div className="rounded-lg border border-border/60 bg-card p-4">
                               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -2665,7 +3054,7 @@ export function ProductDetailClient({
                                   const isImageAsset = isImageLikeAsset(slotAsset);
                                   const isAssigned = Boolean(slotAssetId);
                                   const sourceField = fieldGroup.fields.find(
-                                    (field: any) => String(field.id) === slot.fieldId
+                                    (field: ProductFieldLike) => String(field.id) === slot.fieldId
                                   );
                                   const slotContext: SlotAssignmentContext = {
                                     slotCode: slot.slotCode,
@@ -2737,6 +3126,7 @@ export function ProductDetailClient({
                                             {isAssigned ? "Drop file for new version" : "Drop file to upload"}
                                           </div>
                                         ) : slotAsset && previewUrl && isImageAsset ? (
+                                          // eslint-disable-next-line @next/next/no-img-element
                                           <img
                                             src={previewUrl}
                                             alt={slotAsset?.filename || slot.label}
@@ -2835,17 +3225,17 @@ export function ProductDetailClient({
 
                           {(isDocumentationGroup
                             ? fieldGroup.fields.filter(
-                                (field: any) => !documentationSlotFieldIds.has(String(field.id))
+                                (field: ProductFieldLike) => !documentationSlotFieldIds.has(String(field.id))
                               )
                             : fieldGroup.fields
                           ).length > 0 ? (
                             <div className="rounded-lg border border-border/60 bg-background">
                               {(isDocumentationGroup
                                 ? fieldGroup.fields.filter(
-                                    (field: any) => !documentationSlotFieldIds.has(String(field.id))
+                                    (field: ProductFieldLike) => !documentationSlotFieldIds.has(String(field.id))
                                   )
                                 : fieldGroup.fields
-                              ).map((field: any) => {
+                              ).map((field: ProductFieldLike, index: number) => {
                               const isScinField = isScinSystemField(field);
                               const resolvedFieldValue = isScinField
                                 ? (product?.scin || product?.id || '')
@@ -2854,8 +3244,11 @@ export function ProductDetailClient({
                               return (
                                 <div
                                   key={field.id}
-                                  className="border-b border-border/50 p-4 last:border-b-0"
+                                  className="relative p-4"
                                 >
+                                  {index > 0 ? (
+                                    <div className="absolute left-4 right-4 top-0 h-px bg-border/50" />
+                                  ) : null}
                                   <div className="grid gap-4 md:grid-cols-[minmax(220px,280px),1fr] md:items-start">
                                     <div className="space-y-2">
                                       <div className="flex flex-wrap items-center gap-2">
@@ -2898,13 +3291,19 @@ export function ProductDetailClient({
                                               : 'rounded-lg border border-border/60 bg-muted/30 p-4'
                                           }
                                         >
-                                          <DynamicFieldRenderer
+                                          <InlineDynamicFieldEditor
                                             field={field}
                                             value={resolvedFieldValue}
-                                            onChange={handleFieldChange}
                                             tenantSlug={tenantSlug}
-                                            disabled={isSharedBrandView}
-                                            className={
+                                            canEdit={canEditFields}
+                                            readonlyReasonOverride={!isScopeReady ? "Select scope in header" : null}
+                                            onCommit={async (nextValue: unknown) => {
+                                              handleFieldChange(field.code, nextValue);
+                                              await saveFieldValues({
+                                                [field.code]: nextValue,
+                                              });
+                                            }}
+                                            rendererClassName={
                                               field.options?.table_definition?.meta?.uses_panel_instances
                                                 ? 'bg-transparent'
                                                 : 'bg-background rounded-lg border border-border/60 p-4'
@@ -2918,12 +3317,18 @@ export function ProductDetailClient({
                                           {field.field_type === 'data_grid' && 'Data grid will be rendered here'}
                                         </div>
                                       ) : (
-                                        <DynamicFieldRenderer
+                                        <InlineDynamicFieldEditor
                                           field={field}
                                           value={resolvedFieldValue}
-                                          onChange={handleFieldChange}
                                           tenantSlug={tenantSlug}
-                                          disabled={isSharedBrandView}
+                                          canEdit={canEditFields}
+                                          readonlyReasonOverride={!isScopeReady ? "Select scope in header" : null}
+                                          onCommit={async (nextValue: unknown) => {
+                                            handleFieldChange(field.code, nextValue);
+                                            await saveFieldValues({
+                                              [field.code]: nextValue,
+                                            });
+                                          }}
                                         />
                                       )}
                                     </div>
@@ -3167,6 +3572,7 @@ export function ProductDetailClient({
                                       {isAssigned ? "Drop image for new version" : "Drop image to upload"}
                                     </div>
                                   ) : slotAsset && previewUrl && isImageAsset ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
                                     <img
                                       src={previewUrl}
                                       alt={slotAsset?.filename || slot.label}
@@ -3388,6 +3794,7 @@ export function ProductDetailClient({
                                     />
                                     <div className="h-10 w-14 overflow-hidden rounded border border-border/60 bg-muted/30">
                                       {previewUrl && isImageAsset ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
                                         <img
                                           src={previewUrl}
                                           alt={asset.originalFilename || asset.filename || "Asset"}
@@ -3489,17 +3896,18 @@ export function ProductDetailClient({
                                       </span>
                                     ) : null}
                                   </div>
-                                  <div className="mt-2 flex items-start gap-3">
-                                    {hasImagePreview ? (
-                                      <div className="h-16 w-16 overflow-hidden rounded-md border border-border/60 bg-muted/20">
-                                        <img
-                                          src={previewUrl || ""}
-                                          alt={`${record.filename} preview`}
-                                          className="h-full w-full object-contain bg-white"
-                                          loading="lazy"
-                                        />
-                                      </div>
-                                    ) : null}
+                                    <div className="mt-2 flex items-start gap-3">
+                                      {hasImagePreview ? (
+                                        <div className="h-16 w-16 overflow-hidden rounded-md border border-border/60 bg-muted/20">
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img
+                                            src={previewUrl || ""}
+                                            alt={`${record.filename} preview`}
+                                            className="h-full w-full object-contain bg-white"
+                                            loading="lazy"
+                                          />
+                                        </div>
+                                      ) : null}
                                     <div className="min-w-0 flex-1 space-y-1">
                                       <div className="truncate text-xs text-muted-foreground">
                                         {record.filename}
@@ -3738,7 +4146,7 @@ export function ProductDetailClient({
                   </div>
                 )}
 
-                {!['overview', 'attributes-all', 'attributes-required', 'attributes-missing', 'variants', 'media', 'product-settings'].includes(activeSection) && !activeSection.startsWith('fieldgroup-') && (
+                {!['attributes-all', 'attributes-required', 'attributes-missing', 'variants', 'media', 'product-settings'].includes(activeSection) && !activeSection.startsWith('fieldgroup-') && (
                   <div className="text-center py-12">
                     <div className="text-muted-foreground mb-4">
                       <div className="w-12 h-12 mx-auto bg-muted rounded-md flex items-center justify-center">
@@ -3756,10 +4164,21 @@ export function ProductDetailClient({
           </div>
         </div>
       </div>
+
+      {canUseTranslateProduct && product?.id && (
+        <TranslationPanel
+          tenantSlug={tenantSlug}
+          productId={product.id}
+          productIds={[product.id]}
+          productName={product.productName || product.product_name || product.sku || undefined}
+          productFamilyId={product.family_id ?? undefined}
+          open={isTranslatePanelOpen}
+          onOpenChange={setIsTranslatePanelOpen}
+          initialSourceLocaleId={selectedLocaleId ?? undefined}
+        />
+      )}
     </div>
   );
 }
-
-
 
 

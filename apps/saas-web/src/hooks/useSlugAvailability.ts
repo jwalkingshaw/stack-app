@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 
 interface AvailabilityResult {
   available: boolean;
@@ -39,45 +39,44 @@ export function useSlugAvailability(): UseSlugAvailabilityReturn {
   const [isCheckingAvailability, setIsCheckingAvailability] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
-  const [currentSlug, setCurrentSlug] = useState('');
 
   // Debounced availability check
-  const checkAvailability = useCallback(
-    debounce(async (slug: string) => {
-      if (!slug || slug.length < 3) {
-        setAvailability(null);
-        return;
-      }
+  const checkAvailability = useMemo(
+    () =>
+      debounce(async (slug: string) => {
+        if (!slug || slug.length < 3) {
+          setAvailability(null);
+          return;
+        }
 
-      setCurrentSlug(slug);
-      setIsCheckingAvailability(true);
-      // Clear previous availability state to show immediate loading feedback
-      setAvailability(null);
-      
-      try {
-        // Use the fast exists endpoint for real-time checking
-        const response = await fetch(`/api/organizations/exists?slug=${encodeURIComponent(slug)}`);
-        const result = await response.json();
-        
-        // Always update since we debounced properly 
-        setAvailability({
-          available: !result.exists,
-          reason: result.exists ? 'taken' : undefined,
-          message: result.exists ? 'This organization name is already taken' : 'This organization name is available!',
-          slug: slug
-        });
-      } catch (error) {
-        console.error('Availability check failed:', error);
-        setAvailability({
-          available: false,
-          reason: 'network_error',
-          message: 'Unable to check availability. Please try again.'
-        });
-      } finally {
-        setIsCheckingAvailability(false);
-      }
-    }, 250), // 250ms debounce - industry standard for real-time checks
-    [currentSlug]
+        setIsCheckingAvailability(true);
+        // Clear previous availability state to show immediate loading feedback
+        setAvailability(null);
+
+        try {
+          // Use the fast exists endpoint for real-time checking
+          const response = await fetch(`/api/organizations/exists?slug=${encodeURIComponent(slug)}`);
+          const result = await response.json();
+
+          // Always update since we debounced properly
+          setAvailability({
+            available: !result.exists,
+            reason: result.exists ? 'taken' : undefined,
+            message: result.exists ? 'This organization name is already taken' : 'This organization name is available!',
+            slug: slug
+          });
+        } catch (error) {
+          console.error('Availability check failed:', error);
+          setAvailability({
+            available: false,
+            reason: 'network_error',
+            message: 'Unable to check availability. Please try again.'
+          });
+        } finally {
+          setIsCheckingAvailability(false);
+        }
+      }, 250), // 250ms debounce - industry standard for real-time checks
+    []
   );
 
   // Get suggestions for unavailable slug
@@ -127,12 +126,12 @@ export function useSlugAvailability(): UseSlugAvailabilityReturn {
 }
 
 // Debounce utility function
-function debounce<T extends (...args: any[]) => any>(
-  func: T,
+function debounce<TArgs extends unknown[]>(
+  func: (...args: TArgs) => void | Promise<void>,
   wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
+): (...args: TArgs) => void {
+  let timeout: ReturnType<typeof setTimeout>;
+  return (...args: TArgs) => {
     clearTimeout(timeout);
     timeout = setTimeout(() => func(...args), wait);
   };

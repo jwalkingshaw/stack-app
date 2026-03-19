@@ -53,7 +53,7 @@ async function resolveChannelScopedProductIds(params: {
     const scopedIds = new Set<string>();
     for (const channelId of scopedPermissions.channelIds) {
       const ids = await getChannelScopedProductIds({
-        supabase: supabase as any,
+        supabase: supabase,
         organizationId: params.organizationId,
         channelId,
       });

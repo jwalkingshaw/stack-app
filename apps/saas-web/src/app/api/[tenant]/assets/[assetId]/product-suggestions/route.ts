@@ -13,6 +13,22 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+type SuggestionProductRow = {
+  id: string;
+  sku: string | null;
+  product_name: string | null;
+  brand: string | null;
+};
+
+function mapSuggestionProducts(rows: SuggestionProductRow[]) {
+  return rows.map((product) => ({
+    id: product.id,
+    sku: product.sku || "",
+    productName: product.product_name || "",
+    brand: product.brand || "",
+  }));
+}
+
 function isCrossTenantWrite(params: { tenantSlug: string; selectedBrandSlug: string | null }): boolean {
   const selected = (params.selectedBrandSlug || "").trim().toLowerCase();
   if (!selected) return false;
@@ -142,12 +158,7 @@ export async function GET(
 
     const suggestions = generateProductLinkSuggestions(
       asset.original_filename || asset.filename,
-      (products || []).map((product: any) => ({
-        id: product.id,
-        sku: product.sku || "",
-        productName: product.product_name || "",
-        brand: product.brand || "",
-      }))
+      mapSuggestionProducts((products || []) as SuggestionProductRow[])
     );
 
     if (suggestions.length > 0 && context.mode !== "partner_brand") {
@@ -244,12 +255,7 @@ export async function POST(
 
     const suggestions = generateProductLinkSuggestions(
       asset.original_filename || asset.filename,
-      (products || []).map((product: any) => ({
-        id: product.id,
-        sku: product.sku || "",
-        productName: product.product_name || "",
-        brand: product.brand || "",
-      }))
+      mapSuggestionProducts((products || []) as SuggestionProductRow[])
     );
 
     await supabase

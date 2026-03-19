@@ -3,6 +3,12 @@ import { getAuthSession } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase";
 import { DatabaseQueries } from "@tradetool/database";
 
+function getOrganizationCode(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const code = (value as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -22,7 +28,7 @@ export async function GET(
     const { slug } = resolvedParams;
     
     // Verify user has access to this organization
-    if ((session.organization as any)?.code !== slug) {
+    if (getOrganizationCode(session.organization) !== slug) {
       return NextResponse.json(
         { error: "Access denied" },
         { status: 403 }

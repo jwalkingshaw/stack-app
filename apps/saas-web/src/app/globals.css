@@ -199,6 +199,24 @@ select {
   color: var(--color-foreground);
 }
 
+/* Neutral text-entry focus styles (remove bright blue active outlines) */
+:where(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  textarea,
+  select,
+  [contenteditable="true"]
+):focus,
+:where(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  textarea,
+  select,
+  [contenteditable="true"]
+):focus-visible {
+  outline: none !important;
+  border-color: hsl(var(--input)) !important;
+  box-shadow: none !important;
+}
+
 /* Boolean controls: consistent tone and borders */
 input[type="checkbox"],
 input[type="radio"] {
@@ -233,10 +251,29 @@ input[type="number"]::-webkit-inner-spin-button {
   margin: 0;
 }
 
-/* Focus styles */
-*:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--color-border-focus);
+/* Date/time controls: normalize native browser UI to match app styling */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  border-radius: 0.5rem;
+}
+
+input[type="date"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit,
+input[type="date"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value {
+  font: inherit;
+  color: inherit;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: 0.7;
 }
 
 /* Menus: keep item focus behavior, remove container halo */
@@ -315,4 +352,35 @@ p {
   color: hsl(216 100% 40%) !important;
   border: 1px solid transparent !important;
   box-shadow: none !important;
+}
+
+/* Sheet / drawer slide animations */
+@keyframes sheet-slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes sheet-slide-out-right {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+@keyframes sheet-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes sheet-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+.sheet-right[data-state="open"] {
+  animation: sheet-slide-in-right 0.35s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+.sheet-right[data-state="closed"] {
+  animation: sheet-slide-out-right 0.25s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+.sheet-overlay[data-state="open"] {
+  animation: sheet-fade-in 0.2s ease-out forwards;
+}
+.sheet-overlay[data-state="closed"] {
+  animation: sheet-fade-out 0.2s ease-in forwards;
 }

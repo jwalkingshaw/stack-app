@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { PageLoader } from "@/components/ui/loading-spinner";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -23,7 +22,7 @@ export interface Column<T> {
   label: ReactNode;
   sortable?: boolean;
   width?: string;
-  render?: (value: any, item: T) => ReactNode;
+  render?: (value: unknown, item: T) => ReactNode;
   className?: string;
 }
 
@@ -58,7 +57,7 @@ export interface DataTableProps<T> {
   onRowClick?: (item: T) => void;
 }
 
-export function DataTable<T extends Record<string, any>>({
+export function DataTable<T extends Record<string, unknown>>({
   data,
   columns,
   loading = false,
@@ -281,21 +280,21 @@ export function DataTable<T extends Record<string, any>>({
 
 // Common action helpers
 export const createTableActions = {
-  view: (onClick: (item: any) => void): Action<any> => ({
+  view: <T,>(onClick: (item: T) => void): Action<T> => ({
     key: 'view',
     label: 'View',
     icon: <Eye className="w-4 h-4" />,
     onClick,
     variant: 'secondary' as const
   }),
-  edit: (onClick: (item: any) => void): Action<any> => ({
+  edit: <T,>(onClick: (item: T) => void): Action<T> => ({
     key: 'edit',
     label: 'Edit',
     icon: <Edit className="w-4 h-4" />,
     onClick,
     variant: 'secondary' as const
   }),
-  delete: (onClick: (item: any) => void): Action<any> => ({
+  delete: <T,>(onClick: (item: T) => void): Action<T> => ({
     key: 'delete',
     label: 'Delete',
     icon: <Trash2 className="w-4 h-4" />,

@@ -75,7 +75,18 @@ interface MarketContextProviderProps {
   children: React.ReactNode
 }
 
-const parseJsonSafely = async (response: Response): Promise<any | null> => {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value)
+
+const toActiveItems = <T,>(value: unknown): T[] =>
+  (Array.isArray(value) ? value : [])
+    .filter((item): item is T => isRecord(item) && item.is_active === true)
+
+const toNonInactiveItems = <T,>(value: unknown): T[] =>
+  (Array.isArray(value) ? value : [])
+    .filter((item): item is T => isRecord(item) && item.is_active !== false)
+
+const parseJsonSafely = async (response: Response): Promise<unknown | null> => {
   const text = await response.text()
   if (!text) return null
   try {
@@ -145,7 +156,7 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
     try {
       const stored = window.localStorage.getItem(storageKey)
       if (stored) {
-        let parsed: any = null
+        let parsed: unknown = null
         try {
           parsed = JSON.parse(stored)
         } catch {
@@ -153,16 +164,19 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
           window.localStorage.removeItem(storageKey)
         }
 
-        if (parsed && typeof parsed === 'object') {
-          setSelectedChannelId(parsed.channelId ?? null)
-          setSelectedMarketId(parsed.marketId ?? null)
-          setSelectedLocaleId(parsed.localeId ?? null)
-          setSelectedDestinationId(parsed.destinationId ?? null)
+        if (isRecord(parsed)) {
+          setSelectedChannelId(typeof parsed.channelId === 'string' ? parsed.channelId : null)
+          setSelectedMarketId(typeof parsed.marketId === 'string' ? parsed.marketId : null)
+          setSelectedLocaleId(typeof parsed.localeId === 'string' ? parsed.localeId : null)
+          setSelectedDestinationId(
+            typeof parsed.destinationId === 'string' ? parsed.destinationId : null
+          )
           setPersistedCodes({
-            channelCode: parsed.channelCode ?? null,
-            marketCode: parsed.marketCode ?? null,
-            localeCode: parsed.localeCode ?? null,
-            destinationCode: parsed.destinationCode ?? null,
+            channelCode: typeof parsed.channelCode === 'string' ? parsed.channelCode : null,
+            marketCode: typeof parsed.marketCode === 'string' ? parsed.marketCode : null,
+            localeCode: typeof parsed.localeCode === 'string' ? parsed.localeCode : null,
+            destinationCode:
+              typeof parsed.destinationCode === 'string' ? parsed.destinationCode : null,
           })
         }
       }
@@ -179,12 +193,12 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
         const contextRes = await fetch(`/api/${tenantSlug}/market-context${scopeQuery}`)
         const contextData = await parseJsonSafely(contextRes)
 
-        if (contextRes.ok && contextData && typeof contextData === 'object') {
-          setChannels((Array.isArray((contextData as any).channels) ? (contextData as any).channels : []).filter((item: any) => item.is_active))
-          setLocales((Array.isArray((contextData as any).locales) ? (contextData as any).locales : []).filter((item: any) => item.is_active))
-          setMarkets((Array.isArray((contextData as any).markets) ? (contextData as any).markets : []).filter((item: any) => item.is_active))
-          setMarketLocales((Array.isArray((contextData as any).marketLocales) ? (contextData as any).marketLocales : []).filter((item: any) => item.is_active !== false))
-          setDestinations((Array.isArray((contextData as any).destinations) ? (contextData as any).destinations : []).filter((item: any) => item.is_active !== false))
+        if (contextRes.ok && isRecord(contextData)) {
+          setChannels(toActiveItems<MarketChannel>(contextData.channels))
+          setLocales(toActiveItems<MarketLocale>(contextData.locales))
+          setMarkets(toActiveItems<Market>(contextData.markets))
+          setMarketLocales(toNonInactiveItems<MarketLocaleAssignment>(contextData.marketLocales))
+          setDestinations(toNonInactiveItems<MarketDestination>(contextData.destinations))
           return
         }
 
@@ -216,11 +230,11 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
           parseJsonSafely(destinationsRes)
         ])
 
-        setChannels((Array.isArray(channelsData) ? channelsData : []).filter((item: any) => item.is_active))
-        setLocales((Array.isArray(localesData) ? localesData : []).filter((item: any) => item.is_active))
-        setMarkets((Array.isArray(marketsData) ? marketsData : []).filter((item: any) => item.is_active))
-        setMarketLocales((Array.isArray(assignmentsData) ? assignmentsData : []).filter((item: any) => item.is_active !== false))
-        setDestinations((Array.isArray(destinationsData) ? destinationsData : []).filter((item: any) => item.is_active !== false))
+        setChannels(toActiveItems<MarketChannel>(channelsData))
+        setLocales(toActiveItems<MarketLocale>(localesData))
+        setMarkets(toActiveItems<Market>(marketsData))
+        setMarketLocales(toNonInactiveItems<MarketLocaleAssignment>(assignmentsData))
+        setDestinations(toNonInactiveItems<MarketDestination>(destinationsData))
       } catch (error) {
         console.warn('Failed to load markets settings', error)
       } finally {

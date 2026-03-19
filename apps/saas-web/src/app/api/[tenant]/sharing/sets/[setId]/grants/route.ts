@@ -28,10 +28,12 @@ type PartnerOrganizationRow = {
   organization_type?: string | null;
 };
 
-function isMissingShareSetFoundationError(error: any): boolean {
+function isMissingShareSetFoundationError(error: unknown): boolean {
   if (!error) return false;
-  if (error?.code === "42P01" || error?.code === "PGRST205") return true;
-  const message = String(error?.message || "").toLowerCase();
+  if (typeof error !== "object") return false;
+  const code = (error as { code?: string }).code;
+  if (code === "42P01" || code === "PGRST205") return true;
+  const message = String((error as { message?: string }).message || "").toLowerCase();
   return (
     message.includes("share_sets") ||
     message.includes("partner_share_set_grants")
@@ -52,7 +54,7 @@ async function getShareSet(params: {
 > {
   const { organizationId, setId } = params;
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("share_sets")
     .select("id,module_key,name")
     .eq("id", setId)
@@ -85,7 +87,7 @@ async function listActivePartnerOrganizationIds(params: {
 > {
   const { brandOrganizationId } = params;
 
-  const v2 = await (supabaseServer as any)
+  const v2 = await supabaseServer
     .from("brand_partner_relationships")
     .select("partner_organization_id")
     .eq("brand_organization_id", brandOrganizationId)
@@ -106,7 +108,7 @@ async function listActivePartnerOrganizationIds(params: {
     return { ok: false, status: 500, error: "Failed to load partner relationships" };
   }
 
-  const v1 = await (supabaseServer as any)
+  const v1 = await supabaseServer
     .from("brand_partner_relationships")
     .select("partner_id")
     .eq("brand_id", brandOrganizationId)
@@ -118,7 +120,7 @@ async function listActivePartnerOrganizationIds(params: {
 
   const ids = Array.from(
     new Set(
-      ((v1.data || []) as Array<{ partner_id: string | null }>)
+      ((v1.data || []) as unknown as Array<{ partner_id: string | null }>)
         .map((row) => row.partner_id)
         .filter((id): id is string => Boolean(id))
     )
@@ -132,7 +134,7 @@ async function getOrganizationsByIds(ids: string[]) {
     return { data: [] as PartnerOrganizationRow[], error: null };
   }
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("organizations")
     .select("id,name,slug,partner_category,organization_type")
     .in("id", ids);
@@ -176,7 +178,7 @@ export async function GET(
       );
     }
 
-    const grantsResult = await (supabaseServer as any)
+    const grantsResult = await supabaseServer
       .from("partner_share_set_grants")
       .select(
         "id,partner_organization_id,access_level,status,expires_at,created_at,updated_at"
@@ -310,7 +312,7 @@ export async function POST(
       );
     }
 
-    const existing = await (supabaseServer as any)
+    const existing = await supabaseServer
       .from("partner_share_set_grants")
       .select("id")
       .eq("organization_id", organization.id)
@@ -337,7 +339,7 @@ export async function POST(
 
     let writeResult;
     if (existing.data?.id) {
-      writeResult = await (supabaseServer as any)
+      writeResult = await supabaseServer
         .from("partner_share_set_grants")
         .update({
           access_level: accessLevel,
@@ -351,7 +353,7 @@ export async function POST(
         )
         .single();
     } else {
-      writeResult = await (supabaseServer as any)
+      writeResult = await supabaseServer
         .from("partner_share_set_grants")
         .insert({
           organization_id: organization.id,
@@ -413,7 +415,7 @@ export async function DELETE(
       return NextResponse.json({ error: "grantId is required" }, { status: 400 });
     }
 
-    const { data: existing, error: existingError } = await (supabaseServer as any)
+    const { data: existing, error: existingError } = await supabaseServer
       .from("partner_share_set_grants")
       .select("id,status")
       .eq("id", grantId)
@@ -429,7 +431,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
 
-    const { error: revokeError } = await (supabaseServer as any)
+    const { error: revokeError } = await supabaseServer
       .from("partner_share_set_grants")
       .update({ status: "revoked" })
       .eq("id", grantId)

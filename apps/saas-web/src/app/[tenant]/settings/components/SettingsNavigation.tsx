@@ -7,19 +7,14 @@ import {
   Building2,
   Users,
   CreditCard,
-  Database,
-  Bell,
-  Shield,
-  Key,
   Package,
   Grid3X3,
   Layers,
   Globe,
   Languages,
-  ArrowLeft,
   Link2
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { BackLinkButton } from '@/components/ui/back-link-button';
 import { WorkspaceRail } from '@/components/WorkspaceRail';
 
 interface SettingsSection {
@@ -44,6 +39,7 @@ interface SafeOrganization {
   slug: string;
   type: "brand" | "partner";
   partnerCategory: "retailer" | "distributor" | "wholesaler" | null;
+  logoUrl?: string | null;
   storageUsed: number;
   storageLimit: number;
 }
@@ -52,6 +48,7 @@ interface SettingsNavigationProps {
   tenantSlug: string;
   organization?: SafeOrganization | null;
   user?: SafeUser | null;
+  planId?: string;
 }
 
 const settingsSections: SettingsSection[] = [
@@ -131,34 +128,6 @@ const settingsSections: SettingsSection[] = [
     icon: "CreditCard",
     href: "/billing",
     description: "Subscription and payment settings"
-  },
-  {
-    id: "storage",
-    label: "Storage",
-    icon: "Database",
-    href: "/storage",
-    description: "File storage and usage limits"
-  },
-  {
-    id: "notifications",
-    label: "Notifications",
-    icon: "Bell",
-    href: "/notifications",
-    description: "Email and push notification preferences"
-  },
-  {
-    id: "security",
-    label: "Security",
-    icon: "Shield",
-    href: "/security",
-    description: "Two-factor authentication and access logs"
-  },
-  {
-    id: "api",
-    label: "API Keys",
-    icon: "Key",
-    href: "/api-keys",
-    description: "Manage API keys for integrations"
   }
 ];
 
@@ -166,10 +135,6 @@ const iconMap = {
   Building2,
   Users,
   CreditCard,
-  Database,
-  Bell,
-  Shield,
-  Key,
   Package,
   Grid3X3,
   Layers,
@@ -178,18 +143,10 @@ const iconMap = {
   Link2
 };
 
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes'
-  const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
-
 export default function SettingsNavigation({
   tenantSlug,
   organization,
-  user
+  planId,
 }: SettingsNavigationProps) {
   const pathname = usePathname();
 
@@ -206,11 +163,12 @@ export default function SettingsNavigation({
     return pathname === fullHref || pathname.startsWith(`${fullHref}/`);
   };
 
-  const storagePercentage = organization && organization.storageLimit > 0
-    ? (organization.storageUsed / organization.storageLimit) * 100
-    : 0;
   const showWorkspaceRail = organization?.type === "partner";
-  const visibleSections = settingsSections;
+  const isStarter = planId === 'starter';
+  const visibleSections = settingsSections.filter((s) => {
+    if (s.id === 'localization' && isStarter) return false;
+    return true;
+  });
 
   return (
     <div className="bg-[#f5f5f5] h-full flex">
@@ -218,22 +176,14 @@ export default function SettingsNavigation({
         <WorkspaceRail
           currentWorkspaceSlug={tenantSlug}
           currentWorkspaceName={organization?.name || tenantSlug}
+          currentWorkspaceLogoUrl={organization?.logoUrl ?? null}
           currentPath={pathname}
         />
       ) : null}
 
       <div className="h-full flex flex-col w-48">
-        {/* Back to App Button - aligned with Settings header */}
-        <div className="px-2 py-4">
-          <Link href={`/${tenantSlug}`}>
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-2 px-3 py-2 text-sm font-normal"
-            >
-              <ArrowLeft className="h-4 w-4 flex-shrink-0" />
-              Back to app
-            </Button>
-          </Link>
+        <div className="px-2 py-3">
+          <BackLinkButton href={`/${tenantSlug}`} label="Back to app" fullWidth icon="chevron" />
         </div>
 
         {/* Navigation */}
@@ -262,35 +212,6 @@ export default function SettingsNavigation({
           </div>
         </nav>
 
-        {/* Storage Stats - matches SaaSSidebar */}
-        {organization && organization.storageLimit > 0 && (
-          <div className="p-4">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-2">
-                <Database className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">Storage</span>
-              </div>
-
-              <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span>{formatFileSize(organization.storageUsed)}</span>
-                <span>{formatFileSize(organization.storageLimit)}</span>
-              </div>
-
-              <div className="w-full bg-muted rounded-sm h-1.5 overflow-hidden">
-                <div
-                  className="bg-primary h-1.5 rounded-sm transition-all duration-300"
-                  style={{ width: `${Math.min(storagePercentage, 100)}%` }}
-                />
-              </div>
-
-              {storagePercentage > 90 && (
-                <Button variant="outline" size="sm" className="w-full mt-2 text-xs">
-                  Upgrade
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

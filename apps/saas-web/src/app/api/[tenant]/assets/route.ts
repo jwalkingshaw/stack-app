@@ -20,6 +20,29 @@ const DEFAULT_PERMISSIONS = {
   is_partner: false,
 };
 
+type LooseAsset = {
+  id: string;
+  createdAt?: string | null;
+  created_at?: string | null;
+  currentVersionChangedAt?: string | null;
+  current_version_changed_at?: string | null;
+  updatedAt?: string | null;
+  updated_at?: string | null;
+  folderId?: string | null;
+  folder_id?: string | null;
+  assetScope?: string | null;
+  tenant_owned?: boolean;
+};
+
+type RecencyAssetLike = {
+  createdAt?: string | null;
+  created_at?: string | null;
+  currentVersionChangedAt?: string | null;
+  current_version_changed_at?: string | null;
+  updatedAt?: string | null;
+  updated_at?: string | null;
+};
+
 function emptyPartnerAssetsResponse(context: {
   mode: "tenant" | "partner_brand";
   selectedBrandSlug: string | null;
@@ -60,11 +83,11 @@ function parseCsvIds(value: string | null): string[] {
     .filter(Boolean);
 }
 
-function filterAssetsByRecency(params: {
-  assets: any[];
+function filterAssetsByRecency<T extends RecencyAssetLike>(params: {
+  assets: T[];
   createdAfter: Date | null;
   updatedAfter: Date | null;
-}) {
+}): T[] {
   const { assets, createdAfter, updatedAfter } = params;
   return assets.filter((asset) => {
     if (createdAfter) {
@@ -170,7 +193,7 @@ export async function GET(
         })
       );
 
-      const mergedAssetsById = new Map<string, any>();
+      const mergedAssetsById = new Map<string, LooseAsset>();
       for (const asset of ownAssets) {
         mergedAssetsById.set(asset.id, {
           ...asset,
@@ -184,7 +207,7 @@ export async function GET(
         });
       }
 
-      let assets = Array.from(mergedAssetsById.values());
+      let assets: LooseAsset[] = Array.from(mergedAssetsById.values());
       assets.sort(
         (a, b) =>
           new Date(String(b.createdAt || b.created_at || 0)).getTime() -
@@ -203,7 +226,7 @@ export async function GET(
 
       if (selectedProductIds.length > 0) {
         const scopedOrganizationIds = [tenantOrganizationId, ...brandOrganizationIds];
-        const { data: productAssetLinks } = await (supabaseServer as any)
+        const { data: productAssetLinks } = await supabaseServer
           .from("product_asset_links")
           .select("asset_id")
           .in("organization_id", scopedOrganizationIds)
@@ -227,12 +250,12 @@ export async function GET(
       const [folders, permissions, tagsResult, categoriesResult] = await Promise.all([
         db.getFoldersByOrganization(tenantOrganizationId),
         db.getUserPermissions(context.userId, tenantOrganizationId),
-        (supabaseServer as any)
+        supabaseServer
           .from("asset_tags")
           .select("*")
           .eq("organization_id", tenantOrganizationId)
           .order("name", { ascending: true }),
-        (supabaseServer as any)
+        supabaseServer
           .from("asset_categories")
           .select("*")
           .eq("organization_id", tenantOrganizationId)
@@ -336,7 +359,7 @@ export async function GET(
     }
 
     if (selectedProductIds.length > 0) {
-      const { data: productAssetLinks } = await (supabaseServer as any)
+      const { data: productAssetLinks } = await supabaseServer
         .from("product_asset_links")
         .select("asset_id")
         .eq("organization_id", targetOrganizationId)
@@ -387,12 +410,12 @@ export async function GET(
     }
 
     const [{ data: tags }, { data: categories }] = await Promise.all([
-      (supabaseServer as any)
+      supabaseServer
         .from("asset_tags")
         .select("*")
         .eq("organization_id", targetOrganizationId)
         .order("name", { ascending: true }),
-      (supabaseServer as any)
+      supabaseServer
         .from("asset_categories")
         .select("*")
         .eq("organization_id", targetOrganizationId)

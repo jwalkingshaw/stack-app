@@ -39,7 +39,7 @@ async function requireAssetWritePermission(params: {
   organizationId: string;
   permissionKey: string;
 }) {
-  const db = new DatabaseQueries(supabase as any);
+  const db = new DatabaseQueries(supabase);
   const authService = new AuthService(db);
   return evaluateScopedPermission({
     authService,
@@ -67,6 +67,13 @@ function normalizeOptionalConfidence(value: unknown): number | null {
   if (value < 0) return 0;
   if (value > 1) return 1;
   return value;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
 }
 
 function normalizeAuthoringScope(value: unknown): AuthoringScope | null {
@@ -146,7 +153,7 @@ async function resolveSelectedProductIds(params: {
   let selectedRows: Array<{ id: string; type: string | null }> = [];
 
   if (selection.all) {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("products")
       .select("id,type")
       .eq("organization_id", organizationId)
@@ -160,7 +167,7 @@ async function resolveSelectedProductIds(params: {
     if (explicitIds.length === 0) {
       return [];
     }
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("products")
       .select("id,type")
       .eq("organization_id", organizationId)
@@ -185,7 +192,7 @@ async function resolveSelectedProductIds(params: {
     return Array.from(selectedIds);
   }
 
-  const { data: descendants, error: descendantsError } = await (supabase as any)
+  const { data: descendants, error: descendantsError } = await supabase
     .from("products")
     .select("id")
     .eq("organization_id", organizationId)
@@ -214,7 +221,7 @@ async function syncUploadProductLinks(params: {
 }): Promise<void> {
   const { organizationId, userId, assetId, assetType, productIds, confidence, matchReason, linkType } = params;
 
-  const { data: existingLinks, error: existingLinksError } = await (supabase as any)
+  const { data: existingLinks, error: existingLinksError } = await supabase
     .from("product_asset_links")
     .select("id,product_id")
     .eq("organization_id", organizationId)
@@ -232,7 +239,7 @@ async function syncUploadProductLinks(params: {
     .map((link) => link.id);
 
   if (linksToDeactivate.length > 0) {
-    const { error: deactivateError } = await (supabase as any)
+    const { error: deactivateError } = await supabase
       .from("product_asset_links")
       .update({
         is_active: false,
@@ -261,7 +268,7 @@ async function syncUploadProductLinks(params: {
       created_by: userId,
     }));
 
-    const { error: upsertError } = await (supabase as any)
+    const { error: upsertError } = await supabase
       .from("product_asset_links")
       .upsert(linkRows, {
         onConflict: "organization_id,product_id,asset_id,link_context",
@@ -279,7 +286,7 @@ async function refreshAssetProductIdentifiers(params: {
 }): Promise<void> {
   const { organizationId, assetId } = params;
 
-  const { data: activeLinks, error: linksError } = await (supabase as any)
+  const { data: activeLinks, error: linksError } = await supabase
     .from("product_asset_links")
     .select("product_id")
     .eq("organization_id", organizationId)
@@ -301,7 +308,7 @@ async function refreshAssetProductIdentifiers(params: {
   const identifiers = new Set<string>();
 
   if (linkedProductIds.length > 0) {
-    const { data: productRows, error: productsError } = await (supabase as any)
+    const { data: productRows, error: productsError } = await supabase
       .from("products")
       .select("sku,scin")
       .eq("organization_id", organizationId)
@@ -317,7 +324,7 @@ async function refreshAssetProductIdentifiers(params: {
     }
   }
 
-  const { error: updateError } = await (supabase as any)
+  const { error: updateError } = await supabase
     .from("dam_assets")
     .update({
       product_identifiers: Array.from(identifiers),
@@ -532,7 +539,7 @@ export async function PATCH(
       );
     }
 
-    const { data: existingAsset, error: existingAssetError } = await (supabase as any)
+    const { data: existingAsset, error: existingAssetError } = await supabase
       .from("dam_assets")
       .select("id,metadata,file_type,asset_type")
       .eq("id", assetId)
@@ -543,7 +550,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Asset not found" }, { status: 404 });
     }
 
-    const updatePayload: Record<string, any> = {};
+    const updatePayload: Record<string, unknown> = {};
     if (filename !== undefined) {
       updatePayload.filename = filename;
       updatePayload.original_filename = filename;
@@ -556,7 +563,7 @@ export async function PATCH(
     }
     if (hasFolderId) {
       if (folderId) {
-        const { data: matchingFolder, error: folderError } = await (supabase as any)
+        const { data: matchingFolder, error: folderError } = await supabase
           .from("dam_folders")
           .select("id")
           .eq("id", folderId)
@@ -568,13 +575,8 @@ export async function PATCH(
       }
       updatePayload.folder_id = folderId;
     }
-    const existingMetadata =
-      existingAsset &&
-      typeof (existingAsset as any).metadata === "object" &&
-      (existingAsset as any).metadata !== null &&
-      !Array.isArray((existingAsset as any).metadata)
-        ? ((existingAsset as any).metadata as Record<string, any>)
-        : {};
+    const existingAssetRecord = asRecord(existingAsset);
+    const existingMetadata = asRecord(existingAssetRecord?.metadata) || {};
     const normalizedProductLinks = hasProductLinks
       ? normalizeProductSelection(productLinks)
       : null;
@@ -626,7 +628,7 @@ export async function PATCH(
       });
     }
 
-    const { data: updatedAsset, error: updateError } = await (supabase as any)
+    const { data: updatedAsset, error: updateError } = await supabase
       .from("dam_assets")
       .update(updatePayload)
       .eq("id", assetId)
@@ -650,15 +652,15 @@ export async function PATCH(
             ? autoSuggestedProductLinks
             : Boolean(existingMetadata.autoSuggestedProductLinks ?? false);
         const existingSuggestedConfidence = normalizeOptionalConfidence(
-          (existingMetadata as any).suggestedProductLinkConfidence
+          existingMetadata.suggestedProductLinkConfidence
         );
         const effectiveSuggestedConfidence =
           hasSuggestedProductLinkConfidence && suggestedProductLinkConfidence !== undefined
             ? suggestedProductLinkConfidence
             : existingSuggestedConfidence;
         const existingSuggestedReason =
-          typeof (existingMetadata as any).suggestedProductLinkReason === "string"
-            ? String((existingMetadata as any).suggestedProductLinkReason).trim() || null
+          typeof existingMetadata.suggestedProductLinkReason === "string"
+            ? String(existingMetadata.suggestedProductLinkReason).trim() || null
             : null;
         const effectiveSuggestedReason =
           hasSuggestedProductLinkReason && suggestedProductLinkReason !== undefined
@@ -679,8 +681,9 @@ export async function PATCH(
           selection: normalizedProductLinks,
           appliesToChildren: effectiveAppliesToChildren,
         });
+        const updatedAssetRecord = asRecord(updatedAsset);
         const assetTypeForLinking =
-          String((updatedAsset as any)?.asset_type || (updatedAsset as any)?.file_type || "").trim() || "general";
+          String(updatedAssetRecord?.asset_type || updatedAssetRecord?.file_type || "").trim() || "general";
         await syncUploadProductLinks({
           organizationId: organization.id,
           userId,
@@ -777,7 +780,7 @@ export async function DELETE(
       );
     }
 
-    const { data: existingAsset, error: existingAssetError } = await (supabase as any)
+    const { data: existingAsset, error: existingAssetError } = await supabase
       .from("dam_assets")
       .select("id")
       .eq("id", assetId)
@@ -788,7 +791,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Asset not found" }, { status: 404 });
     }
 
-    const { error: deleteError } = await (supabase as any)
+    const { error: deleteError } = await supabase
       .from("dam_assets")
       .delete()
       .eq("id", assetId)
@@ -807,3 +810,4 @@ export async function DELETE(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+

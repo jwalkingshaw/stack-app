@@ -10,7 +10,7 @@ import { useMe } from "./useMe";
  * This hook is kept for backward compatibility
  */
 export function useAuth() {
-  const { me, user, organization, loading, error, isAuthenticated, login, logout, register } = useMe();
+  const { user, organization, loading, error, isAuthenticated, login, logout, register } = useMe();
 
   // Map to legacy interface for backward compatibility
   return {

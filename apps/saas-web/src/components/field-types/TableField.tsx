@@ -1,12 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Trash2, ArrowUp, ArrowDown, Copy } from 'lucide-react';
+import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { fetchJsonWithDedupe } from '@/lib/client-request-cache';
 import {
   ProductTableDefinition,
   ProductTableColumn,
@@ -36,7 +37,8 @@ interface MeasurementFamily {
 
 export interface TableFieldOptions {
   table_definition?: ProductTableDefinition;
-  [key: string]: any;
+  template_reference?: unknown;
+  [key: string]: unknown;
 }
 
 interface TableFieldProps {
@@ -69,6 +71,7 @@ const COLUMN_TYPE_OPTIONS: Array<{ value: ProductTableColumn['type']; label: str
   { value: 'note', label: 'Note' },
   { value: 'header', label: 'Header' }
 ];
+const TABLE_MEASUREMENT_FAMILIES_TTL_MS = 5 * 60 * 1000;
 
 function cloneDefinition(definition: ProductTableDefinition | undefined): ProductTableDefinition {
   if (!definition) {
@@ -94,6 +97,30 @@ function slugifyKey(value: string, fallback: string): string {
   return cleanedFallback.length > 0 ? cleanedFallback : `column_${Date.now()}`;
 }
 
+const supportsPrecisionByType = (type: ProductTableColumn['type']) =>
+  type === 'number' || type === 'percent' || type === 'measurement';
+
+const supportsRequiredByType = (type: ProductTableColumn['type']) => type !== 'header';
+
+const supportsEditableByType = (type: ProductTableColumn['type']) => type !== 'header';
+
+const getPreviewCellValue = (column: ProductTableColumn): string => {
+  if (column.type === 'measurement') {
+    return `0 ${column.default_unit ?? column.units?.[0]?.code ?? ''}`.trim();
+  }
+  if (column.type === 'percent') {
+    const precision = typeof column.precision === 'number' && column.precision > 0 ? column.precision : 0;
+    return precision > 0 ? `0.${'0'.repeat(precision)}%` : '0%';
+  }
+  if (column.type === 'number') {
+    const precision = typeof column.precision === 'number' && column.precision > 0 ? column.precision : 0;
+    return precision > 0 ? `0.${'0'.repeat(precision)}` : '0';
+  }
+  if (column.type === 'note') return 'Note';
+  if (column.type === 'header') return 'Section header';
+  return 'Text';
+};
+
 export function TableField({
   tenantSlug,
   value,
@@ -117,13 +144,25 @@ export function TableField({
     const loadMeasurementFamilies = async () => {
       try {
         setMeasurementError(null);
-        const response = await fetch(`/api/${tenantSlug}/measurement-families`);
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          throw new Error(payload?.error || 'Unable to load measurement families.');
+        const result = await fetchJsonWithDedupe<MeasurementFamily[] | { error?: string }>(
+          `/api/${tenantSlug}/measurement-families`,
+          {
+            ttlMs: TABLE_MEASUREMENT_FAMILIES_TTL_MS,
+            cacheKey: `table-field:measurement-families:${tenantSlug}`
+          }
+        );
+        if (!result.ok) {
+          const payload = result.data;
+          const message =
+            payload &&
+            typeof payload === 'object' &&
+            !Array.isArray(payload) &&
+            typeof (payload as { error?: unknown }).error === 'string'
+              ? (payload as { error: string }).error
+              : 'Unable to load measurement families.';
+          throw new Error(message);
         }
-        const payload = await response.json().catch(() => null);
-        const families: MeasurementFamily[] = Array.isArray(payload) ? payload : [];
+        const families: MeasurementFamily[] = Array.isArray(result.data) ? result.data : [];
         setMeasurementFamilies(families);
       } catch (error) {
         console.error('Error fetching measurement families:', error);
@@ -145,7 +184,7 @@ export function TableField({
         table_definition: cloneDefinition(nextDefinition)
       };
 
-      delete (payload as any).template_reference;
+      delete payload.template_reference;
 
       onChange?.(payload);
     },
@@ -262,32 +301,17 @@ export function TableField({
         if (!currentColumn) {
           return null;
         }
-
-        const metadata = { ...(currentColumn.metadata || {}) };
-        let nextColumn: ProductTableColumn = {
+        const nextColumn: ProductTableColumn = {
           ...currentColumn,
           ...updates
         };
 
-        if (updates.key !== undefined && updates.key !== currentColumn.key) {
-          metadata.custom_key = true;
-        }
-
         const shouldSyncKey =
-          syncKey &&
-          updates.label !== undefined &&
-          metadata.custom_key !== true;
+          syncKey && updates.label !== undefined;
 
         if (shouldSyncKey) {
           const fallback = currentColumn.key || `column_${index + 1}`;
           nextColumn.key = slugifyKey(updates.label ?? '', fallback);
-        }
-
-        if (Object.keys(metadata).length > 0) {
-          nextColumn = {
-            ...nextColumn,
-            metadata
-          };
         }
 
         columns[index] = nextColumn;
@@ -322,6 +346,9 @@ export function TableField({
         delete nextColumn.measurement_family_code;
         delete nextColumn.default_unit;
         delete nextColumn.units;
+        if (!supportsPrecisionByType(nextType)) {
+          delete nextColumn.precision;
+        }
 
         columns[index] = nextColumn;
 
@@ -484,44 +511,10 @@ export function TableField({
                   }
                   placeholder="e.g., Amount Per Serving"
                 />
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>System key:</span>
-                  <code className="rounded bg-muted px-1.5 py-0.5">{column.key}</code>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => {
-                      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-                        navigator.clipboard.writeText(column.key ?? '').catch(() => undefined);
-                      }
-                    }}
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
+                <p className="text-xs text-muted-foreground">
+                  Internal key is auto-generated from this label.
+                </p>
               </div>
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">Description</label>
-                <Input
-                  value={column.description ?? ''}
-                  onChange={(event) =>
-                    handleColumnUpdate(
-                      index,
-                      { description: event.target.value || undefined },
-                      { emit: false }
-                    )
-                  }
-                  onBlur={(event) =>
-                    handleColumnUpdate(index, { description: event.target.value || undefined })
-                  }
-                  placeholder="Optional helper text"
-                />
-              </div>
-            </div>
-
-            <div className="mt-3 space-y-2">
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">Type</label>
                 <Select
@@ -624,68 +617,66 @@ export function TableField({
               </div>
             )}
 
-            {column.type !== 'measurement' && (
-              <div className="mt-3 grid gap-3 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Decimal Precision
-                  </label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={6}
-                    value={column.precision ?? ''}
-                    onChange={(event) =>
-                      handleColumnUpdate(
-                        index,
-                        {
-                          precision:
-                            event.target.value === ''
-                              ? null
-                              : Math.max(0, Math.min(6, Number(event.target.value)))
-                        },
-                        { emit: false }
-                      )
-                    }
-                    onBlur={(event) =>
-                      handleColumnUpdate(index, {
+            {column.type !== 'measurement' && supportsPrecisionByType(column.type) && (
+              <div className="mt-3 space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Decimal Precision
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={6}
+                  value={column.precision ?? ''}
+                  onChange={(event) =>
+                    handleColumnUpdate(
+                      index,
+                      {
                         precision:
                           event.target.value === ''
                             ? null
                             : Math.max(0, Math.min(6, Number(event.target.value)))
-                      })
-                    }
-                    placeholder="Optional"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">
-                    Required Column
-                  </label>
-                  <div className="flex h-10 items-center rounded-md border border-border px-3">
-                    <Switch
-                      checked={!!column.is_required}
-                      onCheckedChange={(checked) =>
-                        handleColumnUpdate(index, { is_required: checked })
-                      }
-                    />
-                    <span className="ml-3 text-sm text-muted-foreground">
-                      Require a value for this column
-                    </span>
-                  </div>
-                </div>
+                      },
+                      { emit: false }
+                    )
+                  }
+                  onBlur={(event) =>
+                    handleColumnUpdate(index, {
+                      precision:
+                        event.target.value === ''
+                          ? null
+                          : Math.max(0, Math.min(6, Number(event.target.value)))
+                    })
+                  }
+                  placeholder="Optional"
+                />
               </div>
             )}
 
-            <div className="mt-3 flex items-center gap-3">
-              <Switch
-                checked={column.is_editable !== false}
-                onCheckedChange={(checked) => handleColumnUpdate(index, { is_editable: checked })}
-              />
-              <span className="text-sm text-muted-foreground">
-                Allow product editors to update this column
-              </span>
-            </div>
+            {supportsRequiredByType(column.type) && (
+              <div className="mt-3 flex items-center gap-3 rounded-md border border-border px-3 py-2">
+                <Switch
+                  checked={!!column.is_required}
+                  onCheckedChange={(checked) =>
+                    handleColumnUpdate(index, { is_required: checked })
+                  }
+                />
+                <span className="text-sm text-muted-foreground">
+                  Required column
+                </span>
+              </div>
+            )}
+
+            {supportsEditableByType(column.type) && (
+              <div className="mt-3 flex items-center gap-3">
+                <Switch
+                  checked={column.is_editable !== false}
+                  onCheckedChange={(checked) => handleColumnUpdate(index, { is_editable: checked })}
+                />
+                <span className="text-sm text-muted-foreground">
+                  Allow product editors to update this column
+                </span>
+              </div>
+            )}
           </div>
         ))}
 
@@ -746,6 +737,53 @@ export function TableField({
       {renderColumnsEditor()}
 
       {renderMetaSettings()}
+
+      <div className="rounded-lg border border-border/60 bg-background/80 p-4 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preview</p>
+        <div className="mt-3 space-y-3">
+          <div className="overflow-x-auto rounded-md border border-border/60">
+            <table className="w-full min-w-[420px] border-collapse text-sm">
+              <thead>
+                <tr className="bg-muted/30">
+                  {definition.columns.map((column, index) => (
+                    <th
+                      key={column.key || index}
+                      className="border-b border-border/60 px-3 py-2 text-left font-medium text-foreground"
+                    >
+                      {column.label || `Column ${index + 1}`}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  {definition.columns.map((column, index) => (
+                    <td
+                      key={column.key || index}
+                      className="border-b border-border/40 px-3 py-2 text-muted-foreground"
+                    >
+                      {getPreviewCellValue(column)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="space-y-1 text-xs text-muted-foreground">
+            <p>
+              {definition.columns.length} column{definition.columns.length === 1 ? '' : 's'} configured
+            </p>
+            <p>
+              {definition.meta?.allows_custom_rows !== false
+                ? 'Editors can add custom rows'
+                : 'Rows are fixed by the template'}
+            </p>
+            <p>
+              {definition.meta?.supports_sections ? 'Sections enabled' : 'Sections disabled'}
+            </p>
+          </div>
+        </div>
+      </div>
 
     </div>
   );

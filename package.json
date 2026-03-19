@@ -11,6 +11,8 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "type-check": "turbo type-check",
+    "db:types": "node scripts/db/generate-supabase-types.mjs",
+    "check:release": "npm run type-check && npm run build --workspace=@tradetool/public-site && npm run build --workspace=@tradetool/saas-web",
     "perf:authz": "node scripts/perf/authz-load-test.mjs",
     "clean": "turbo clean",
     "dev:public": "npm run dev --workspace=@tradetool/public-site",

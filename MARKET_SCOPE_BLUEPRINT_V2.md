@@ -41,10 +41,7 @@ Rules:
 
 ## 4.1 Top Header
 
-Keep existing header controls but relabel behavior in help text:
-
-- "Viewing context only"
-- "Does not automatically set authoring scope"
+Keep existing header controls as view context only (no extra helper line once Edit mode is enforced).
 
 On create/upload pages, either hide global selector (current `/assets/upload` behavior) or show read-only context chip.
 
@@ -216,7 +213,7 @@ Dynamic set rules can stay content-based (tags/folders/product model/name), but 
 1. Add shared `AuthoringScopePicker` component.
 2. Add scope panel to `/assets/upload`.
 3. Add initial scope to product create.
-4. Add helper text clarifying view context vs authoring scope.
+4. Enforce scoped editing through explicit Edit Target selection.
 
 ### Phase A Status (implemented on February 28, 2026)
 
@@ -229,7 +226,7 @@ Dynamic set rules can stay content-based (tags/folders/product model/name), but 
 - `POST /api/[tenant]/assets/upload` now persists `metadata.authoringScope` when provided.
 - Add Product modal now sends `initialScope`.
 - `POST /api/[tenant]/products` now validates `initialScope` and persists it under `marketplace_content.authoringScope`.
-- Header now displays helper copy: `Viewing context only. Authoring scope is set during create/upload.`
+- Header helper copy removed; editing scope is controlled by explicit Edit Target in product/variant Edit mode.
 
 ## Phase B
 
@@ -345,6 +342,94 @@ Implementation spec:
 
 1. Destination connector mapping and publish pipeline.
 2. Per-destination monitoring and replay.
+
+## 9.1 UX Clarification Plan (Scope + Editing)
+
+This section defines the UX pass needed to make scoped editing obvious and safe.
+
+### A. Header Behavior (View Context Only)
+
+1. Top header remains a **view/filter context** only.
+2. Show: `Market`, `Language`, `Channel`.
+3. Show `Destination` only when the selected channel has one or more destination bindings.
+4. Remove duplicated scope chips from product/variant local headers (already in progress).
+5. Do not show persistent helper copy in the app header; rely on Edit mode scope picker and sticky editing chip.
+
+### B. Product Detail Edit Mode
+
+1. Add explicit `Edit` / `Done` toggle in Product Detail and Variant Detail header.
+2. On entering edit mode, require selecting **Edit Target**:
+   - `Global`
+   - `Scoped`
+3. Scoped edit target is one tuple:
+   - `Market + Channel + Language + Destination`
+4. Keep sticky chip while editing:
+   - `Editing: US / Amazon / es-MX / Print`
+5. Existing autosave status (`Saving changes...` / `All changes saved`) stays in detail header near Edit toggle.
+
+### C. Label and Terminology Changes
+
+1. Rename `Authoring: Global` to:
+   - `Default editing scope: Global` (preferred)
+2. Keep warning badges for scope mismatch:
+   - `Missing in this scope`
+   - `Out of editing scope`
+3. Translation lock on Starter should be tooltip/help text on disabled `Translate` button, not separate warning pill.
+
+### D. Single-Item Field Editing Rules
+
+1. Field badges:
+   - `Global`, `Scoped`, `Inherited`, `Override`
+2. Field quick actions:
+   - `Copy from Global`
+   - `Copy from scope...`
+   - `Translate into this scope`
+3. Writes in edit mode are committed to selected edit target only.
+4. Scope/source tooltip on each field:
+   - `Value source: Global` / `Value source: Scoped (US/Amazon/en-US)` / `Inherited from parent`
+
+### E. Bulk Editing Model (Products + Assets)
+
+Use a wizard (not inline toolbar-only behavior) with explicit scope targeting.
+
+Steps:
+1. Select records
+2. Choose operation:
+   - `Set`, `Append`, `Clear`, `Copy scope A -> B`, `Translate`
+3. Choose target scope
+4. Preview impact:
+   - impacted products/assets
+   - blocked by validation
+   - channel requirement failures
+5. Confirm and run as job
+6. Provide job log + optional undo window where technically possible
+
+### F. PIM Table UX Alignment
+
+1. If inline edit-toolbar in product table does not use the same Edit Target model, remove/deprecate it.
+2. Keep table optimized for selection, filtering, status, and launching bulk wizard.
+3. Keep detailed scoped editing in Product/Variant detail pages.
+
+### G. Pain Point Mapping -> UX Controls
+
+1. Accidental cross-market overwrite
+   - explicit Edit Target + sticky editing scope chip
+2. Unclear source of truth
+   - source badges + field source tooltip
+3. Completeness confusion by locale/channel
+   - compute and display completeness in active edit target scope
+4. Translation drift
+   - stale source hash enforcement before apply (already implemented)
+5. Bulk risk
+   - preview/dry-run + job logs + rollback/undo where possible
+
+### H. Delivery Sequencing for this UX pass
+
+1. Header simplification + terminology updates
+2. Edit mode shell (toggle + edit target selector + sticky chip)
+3. Field-level source badges/tooltips and copy actions
+4. Bulk wizard UX + preview + job execution hooks
+5. Table cleanup/deprecation of conflicting edit controls
 
 ## 10. Why this approach
 

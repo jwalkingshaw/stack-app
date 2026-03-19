@@ -18,10 +18,14 @@ if (redis) {
 
 // Connect to Redis with fallback
 let isConnected = false
+let hasWarnedNoRedisConfig = false
 
 const connectRedis = async () => {
   if (!redis) {
-    console.warn('SAAS Redis not configured, using in-memory fallback')
+    if (!hasWarnedNoRedisConfig) {
+      console.warn('SAAS Redis not configured, using in-memory fallback')
+      hasWarnedNoRedisConfig = true
+    }
     return null
   }
 
@@ -40,7 +44,7 @@ const connectRedis = async () => {
 
 // Cache utilities with fallback
 class CacheService {
-  private inMemoryCache = new Map<string, { value: any; expires: number }>()
+  private inMemoryCache = new Map<string, { value: unknown; expires: number }>()
 
   async get<T>(key: string): Promise<T | null> {
     try {
@@ -56,7 +60,7 @@ class CacheService {
     // Fallback to in-memory cache
     const cached = this.inMemoryCache.get(key)
     if (cached && cached.expires > Date.now()) {
-      return cached.value
+      return cached.value as T
     }
     if (cached && cached.expires <= Date.now()) {
       this.inMemoryCache.delete(key)
@@ -64,7 +68,7 @@ class CacheService {
     return null
   }
 
-  async set(key: string, value: any, ttlSeconds: number): Promise<void> {
+  async set(key: string, value: unknown, ttlSeconds: number): Promise<void> {
     try {
       const client = await connectRedis()
       if (client) {

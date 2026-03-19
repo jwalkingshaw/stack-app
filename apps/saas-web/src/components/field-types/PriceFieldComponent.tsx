@@ -18,8 +18,14 @@ interface PriceFieldComponentProps {
   className?: string;
 }
 
-const normalizeValue = (field: ProductField, value: any): PriceValue => {
-  if (value && typeof value === 'object' && 'amount' in value && 'currency' in value) {
+const normalizeValue = (field: ProductField, value: unknown): PriceValue => {
+  if (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    'amount' in value &&
+    'currency' in value
+  ) {
     return value as PriceValue;
   }
 
@@ -72,6 +78,7 @@ export function PriceFieldComponent({
           min={min}
           max={max}
           step="0.01"
+          className="h-10"
           onChange={(event) =>
             emitChange({
               ...currentValue,

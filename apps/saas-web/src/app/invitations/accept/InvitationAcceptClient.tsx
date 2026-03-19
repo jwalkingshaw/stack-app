@@ -91,19 +91,7 @@ export default function InvitationAcceptClient() {
   const [pendingBrandOrgId, setPendingBrandOrgId] = useState<string | null>(null);
   const [pendingAccessLevel, setPendingAccessLevel] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!token) {
-      setError("Invalid invitation link");
-      setLoading(false);
-      return;
-    }
-
-    fetchInvitation();
-  }, [token]);
-
-  // Only run when invitation is loaded
-
-  const fetchInvitation = async () => {
+  const fetchInvitation = useCallback(async () => {
     try {
       const response = await fetch(`/api/invitations/accept?token=${token}`);
 
@@ -133,13 +121,25 @@ export default function InvitationAcceptClient() {
         inviterEmail: invitationData.inviterEmail,
         expiresAt: invitationData.expires_at || invitationData.expiresAt,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error fetching invitation:", err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : "Failed to load invitation");
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) {
+      setError("Invalid invitation link");
+      setLoading(false);
+      return;
+    }
+
+    void fetchInvitation();
+  }, [fetchInvitation, token]);
+
+  // Only run when invitation is loaded
 
   const beginAuthFlow = useCallback(
     (options?: { forceFresh?: boolean; loginHint?: string | null }) => {
@@ -333,8 +333,8 @@ export default function InvitationAcceptClient() {
 
         setProfileRequired(profileFirst);
         setNextUrl(destination);
-      } catch (err: any) {
-        setError(err.message);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : "Failed to accept invitation");
         setAccepting(false);
       }
     },
@@ -420,8 +420,8 @@ export default function InvitationAcceptClient() {
       setDeclined(true);
       setMessage(data.message || 'Invitation declined.');
       setAccepted(false);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to decline invitation");
     } finally {
       setDeclining(false);
     }
@@ -587,7 +587,7 @@ export default function InvitationAcceptClient() {
                 <Mail className="h-8 w-8 text-primary" />
               </div>
               <h1 className="text-2xl font-semibold text-foreground">
-                You've been invited!
+                You&apos;ve been invited!
               </h1>
               <p className="text-muted-foreground">
                 Join {invitation.organizationName}
@@ -708,13 +708,13 @@ export default function InvitationAcceptClient() {
 
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-xs text-center text-blue-800">
-                Click "Accept Invitation" to verify your email and join.
-                You'll receive a one-time code to sign in - no password needed!
+                Click &quot;Accept Invitation&quot; to verify your email and join.
+                You&apos;ll receive a one-time code to sign in - no password needed!
               </p>
             </div>
 
             <p className="text-xs text-center text-muted-foreground">
-              By accepting, you'll be able to access this organization and its content
+              By accepting, you&apos;ll be able to access this organization and its content
               according to your assigned role.
             </p>
           </div>

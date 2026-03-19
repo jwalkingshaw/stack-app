@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import {
   buildCanonicalProductIdentifier,
@@ -24,7 +24,7 @@ interface Variant {
   id: string;
   sku: string | null;
   product_name: string;
-  variant_attributes: Record<string, any>;
+  variant_attributes: Record<string, unknown>;
 }
 
 interface VariantNavigationHeaderProps {
@@ -60,6 +60,8 @@ export function VariantNavigationHeader({
   const [allVariants, setAllVariants] = useState<Variant[]>([]);
   const [selectedValues, setSelectedValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const stepperButtonClass =
+    "inline-flex h-7 w-6 items-center justify-center rounded-md border border-border/60 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40";
 
   const normalizedSelectedBrand = (selectedBrandSlug || "").trim().toLowerCase();
   const isScopeReady = useMemo(() => {
@@ -80,7 +82,7 @@ export function VariantNavigationHeader({
     availableDestinations.length,
     selectedDestination?.code,
   ]);
-  const buildScopeQuery = () => {
+  const buildScopeQuery = useCallback(() => {
     const query = new URLSearchParams();
     if (selectedMarketId) query.set("marketId", selectedMarketId);
     if (selectedLocale?.code) query.set("locale", selectedLocale.code);
@@ -88,7 +90,13 @@ export function VariantNavigationHeader({
     if (selectedDestination?.code) query.set("destination", selectedDestination.code);
     if (normalizedSelectedBrand) query.set("brand", normalizedSelectedBrand);
     return query.toString();
-  };
+  }, [
+    selectedMarketId,
+    selectedLocale?.code,
+    selectedChannel?.code,
+    selectedDestination?.code,
+    normalizedSelectedBrand,
+  ]);
   const buildParentHref = () =>
     buildTenantPathForScope({
       tenantSlug,
@@ -133,7 +141,13 @@ export function VariantNavigationHeader({
               (v.sku || "").toLowerCase() === normalizedCurrentIdentifier
           );
           if (currentVariant) {
-            setSelectedValues(currentVariant.variant_attributes || {});
+            const normalizedVariantValues = Object.fromEntries(
+              Object.entries(currentVariant.variant_attributes || {}).map(([key, value]) => [
+                key,
+                typeof value === "string" ? value : String(value ?? ""),
+              ])
+            ) as Record<string, string>;
+            setSelectedValues(normalizedVariantValues);
           }
         }
       }
@@ -147,17 +161,85 @@ export function VariantNavigationHeader({
     familyId,
     parentIdentifier,
     currentVariantIdentifier,
-    normalizedSelectedBrand,
-    selectedMarketId,
-    selectedLocale?.code,
-    selectedChannel?.code,
-    selectedDestination?.code,
+    buildScopeQuery,
   ]);
 
   useEffect(() => {
     if (!isScopeReady) return;
     loadVariantData();
   }, [isScopeReady, loadVariantData]);
+
+  const normalizedCurrentVariantIdentifier = useMemo(() => {
+    if (!currentVariantIdentifier) return null;
+    const parsedCurrentIdentifier = parseProductIdentifier(currentVariantIdentifier);
+    return (parsedCurrentIdentifier.uuid || currentVariantIdentifier).trim().toLowerCase() || null;
+  }, [currentVariantIdentifier]);
+
+  const orderedVariants = useMemo(() => {
+    return [...allVariants].sort((a, b) => {
+      for (const attr of variantAttributes) {
+        const aValue = String(a.variant_attributes?.[attr.field_code] ?? "");
+        const bValue = String(b.variant_attributes?.[attr.field_code] ?? "");
+        const comparison = aValue.localeCompare(bValue, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+        if (comparison !== 0) return comparison;
+      }
+
+      const aLabel = String(a.product_name || a.sku || a.id || "");
+      const bLabel = String(b.product_name || b.sku || b.id || "");
+      return aLabel.localeCompare(bLabel, undefined, { numeric: true, sensitivity: "base" });
+    });
+  }, [allVariants, variantAttributes]);
+
+  const currentVariantIndex = useMemo(() => {
+    if (!normalizedCurrentVariantIdentifier) return -1;
+    return orderedVariants.findIndex((variant) => {
+      const normalizedId = (variant.id || "").trim().toLowerCase();
+      const normalizedSku = (variant.sku || "").trim().toLowerCase();
+      return (
+        normalizedId === normalizedCurrentVariantIdentifier ||
+        normalizedSku === normalizedCurrentVariantIdentifier
+      );
+    });
+  }, [orderedVariants, normalizedCurrentVariantIdentifier]);
+
+  const navigateToVariant = useCallback(
+    (targetVariant: Variant | null | undefined) => {
+      if (!targetVariant) return;
+      const variantUrl = generateVariantUrl(
+        tenantSlug,
+        parentIdentifier,
+        targetVariant.id || targetVariant.sku || "",
+        {
+          parentLabel: parentName || parentIdentifier,
+          variantLabel: targetVariant.product_name || targetVariant.sku || null,
+        }
+      );
+      if (!variantUrl) return;
+      const scopeRoot = buildTenantPathForScope({
+        tenantSlug,
+        scope: normalizedSelectedBrand || null,
+      });
+      const tenantPrefix = `/${tenantSlug}`;
+      const scopedVariantUrl = variantUrl.startsWith(tenantPrefix)
+        ? `${scopeRoot}${variantUrl.slice(tenantPrefix.length)}`
+        : variantUrl;
+      router.push(scopedVariantUrl);
+    },
+    [router, tenantSlug, parentIdentifier, parentName, normalizedSelectedBrand]
+  );
+
+  const handleStepVariant = useCallback(
+    (direction: "prev" | "next") => {
+      if (orderedVariants.length < 2 || currentVariantIndex === -1) return;
+      const offset = direction === "next" ? 1 : -1;
+      const nextIndex = (currentVariantIndex + offset + orderedVariants.length) % orderedVariants.length;
+      navigateToVariant(orderedVariants[nextIndex]);
+    },
+    [orderedVariants, currentVariantIndex, navigateToVariant]
+  );
 
   // Get available values for a specific attribute based on previous selections
   const getAvailableValues = (attributeCode: string, attributeIndex: number): string[] => {
@@ -180,7 +262,7 @@ export function VariantNavigationHeader({
     filteredVariants.forEach(variant => {
       const value = variant.variant_attributes?.[attributeCode];
       if (value) {
-        values.add(value);
+        values.add(typeof value === "string" ? value : String(value));
       }
     });
 
@@ -213,27 +295,7 @@ export function VariantNavigationHeader({
       });
 
       if (matchingVariant) {
-        // Navigate to the variant
-        const variantUrl = generateVariantUrl(
-          tenantSlug,
-          parentIdentifier,
-          matchingVariant.id || matchingVariant.sku || "",
-          {
-            parentLabel: parentName || parentIdentifier,
-            variantLabel: matchingVariant.product_name || matchingVariant.sku || null,
-          }
-        );
-        if (variantUrl) {
-          const scopeRoot = buildTenantPathForScope({
-            tenantSlug,
-            scope: normalizedSelectedBrand || null,
-          });
-          const tenantPrefix = `/${tenantSlug}`;
-          const scopedVariantUrl = variantUrl.startsWith(tenantPrefix)
-            ? `${scopeRoot}${variantUrl.slice(tenantPrefix.length)}`
-            : variantUrl;
-          router.push(scopedVariantUrl);
-        }
+        navigateToVariant(matchingVariant);
       }
     }
   };
@@ -241,8 +303,8 @@ export function VariantNavigationHeader({
   if (loading || variantAttributes.length === 0) {
     return (
       <div className="flex items-center gap-2">
-        <Link href={buildParentHref()}>
-          <span className="inline-block max-w-[280px] truncate text-sm text-foreground hover:underline">
+        <Link href={buildParentHref()} className="inline-flex h-7 items-center">
+          <span className="inline-block max-w-[240px] truncate text-xs leading-none text-foreground hover:underline sm:text-sm">
             {parentName}
           </span>
         </Link>
@@ -252,8 +314,8 @@ export function VariantNavigationHeader({
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <Link href={buildParentHref()}>
-        <span className="inline-block max-w-[280px] truncate text-sm text-foreground hover:underline">
+      <Link href={buildParentHref()} className="inline-flex h-7 items-center">
+        <span className="inline-block max-w-[240px] truncate text-xs leading-none text-foreground hover:underline sm:text-sm">
           {parentName}
         </span>
       </Link>
@@ -271,14 +333,14 @@ export function VariantNavigationHeader({
         const isPreviousSelected = index === 0 || selectedValues[previousAttr?.field_code];
 
         return (
-          <div key={attr.field_code} className="flex items-center gap-2">
-            <ChevronDown className="w-3 h-3 text-muted-foreground rotate-[-90deg]" />
+          <div key={attr.field_code} className="flex items-center gap-1.5">
+            <ChevronDown className="h-3 w-3 text-muted-foreground rotate-[-90deg]" />
             <Select
               value={selectedValue || ""}
               onValueChange={(value) => handleAttributeChange(attr.field_code, value, index)}
               disabled={!isPreviousSelected}
             >
-              <SelectTrigger className="h-8 min-w-[160px] max-w-[280px] px-2 text-sm">
+              <SelectTrigger className="h-7 min-w-[132px] max-w-[220px] px-2 text-xs sm:min-w-[142px]">
                 <SelectValue className="truncate" placeholder={attr.field_name} />
               </SelectTrigger>
               <SelectContent>
@@ -292,6 +354,29 @@ export function VariantNavigationHeader({
           </div>
         );
       })}
+
+      {currentVariantIdentifier && orderedVariants.length > 1 ? (
+        <div className="ml-1 inline-flex items-center gap-1">
+          <button
+            type="button"
+            aria-label="Previous variant"
+            className={stepperButtonClass}
+            onClick={() => handleStepVariant("prev")}
+            disabled={currentVariantIndex === -1}
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-label="Next variant"
+            className={stepperButtonClass}
+            onClick={() => handleStepVariant("next")}
+            disabled={currentVariantIndex === -1}
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

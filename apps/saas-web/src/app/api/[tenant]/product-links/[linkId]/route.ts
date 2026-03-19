@@ -23,6 +23,31 @@ type LinkReadConstraints = {
   restrictToSharedAssetScope: boolean;
 };
 
+type ProductLinkWithJoins = {
+  id: string;
+  product_id: string;
+  asset_id: string;
+  products:
+    | {
+        sku?: string | null;
+      }
+    | Array<{
+        sku?: string | null;
+      }>
+    | null;
+  dam_assets:
+    | {
+        product_identifiers?: unknown;
+        asset_scope?: string | null;
+      }
+    | Array<{
+        product_identifiers?: unknown;
+        asset_scope?: string | null;
+      }>
+    | null;
+  [key: string]: unknown;
+};
+
 function isCrossTenantWrite(params: { tenantSlug: string; selectedBrandSlug: string | null }): boolean {
   const selected = (params.selectedBrandSlug || "").trim().toLowerCase();
   if (!selected) return false;
@@ -95,7 +120,7 @@ async function resolvePartnerLinkReadConstraints(params: {
     const channelScoped = new Set<string>();
     for (const channelId of productScope.channelIds) {
       const scopedIds = await getChannelScopedProductIds({
-        supabase: supabase as any,
+        supabase: supabase,
         organizationId: brandOrganizationId,
         channelId,
       });
@@ -197,7 +222,13 @@ export async function DELETE(
       return NextResponse.json({ error: "Failed to delete product-asset link" }, { status: 500 });
     }
 
-    const typedLink = productLink as any;
+    const typedLink = productLink as unknown as ProductLinkWithJoins;
+    const linkedProduct = Array.isArray(typedLink.products)
+      ? typedLink.products[0]
+      : typedLink.products;
+    const linkedAsset = Array.isArray(typedLink.dam_assets)
+      ? typedLink.dam_assets[0]
+      : typedLink.dam_assets;
     const { data: otherLinks } = await supabase
       .from("product_asset_links")
       .select("id")
@@ -206,11 +237,13 @@ export async function DELETE(
       .eq("is_active", true);
 
     if (!otherLinks || otherLinks.length === 0) {
-      const currentIdentifiers = typedLink.dam_assets?.product_identifiers || [];
-      const productSku = typedLink.products?.sku;
-      const updatedIdentifiers = Array.isArray(currentIdentifiers)
-        ? currentIdentifiers.filter((sku: string) => sku !== productSku)
+      const currentIdentifiers = Array.isArray(linkedAsset?.product_identifiers)
+        ? linkedAsset.product_identifiers.filter((sku): sku is string => typeof sku === "string")
         : [];
+      const productSku = typeof linkedProduct?.sku === "string" ? linkedProduct.sku : null;
+      const updatedIdentifiers = productSku
+        ? currentIdentifiers.filter((sku) => sku !== productSku)
+        : currentIdentifiers;
 
       await supabase
         .from("dam_assets")
@@ -310,7 +343,10 @@ export async function GET(
       return NextResponse.json({ error: "Product link not found or access denied" }, { status: 404 });
     }
 
-    const typedLink = productLink as any;
+    const typedLink = productLink as unknown as ProductLinkWithJoins;
+    const linkedAsset = Array.isArray(typedLink.dam_assets)
+      ? typedLink.dam_assets[0]
+      : typedLink.dam_assets;
     if (
       constraints.allowedProductIds &&
       !constraints.allowedProductIds.has(String(typedLink.product_id))
@@ -322,7 +358,7 @@ export async function GET(
     }
     if (
       constraints.restrictToSharedAssetScope &&
-      String(typedLink?.dam_assets?.asset_scope || "").toLowerCase() !== "shared"
+      String(linkedAsset?.asset_scope || "").toLowerCase() !== "shared"
     ) {
       return NextResponse.json({ error: "Product link not found or access denied" }, { status: 404 });
     }

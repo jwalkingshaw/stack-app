@@ -60,7 +60,7 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
     const effectiveWorkspaces = accessibleWorkspaces
 
     try {
-      await (supabase as any).rpc('update_workspace_access', {
+      await supabase.rpc('update_workspace_access', {
         user_id: user.id,
         workspace_id: organization.id,
       })
@@ -103,6 +103,7 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
       role: workspace.role,
       organizationType: workspace.organization.organizationType,
       partnerCategory: workspace.organization.partnerCategory,
+      logoUrl: workspace.organization.logoUrl ?? null,
       lastAccessed: workspace.lastAccessedAt ?? undefined,
       unreadCount: unreadCountByWorkspace.get(workspace.organization.id) ?? 0,
     }))
@@ -124,6 +125,7 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
           slug: organization.slug,
           type: (organization.organizationType || organization.type || 'brand') as 'brand' | 'partner',
           partnerCategory: organization.partnerCategory ?? null,
+          logoUrl: organization.logoUrl ?? null,
           storageUsed: organization.storageUsed,
           storageLimit: organization.storageLimit,
         }}

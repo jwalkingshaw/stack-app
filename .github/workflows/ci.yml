@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      NODE_ENV: test
+      NEXT_PUBLIC_APP_URL: http://localhost:3001
+      NEXT_PUBLIC_SITE_URL: http://localhost:3000
+      NEXT_PUBLIC_TENANT_BASE_DOMAIN: stackcess.com
+      NEXT_PUBLIC_HELP_CENTER_URL: https://help.stackcess.com
+      NEXT_PUBLIC_KINDE_PRICING_TABLE_KEY: organization_plans
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: test_anon_key
+      SUPABASE_SERVICE_ROLE_KEY: test_service_role_key
+      KINDE_CLIENT_ID: test_kinde_client_id
+      KINDE_CLIENT_SECRET: test_kinde_client_secret
+      KINDE_ISSUER_URL: https://example.kinde.com
+      KINDE_SITE_URL: http://localhost:3001
+      KINDE_POST_LOGIN_REDIRECT_URL: http://localhost:3001
+      KINDE_POST_LOGOUT_REDIRECT_URL: http://localhost:3001
+      KINDE_MANAGEMENT_API_DOMAIN: https://example.kinde.com
+      KINDE_MANAGEMENT_API_AUDIENCE: https://example.kinde.com/api
+      KINDE_MANAGEMENT_CLIENT_ID: test_mgmt_id
+      KINDE_MANAGEMENT_CLIENT_SECRET: test_mgmt_secret
+      AWS_ACCESS_KEY_ID: test_access_key
+      AWS_SECRET_ACCESS_KEY: test_secret
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_S3_BUCKET: test-bucket
+      AWS_S3_BUCKET_NAME: test-bucket
+      AWS_CLOUDFRONT_DOMAIN: d111111abcdef8.cloudfront.net
+      DEEPL_API_KEY: test_deepl_key
+      LOCALIZATION_JOB_EXECUTION_MODE: sync
+      UPDATES_SCHEDULER_SECRET: test_scheduler_secret
+      REDIS_URL: redis://localhost:6379
+      REDIS_URL_SAAS: redis://localhost:6379
+      RESEND_API_KEY: test_resend_key
+      RESEND_FROM_EMAIL: noreply@example.com
+      NEXT_PUBLIC_SANITY_PROJECT_ID: testproject
+      NEXT_PUBLIC_SANITY_DATASET: production
+      SANITY_STUDIO_PROJECT_ID: testproject
+      SANITY_STUDIO_DATASET: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check (monorepo)
+        run: npm run type-check
+
+      - name: Build marketing site
+        run: npm run build --workspace=@tradetool/public-site
+
+      - name: Build SaaS app
+        run: npm run build --workspace=@tradetool/saas-web

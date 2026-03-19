@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Database, Json } from "@tradetool/database";
 import { supabaseServer } from "@/lib/supabase";
 import {
   isMissingTableError,
@@ -110,7 +111,11 @@ async function validateScopedContainerIds(params: {
   const { organizationId, items } = params;
   const constraints = collectConstraintIds(items);
 
-  const checks: Array<{ key: keyof ScopeConstraintSummary; table: string; label: string }> = [
+  const checks: Array<{
+    key: keyof ScopeConstraintSummary;
+    table: "markets" | "channels" | "locales";
+    label: string;
+  }> = [
     { key: "marketIds", table: "markets", label: "marketIds" },
     { key: "channelIds", table: "channels", label: "channelIds" },
     { key: "localeIds", table: "locales", label: "localeIds" },
@@ -120,7 +125,7 @@ async function validateScopedContainerIds(params: {
     const ids = constraints[check.key];
     if (ids.length === 0) continue;
 
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabaseServer
       .from(check.table)
       .select("id")
       .eq("organization_id", organizationId)
@@ -162,7 +167,7 @@ async function getShareSet(params: {
 > {
   const { organizationId, setId } = params;
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("share_sets")
     .select("id,module_key")
     .eq("id", setId)
@@ -222,7 +227,7 @@ async function validateItemOwnership(params: {
     );
 
     if (assetIds.length > 0) {
-      const { data, error } = await (supabaseServer as any)
+      const { data, error } = await supabaseServer
         .from("dam_assets")
         .select("id")
         .eq("organization_id", organizationId)
@@ -236,7 +241,7 @@ async function validateItemOwnership(params: {
     }
 
     if (folderIds.length > 0) {
-      const { data, error } = await (supabaseServer as any)
+      const { data, error } = await supabaseServer
         .from("dam_folders")
         .select("id")
         .eq("organization_id", organizationId)
@@ -268,7 +273,7 @@ async function validateItemOwnership(params: {
     return { ok: true };
   }
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("products")
     .select("id,type")
     .eq("organization_id", organizationId)
@@ -334,7 +339,7 @@ export async function GET(
     const url = new URL(request.url);
     const limit = parsePositiveInt(url.searchParams.get("limit"), 200, 1000);
 
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabaseServer
       .from("share_set_items")
       .select(
         "id,resource_type,resource_id,include_descendants,market_ids,channel_ids,locale_ids,metadata,created_at,updated_at"
@@ -413,7 +418,7 @@ export async function POST(
       );
     }
 
-    const records = items.map((item) => ({
+    const records: Database["public"]["Tables"]["share_set_items"]["Insert"][] = items.map((item) => ({
       share_set_id: shareSet.data.id,
       organization_id: organization.id,
       resource_type: item.resourceType,
@@ -422,11 +427,11 @@ export async function POST(
       market_ids: item.marketIds || [],
       channel_ids: item.channelIds || [],
       locale_ids: item.localeIds || [],
-      metadata: item.metadata || {},
+      metadata: (item.metadata || {}) as Json,
       created_by: userId,
     }));
 
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabaseServer
       .from("share_set_items")
       .upsert(records, {
         onConflict: "share_set_id,resource_type,resource_id",
@@ -484,7 +489,7 @@ export async function DELETE(
 
     const deleteOps = Array.from(deletesByType.entries()).map(([resourceType, ids]) => {
       const uniqueIds = Array.from(new Set(ids));
-      return (supabaseServer as any)
+      return supabaseServer
         .from("share_set_items")
         .delete()
         .eq("organization_id", organization.id)

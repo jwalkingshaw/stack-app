@@ -1,9 +1,9 @@
 import { Suspense } from 'react';
 import { getSafeUserData } from '@/lib/auth-server';
-import { PageHeader } from '@/components/ui/page-header';
 import SettingsNavigation from './components/SettingsNavigation';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { createServerClient, DatabaseQueries } from '@tradetool/database';
+import { getOrganizationBillingLimits } from '@/lib/billing-policy';
 
 interface SettingsLayoutProps {
   children: React.ReactNode;
@@ -23,6 +23,10 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
     })(),
   ]);
 
+  const planId = organization
+    ? await getOrganizationBillingLimits(organization.id).then((r) => r.planId).catch(() => 'starter')
+    : 'starter';
+
   // userData already has the correct type structure from getSafeUserData
   const safeUserData = userData as {
     id: string;
@@ -38,6 +42,7 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
         slug: organization.slug,
         type: (organization.organizationType || organization.type || "brand") as "brand" | "partner",
         partnerCategory: organization.partnerCategory ?? null,
+        logoUrl: organization.logoUrl ?? null,
         storageUsed: organization.storageUsed,
         storageLimit: organization.storageLimit,
       }
@@ -52,16 +57,16 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
             tenantSlug={tenant}
             organization={safeOrganizationData}
             user={safeUserData}
+            planId={planId}
           />
         </div>
 
         {/* Content area with grey border frame - matches AppLayoutShell styling */}
-        <div className="flex-1 min-w-0 p-2 h-screen bg-[#f5f5f5]">
-          <div className="h-full w-full bg-background rounded border border-muted/20 shadow-soft overflow-hidden">
-            <div className="h-full overflow-y-auto bg-white">
+        <div className="flex-1 min-w-0 p-3 h-screen bg-[#f5f5f5]">
+          <div className="h-full w-full bg-background rounded shadow-soft overflow-hidden">
+            <div className="relative h-full overflow-y-auto bg-white isolate">
               <div className="w-full">
-                <PageHeader title="Settings" />
-                <main className="p-6">
+                <main className="min-h-full">
                   <Suspense fallback={
                     <PageLoader text="Loading..." size="lg" />
                   }>

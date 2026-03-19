@@ -11,7 +11,7 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const FIELD_GROUPS_CACHE_TTL_MS = 60_000;
-const fieldGroupsResponseCache = new Map<string, { expiresAt: number; data: any[] }>();
+const fieldGroupsResponseCache = new Map<string, { expiresAt: number; data: unknown[] }>();
 
 export function isCrossTenantWrite(tenantSlug: string, selectedBrandSlug: string | null): boolean {
   const selected = (selectedBrandSlug || "").trim().toLowerCase();
@@ -41,7 +41,7 @@ export function getFamilyFieldGroupsCache(params: { organizationId: string; fami
 export function setFamilyFieldGroupsCache(params: {
   organizationId: string;
   familyId: string;
-  data: any[];
+  data: unknown[];
 }) {
   const key = `${params.organizationId}:${params.familyId}`;
   fieldGroupsResponseCache.set(key, {

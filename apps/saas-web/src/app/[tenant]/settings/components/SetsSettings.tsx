@@ -6,7 +6,7 @@ import { ArrowRight, CheckCircle2, Link2, Package, Search, Trash2, Users2, WandS
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageLoader } from '@/components/ui/loading-spinner';
-import { PageContentContainer } from '@/components/ui/page-content-container';
+import { SettingsContentBoundary, SettingsPageContent } from './settings-page-content';
 
 interface SetsSettingsProps {
   tenantSlug: string;
@@ -179,6 +179,21 @@ function splitCsvTokens(value: string): string[] {
   );
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (
+    typeof error === 'object' &&
+    error &&
+    'message' in error &&
+    typeof (error as { message?: unknown }).message === 'string'
+  ) {
+    return (error as { message: string }).message;
+  }
+  return fallback;
+}
+
 export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -333,8 +348,8 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         setProductSets(payload.data?.product_sets || []);
         setProductSetsEnabled(Boolean(payload.capabilities?.product_sets_enabled));
         setShareSetsV2Enabled(Boolean(payload.capabilities?.share_sets_v2));
-      } catch (err: any) {
-        setError(err?.message || 'Failed to load sets');
+      } catch (err: unknown) {
+        setError(getErrorMessage(err, 'Failed to load sets'));
       } finally {
         setLoading(false);
       }
@@ -375,8 +390,8 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
             return partners[0]?.id || '';
           });
         }
-      } catch (err: any) {
-        setGrantsError(err?.message || 'Failed to load partner assignments');
+      } catch (err: unknown) {
+        setGrantsError(getErrorMessage(err, 'Failed to load partner assignments'));
         setAvailablePartners([]);
         setActiveGrants([]);
       } finally {
@@ -404,8 +419,8 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
           throw new Error(payload.error || 'Failed to load set rules');
         }
         setSetRules(payload.data?.rules || []);
-      } catch (err: any) {
-        setRulesError(err?.message || 'Failed to load set rules');
+      } catch (err: unknown) {
+        setRulesError(getErrorMessage(err, 'Failed to load set rules'));
         setSetRules([]);
       } finally {
         setRulesLoading(false);
@@ -440,7 +455,7 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
     }
   }, [tenantSlug]);
 
-  const resetRuleForm = useCallback((moduleKey?: ShareSetModule) => {
+  const resetRuleForm = useCallback(() => {
     setRuleName('');
     setRulePriority('100');
     setRuleIncludeTags('');
@@ -492,7 +507,7 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
 
   useEffect(() => {
     if (!selectedRuleSet) return;
-    resetRuleForm(selectedRuleSet.module_key);
+    resetRuleForm();
   }, [resetRuleForm, selectedRuleSet]);
 
   useEffect(() => {
@@ -538,8 +553,8 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         setPendingRuleSetSelectionId(createdSetId);
       }
       await fetchSets();
-    } catch (err: any) {
-      setCreateError(err?.message || 'Failed to create set');
+    } catch (err: unknown) {
+      setCreateError(getErrorMessage(err, 'Failed to create set'));
     } finally {
       setCreating(false);
     }
@@ -573,8 +588,8 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         fetchSetGrants(selectedGrantSetId, { keepSelectedPartner: true }),
         fetchSets(),
       ]);
-    } catch (err: any) {
-      setGrantsError(err?.message || 'Failed to assign partner to set');
+    } catch (err: unknown) {
+      setGrantsError(getErrorMessage(err, 'Failed to assign partner to set'));
     } finally {
       setGrantsSubmitting(false);
     }
@@ -607,8 +622,8 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
           fetchSetGrants(selectedGrantSetId, { keepSelectedPartner: true }),
           fetchSets(),
         ]);
-      } catch (err: any) {
-        setGrantsError(err?.message || 'Failed to revoke partner assignment');
+      } catch (err: unknown) {
+        setGrantsError(getErrorMessage(err, 'Failed to revoke partner assignment'));
       } finally {
         setRevokingGrantId(null);
       }
@@ -695,9 +710,9 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         throw new Error(body.error || 'Failed to create rule');
       }
       await fetchSetRules(selectedRuleSet.id);
-      resetRuleForm(selectedRuleSet.module_key);
-    } catch (err: any) {
-      setRulesError(err?.message || 'Failed to create rule');
+      resetRuleForm();
+    } catch (err: unknown) {
+      setRulesError(getErrorMessage(err, 'Failed to create rule'));
     } finally {
       setRulesSubmitting(false);
     }
@@ -733,8 +748,8 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         throw new Error(body.error || 'Failed to delete rule');
       }
       await fetchSetRules(selectedRuleSet.id);
-    } catch (err: any) {
-      setRulesError(err?.message || 'Failed to delete rule');
+    } catch (err: unknown) {
+      setRulesError(getErrorMessage(err, 'Failed to delete rule'));
     } finally {
       setDeletingRuleId(null);
     }
@@ -745,43 +760,51 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
   }
 
   return (
-    <PageContentContainer mode="content" className="space-y-6">
-      <div className="rounded-lg border border-border bg-background p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">Sets Workflow</h2>
-            <p className="text-sm text-foreground/80">
-              Follow this flow: create a set, select the set, manage membership, then configure rules and partner access.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link href={`/${tenantSlug}/assets`}>
-              <Button variant="outline" size="sm">Open Assets</Button>
-            </Link>
-            <Link href={`/${tenantSlug}/products`}>
-              <Button variant="outline" size="sm">Open Products</Button>
-            </Link>
-          </div>
+    <SettingsPageContent page="sets">
+      <SettingsContentBoundary size="xl" className="space-y-6">
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold text-foreground">Sets</h1>
+          <p className="text-sm text-muted-foreground">
+            Create reusable asset/product sets, then configure rules and partner access.
+          </p>
         </div>
-        <div className="mt-4 grid gap-2 md:grid-cols-5">
-          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground/80">1. Create set</div>
-          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground/80">2. Select set</div>
-          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground/80">3. Manage membership</div>
-          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground/80">4. Configure rules</div>
-          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground/80">5. Assign partners</div>
-        </div>
-      </div>
 
-      {!shareSetsV2Enabled ? (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          Legacy mode detected. Apply `packages/database/migrations/20260305_add_share_sets_foundation.sql`, then refresh schema cache and restart the app. Product Sets and Partner Assignments stay disabled until this is available.
+        <div className="rounded-lg border border-border bg-background p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Sets Workflow</h2>
+              <p className="text-sm text-foreground/80">
+                Follow this flow: create a set, select the set, manage membership, then configure rules and partner access.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link href={`/${tenantSlug}/assets`}>
+                <Button variant="outline" size="sm">Open Assets</Button>
+              </Link>
+              <Link href={`/${tenantSlug}/products`}>
+                <Button variant="outline" size="sm">Open Products</Button>
+              </Link>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-5">
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground/80">1. Create set</div>
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground/80">2. Select set</div>
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground/80">3. Manage membership</div>
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground/80">4. Configure rules</div>
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-foreground/80">5. Assign partners</div>
+          </div>
         </div>
-      ) : null}
+  
+        {!shareSetsV2Enabled ? (
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            Legacy mode detected. Apply `packages/database/migrations/20260305_add_share_sets_foundation.sql`, then refresh schema cache and restart the app. Product Sets and Partner Assignments stay disabled until this is available.
+          </div>
+        ) : null}
 
       <div className="rounded-lg border border-border bg-background p-4">
         <div className="mb-3 flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4 text-foreground/70" />
-          <p className="text-sm font-semibold text-foreground">Step 1: Create Set</p>
+          <p className="text-base font-semibold text-foreground">Step 1: Create Set</p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[140px]">
@@ -820,7 +843,7 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
       <div className="rounded-lg border border-border bg-background p-4">
         <div className="mb-3 flex items-center gap-2">
           <ArrowRight className="h-4 w-4 text-foreground/70" />
-          <p className="text-sm font-semibold text-foreground">Step 2: Select Set To Edit</p>
+          <p className="text-base font-semibold text-foreground">Step 2: Select Set To Edit</p>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           <div className="relative">
@@ -858,17 +881,18 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         ) : null}
       </div>
 
-      {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
+        {error ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        ) : null}
+      </SettingsContentBoundary>
 
       <div className="rounded-lg border border-border bg-background">
         <div className="border-b border-border px-4 py-3">
-          <p className="text-sm font-semibold text-foreground">Asset Sets (Select One To Edit)</p>
+          <p className="text-base font-semibold text-foreground">Asset Sets (Select One To Edit)</p>
           <p className="text-xs text-foreground/70">
-            Click a row to make it the active set. Membership is managed in Assets via "Add Selection To Set".
+            Click a row to make it the active set. Membership is managed in Assets via &quot;Add Selection To Set&quot;.
           </p>
         </div>
         {assetSets.length === 0 ? (
@@ -916,9 +940,9 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
 
       <div className="rounded-lg border border-border bg-background">
         <div className="border-b border-border px-4 py-3">
-          <p className="text-sm font-semibold text-foreground">Product Sets (Select One To Edit)</p>
+          <p className="text-base font-semibold text-foreground">Product Sets (Select One To Edit)</p>
           <p className="text-xs text-foreground/70">
-            Click a row to make it the active set. Membership is managed in Products via "Add Selection To Set".
+            Click a row to make it the active set. Membership is managed in Products via &quot;Add Selection To Set&quot;.
           </p>
         </div>
         {productSets.length === 0 ? (
@@ -964,45 +988,47 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         )}
       </div>
 
-      <div className="rounded-lg border border-border bg-background p-4">
-        <div className="mb-2 flex items-center gap-2">
-          <Package className="h-4 w-4 text-foreground/70" />
-          <p className="text-sm font-semibold text-foreground">Step 3: Manage Membership</p>
-        </div>
-        {!activeSet ? (
-          <p className="text-sm text-foreground/70">
-            Select an asset or product set above to manage it.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            <p className="text-sm text-foreground">
-              Editing <span className="font-medium">{activeSet.name}</span> ({getSetModuleLabel(activeSet.module_key)})
-            </p>
-            <p className="text-xs text-foreground/70">
-              Add and remove set members in the {activeSet.module_key === 'assets' ? 'Assets' : 'Products'} page using "Add Selection To Set".
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Link href={activeSet.module_key === 'assets' ? `/${tenantSlug}/assets` : `/${tenantSlug}/products`}>
-                <Button size="sm">
-                  Manage {activeSet.module_key === 'assets' ? 'Asset' : 'Product'} Membership
-                </Button>
-              </Link>
-              <Link href={activeSet.module_key === 'assets' ? `/${tenantSlug}/products` : `/${tenantSlug}/assets`}>
-                <Button size="sm" variant="outline">
-                  Open {activeSet.module_key === 'assets' ? 'Products' : 'Assets'}
-                </Button>
-              </Link>
-            </div>
+      <SettingsContentBoundary size="xl">
+        <div className="rounded-lg border border-border bg-background p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <Package className="h-4 w-4 text-foreground/70" />
+            <p className="text-base font-semibold text-foreground">Step 3: Manage Membership</p>
           </div>
-        )}
-      </div>
+          {!activeSet ? (
+            <p className="text-sm text-foreground/70">
+              Select an asset or product set above to manage it.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-foreground">
+                Editing <span className="font-medium">{activeSet.name}</span> ({getSetModuleLabel(activeSet.module_key)})
+              </p>
+              <p className="text-xs text-foreground/70">
+                Add and remove set members in the {activeSet.module_key === 'assets' ? 'Assets' : 'Products'} page using &quot;Add Selection To Set&quot;.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Link href={activeSet.module_key === 'assets' ? `/${tenantSlug}/assets` : `/${tenantSlug}/products`}>
+                  <Button size="sm">
+                    Manage {activeSet.module_key === 'assets' ? 'Asset' : 'Product'} Membership
+                  </Button>
+                </Link>
+                <Link href={activeSet.module_key === 'assets' ? `/${tenantSlug}/products` : `/${tenantSlug}/assets`}>
+                  <Button size="sm" variant="outline">
+                    Open {activeSet.module_key === 'assets' ? 'Products' : 'Assets'}
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
+      </SettingsContentBoundary>
 
       {shareSetsV2Enabled ? (
         <div className="rounded-lg border border-border bg-background">
           <div className="border-b border-border px-4 py-3">
             <div className="flex items-center gap-2">
               <WandSparkles className="h-4 w-4 text-foreground/70" />
-              <p className="text-sm font-semibold text-foreground">Step 4: Set Rules</p>
+              <p className="text-base font-semibold text-foreground">Step 4: Set Rules</p>
             </div>
             <p className="text-xs text-foreground/70">
               Auto-populate set membership with rules. Asset rules support tags/folders/usage group.
@@ -1252,7 +1278,7 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
                 <Button onClick={createRule} disabled={rulesSubmitting || !selectedRuleSet}>
                   {rulesSubmitting ? 'Saving Rule...' : 'Add Rule'}
                 </Button>
-                <Button variant="outline" onClick={() => resetRuleForm(selectedRuleSet?.module_key)} disabled={rulesSubmitting}>
+                <Button variant="outline" onClick={resetRuleForm} disabled={rulesSubmitting}>
                   Reset
                 </Button>
               </div>
@@ -1318,7 +1344,7 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
           <div className="border-b border-border px-4 py-3">
             <div className="flex items-center gap-2">
               <Users2 className="h-4 w-4 text-foreground/70" />
-              <p className="text-sm font-semibold text-foreground">Step 5: Partner Assignments</p>
+              <p className="text-base font-semibold text-foreground">Step 5: Partner Assignments</p>
             </div>
             <p className="text-xs text-foreground/70">
               Assign sets to active partner relationships for controlled cross-organization visibility.
@@ -1432,7 +1458,7 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
           )}
         </div>
       ) : null}
-    </PageContentContainer>
+    </SettingsPageContent>
   );
 }
 

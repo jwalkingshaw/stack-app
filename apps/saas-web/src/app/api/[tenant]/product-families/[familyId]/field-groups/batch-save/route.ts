@@ -18,9 +18,15 @@ type BatchChange = {
   hiddenFields: string[];
 };
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 async function parseBatchPayload(request: NextRequest): Promise<BatchChange[]> {
   const contentType = request.headers.get("content-type") || "";
-  let body: any = null;
+  let body: unknown = null;
 
   if (contentType.includes("application/json")) {
     body = await request.json().catch(() => null);
@@ -30,13 +36,17 @@ async function parseBatchPayload(request: NextRequest): Promise<BatchChange[]> {
     body = JSON.parse(raw);
   }
 
-  const changes = Array.isArray(body?.changes) ? body.changes : [];
+  const bodyRecord = asRecord(body);
+  const changes = Array.isArray(bodyRecord.changes) ? bodyRecord.changes : [];
   return changes
-    .map((change: any) => ({
+    .map((change: unknown) => {
+      const row = asRecord(change);
+      return {
       assignmentId:
-        typeof change?.assignmentId === "string" ? change.assignmentId.trim() : "",
-      hiddenFields: parseHiddenFields(change?.hiddenFields),
-    }))
+        typeof row.assignmentId === "string" ? row.assignmentId.trim() : "",
+      hiddenFields: parseHiddenFields(row.hiddenFields),
+    };
+    })
     .filter((change: BatchChange) => change.assignmentId.length > 0);
 }
 

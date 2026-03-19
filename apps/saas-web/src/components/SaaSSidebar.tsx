@@ -1,14 +1,17 @@
 'use client'
 
-import React, { ReactNode, useCallback, useMemo, useState } from 'react'
+import React, { ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import NextImage from 'next/image'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import {
   BarChart3,
   Files,
-  Database,
   Package,
+  Megaphone,
   ChevronDown,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -18,7 +21,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from '@tradetool/ui'
-import { Button } from './ui/button'
 import type { WorkspaceSummary } from '@/hooks/useWorkspaces'
 import { WorkspaceRail } from './WorkspaceRail'
 import {
@@ -33,6 +35,7 @@ export interface Organization {
   slug: string
   organizationType?: 'brand' | 'partner'
   partnerCategory?: 'retailer' | 'distributor' | 'wholesaler' | null
+  logoUrl?: string | null
   plan?: 'free' | 'pro' | 'enterprise'
 }
 
@@ -50,21 +53,11 @@ export interface SaaSSidebarProps {
   orgSlug?: string
   workspaces?: WorkspaceSummary[]
   onNavigate?: (url: string) => void
-  storageUsed?: number
-  storageLimit?: number
   onCollapseChange?: (collapsed: boolean) => void
   defaultCollapsed?: boolean
   user?: SidebarUser | null
   onLogout?: () => void
   children?: ReactNode
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes'
-  const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`
 }
 
 export function SaaSSidebar({
@@ -73,27 +66,75 @@ export function SaaSSidebar({
   orgSlug,
   workspaces,
   onNavigate,
-  storageUsed = 0,
-  storageLimit = 0,
   onCollapseChange,
   defaultCollapsed = false,
   user,
   onLogout,
   children,
 }: SaaSSidebarProps) {
+  const helpCenterUrl =
+    process.env.NEXT_PUBLIC_HELP_CENTER_URL?.trim() || 'https://help.stackcess.com'
+  const currentWorkspaceSlug = orgSlug ?? organization?.slug ?? ''
+  const sidebarStorageKey = useMemo(
+    () => `saas-sidebar-collapsed:${organization?.organizationType ?? 'brand'}:${currentWorkspaceSlug || 'unknown'}`,
+    [currentWorkspaceSlug, organization?.organizationType]
+  )
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false)
   const searchParams = useSearchParams()
   const fallbackBrandSlug = (searchParams.get('brand') || '').trim().toLowerCase()
 
-  const currentWorkspaceSlug = orgSlug ?? organization?.slug ?? ''
-
   const organizationName = organization?.name ?? ''
   const organizationSlug = organization?.slug ?? ''
   const showWorkspaceRail = organization?.organizationType === 'partner'
+  const [workspaceLogoFailed, setWorkspaceLogoFailed] = useState(false)
+  const [workspaceLogoBySlug, setWorkspaceLogoBySlug] = useState<Record<string, string | null>>({})
   const currentWorkspaceMembership = workspaces?.find(
     (workspace) => workspace.slug === currentWorkspaceSlug
   )
+  useEffect(() => {
+    let isActive = true
+    const loadWorkspaceLogos = async () => {
+      try {
+        const response = await fetch(`/api/me/workspaces?ts=${Date.now()}`, {
+          cache: 'no-store',
+        })
+        if (!response.ok) return
+        const data = await response.json()
+        const nextLogos: Record<string, string | null> = {}
+        if (Array.isArray(data?.workspaces)) {
+          for (const workspace of data.workspaces) {
+            const slug =
+              typeof workspace?.slug === 'string' ? workspace.slug.trim().toLowerCase() : ''
+            if (!slug) continue
+            const logoUrl =
+              typeof workspace?.logoUrl === 'string' && workspace.logoUrl.trim().length > 0
+                ? workspace.logoUrl.trim()
+                : null
+            nextLogos[slug] = logoUrl
+          }
+        }
+        if (isActive) {
+          setWorkspaceLogoBySlug(nextLogos)
+        }
+      } catch {
+        // best-effort refresh for logo state
+      }
+    }
+    void loadWorkspaceLogos()
+    return () => {
+      isActive = false
+    }
+  }, [currentWorkspaceSlug])
+  const currentWorkspaceLogoUrl =
+    workspaceLogoBySlug[currentWorkspaceSlug.toLowerCase()] ??
+    currentWorkspaceMembership?.logoUrl ??
+    organization?.logoUrl ??
+    null
+  const showWorkspaceLogo = Boolean(currentWorkspaceLogoUrl && !workspaceLogoFailed)
+  useEffect(() => {
+    setWorkspaceLogoFailed(false)
+  }, [currentWorkspaceLogoUrl])
   const canManageMembers =
     currentWorkspaceMembership?.role === 'owner' || currentWorkspaceMembership?.role === 'admin'
   const userFirstName = user?.firstName ?? ''
@@ -108,10 +149,46 @@ export function SaaSSidebar({
   })
   const activeScope = pathScope || selectedBrandSlug
 
-  const expandSidebar = () => {
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      const saved = window.localStorage.getItem(sidebarStorageKey)
+      if (saved === '1' || saved === '0') {
+        const nextValue = saved === '1'
+        setIsCollapsed(nextValue)
+        onCollapseChange?.(nextValue)
+        return
+      }
+    } catch {
+      // no-op: localStorage is best-effort
+    }
+    setIsCollapsed(defaultCollapsed)
+    onCollapseChange?.(defaultCollapsed)
+  }, [defaultCollapsed, onCollapseChange, sidebarStorageKey])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(sidebarStorageKey, isCollapsed ? '1' : '0')
+    } catch {
+      // no-op: localStorage is best-effort
+    }
+  }, [isCollapsed, sidebarStorageKey])
+
+  const updateCollapsedState = (collapsed: boolean) => {
+    setIsCollapsed(collapsed)
+    onCollapseChange?.(collapsed)
+  }
+
+  const toggleCollapsed = () => {
+    updateCollapsedState(!isCollapsed)
+  }
+
+  const handleExpandFromLogo = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
     if (!isCollapsed) return
-    setIsCollapsed(false)
-    onCollapseChange?.(false)
+    updateCollapsedState(false)
   }
 
   const handleNavigation = (url: string) => {
@@ -140,8 +217,6 @@ export function SaaSSidebar({
     return currentPath === normalizedPath || currentPath.startsWith(`${normalizedPath}/`)
   }
 
-  const storagePercentage = storageLimit > 0 ? (storageUsed / storageLimit) * 100 : 0
-
   const userFullName = useMemo(() => {
     const parts = [userFirstName, userLastName].filter(Boolean)
     return parts.join(' ')
@@ -155,7 +230,7 @@ export function SaaSSidebar({
   const navGroups = useMemo(() => {
     const groups = [
       {
-        label: 'Primary',
+        label: '',
         items: [
           {
             label: 'Dashboard',
@@ -165,7 +240,7 @@ export function SaaSSidebar({
         ],
       },
       {
-        label: 'Library',
+        label: 'Catalog',
         items: [
           {
             label: 'Assets',
@@ -176,6 +251,11 @@ export function SaaSSidebar({
             label: 'Products',
             path: buildPath('/products'),
             icon: Package,
+          },
+          {
+            label: 'Updates',
+            path: buildPath('/updates'),
+            icon: Megaphone,
           },
         ],
       },
@@ -189,17 +269,12 @@ export function SaaSSidebar({
   }
 
   return (
-    <div
-      onMouseEnter={() => {
-        expandSidebar()
-      }}
-      onFocusCapture={expandSidebar}
-      className="bg-[#f5f5f5] h-full flex"
-    >
+    <div className="bg-[#f5f5f5] h-full flex">
       {showWorkspaceRail ? (
         <WorkspaceRail
           currentWorkspaceSlug={currentWorkspaceSlug}
           currentWorkspaceName={organizationName}
+          currentWorkspaceLogoUrl={currentWorkspaceLogoUrl}
           currentPath={currentPath}
           initialWorkspaces={workspaces}
         />
@@ -207,92 +282,152 @@ export function SaaSSidebar({
 
       <div
         className={`h-full flex flex-col overflow-hidden transition-all duration-300 ease-out ${
-          isCollapsed ? 'w-0 opacity-0 pointer-events-none' : 'w-56 opacity-100'
+          isCollapsed ? 'w-16 opacity-100' : 'w-56 opacity-100'
         }`}
       >
-        <div className="flex items-center justify-between px-3 h-14">
-          <div className="flex flex-1 items-center gap-2">
-            <DropdownMenu
-              open={isWorkspaceMenuOpen}
-      onOpenChange={(open) => {
-        setIsWorkspaceMenuOpen(open)
-      }}
-            >
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Open account menu"
-                  className="workspace-menu-trigger flex flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left text-foreground hover:bg-muted/60 focus:outline-none focus:!shadow-none focus-visible:outline-none focus-visible:!shadow-none"
-                >
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-foreground truncate">
-                      {organizationName || 'Workspace'}
-                    </div>
-                  </div>
-                  <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-150" aria-hidden="true" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                alignOffset={-28}
-                side="bottom"
-                onMouseEnter={() => setIsWorkspaceMenuOpen(true)}
-                onMouseLeave={() => {
-                  setIsWorkspaceMenuOpen(false)
-                }}
-                className="w-72 rounded-md border border-border/60 bg-white shadow-none"
+        <div className={`${isCollapsed ? 'py-3 px-2' : 'px-3 h-14'}`}>
+          <div className={`flex ${isCollapsed ? 'flex-col items-center gap-2' : 'items-center justify-between gap-2 h-full'}`}>
+            {isCollapsed ? (
+              <button
+                type="button"
+                onClick={handleExpandFromLogo}
+                aria-label="Expand navigation sidebar"
+                title="Expand navigation sidebar"
+                className="group flex h-9 w-9 items-center justify-center rounded-md text-foreground hover:bg-muted/60 focus:outline-none focus:!shadow-none focus-visible:outline-none focus-visible:!shadow-none"
               >
-                <DropdownMenuLabel className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-semibold">
-                    {workspaceInitial}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-foreground truncate">
-                      {organizationName || 'Workspace'}
-                    </div>
-                    {user && (
-                      <div className="text-xs text-muted-foreground truncate">
-                        Signed in as {userFullName || userEmail}
+                <div className="relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-md bg-primary text-primary-foreground text-xs font-semibold">
+                  {showWorkspaceLogo ? (
+                    <NextImage
+                      src={currentWorkspaceLogoUrl!}
+                      alt={`${organizationName || 'Workspace'} logo`}
+                      className="h-full w-full object-cover transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0"
+                      width={28}
+                      height={28}
+                      unoptimized
+                      onError={() => setWorkspaceLogoFailed(true)}
+                    />
+                  ) : (
+                    <span className="transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0">
+                      {workspaceInitial}
+                    </span>
+                  )}
+                  <PanelLeftOpen
+                    className="pointer-events-none absolute h-4 w-4 text-primary-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+                    aria-hidden="true"
+                  />
+                </div>
+              </button>
+            ) : (
+              <div className="flex-1">
+                <DropdownMenu
+                  open={isWorkspaceMenuOpen}
+                  onOpenChange={(open) => {
+                    setIsWorkspaceMenuOpen(open)
+                  }}
+                >
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Open account menu"
+                      className="workspace-menu-trigger flex flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left text-foreground hover:bg-muted/60 focus:outline-none focus:!shadow-none focus-visible:outline-none focus-visible:!shadow-none"
+                    >
+                      <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-md bg-primary text-primary-foreground text-xs font-semibold">
+                        {showWorkspaceLogo ? (
+                          <NextImage
+                            src={currentWorkspaceLogoUrl!}
+                            alt={`${organizationName || 'Workspace'} logo`}
+                            className="h-full w-full object-cover"
+                            width={28}
+                            height={28}
+                            unoptimized
+                            onError={() => setWorkspaceLogoFailed(true)}
+                          />
+                        ) : (
+                          workspaceInitial
+                        )}
                       </div>
-                    )}
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={() => handleNavigation(`/${currentWorkspaceSlug}/settings`)}
-                  className="cursor-pointer"
-                >
-                  Settings
-                </DropdownMenuItem>
-                {canManageMembers ? (
-                  <DropdownMenuItem
-                    onSelect={() => handleNavigation(buildPath('/settings/team'))}
-                    className="cursor-pointer"
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-foreground truncate">
+                          {organizationName || 'Workspace'}
+                        </div>
+                      </div>
+                      <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-150" aria-hidden="true" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    alignOffset={8}
+                    side="bottom"
+                    onMouseEnter={() => setIsWorkspaceMenuOpen(true)}
+                    onMouseLeave={() => {
+                      setIsWorkspaceMenuOpen(false)
+                    }}
+                    className="w-72 rounded-md border border-border/60 bg-white shadow-none"
                   >
-                    Invite &amp; manage members
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={handleLogout}
-                  disabled={!onLogout}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  Log out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                    {user ? (
+                      <>
+                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                          Signed in as {userFullName || userEmail}
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                      </>
+                    ) : null}
+                    <DropdownMenuItem
+                      onSelect={() => handleNavigation(`/${currentWorkspaceSlug}/settings`)}
+                      className="cursor-pointer"
+                    >
+                      Settings
+                    </DropdownMenuItem>
+                    {canManageMembers ? (
+                      <DropdownMenuItem
+                        onSelect={() => handleNavigation(buildPath('/settings/team'))}
+                        className="cursor-pointer"
+                      >
+                        Invite &amp; manage members
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem
+                      onSelect={() => window.open(helpCenterUrl, '_blank', 'noopener,noreferrer')}
+                      className="cursor-pointer"
+                    >
+                      Help center
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={handleLogout}
+                      disabled={!onLogout}
+                      className="cursor-pointer text-destructive focus:text-destructive"
+                    >
+                      Log out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+
+            {!isCollapsed ? (
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                className="h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                aria-label="Collapse navigation sidebar"
+                title="Collapse navigation sidebar"
+              >
+                <PanelLeftClose className="h-4 w-4 mx-auto" />
+              </button>
+            ) : null}
           </div>
-          <div className="h-8 w-8 ml-2" aria-hidden="true" />
         </div>
 
-        <nav className="flex-1 overflow-y-auto py-3 px-2">
+        <nav className={`flex-1 overflow-y-auto ${isCollapsed ? 'py-2 px-2' : 'py-3 px-2'}`}>
           <div className="space-y-4">
             {navGroups.map((group) => (
               <div key={group.label}>
-                <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                  {group.label}
-                </div>
+                {group.label && !isCollapsed ? (
+                  <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    {group.label}
+                  </div>
+                ) : null}
                 <div className="space-y-0.5">
                   {group.items.map((item) => {
                     const Icon = item.icon
@@ -303,14 +438,21 @@ export function SaaSSidebar({
                         href={item.path}
                         prefetch={false}
                         aria-label={item.label}
+                        title={isCollapsed ? item.label : undefined}
                         className={`flex items-center rounded-md transition-colors ${
                           active
                             ? 'bg-muted text-foreground'
                             : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                        } gap-2 px-3 py-2 text-sm font-normal`}
+                        } ${
+                          isCollapsed
+                            ? 'justify-center h-10 px-0 py-0'
+                            : 'gap-2 px-3 py-2 text-sm font-normal'
+                        }`}
                       >
                         <Icon className="h-4 w-4 flex-shrink-0" />
-                        <span className="flex-1 truncate">{item.label}</span>
+                        {!isCollapsed ? (
+                          <span className="flex-1 truncate">{item.label}</span>
+                        ) : null}
                       </Link>
                     )
                   })}
@@ -319,35 +461,6 @@ export function SaaSSidebar({
             ))}
           </div>
         </nav>
-
-        {storageLimit > 0 && (
-          <div className="p-4">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-2">
-                <Database className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">Storage</span>
-              </div>
-
-              <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span>{formatFileSize(storageUsed)}</span>
-                <span>{formatFileSize(storageLimit)}</span>
-              </div>
-
-              <div className="w-full bg-muted rounded-sm h-1.5 overflow-hidden">
-                <div
-                  className="bg-primary h-1.5 rounded-sm transition-all duration-300"
-                  style={{ width: `${Math.min(storagePercentage, 100)}%` }}
-                />
-              </div>
-
-              {storagePercentage > 90 && (
-                <Button variant="outline" size="sm" className="w-full mt-2 text-xs">
-                  Upgrade
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
 
         {children}
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { X, Save, Loader2, Tag, FileText, AlertCircle, Check } from "lucide-react";
+import { X, Save, Loader2, Tag, FileText, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -51,6 +51,9 @@ interface FieldState {
   enabled: boolean;
   mode: 'replace' | 'add' | 'remove' | 'append';
 }
+
+type TagMode = Extract<FieldState['mode'], 'replace' | 'add' | 'remove'>;
+type DescriptionMode = Extract<FieldState['mode'], 'replace' | 'append'>;
 
 export function BulkEditorPanel({ 
   assets, 
@@ -102,12 +105,12 @@ export function BulkEditorPanel({
     }));
   };
 
-  const handleModeChange = (field: string, mode: string) => {
+  const handleModeChange = (field: string, mode: FieldState['mode']) => {
     setFieldStates(prev => ({
       ...prev,
       [field]: {
         ...prev[field],
-        mode: mode as any
+        mode
       }
     }));
   };
@@ -129,16 +132,16 @@ export function BulkEditorPanel({
 
   const handleSave = useCallback(async () => {
     const enabledFields = Object.entries(fieldStates)
-      .filter(([_, state]) => state.enabled)
+      .filter(([, state]) => state.enabled)
       .reduce((acc, [field, state]) => {
         if (field === 'tags') {
           acc.tags = {
-            mode: state.mode as 'replace' | 'add' | 'remove',
+            mode: state.mode as TagMode,
             tagIds: formData.tagIds
           };
         } else if (field === 'description' && formData.description.trim()) {
           acc.description = {
-            mode: state.mode as 'replace' | 'append',
+            mode: state.mode as DescriptionMode,
             value: formData.description.trim()
           };
         }
@@ -166,28 +169,30 @@ export function BulkEditorPanel({
   }, [fieldStates, formData, assets.length, onSave]);
 
   const getPreviewText = () => {
-    const enabledFields = Object.entries(fieldStates).filter(([_, state]) => state.enabled);
+    const enabledFields = Object.entries(fieldStates).filter(([, state]) => state.enabled);
     if (enabledFields.length === 0) return "Select fields to preview changes";
     
     const previews: string[] = [];
+    const tagModeText: Record<TagMode, string> = {
+      add: 'Add tags',
+      replace: 'Replace all tags with',
+      remove: 'Remove tags'
+    };
+    const descriptionModeText: Record<DescriptionMode, string> = {
+      replace: 'Set description to',
+      append: 'Append to description'
+    };
     
     enabledFields.forEach(([field, state]) => {
       if (field === 'tags') {
-        const modeText = ({
-          add: 'Add tags',
-          replace: 'Replace all tags with',
-          remove: 'Remove tags'
-        } as any)[state.mode];
+        const modeText = tagModeText[state.mode as TagMode];
         const names = formData.tagIds
           .map((id) => availableTags.find((tag) => tag.id === id)?.name)
           .filter(Boolean)
           .join(', ');
         previews.push(`${modeText}: ${names || '(none)'}`);
       } else if (field === 'description' && formData.description.trim()) {
-        const modeText = ({
-          replace: 'Set description to',
-          append: 'Append to description'
-        } as any)[state.mode];
+        const modeText = descriptionModeText[state.mode as DescriptionMode];
         previews.push(`${modeText}: "${formData.description.trim()}"`);
       }
     });
@@ -283,7 +288,7 @@ export function BulkEditorPanel({
                 <div className="ml-7 space-y-3">
                   <Select
                     value={fieldStates.tags.mode}
-                    onValueChange={(value) => handleModeChange('tags', value)}
+                    onValueChange={(value) => handleModeChange('tags', value as FieldState['mode'])}
                   >
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue />
@@ -348,7 +353,7 @@ export function BulkEditorPanel({
                   {/* Mode Selection */}
                   <Select
                     value={fieldStates.description.mode}
-                    onValueChange={(value) => handleModeChange('description', value)}
+                    onValueChange={(value) => handleModeChange('description', value as FieldState['mode'])}
                   >
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue />

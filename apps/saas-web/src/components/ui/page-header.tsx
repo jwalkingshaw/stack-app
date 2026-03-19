@@ -1,45 +1,139 @@
+'use client'
+
 import React from 'react'
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import { Button } from './button'
+import type { ButtonProps } from './button'
 import { cn } from '@/lib/utils'
+import { useHeaderToolbar } from '@/components/header-toolbar-context'
+import { ScopeToolbar } from '@/components/scope-toolbar'
 
 export interface PageHeaderAction {
   label: string
-  onClick: () => void
-  variant?: 'default' | 'outline' | 'ghost'
+  onClick?: () => void
+  href?: string
+  variant?: ButtonProps['variant']
+  size?: ButtonProps['size']
   icon?: React.ComponentType<{ className?: string }>
+  disabled?: boolean
 }
 
 export interface PageHeaderProps {
   title: string
   description?: string
+  backHref?: string
+  backLabel?: string
+  onBack?: () => void
   actions?: PageHeaderAction[]
   className?: string
+  sticky?: boolean
 }
 
-export function PageHeader({ title, actions = [], className }: PageHeaderProps) {
+export function PageHeader({
+  title,
+  description,
+  backHref,
+  backLabel = "Back",
+  onBack,
+  actions = [],
+  className,
+  sticky = true,
+}: PageHeaderProps) {
+  const showBack = Boolean(backHref || onBack)
+  const { showScopeToolbar } = useHeaderToolbar()
+
   return (
-    <div className={cn("sticky top-0 z-10 bg-white px-4 py-3", className)}>
-      <div className="flex items-center justify-between w-full">
-        <div>
-          <h1 className="text-sm font-medium text-foreground">{title}</h1>
+    <div
+      className={cn(
+        "z-20 border-b border-border/70 bg-white",
+        sticky && "sticky top-0",
+        className
+      )}
+    >
+      {/* Title + actions row */}
+      <div className="flex items-start justify-between gap-3 px-4 py-4 sm:px-6">
+        <div className="min-w-0">
+          {showBack ? (
+            backHref ? (
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="-ml-2 mb-1 h-7 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              >
+                <Link href={backHref}>
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  {backLabel}
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onBack}
+                className="-ml-2 mb-1 h-7 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                {backLabel}
+              </Button>
+            )
+          ) : null}
+          <h1 className="text-xl font-semibold leading-7 tracking-tight text-foreground">{title}</h1>
+          {description ? (
+            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{description}</p>
+          ) : null}
         </div>
 
         {actions.length > 0 && (
-          <div className="flex items-center gap-2">
-            {actions.map((action, index) => (
-              <Button
-                key={index}
-                variant="ghost"
-                onClick={action.onClick}
-                className="gap-2 text-foreground hover:bg-muted/50 hover:text-foreground"
-              >
-                {action.icon && <action.icon className="w-4 h-4" />}
-                {action.label}
-              </Button>
-            ))}
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {actions.map((action, index) => {
+              const variant = action.variant ?? "outline"
+              const buttonContent = (
+                <>
+                  {action.icon ? <action.icon className="h-4 w-4" /> : null}
+                  {action.label}
+                </>
+              )
+
+              if (action.href) {
+                return (
+                  <Button
+                    key={`${action.label}-${index}`}
+                    variant={variant}
+                    size={action.size ?? "default"}
+                    className="gap-2"
+                    disabled={action.disabled}
+                    asChild
+                  >
+                    <Link href={action.href}>{buttonContent}</Link>
+                  </Button>
+                )
+              }
+
+              return (
+                <Button
+                  key={`${action.label}-${index}`}
+                  variant={variant}
+                  size={action.size ?? "default"}
+                  onClick={action.onClick}
+                  className="gap-2"
+                  disabled={action.disabled || (!action.onClick && !action.href)}
+                >
+                  {buttonContent}
+                </Button>
+              )
+            })}
           </div>
         )}
       </div>
+
+      {/* Scope toolbar row — shown on PIM/DAM list pages */}
+      {showScopeToolbar ? (
+        <div className="border-t border-border/50 px-4 py-1.5 sm:px-6">
+          <ScopeToolbar />
+        </div>
+      ) : null}
     </div>
   )
 }

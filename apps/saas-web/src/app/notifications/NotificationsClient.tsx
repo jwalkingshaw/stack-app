@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { WorkspaceRail } from "@/components/WorkspaceRail";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspaces } from "@/hooks/useWorkspaces";
 
 interface NotificationItem {
   id: string;
-  type: "asset_added" | "product_added" | "share_granted";
+  type:
+    | "asset_added"
+    | "product_added"
+    | "share_granted"
+    | "update_published"
+    | "update_reminder";
   organizationId: string;
   organizationName: string;
   organizationSlug: string;
@@ -43,7 +49,7 @@ export default function NotificationsClient() {
     return `?limit=100&workspaceSlug=${encodeURIComponent(workspaceSlugFilter)}`;
   }, [workspaceSlugFilter]);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch(`/api/me/notifications${queryString}`, { cache: "no-store" });
@@ -56,11 +62,11 @@ export default function NotificationsClient() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [queryString]);
 
   useEffect(() => {
-    fetchNotifications();
-  }, [queryString]);
+    void fetchNotifications();
+  }, [fetchNotifications]);
 
   const unreadCount = useMemo(
     () => items.reduce((count, item) => count + (item.isRead ? 0 : 1), 0),
@@ -134,7 +140,11 @@ export default function NotificationsClient() {
 
               <div className="mt-6 space-y-2">
                 {loading ? (
-                  <p className="text-sm text-muted-foreground">Loading notifications...</p>
+                  <div className="space-y-2">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <Skeleton key={i} className="h-16 w-full" />
+                    ))}
+                  </div>
                 ) : items.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No notifications available.</p>
                 ) : (

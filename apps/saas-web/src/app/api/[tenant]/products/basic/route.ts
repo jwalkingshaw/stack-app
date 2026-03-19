@@ -86,7 +86,7 @@ export async function GET(
           const scopedIds = new Set<string>();
           for (const channelId of scopedPermissions.channelIds) {
             const productIds = await getChannelScopedProductIds({
-              supabase: supabase as any,
+              supabase: supabase,
               organizationId: targetOrganizationId,
               channelId,
             });

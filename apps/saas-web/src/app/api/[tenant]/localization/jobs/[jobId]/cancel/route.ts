@@ -26,7 +26,7 @@ export async function POST(
       );
     }
 
-    const { data: job, error: jobError } = await (supabaseServer as any)
+    const { data: job, error: jobError } = await supabaseServer
       .from("translation_jobs")
       .select("id,status")
       .eq("organization_id", organization.id)
@@ -56,7 +56,7 @@ export async function POST(
     }
 
     const completedAt = new Date().toISOString();
-    const { error: updateError } = await (supabaseServer as any)
+    const { error: updateError } = await supabaseServer
       .from("translation_jobs")
       .update({
         status: "cancelled",

@@ -158,7 +158,7 @@ export function ValidatedTextArea({
         disabled={disabled}
         rows={rows}
         className={cn(
-          "w-full px-3 py-2 border border-input rounded-lg focus:ring-2 focus:ring-primary/20 focus:border-primary resize-none",
+          "w-full px-3 py-2 border border-input rounded-lg focus:outline-none focus:ring-0 focus:border-input resize-none",
           className,
           hasErrors && "border-destructive focus:border-destructive",
           charInfo.isOverLimit && "border-destructive focus:border-destructive"

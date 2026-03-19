@@ -16,6 +16,9 @@ export interface Organization {
   kindeOrgId: string;
   storageUsed: number;
   storageLimit: number;
+  website?: string;
+  description?: string;
+  logoUrl?: string;
   industry?: string;
   teamSize?: string;
   createdAt: string;

@@ -1,22 +1,21 @@
 'use client';
 
 import { use, useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { ItemList } from '@/components/ui/item-list';
 import {
-  ArrowLeft,
+  ChevronLeft,
   Plus,
-  Trash2,
-  Eye,
-  EyeOff,
-  Layers
+  Trash2
 } from 'lucide-react';
 import { PageLoader } from '@/components/ui/loading-spinner';
-import { PageContentContainer } from '@/components/ui/page-content-container';
+import { SettingsSecondLevelPage } from '../../components/settings-page-content';
 
 interface FieldGroup {
   id: string;
@@ -51,8 +50,8 @@ interface VariantAttribute {
   field_description?: string;
   sort_order: number;
   is_required: boolean;
-  validation_rules?: any;
-  options?: any;
+  validation_rules?: Record<string, unknown> | null;
+  options?: unknown;
 }
 
 interface FamilyAttribute {
@@ -67,11 +66,38 @@ interface FamilyAttribute {
   inherit_level_2?: boolean;
 }
 
-async function parseJsonSafely(response: Response): Promise<any | null> {
+interface ProductFamily {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+interface FamilyFieldGroupAssignmentResponse {
+  id: string;
+  field_group_id: string;
+  field_groups: FieldGroup;
+  hidden_fields?: string[] | null;
+  sort_order: number;
+}
+
+interface FieldGroupFieldsResponse {
+  product_fields?: ProductField | null;
+}
+
+interface ErrorResponse {
+  error?: string;
+}
+
+interface DataResponse<T> {
+  data?: T;
+  error?: string;
+}
+
+async function parseJsonSafely<T = unknown>(response: Response): Promise<T | null> {
   const text = await response.text();
   if (!text) return null;
   try {
-    return JSON.parse(text);
+    return JSON.parse(text) as T;
   } catch {
     return null;
   }
@@ -85,7 +111,7 @@ export default function ProductFamilyDetailPage({
   const { tenant, familyCode } = use(params);
   const router = useRouter();
 
-  const [family, setFamily] = useState<any>(null);
+  const [family, setFamily] = useState<ProductFamily | null>(null);
   const [assignedGroups, setAssignedGroups] = useState<FamilyFieldGroup[]>([]);
   const [allFieldGroups, setAllFieldGroups] = useState<FieldGroup[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,11 +119,12 @@ export default function ProductFamilyDetailPage({
 
   const [showAddGroupsDialog, setShowAddGroupsDialog] = useState(false);
   const [selectedGroupsToAdd, setSelectedGroupsToAdd] = useState<string[]>([]);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [historyData, setHistoryData] = useState<any[]>([]);
-  const [rulesSaving, setRulesSaving] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pendingChanges, setPendingChanges] = useState<Map<string, string[]>>(new Map());
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'pending'>('saved');
+  const [, setSaveStatus] = useState<'saved' | 'saving' | 'pending'>('saved');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Variant attributes state
@@ -107,24 +134,10 @@ export default function ProductFamilyDetailPage({
   const [selectedFieldsToAdd, setSelectedFieldsToAdd] = useState<string[]>([]);
   const [familyAttributes, setFamilyAttributes] = useState<FamilyAttribute[]>([]);
 
-  useEffect(() => {
-    fetchFamily();
-    fetchAllFieldGroups();
-    fetchHistory();
-    fetchAllProductFields();
-  }, [tenant, familyCode]);
-
-  // Fetch variant attributes when family is loaded
-  useEffect(() => {
-    if (family?.id) {
-      fetchVariantAttributes();
-      fetchFamilyAttributes();
-    }
-  }, [family?.id]);
-
   // Debounced save function
   const debouncedSave = useCallback(async () => {
     if (pendingChanges.size === 0) return;
+    if (!family?.id) return;
 
     setSaveStatus('saving');
 
@@ -208,11 +221,11 @@ export default function ProductFamilyDetailPage({
     };
   }, [pendingChanges, tenant, family?.id, debouncedSave]);
 
-  const fetchFamily = async () => {
+  const fetchFamily = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(`/api/${tenant}/product-families/${familyCode}`);
-      const result = await parseJsonSafely(response);
+      const result = await parseJsonSafely<DataResponse<ProductFamily>>(response);
 
       if (response.ok) {
         if (!result?.data?.id) {
@@ -222,16 +235,20 @@ export default function ProductFamilyDetailPage({
 
         const groupsResponse = await fetch(`/api/${tenant}/product-families/${result.data.id}/field-groups`);
         if (groupsResponse.ok) {
-          const groupsData = (await parseJsonSafely(groupsResponse)) || [];
+          const groupsData =
+            (await parseJsonSafely<FamilyFieldGroupAssignmentResponse[]>(groupsResponse)) || [];
 
           const transformedWithFields = await Promise.all(
-            groupsData.map(async (item: any) => {
+            groupsData.map(async (item) => {
               const fieldsResponse = await fetch(`/api/${tenant}/field-groups/${item.field_group_id}/fields`);
               let fields: ProductField[] = [];
 
               if (fieldsResponse.ok) {
-                const fieldsData = (await parseJsonSafely(fieldsResponse)) || [];
-                fields = fieldsData.map((f: any) => f.product_fields).filter(Boolean);
+                const fieldsData =
+                  (await parseJsonSafely<FieldGroupFieldsResponse[]>(fieldsResponse)) || [];
+                fields = fieldsData
+                  .map((field) => field.product_fields)
+                  .filter((field): field is ProductField => Boolean(field));
               } else {
                 console.warn('Failed to fetch fields for field group:', item.field_group_id);
               }
@@ -261,44 +278,13 @@ export default function ProductFamilyDetailPage({
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenant, familyCode]);
 
-  const handleRuleChange = async (updates: { require_sku_on_active?: boolean; require_barcode_on_active?: boolean }) => {
-    if (!family?.id) return;
-    try {
-      setRulesSaving(true);
-      const response = await fetch(`/api/${tenant}/product-families/${family.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: family.name,
-          description: family.description,
-          ...updates
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update rules');
-      }
-
-      const data = (await parseJsonSafely(response)) || {};
-      setFamily((prev: any) => ({
-        ...prev,
-        ...data.data
-      }));
-    } catch (error) {
-      console.error('Error updating rules:', error);
-      setError('Failed to update rules');
-    } finally {
-      setRulesSaving(false);
-    }
-  };
-
-  const fetchAllFieldGroups = async () => {
+  const fetchAllFieldGroups = useCallback(async () => {
     try {
       const response = await fetch(`/api/${tenant}/field-groups`);
       if (response.ok) {
-        const data = await parseJsonSafely(response);
+        const data = await parseJsonSafely<FieldGroup[]>(response);
         setAllFieldGroups(data || []);
       } else {
         console.warn('Failed to fetch all field groups, but continuing with empty array');
@@ -308,31 +294,15 @@ export default function ProductFamilyDetailPage({
       console.error('Error fetching field groups:', error);
       setAllFieldGroups([]);
     }
-  };
+  }, [tenant]);
 
-  const fetchHistory = async () => {
-    try {
-      const response = await fetch(`/api/${tenant}/product-families/${familyCode}/history`);
-      if (response.ok) {
-        const data = await parseJsonSafely(response);
-        setHistoryData(data || []);
-      } else {
-        console.warn('Failed to fetch history, but continuing with empty array');
-        setHistoryData([]);
-      }
-    } catch (error) {
-      console.error('Error fetching history:', error);
-      setHistoryData([]);
-    }
-  };
-
-  const fetchVariantAttributes = async () => {
+  const fetchVariantAttributes = useCallback(async () => {
     if (!family?.id) return;
 
     try {
       const response = await fetch(`/api/${tenant}/product-families/${family.id}/variant-attributes`);
       if (response.ok) {
-        const data = (await parseJsonSafely(response)) || {};
+        const data = (await parseJsonSafely<DataResponse<VariantAttribute[]>>(response)) || {};
         setVariantAttributes(data.data || []);
       } else {
         console.warn('Failed to fetch variant attributes');
@@ -342,15 +312,15 @@ export default function ProductFamilyDetailPage({
       console.error('Error fetching variant attributes:', error);
       setVariantAttributes([]);
     }
-  };
+  }, [family?.id, tenant]);
 
-  const fetchFamilyAttributes = async () => {
+  const fetchFamilyAttributes = useCallback(async () => {
     if (!family?.id) return;
 
     try {
       const response = await fetch(`/api/${tenant}/product-families/${family.id}/attributes`);
       if (response.ok) {
-        const data = (await parseJsonSafely(response)) || {};
+        const data = (await parseJsonSafely<DataResponse<FamilyAttribute[]>>(response)) || {};
         setFamilyAttributes(data.data || []);
       } else {
         console.warn('Failed to fetch family attributes');
@@ -360,13 +330,13 @@ export default function ProductFamilyDetailPage({
       console.error('Error fetching family attributes:', error);
       setFamilyAttributes([]);
     }
-  };
+  }, [family?.id, tenant]);
 
-  const fetchAllProductFields = async () => {
+  const fetchAllProductFields = useCallback(async () => {
     try {
       const response = await fetch(`/api/${tenant}/product-fields`);
       if (response.ok) {
-        const data = await parseJsonSafely(response);
+        const data = await parseJsonSafely<ProductField[]>(response);
         setAllProductFields(data || []);
       } else {
         console.warn('Failed to fetch attributes');
@@ -376,7 +346,20 @@ export default function ProductFamilyDetailPage({
       console.error('Error fetching attributes:', error);
       setAllProductFields([]);
     }
-  };
+  }, [tenant]);
+
+  useEffect(() => {
+    void fetchFamily();
+    void fetchAllFieldGroups();
+    void fetchAllProductFields();
+  }, [fetchFamily, fetchAllFieldGroups, fetchAllProductFields]);
+
+  // Fetch variant attributes when family is loaded
+  useEffect(() => {
+    if (!family?.id) return;
+    void fetchVariantAttributes();
+    void fetchFamilyAttributes();
+  }, [family?.id, fetchVariantAttributes, fetchFamilyAttributes]);
 
   const getAvailableGroups = () => {
     const assignedIds = new Set(assignedGroups.map(ag => ag.field_group_id));
@@ -385,6 +368,7 @@ export default function ProductFamilyDetailPage({
 
   const handleAddGroups = async () => {
     if (selectedGroupsToAdd.length === 0) return;
+    if (!family?.id) return;
 
     try {
       for (let index = 0; index < selectedGroupsToAdd.length; index += 1) {
@@ -399,7 +383,7 @@ export default function ProductFamilyDetailPage({
         });
 
         if (!response.ok) {
-          const result = await parseJsonSafely(response);
+          const result = await parseJsonSafely<ErrorResponse>(response);
           throw new Error(result?.error || 'Failed to add field group');
         }
       }
@@ -416,13 +400,14 @@ export default function ProductFamilyDetailPage({
 
   const handleRemoveGroup = async (assignmentId: string) => {
     if (!confirm('Remove this field group from the family?')) return;
+    if (!family?.id) return;
 
     try {
       const response = await fetch(`/api/${tenant}/product-families/${family.id}/field-groups/${assignmentId}`, {
         method: 'DELETE'
       });
       if (!response.ok) {
-        const result = await parseJsonSafely(response);
+        const result = await parseJsonSafely<ErrorResponse>(response);
         throw new Error(result?.error || 'Failed to remove field group');
       }
 
@@ -472,6 +457,7 @@ export default function ProductFamilyDetailPage({
 
   const handleAddVariantAttributes = async () => {
     if (selectedFieldsToAdd.length === 0) return;
+    if (!family?.id) return;
 
     try {
       for (const fieldId of selectedFieldsToAdd) {
@@ -486,7 +472,7 @@ export default function ProductFamilyDetailPage({
         });
 
         if (!response.ok) {
-          const result = await parseJsonSafely(response);
+          const result = await parseJsonSafely<ErrorResponse>(response);
           throw new Error(result?.error || 'Failed to add variant attribute');
         }
       }
@@ -502,6 +488,7 @@ export default function ProductFamilyDetailPage({
 
   const handleRemoveVariantAttribute = async (attributeId: string) => {
     if (!confirm('Remove this variant attribute? This may affect existing variants.')) return;
+    if (!family?.id) return;
 
     try {
       await fetch(`/api/${tenant}/product-families/${family.id}/variant-attributes/${attributeId}`, {
@@ -515,32 +502,8 @@ export default function ProductFamilyDetailPage({
     }
   };
 
-  const handleReorderVariantAttributes = async (reorderedAttributes: VariantAttribute[]) => {
-    // Update local state immediately
-    setVariantAttributes(reorderedAttributes);
-
-    // Send update to server
-    try {
-      await fetch(`/api/${tenant}/product-families/${family.id}/variant-attributes`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          attributes: reorderedAttributes.map((attr, index) => ({
-            id: attr.id,
-            sort_order: index,
-            is_required: attr.is_required
-          }))
-        })
-      });
-    } catch (error) {
-      console.error('Error reordering variant attributes:', error);
-      setError('Failed to reorder variant attributes');
-      // Revert on error
-      await fetchVariantAttributes();
-    }
-  };
-
   const handleToggleVariantAttributeRequired = async (attributeId: string, isRequired: boolean) => {
+    if (!family?.id) return;
     try {
       await fetch(`/api/${tenant}/product-families/${family.id}/variant-attributes/${attributeId}`, {
         method: 'PATCH',
@@ -570,6 +533,44 @@ export default function ProductFamilyDetailPage({
     }
   };
 
+  const toggleGroupSelection = (groupId: string) => {
+    setSelectedGroupsToAdd((prev) =>
+      prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
+    );
+  };
+
+  const toggleFieldSelection = (fieldId: string) => {
+    setSelectedFieldsToAdd((prev) =>
+      prev.includes(fieldId) ? prev.filter(id => id !== fieldId) : [...prev, fieldId]
+    );
+  };
+
+  const handleDeleteFamily = async () => {
+    if (!family?.id || deleteConfirmation.trim().toLowerCase() !== 'delete') return;
+
+    try {
+      setDeleteLoading(true);
+      setDeleteError(null);
+
+      const response = await fetch(`/api/${tenant}/product-families/${family.id}`, {
+        method: 'DELETE'
+      });
+      const result = await parseJsonSafely<ErrorResponse>(response);
+
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to delete product model');
+      }
+
+      setShowDeleteDialog(false);
+      router.push(`/${tenant}/settings/product-models`);
+    } catch (error) {
+      console.error('Error deleting product model:', error);
+      setDeleteError(error instanceof Error ? error.message : 'Failed to delete product model');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="h-full bg-background">
@@ -583,7 +584,11 @@ export default function ProductFamilyDetailPage({
       <div className="h-full bg-background flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-600 mb-4">{error || 'Family not found'}</p>
-          <Button variant="outline" onClick={() => router.push(`/${tenant}/settings/product-models`)}>
+          <Button
+            variant="outline"
+            className="border-0 shadow-none"
+            onClick={() => router.push(`/${tenant}/settings/product-models`)}
+          >
             Back to Families
           </Button>
         </div>
@@ -594,529 +599,221 @@ export default function ProductFamilyDetailPage({
   const hasFamilyAttributes = familyAttributes.length > 0;
 
   return (
-    <div className="h-full bg-background">
-      {/* Header */}
-      <div className="border-b border-border bg-white">
-        <PageContentContainer mode="content" className="px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => router.push(`/${tenant}/settings/product-models`)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to Families
-              </Button>
-              <span className="text-muted-foreground">/</span>
-              <span className="font-medium">{family.name}</span>
-              <Badge variant="outline">{assignedGroups.length} groups</Badge>
-            </div>
+    <>
+      <SettingsSecondLevelPage
+        page="product-family-detail"
+        backLink={
+          <Link
+            href={`/${tenant}/settings/product-models`}
+            className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            <span>Product Models</span>
+          </Link>
+        }
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-semibold text-foreground">{family.name}</h2>
+            <p className="text-muted-foreground">
+              {assignedGroups.length} groups | {variantAttributes.length} variant axes
+            </p>
+            {family.description ? (
+              <p className="mt-1 text-sm text-muted-foreground">{family.description}</p>
+            ) : null}
           </div>
-        </PageContentContainer>
-      </div>
-
-      {/* Main content */}
-      <PageContentContainer mode="content" className="px-6 py-6">
-        <Card>
-          <CardHeader className="pb-0">
-            <CardTitle>{family.name}</CardTitle>
-            <CardDescription>{family.description || "No description"}</CardDescription>
-          </CardHeader>
-
-          {/* Tabs */}
-          <div className="border-b border-border">
-            <div className="flex space-x-8 px-6">
-              <button
-                onClick={() => setActiveTab('overview')}
-                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'overview'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Overview
-              </button>
-              <button
-                onClick={() => setActiveTab('groups')}
-                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'groups'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Groups
-                <Badge variant="secondary" className="ml-2">
-                  {assignedGroups.length}
-                </Badge>
-              </button>
-              <button
-                onClick={() => setActiveTab('attributes')}
-                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'attributes'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Attributes
-                <Badge variant="secondary" className="ml-2">
-                  {familyAttributes.length}
-                </Badge>
-              </button>
-              <button
-                onClick={() => setActiveTab('variant-axes')}
-                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'variant-axes'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Variant Axes
-                <Badge variant="secondary" className="ml-2">
-                  {variantAttributes.length}
-                </Badge>
-              </button>
-              <button
-                onClick={() => setActiveTab('rules')}
-                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'rules'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Rules & Completeness
-              </button>
-              <button
-                onClick={() => setActiveTab('history')}
-                className={`py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === 'history'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                History
-              </button>
-            </div>
+          <Button
+            variant="outline"
+            className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+            onClick={() => {
+              setDeleteError(null);
+              setDeleteConfirmation('');
+              setShowDeleteDialog(true);
+            }}
+          >
+            Delete model
+          </Button>
+        </div>
+        <section id="groups-section" className="space-y-3">
+          <div>
+            <h3 className="text-lg font-medium">Groups & Attribute Visibility</h3>
+            <p className="text-sm text-muted-foreground">
+              Assign groups to this family and control which attributes are visible.
+            </p>
           </div>
 
-          <CardContent className="p-0">
-            {/* Overview Tab */}
-            {activeTab === 'overview' && (
-              <div>
-                <div className="p-6 border-b border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-medium">Product Model Overview</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Families define product types. Groups organize attributes. Attributes are inheritable by default.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+          <div className="overflow-hidden rounded-lg border border-gray-200">
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+              <span className="text-xs font-medium text-muted-foreground">
+                {assignedGroups.length} {assignedGroups.length === 1 ? 'group' : 'groups'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAddGroupsDialog(true)}
+                className="inline-flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-foreground/80"
+                aria-label="Add attribute groups"
+              >
+                <Plus className="h-4 w-4" />
+                Add attribute groups
+              </button>
+            </div>
 
-                <div className="p-6 grid gap-4 md:grid-cols-3">
-                  <Card className="border border-border/60">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium text-muted-foreground">Groups</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-semibold text-foreground">{assignedGroups.length}</div>
-                      <p className="text-xs text-muted-foreground">Attribute groups assigned</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="border border-border/60">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium text-muted-foreground">Attributes</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-semibold text-foreground">{familyAttributes.length}</div>
-                      <p className="text-xs text-muted-foreground">Attributes in this family</p>
-                    </CardContent>
-                  </Card>
-                  <Card className="border border-border/60">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium text-muted-foreground">Variant Axes</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-semibold text-foreground">{variantAttributes.length}</div>
-                      <p className="text-xs text-muted-foreground">Attributes used for variants</p>
-                    </CardContent>
-                  </Card>
-                </div>
+            {assignedGroups.length === 0 ? (
+              <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+                No groups assigned yet. Add groups to define this model.
               </div>
-            )}
-
-            {/* Groups Tab */}
-            {activeTab === 'groups' && (
-              <div>
-                {/* Header with Add button */}
-                <div className="p-6 border-b border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-medium">Groups & Attribute Visibility</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Assign groups to this family and control which attributes are visible
-                      </p>
+            ) : (
+              <div className="divide-y divide-gray-200">
+                {assignedGroups.map((assignment) => (
+                  <div key={assignment.id} className="space-y-3 px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-medium text-foreground">{assignment.field_group.name}</h4>
+                        {assignment.field_group.description ? (
+                          <p className="text-xs text-muted-foreground">{assignment.field_group.description}</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveGroup(assignment.id)}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-red-700"
+                        aria-label={`Remove ${assignment.field_group.name}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
-                    <Button variant="secondary" onClick={() => setShowAddGroupsDialog(true)}>
-                      <Plus className="w-4 h-4" />
-                      Add Groups
-                    </Button>
-                  </div>
-                </div>
 
-                {/* Groups List */}
-                {assignedGroups.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <Layers className="w-12 h-12 text-muted-foreground/50 mb-4" />
-                    <h3 className="text-lg font-medium text-foreground mb-2">No Groups Assigned</h3>
-                    <p className="text-muted-foreground max-w-md">
-                      Assign groups to define the product template for this family
-                    </p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border/60">
-                    {assignedGroups.map((assignment) => (
-                      <div key={assignment.id} className="p-6">
-                        <div className="flex items-start justify-between mb-4">
-                          <div>
-                            <h4 className="font-medium">{assignment.field_group.name}</h4>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleRemoveGroup(assignment.id)}
-                            className="text-red-600 hover:text-red-700"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-
-                        {assignment.fields && assignment.fields.length > 0 ? (
-                          <div className="space-y-1">
-                            <div className="grid gap-1">
-                              {assignment.fields.map((field) => {
-                                const isVisible = !assignment.hidden_fields?.includes(field.id);
-                                return (
-                                  <div
-                                    key={field.id}
-                                    className="flex items-center justify-between py-2 px-3 hover:bg-muted/30 rounded-md transition-colors"
-                                  >
-                                    <div className="flex-1">
-                                      <div className="font-medium text-sm leading-tight">{field.name}</div>
-                                    </div>
-                                    <Switch
-                                      checked={isVisible}
-                                      onCheckedChange={() => handleToggleFieldVisibility(assignment.id, field.id, !isVisible)}
-                                    />
+                    {(assignment.fields || []).length === 0 ? (
+                      <div className="py-2 text-sm text-muted-foreground">
+                        No attributes in this group.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {assignment.fields.length} {assignment.fields.length === 1 ? 'attribute' : 'attributes'}
+                        </span>
+                        <div className="divide-y divide-gray-200">
+                          {assignment.fields.map((field) => {
+                            const isVisible = !assignment.hidden_fields?.includes(field.id);
+                            return (
+                              <div key={field.id} className="flex items-center gap-4 py-3">
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-sm font-medium text-foreground">{field.name}</div>
+                                  <div className="mt-0.5 text-xs text-muted-foreground">
+                                    {field.description || field.field_type}
                                   </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="text-sm text-muted-foreground">
-                            No attributes in this group
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Attributes Tab */}
-            {activeTab === 'attributes' && (
-              <div>
-                <div className="p-6 border-b border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-medium">Family Attributes</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Attributes define the data captured for this family and are inheritable by default.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {familyAttributes.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <Layers className="w-12 h-12 text-muted-foreground/50 mb-4" />
-                    <h3 className="text-lg font-medium text-foreground mb-2">No Attributes Yet</h3>
-                    <p className="text-muted-foreground max-w-md">
-                      Assign groups and attributes first so this family has a product template.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border/60">
-                    {familyAttributes.map((attribute) => (
-                      <div key={attribute.id} className="p-6">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium text-foreground">{attribute.attribute_label}</h4>
-                              <Badge variant="outline" className="text-xs">
-                                {attribute.attribute_type}
-                              </Badge>
-                              {attribute.is_required && (
-                                <Badge variant="default" className="text-xs">
-                                  Required
-                                </Badge>
-                              )}
-                              {attribute.is_unique && (
-                                <Badge variant="secondary" className="text-xs">
-                                  Unique
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="text-xs text-muted-foreground mt-1">
-                              Code: {attribute.attribute_code}
-                            </div>
-                            {attribute.help_text && (
-                              <p className="text-sm text-muted-foreground mt-2">{attribute.help_text}</p>
-                            )}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {attribute.inherit_level_1 ? 'Inherits' : 'No inherit'}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Variant Axes Tab */}
-            {activeTab === 'variant-axes' && (
-              <div>
-                {/* Header with Add button */}
-                <div className="p-6 border-b border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-medium">Variant Axes</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Select the attributes that define variant combinations for this family.
-                      </p>
-                    </div>
-                    <Button
-                      variant="secondary"
-                      onClick={() => handleVariantAxesDialogOpenChange(true)}
-                      disabled={!hasFamilyAttributes}
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add Variant Axes
-                    </Button>
-                  </div>
-                </div>
-
-                {!hasFamilyAttributes && (
-                  <div className="mx-6 -mt-2 mb-6 rounded-lg border border-border/60 bg-muted/30 p-4 text-sm text-muted-foreground">
-                    <p className="font-medium text-foreground mb-1">No attributes available yet</p>
-                    <p>
-                      Assign groups with attributes to this family first so attributes become available for variants.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setActiveTab('groups')}
-                      className="mt-3 text-sm font-medium text-primary hover:underline"
-                    >
-                      Go to Groups
-                    </button>
-                  </div>
-                )}
-
-                {/* Variant Axes List */}
-                {variantAttributes.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <Layers className="w-12 h-12 text-muted-foreground/50 mb-4" />
-                    <h3 className="text-lg font-medium text-foreground mb-2">No Variant Axes Configured</h3>
-                    <p className="text-muted-foreground max-w-md">
-                      {hasFamilyAttributes
-                        ? 'Add attributes to define how variants will be structured for this family. For example, add "Flavor" and "Size" attributes to create variants like "Chocolate 2lb" or "Vanilla 5lb".'
-                        : 'Assign groups with attributes first so attributes are available to use as variant axes.'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border/60">
-                    {variantAttributes.map((attribute, index) => (
-                      <div key={attribute.id} className="p-6">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-4 flex-1">
-                            <div className="flex items-center gap-2 text-muted-foreground">
-                              <span className="text-sm font-mono bg-muted px-2 py-1 rounded">
-                                {index + 1}
-                              </span>
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-medium text-foreground">{attribute.field_name}</h4>
-                                <Badge variant="outline" className="text-xs">
-                                  {attribute.field_type}
-                                </Badge>
-                                {attribute.is_required && (
-                                  <Badge variant="default" className="text-xs">
-                                    Required
-                                  </Badge>
-                                )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    size="sm"
+                                    checked={isVisible}
+                                    onCheckedChange={() =>
+                                      handleToggleFieldVisibility(assignment.id, field.id, !isVisible)
+                                    }
+                                  />
+                                </div>
                               </div>
-                              {attribute.field_description && (
-                                <p className="text-sm text-muted-foreground mt-1">
-                                  {attribute.field_description}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm text-muted-foreground">Required</span>
-                              <Switch
-                                checked={attribute.is_required}
-                                onCheckedChange={(checked) =>
-                                  handleToggleVariantAttributeRequired(attribute.id, checked)
-                                }
-                              />
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveVariantAttribute(attribute.id)}
-                              className="text-red-600 hover:text-red-700"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </div>
+                            );
+                          })}
                         </div>
                       </div>
-                    ))}
+                    )}
                   </div>
-                )}
-
-                {variantAttributes.length > 0 && (
-                  <div className="p-6 border-t border-border bg-muted/30">
-                    <div className="flex items-start gap-2">
-                      <div className="text-sm text-muted-foreground">
-                        <p className="font-medium text-foreground mb-1">How variant axes work:</p>
-                        <ul className="list-disc list-inside space-y-1">
-                          <li>Attributes are displayed in the order shown above</li>
-                          <li>Required attributes must be filled when creating variants</li>
-                          <li>Variant SKUs are not generated automatically</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                ))}
               </div>
             )}
+          </div>
+        </section>
 
-            {/* Rules & Completeness Tab */}
-            {activeTab === 'rules' && (
-              <div>
-                <div className="p-6 border-b border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-medium">Rules & Completeness</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Configure required attributes and completeness rules by market, channel, or locale.
-                      </p>
-                    </div>
-                  </div>
+        <section className="space-y-3">
+          <div>
+            <h3 className="text-lg font-medium">Variant Axes</h3>
+            <p className="text-sm text-muted-foreground">
+              Select the attributes that define variant combinations for this product model.
+            </p>
+          </div>
+
+          {!hasFamilyAttributes && (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-sm text-muted-foreground">
+              <p className="font-medium text-foreground mb-1">No attributes available yet</p>
+              <p>
+                Assign groups with attributes to this family first so attributes become available for variants.
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  document.getElementById('groups-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+                className="mt-3 text-sm font-medium text-primary hover:underline"
+              >
+                Go to Groups
+              </button>
+            </div>
+          )}
+
+          <ItemList
+            items={variantAttributes}
+            getKey={(attribute) => attribute.id}
+            renderTitle={(attribute) => attribute.field_name}
+            renderSubtitle={(attribute) => attribute.field_description || attribute.field_type}
+            renderRight={(attribute) => {
+              const index = variantAttributes.findIndex((item) => item.id === attribute.id);
+              return (
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">#{index + 1}</Badge>
+                  <span className="text-xs text-muted-foreground">Required</span>
+                  <Switch
+                    size="sm"
+                    checked={attribute.is_required}
+                    onCheckedChange={(checked) =>
+                      handleToggleVariantAttributeRequired(attribute.id, checked)
+                    }
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleRemoveVariantAttribute(attribute.id)}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
+              );
+            }}
+            headerLabel="variant axes"
+            headerAction={
+              <button
+                type="button"
+                onClick={() => handleVariantAxesDialogOpenChange(true)}
+                disabled={!hasFamilyAttributes}
+                className="inline-flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-foreground/80 disabled:pointer-events-none disabled:opacity-40"
+                aria-label="Add variant axis"
+              >
+                <Plus className="h-4 w-4" />
+                Add variant axis
+              </button>
+            }
+            emptyMessage={
+              hasFamilyAttributes
+                ? 'No variant axes configured yet.'
+                : 'Assign groups with attributes first so attributes are available to use as variant axes.'
+            }
+          />
 
-                <div className="p-6 space-y-6">
-                  <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Require SKU to Activate</p>
-                        <p className="text-xs text-muted-foreground">
-                          Draft products may omit SKU, but Active products must have one.
-                        </p>
-                      </div>
-                      <Switch
-                        checked={family.require_sku_on_active ?? true}
-                        onCheckedChange={(checked) => handleRuleChange({ require_sku_on_active: checked })}
-                        disabled={rulesSaving}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Require Barcode to Activate</p>
-                        <p className="text-xs text-muted-foreground">
-                          If enabled, Active products must include a barcode.
-                        </p>
-                      </div>
-                      <Switch
-                        checked={family.require_barcode_on_active ?? false}
-                        onCheckedChange={(checked) => handleRuleChange({ require_barcode_on_active: checked })}
-                        disabled={rulesSaving}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
-                    <p className="text-sm font-medium text-foreground mb-1">Completeness Rules (Coming Soon)</p>
-                    <p className="text-xs text-muted-foreground">
-                      Configure required attributes and asset roles by channel, market, or locale.
-                    </p>
-                  </div>
-                </div>
+          {variantAttributes.length > 0 ? (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-4">
+              <div className="text-sm text-muted-foreground">
+                <p className="font-medium text-foreground mb-1">How variant axes work:</p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Attributes are displayed in the order shown above</li>
+                  <li>Required attributes must be filled when creating variants</li>
+                  <li>Variant SKUs are not generated automatically</li>
+                </ul>
               </div>
-            )}
-
-            {/* History Tab */}
-            {activeTab === 'history' && (
-              <div>
-                <div className="p-6 border-b border-border">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-lg font-medium">Change History</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Track all changes made to this product family and its groups.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {historyData.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <Layers className="w-12 h-12 text-muted-foreground/50 mb-4" />
-                    <h3 className="text-lg font-medium text-foreground mb-2">No Changes Yet</h3>
-                    <p className="text-muted-foreground max-w-md">
-                      Changes to this product family and its groups will appear here.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-border/60">
-                    {historyData.map((entry, index) => (
-                      <div key={index} className="p-6">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h4 className="font-medium">{entry.action}</h4>
-                              <Badge variant="outline" className="text-xs">
-                                {entry.type}
-                              </Badge>
-                            </div>
-                            <p className="text-sm text-muted-foreground mb-2">{entry.description}</p>
-                            <div className="text-xs text-muted-foreground">
-                              {entry.timestamp && new Date(entry.timestamp).toLocaleString()} by {entry.user}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </PageContentContainer>
+            </div>
+          ) : null}
+        </section>
+      </SettingsSecondLevelPage>
 
       {/* Add Groups Dialog */}
       <Dialog open={showAddGroupsDialog} onOpenChange={setShowAddGroupsDialog}>
@@ -1126,32 +823,28 @@ export default function ProductFamilyDetailPage({
           </DialogHeader>
           <div className="space-y-4">
             {getAvailableGroups().length === 0 ? (
-              <p className="text-sm text-muted-foreground">All groups are already assigned to this family.</p>
+              <p className="text-sm text-muted-foreground">All groups are already assigned to this product model.</p>
             ) : (
-              <div className="max-h-96 overflow-y-auto border rounded-lg divide-y">
-                {getAvailableGroups().map((group) => (
-                  <label
-                    key={group.id}
-                    className="flex items-center gap-3 p-4 hover:bg-muted/50 cursor-pointer"
-                  >
+              <div className="max-h-96 overflow-y-auto">
+                <ItemList
+                  items={getAvailableGroups()}
+                  getKey={(group) => group.id}
+                  renderTitle={(group) => group.name}
+                  renderSubtitle={(group) => group.description}
+                  renderRight={(group) => (
                     <input
                       type="checkbox"
                       checked={selectedGroupsToAdd.includes(group.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedGroupsToAdd([...selectedGroupsToAdd, group.id]);
-                        } else {
-                          setSelectedGroupsToAdd(selectedGroupsToAdd.filter(id => id !== group.id));
-                        }
-                      }}
-                      className="rounded"
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleGroupSelection(group.id)}
+                      className="h-4 w-4 rounded border-border/60"
                     />
-                    <div className="flex-1">
-                      <div className="font-medium">{group.name}</div>
-                      <div className="text-sm text-muted-foreground">{group.description}</div>
-                    </div>
-                  </label>
-                ))}
+                  )}
+                  onClickItem={(group) => toggleGroupSelection(group.id)}
+                  headerLabel="available groups"
+                  showIndicator={false}
+                  emptyMessage="No groups available to add."
+                />
               </div>
             )}
 
@@ -1185,47 +878,43 @@ export default function ProductFamilyDetailPage({
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Select attributes to use as variant axes. These will define how variants can be created for products in this family.
+              Select attributes to use as variant axes. These will define how variants can be created for products in this product model.
             </p>
 
             {getAvailableProductFields().length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 {familyAttributes.length === 0
-                  ? 'Assign groups with attributes to this family before selecting variant axes.'
+                  ? 'Assign groups with attributes to this product model before selecting variant axes.'
                   : 'All available attributes are already assigned as variant axes.'}
               </p>
             ) : (
-              <div className="max-h-96 overflow-y-auto border rounded-lg divide-y">
-                {getAvailableProductFields().map((field) => (
-                  <label
-                    key={field.id}
-                    className="flex items-center gap-3 p-4 hover:bg-muted/50 cursor-pointer"
-                  >
+              <div className="max-h-96 overflow-y-auto">
+                <ItemList
+                  items={getAvailableProductFields()}
+                  getKey={(field) => field.id}
+                  renderTitle={(field) => (
+                    <div className="flex items-center gap-2">
+                      <span>{field.name}</span>
+                      <Badge variant="outline" className="text-xs font-normal">
+                        {field.field_type}
+                      </Badge>
+                    </div>
+                  )}
+                  renderSubtitle={(field) => field.description || field.field_type}
+                  renderRight={(field) => (
                     <input
                       type="checkbox"
                       checked={selectedFieldsToAdd.includes(field.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedFieldsToAdd([...selectedFieldsToAdd, field.id]);
-                        } else {
-                          setSelectedFieldsToAdd(selectedFieldsToAdd.filter(id => id !== field.id));
-                        }
-                      }}
-                      className="rounded"
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleFieldSelection(field.id)}
+                      className="h-4 w-4 rounded border-border/60"
                     />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <div className="font-medium">{field.name}</div>
-                        <Badge variant="outline" className="text-xs">
-                          {field.field_type}
-                        </Badge>
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        {field.description || `Code: ${field.code}`}
-                      </div>
-                    </div>
-                  </label>
-                ))}
+                  )}
+                  onClickItem={(field) => toggleFieldSelection(field.id)}
+                  headerLabel="available attributes"
+                  showIndicator={false}
+                  emptyMessage="No attributes available to add."
+                />
               </div>
             )}
 
@@ -1250,7 +939,59 @@ export default function ProductFamilyDetailPage({
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+
+      {/* Delete Model Dialog */}
+      <Dialog
+        open={showDeleteDialog}
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open);
+          if (!open) {
+            setDeleteConfirmation('');
+            setDeleteError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Product Model</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Delete &quot;{family.name}&quot; permanently. This action cannot be undone.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              If products still use this model, deletion will be blocked.
+            </p>
+            <p className="text-sm text-muted-foreground font-medium">
+              Type <span className="font-mono bg-muted px-1 rounded">delete</span> to confirm:
+            </p>
+            <Input
+              value={deleteConfirmation}
+              onChange={(e) => setDeleteConfirmation(e.target.value)}
+              placeholder="Type 'delete' to confirm"
+            />
+            {deleteError ? (
+              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
+                {deleteError}
+              </div>
+            ) : null}
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowDeleteDialog(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteFamily}
+                disabled={deleteLoading || deleteConfirmation.trim().toLowerCase() !== 'delete'}
+                className="flex-1"
+              >
+                {deleteLoading ? 'Deleting...' : 'Delete model'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

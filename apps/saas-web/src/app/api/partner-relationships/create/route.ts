@@ -88,14 +88,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('🤝 Creating brand-partner relationship:', {
+    console.log('ðŸ¤ Creating brand-partner relationship:', {
       brandOrgId: brand_organization_id,
       partnerOrgId: partner_organization_id,
       accessLevel: access_level,
       userId: user.id
     });
 
-    const { data: invitation, error: invitationError } = await (supabaseServer as any)
+    const { data: invitation, error: invitationError } = await supabaseServer
       .from('invitations')
       .select(`
         id,
@@ -146,6 +146,7 @@ export async function POST(request: NextRequest) {
     if (access_level !== resolvedAccessLevel) {
       console.warn('Access level override ignored; using invitation-defined level:', resolvedAccessLevel);
     }
+    const invitePermissions = normalizeInvitePermissions(invitation.invite_permissions ?? {});
 
     // Verify user is a member of the partner organization
     const partnerMembership = await db.getOrganizationMember(user.id, partner_organization_id);
@@ -167,7 +168,7 @@ export async function POST(request: NextRequest) {
         resolvedAccessLevel
       );
 
-      const { error: invitationUpdateError } = await (supabaseServer as any)
+      const { error: invitationUpdateError } = await supabaseServer
         .from('invitations')
         .update({
           partner_organization_id,
@@ -193,7 +194,7 @@ export async function POST(request: NextRequest) {
         userEmail: user.email || invitation.email,
         invitedBy: invitation.invited_by,
         defaultRole: 'partner',
-        permissions: invitation.invite_permissions || {},
+        permissions: invitePermissions,
       });
 
       if (!appliedPermissions.applied) {
@@ -226,7 +227,7 @@ export async function POST(request: NextRequest) {
           access_level: resolvedAccessLevel,
           invitation_id: invitation.id,
           permission_bundle_id: invitation.permission_bundle_id ?? null,
-          invite_permissions: normalizeInvitePermissions(invitation.invite_permissions ?? {}),
+          invite_permissions: invitePermissions,
           applied_share_set_grants: inviteSetGrants.data.appliedCount,
         },
         message: 'Relationship already exists'
@@ -251,7 +252,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { error: invitationUpdateError } = await (supabaseServer as any)
+    const { error: invitationUpdateError } = await supabaseServer
       .from('invitations')
       .update({
         partner_organization_id,
@@ -276,7 +277,7 @@ export async function POST(request: NextRequest) {
       userEmail: user.email || invitation.email,
       invitedBy: invitation.invited_by,
       defaultRole: 'partner',
-      permissions: invitation.invite_permissions || {},
+      permissions: invitePermissions,
     });
 
     if (!appliedPermissions.applied) {
@@ -301,7 +302,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: partnerOrg } = await (supabaseServer as any)
+    const { data: partnerOrg } = await supabaseServer
       .from('organizations')
       .select('id, name, slug')
       .eq('id', partner_organization_id)
@@ -317,7 +318,7 @@ export async function POST(request: NextRequest) {
         access_level: resolvedAccessLevel,
         invitation_id: invitation.id,
         permission_bundle_id: invitation.permission_bundle_id ?? null,
-        invite_permissions: normalizeInvitePermissions(invitation.invite_permissions ?? {}),
+        invite_permissions: invitePermissions,
         applied_share_set_grants: inviteSetGrants.data.appliedCount,
         partner_organization: partnerOrg,
         redirect_url: partnerOrg?.slug ? `/${partnerOrg.slug}` : undefined

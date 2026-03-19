@@ -10,6 +10,17 @@ import type {
   Organization,
 } from '@tradetool/types';
 
+function normalizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function asRecord(value: unknown): Record<string, any> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, any>;
+}
+
 export class DatabaseQueries {
   constructor(private supabase: SupabaseClient<Database>) {}
 
@@ -51,6 +62,43 @@ export class DatabaseQueries {
     }
   }
 
+  private mapOrganizationRow(row: any): Organization {
+    const metadata = asRecord(row?.metadata);
+    const branding = asRecord(metadata?.branding);
+    const website =
+      normalizeOptionalString(row?.website) ??
+      normalizeOptionalString(metadata?.website);
+    const description =
+      normalizeOptionalString(row?.description) ??
+      normalizeOptionalString(metadata?.description);
+    const logoUrl =
+      normalizeOptionalString(row?.logo_url) ??
+      normalizeOptionalString(row?.logoUrl) ??
+      normalizeOptionalString(metadata?.logo_url) ??
+      normalizeOptionalString(metadata?.logoUrl) ??
+      normalizeOptionalString(branding?.logo_url) ??
+      normalizeOptionalString(branding?.logoUrl);
+
+    return {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      type: row.organization_type || row.type || 'brand',
+      organizationType: row.organization_type || 'brand',
+      partnerCategory: row.partner_category ?? null,
+      kindeOrgId: row.kinde_org_id,
+      storageUsed: row.storage_used,
+      storageLimit: row.storage_limit,
+      website,
+      description,
+      logoUrl,
+      industry: row.industry,
+      teamSize: row.team_size,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
   // Organizations
   async getOrganizationByKindeId(kindeId: string): Promise<Organization | null> {
     const { data, error } = await (this.supabase as any)
@@ -61,21 +109,7 @@ export class DatabaseQueries {
 
     if (error || !data) return null;
 
-    return {
-      id: (data as any).id,
-      name: (data as any).name,
-      slug: (data as any).slug,
-      type: (data as any).organization_type || (data as any).type || 'brand',
-      organizationType: (data as any).organization_type || 'brand',
-      partnerCategory: (data as any).partner_category ?? null,
-      kindeOrgId: (data as any).kinde_org_id,
-      storageUsed: (data as any).storage_used,
-      storageLimit: (data as any).storage_limit,
-      industry: (data as any).industry,
-      teamSize: (data as any).team_size,
-      createdAt: (data as any).created_at,
-      updatedAt: (data as any).updated_at,
-    };
+    return this.mapOrganizationRow(data as any);
   }
 
   async getOrganizationBySlug(slug: string): Promise<Organization | null> {
@@ -87,21 +121,7 @@ export class DatabaseQueries {
 
     if (error || !data) return null;
 
-    return {
-      id: (data as any).id,
-      name: (data as any).name,
-      slug: (data as any).slug,
-      type: (data as any).organization_type || (data as any).type || 'brand',
-      organizationType: (data as any).organization_type || 'brand',
-      partnerCategory: (data as any).partner_category ?? null,
-      kindeOrgId: (data as any).kinde_org_id,
-      storageUsed: (data as any).storage_used,
-      storageLimit: (data as any).storage_limit,
-      industry: (data as any).industry,
-      teamSize: (data as any).team_size,
-      createdAt: (data as any).created_at,
-      updatedAt: (data as any).updated_at,
-    };
+    return this.mapOrganizationRow(data as any);
   }
 
   // Organization membership
@@ -383,21 +403,7 @@ export class DatabaseQueries {
 
     if (error || !data) return null;
 
-    return {
-      id: (data as any).id,
-      name: (data as any).name,
-      slug: (data as any).slug,
-      type: (data as any).organization_type || (data as any).type || 'brand',
-      organizationType: (data as any).organization_type || 'brand',
-      partnerCategory: (data as any).partner_category ?? null,
-      kindeOrgId: (data as any).kinde_org_id,
-      storageUsed: (data as any).storage_used,
-      storageLimit: (data as any).storage_limit,
-      industry: (data as any).industry,
-      teamSize: (data as any).team_size,
-      createdAt: (data as any).created_at,
-      updatedAt: (data as any).updated_at,
-    };
+    return this.mapOrganizationRow(data as any);
   }
 
   // Folders
@@ -1089,21 +1095,7 @@ export class DatabaseQueries {
 
     if (error || !orgData) return null;
 
-    return {
-      id: orgData.id,
-      name: orgData.name,
-      slug: orgData.slug,
-      type: orgData.organization_type || 'brand',
-      organizationType: orgData.organization_type || 'brand',
-      partnerCategory: (orgData as any).partner_category ?? null,
-      kindeOrgId: orgData.kinde_org_id,
-      storageUsed: orgData.storage_used,
-      storageLimit: orgData.storage_limit,
-      industry: orgData.industry,
-      teamSize: orgData.team_size,
-      createdAt: orgData.created_at,
-      updatedAt: orgData.updated_at,
-    };
+    return this.mapOrganizationRow(orgData as any);
   }
 
   /**
@@ -1192,21 +1184,7 @@ export class DatabaseQueries {
 
     if (error || !data) return [];
 
-    return (data as any).map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      slug: row.slug,
-      type: row.organization_type || row.type || 'brand',
-      organizationType: row.organization_type || 'brand',
-      partnerCategory: row.partner_category ?? null,
-      kindeOrgId: row.kinde_org_id,
-      storageUsed: row.storage_used,
-      storageLimit: row.storage_limit,
-      industry: row.industry,
-      teamSize: row.team_size,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return (data as any).map((row: any) => this.mapOrganizationRow(row));
   }
 
   // Partner Relationship Methods

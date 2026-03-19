@@ -90,3 +90,19 @@ After Supabase is set up:
 - Organization creation will work end-to-end
 - Users can sign up and get their own tenant
 - Ready to add file upload functionality
+
+## Generate TypeScript Database Types
+
+To keep `packages/database/src/types.ts` in sync with your real Supabase schema:
+
+```bash
+# one-time auth (or set SUPABASE_ACCESS_TOKEN in env)
+npx supabase login
+
+# generate fresh DB types from the configured project
+npm run db:types
+```
+
+Notes:
+- `npm run db:types` auto-detects the project id from `NEXT_PUBLIC_SUPABASE_URL` (or uses `SUPABASE_PROJECT_ID` if set).
+- Run this after migrations to avoid `never` table/type errors in `SupabaseClient<Database>`.

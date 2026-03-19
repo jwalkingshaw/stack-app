@@ -19,6 +19,7 @@ interface SafeOrganization {
   slug: string
   type: "brand" | "partner"
   partnerCategory: "retailer" | "distributor" | "wholesaler" | null
+  logoUrl?: string | null
   storageUsed: number
   storageLimit: number
 }
@@ -30,6 +31,7 @@ interface WorkspaceSummary {
   role: string
   organizationType?: "brand" | "partner"
   partnerCategory?: "retailer" | "distributor" | "wholesaler" | null
+  logoUrl?: string | null
   lastAccessed?: string
   unreadCount?: number
 }
@@ -51,9 +53,10 @@ export default function TenantLayoutClient({
 }: TenantLayoutClientProps) {
   const pathname = usePathname()
 
-  // Check if this is a product detail page or variant page for full-screen mode
+  // Product and variant detail pages should start focused, but still keep global nav reachable.
   const isProductDetailPage =
     pathname.match(/^\/[^\/]+(?:\/view\/[^\/]+)?\/products\/[^\/]+(?:\/variants\/[^\/]+)?$/) !== null
+  const sidebarDefaultOpen = organization?.type === 'partner' ? false : !isProductDetailPage
 
   // Check if this is a settings page - settings has its own layout and sidebar
   const isSettingsPage = pathname.includes('/settings')
@@ -83,8 +86,7 @@ export default function TenantLayoutClient({
           } : null
         }}
         showSidebar={true}
-        fullScreen={isProductDetailPage}
-        sidebarDefaultOpen={true}
+        sidebarDefaultOpen={sidebarDefaultOpen}
         headerProps={{
           orgSlug: tenantSlug,
           user: user ? {
@@ -105,13 +107,12 @@ export default function TenantLayoutClient({
             slug: organization.slug,
             organizationType: organization.type,
             partnerCategory: organization.partnerCategory,
+            logoUrl: organization.logoUrl ?? null,
             plan: 'pro' // You can add this to your data model
           } : null,
           orgSlug: tenantSlug,
           currentPath: pathname,
           workspaces,
-          storageUsed: organization?.storageUsed || 0,
-          storageLimit: organization?.storageLimit || 0,
         }}
       >
         {children}

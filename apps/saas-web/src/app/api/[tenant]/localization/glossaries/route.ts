@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createDeepLGlossary, isDeepLConfigured } from "@/lib/deepl";
+import { normalizeAndValidateLocaleCode } from "@/lib/locale-code";
 import { supabaseServer } from "@/lib/supabase";
 import {
   isMissingLocalizationFoundationError,
@@ -72,7 +73,7 @@ async function fetchGlossaryEntryCounts(
   glossaryIds: string[]
 ): Promise<Record<string, number>> {
   if (glossaryIds.length === 0) return {};
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("translation_glossary_entries")
     .select("glossary_id")
     .eq("organization_id", organizationId)
@@ -98,10 +99,10 @@ async function resolveLocaleCodeById(params: {
   explicitCode: string | null;
 }): Promise<string | null> {
   if (params.explicitCode) {
-    return params.explicitCode;
+    return normalizeAndValidateLocaleCode(params.explicitCode);
   }
   if (!params.localeId) return null;
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("locales")
     .select("code")
     .eq("organization_id", params.organizationId)
@@ -114,7 +115,8 @@ async function resolveLocaleCodeById(params: {
   }
 
   const code = normalizeString(data?.code);
-  return code ? code : null;
+  if (!code) return null;
+  return normalizeAndValidateLocaleCode(code);
 }
 
 export async function GET(
@@ -127,7 +129,7 @@ export async function GET(
     if (!access.ok) return access.response;
 
     const { organization } = access.context;
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabaseServer
       .from("translation_glossaries")
       .select(GLOSSARY_SELECT)
       .eq("organization_id", organization.id)
@@ -188,15 +190,31 @@ export async function POST(
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
 
+    const rawSourceLanguageCode = normalizeString(body?.sourceLanguageCode ?? body?.source_language_code);
+    if (rawSourceLanguageCode && !normalizeAndValidateLocaleCode(rawSourceLanguageCode)) {
+      return NextResponse.json(
+        { error: "Invalid source language code. Use a BCP-47 style code like en, en-US, fr-CA, or zh-Hant." },
+        { status: 400 }
+      );
+    }
+
+    const rawTargetLanguageCode = normalizeString(body?.targetLanguageCode ?? body?.target_language_code);
+    if (rawTargetLanguageCode && !normalizeAndValidateLocaleCode(rawTargetLanguageCode)) {
+      return NextResponse.json(
+        { error: "Invalid target language code. Use a BCP-47 style code like en, en-US, fr-CA, or zh-Hant." },
+        { status: 400 }
+      );
+    }
+
     const sourceLocaleCode = await resolveLocaleCodeById({
       organizationId: organization.id,
       localeId: normalizeString(body?.sourceLocaleId ?? body?.source_locale_id),
-      explicitCode: normalizeString(body?.sourceLanguageCode ?? body?.source_language_code),
+      explicitCode: rawSourceLanguageCode,
     });
     const targetLocaleCode = await resolveLocaleCodeById({
       organizationId: organization.id,
       localeId: normalizeString(body?.targetLocaleId ?? body?.target_locale_id),
-      explicitCode: normalizeString(body?.targetLanguageCode ?? body?.target_language_code),
+      explicitCode: rawTargetLanguageCode,
     });
 
     if (!sourceLocaleCode || !targetLocaleCode) {
@@ -244,6 +262,7 @@ export async function POST(
       }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: insertedGlossary, error: insertError } = await (supabaseServer as any)
       .from("translation_glossaries")
       .insert({
@@ -273,7 +292,7 @@ export async function POST(
 
     const glossary = insertedGlossary as GlossaryRow;
     if (entries.length > 0) {
-      const { error: entryInsertError } = await (supabaseServer as any)
+      const { error: entryInsertError } = await supabaseServer
         .from("translation_glossary_entries")
         .insert(
           entries.map((entry) => ({

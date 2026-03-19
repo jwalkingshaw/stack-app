@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/loading-spinner';
-import { PageContentContainer } from '@/components/ui/page-content-container';
+import { SettingsPageContent } from './settings-page-content';
 import type { Subscription, SubscriptionPlan, Usage } from '@tradetool/types';
 
 interface BillingSettingsProps {
@@ -67,10 +67,10 @@ function meterPercent(usage: number, limit: number | null): number {
   return Math.min(100, Math.max(0, (usage / limit) * 100));
 }
 
-function meterTone(percent: number): 'default' | 'secondary' | 'destructive' {
-  if (percent >= 100) return 'destructive';
-  if (percent >= 80) return 'secondary';
-  return 'default';
+function meterTone(percent: number): 'success' | 'warning' | 'error' {
+  if (percent >= 100) return 'error';
+  if (percent >= 80) return 'warning';
+  return 'success';
 }
 
 export default function BillingSettings({ tenantSlug, source }: BillingSettingsProps) {
@@ -209,7 +209,7 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
   }
 
   return (
-    <PageContentContainer mode="content" className="space-y-6">
+    <SettingsPageContent page="billing">
       {source === 'partner_signup' && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -273,7 +273,7 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
           <div className="rounded-md border border-border/60 p-3">
             <div className="text-xs text-muted-foreground">Status</div>
             <div className="mt-1">
-              <Badge variant={subscription?.status === 'past_due' ? 'destructive' : 'default'}>
+              <Badge variant={subscription?.status === 'past_due' ? 'error' : 'success'}>
                 {subscription?.status || 'active'}
               </Badge>
             </div>
@@ -391,6 +391,6 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
           })}
         </CardContent>
       </Card>
-    </PageContentContainer>
+    </SettingsPageContent>
   );
 }

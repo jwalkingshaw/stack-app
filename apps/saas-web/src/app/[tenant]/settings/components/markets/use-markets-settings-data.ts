@@ -1,0 +1,230 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import type {
+  CreateMarketPayload,
+  Country,
+  LocaleCatalogEntry,
+  Locale,
+  Market,
+  MarketCountryAssignment,
+  MarketLocaleAssignment,
+  ReferenceDataResponse,
+  ReferenceOption,
+} from './types';
+
+interface MarketsSettingsDataState {
+  loading: boolean;
+  saving: boolean;
+  error: string | null;
+  markets: Market[];
+  locales: Locale[];
+  marketLocales: MarketLocaleAssignment[];
+  marketCountries: MarketCountryAssignment[];
+  countries: Country[];
+  currencies: ReferenceOption[];
+  timezones: ReferenceOption[];
+  localeCatalog: LocaleCatalogEntry[];
+}
+
+async function readJson<T>(response: Response, fallbackMessage: string): Promise<T> {
+  if (response.ok) {
+    return response.json();
+  }
+  const body = await response.json().catch(() => ({}));
+  const message =
+    typeof body?.error === 'string' && body.error.trim().length > 0
+      ? body.error
+      : fallbackMessage;
+  throw new Error(message);
+}
+
+export function useMarketsSettingsData(tenantSlug: string) {
+  const [state, setState] = useState<MarketsSettingsDataState>({
+    loading: true,
+    saving: false,
+    error: null,
+    markets: [],
+    locales: [],
+    marketLocales: [],
+    marketCountries: [],
+    countries: [],
+    currencies: [],
+    timezones: [],
+    localeCatalog: [],
+  });
+
+  const setError = useCallback((message: string | null) => {
+    setState((current) => ({ ...current, error: message }));
+  }, []);
+
+  const fetchAll = useCallback(async () => {
+    try {
+      setState((current) => ({ ...current, loading: true, error: null }));
+
+      const [marketsRes, localesRes, marketLocalesRes, marketCountriesRes, referenceRes] =
+        await Promise.all([
+          fetch(`/api/${tenantSlug}/markets`),
+          fetch(`/api/${tenantSlug}/locales`),
+          fetch(`/api/${tenantSlug}/market-locales`),
+          fetch(`/api/${tenantSlug}/market-countries`),
+          fetch(`/api/${tenantSlug}/settings/reference-data`),
+        ]);
+
+      const [marketsData, localesData, marketLocalesData, marketCountriesData, referenceData] =
+        await Promise.all([
+          readJson<Market[]>(marketsRes, 'Failed to load markets.'),
+          readJson<Locale[]>(localesRes, 'Failed to load locales.'),
+          readJson<MarketLocaleAssignment[]>(
+            marketLocalesRes,
+            'Failed to load market locales.'
+          ),
+          readJson<MarketCountryAssignment[]>(
+            marketCountriesRes,
+            'Failed to load market countries.'
+          ),
+          readJson<ReferenceDataResponse>(referenceRes, 'Failed to load reference data.'),
+        ]);
+
+      setState((current) => ({
+        ...current,
+        loading: false,
+        error: null,
+        markets: marketsData || [],
+        locales: localesData || [],
+        marketLocales: marketLocalesData || [],
+        marketCountries: marketCountriesData || [],
+        countries: referenceData?.countries || [],
+        currencies: referenceData?.currencies || [],
+        timezones: referenceData?.timezones || [],
+        localeCatalog: referenceData?.locale_catalog || [],
+      }));
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        loading: false,
+        error: error instanceof Error ? error.message : 'Failed to load market settings.',
+      }));
+    }
+  }, [tenantSlug]);
+
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  const patchMarket = useCallback(
+    async (marketId: string, updates: Record<string, unknown>) => {
+      const response = await fetch(`/api/${tenantSlug}/markets`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ market_id: marketId, ...updates }),
+      });
+      await readJson<Market>(response, 'Failed to update market.');
+    },
+    [tenantSlug]
+  );
+
+  const createMarket = useCallback(
+    async (payload: CreateMarketPayload) => {
+      const response = await fetch(`/api/${tenantSlug}/markets`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      await readJson<Market>(response, 'Failed to create market.');
+    },
+    [tenantSlug]
+  );
+
+  const assignCountry = useCallback(
+    async (marketId: string, countryCode: string) => {
+      const response = await fetch(`/api/${tenantSlug}/market-countries`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ market_id: marketId, country_code: countryCode }),
+      });
+      await readJson<MarketCountryAssignment>(response, 'Failed to assign country.');
+    },
+    [tenantSlug]
+  );
+
+  const unassignCountry = useCallback(
+    async (marketId: string, countryCode: string) => {
+      const response = await fetch(`/api/${tenantSlug}/market-countries`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ market_id: marketId, country_code: countryCode, is_active: false }),
+      });
+      await readJson<MarketCountryAssignment>(response, 'Failed to unassign country.');
+    },
+    [tenantSlug]
+  );
+
+  const assignLocale = useCallback(
+    async (marketId: string, localeId: string) => {
+      const response = await fetch(`/api/${tenantSlug}/market-locales`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ market_id: marketId, locale_id: localeId }),
+      });
+      await readJson<MarketLocaleAssignment>(response, 'Failed to assign language.');
+    },
+    [tenantSlug]
+  );
+
+  const unassignLocale = useCallback(
+    async (marketId: string, localeId: string) => {
+      const response = await fetch(`/api/${tenantSlug}/market-locales`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ market_id: marketId, locale_id: localeId, is_active: false }),
+      });
+      await readJson<MarketLocaleAssignment>(response, 'Failed to unassign language.');
+    },
+    [tenantSlug]
+  );
+
+  const createLocale = useCallback(
+    async (name: string, code: string) => {
+      const response = await fetch(`/api/${tenantSlug}/locales`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, code }),
+      });
+      return readJson<Locale>(response, 'Failed to create language.');
+    },
+    [tenantSlug]
+  );
+
+  const runAction = useCallback(
+    async (task: () => Promise<void>, fallback: string) => {
+      try {
+        setState((current) => ({ ...current, saving: true, error: null }));
+        await task();
+        await fetchAll();
+      } catch (error) {
+        setState((current) => ({
+          ...current,
+          error: error instanceof Error ? error.message : fallback,
+        }));
+      } finally {
+        setState((current) => ({ ...current, saving: false }));
+      }
+    },
+    [fetchAll]
+  );
+
+  return {
+    ...state,
+    setError,
+    refresh: fetchAll,
+    runAction,
+    patchMarket,
+    createMarket,
+    assignCountry,
+    unassignCountry,
+    assignLocale,
+    unassignLocale,
+    createLocale,
+  };
+}

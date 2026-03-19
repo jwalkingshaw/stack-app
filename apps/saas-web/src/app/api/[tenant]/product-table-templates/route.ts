@@ -25,7 +25,27 @@ const TEMPLATE_SELECT = `
   updated_at
 `;
 
-function isMissingTableError(error: any): boolean {
+type PostgrestLikeError = { code?: string | null } | null | undefined;
+
+type ProductTableTemplateRow = {
+  id: string;
+  organization_id: string | null;
+  code: string;
+  version: number | null;
+  kind: string | null;
+  label: string;
+  description: string | null;
+  region: string | null;
+  regulator: string | null;
+  locale: string | null;
+  definition: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  is_active: boolean | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function isMissingTableError(error: PostgrestLikeError): boolean {
   return error?.code === "42P01";
 }
 
@@ -64,7 +84,7 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch product table templates" }, { status: 500 });
     }
 
-    const templates = (data || []).map((template: any) => ({
+    const templates = ((data || []) as ProductTableTemplateRow[]).map((template) => ({
       id: template.id,
       organization_id: template.organization_id,
       code: template.code,

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
@@ -52,7 +52,7 @@ interface InternalTableRow {
   row_key?: string;
   parent_row_key?: string;
   notes?: string | null;
-  [columnKey: string]: any;
+  [columnKey: string]: unknown;
 }
 
 interface MeasurementCellValue {
@@ -62,8 +62,8 @@ interface MeasurementCellValue {
 
 interface TableFieldComponentProps {
   field: ProductField;
-  value?: any;
-  onChange?: (value: any) => void;
+  value?: unknown;
+  onChange?: (value: unknown) => void;
   disabled?: boolean;
   className?: string;
   tenantSlug?: string;
@@ -80,8 +80,14 @@ const createInternalId = () => crypto.randomUUID?.() ?? `row_${Date.now()}_${Mat
 const PERCENT_COLUMN_KEYS = new Set(['percent_daily_value', 'percent_nrv', 'percent_reference_intake']);
 const SERVING_INFO_SECTION_KEY = 'serving_info';
 const SERVINGS_PER_CONTAINER_ROW_KEY = 'servings_per_container';
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+const getPanelTemplateId = (panel: Record<string, unknown>): string | null => {
+  const raw = panel.template_id ?? panel.templateId;
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw : null;
+};
 
-const parseJsonSafely = async (response: Response): Promise<any | null> => {
+const parseJsonSafely = async (response: Response): Promise<unknown | null> => {
   const text = await response.text();
   if (!text) return null;
   try {
@@ -110,18 +116,18 @@ export function TableFieldComponent({
   tenantSlug
 }: TableFieldComponentProps) {
   const definition = useMemo<TableDefinition>(() => {
-    const rawDefinition = (field.options as any)?.table_definition;
-    return cloneDefinition(rawDefinition);
+    const rawDefinition = (field.options as Record<string, unknown>)?.table_definition;
+    return cloneDefinition(rawDefinition as TableDefinition | undefined);
   }, [field.options]);
 
   const usesPanelInstances = definition.meta?.uses_panel_instances === true;
 
-  const [templates, setTemplates] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<Array<Record<string, unknown>>>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
-  const [measurementFamilies, setMeasurementFamilies] = useState<any[]>([]);
+  const [measurementFamilies, setMeasurementFamilies] = useState<Array<Record<string, unknown>>>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
-  const [panelInstances, setPanelInstances] = useState<any[]>(() =>
-    Array.isArray(value) ? value : []
+  const [panelInstances, setPanelInstances] = useState<Array<Record<string, unknown>>>(() =>
+    Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []
   );
 
   useEffect(() => {
@@ -173,7 +179,13 @@ export function TableFieldComponent({
           throw new Error('Measurement families API returned an empty or invalid response.');
         }
         if (isMounted) {
-          setMeasurementFamilies(Array.isArray(data) ? data : data.families ?? []);
+          setMeasurementFamilies(
+            Array.isArray(data)
+              ? (data as Array<Record<string, unknown>>)
+              : isRecord(data) && Array.isArray(data.families)
+              ? (data.families as Array<Record<string, unknown>>)
+              : []
+          );
         }
       } catch (error) {
         console.warn('Failed to load measurement families', error);
@@ -189,14 +201,14 @@ export function TableFieldComponent({
 
   useEffect(() => {
     if (!usesPanelInstances) return;
-    setPanelInstances(Array.isArray(value) ? value : []);
+    setPanelInstances(Array.isArray(value) ? (value as Array<Record<string, unknown>>) : []);
   }, [value, usesPanelInstances]);
 
   const templateMap = useMemo(() => {
-    const map = new Map<string, any>();
+    const map = new Map<string, Record<string, unknown>>();
     templates.forEach((template) => {
       if (template?.id) {
-        map.set(template.id, template);
+        map.set(String(template.id), template);
       }
     });
     return map;
@@ -205,26 +217,27 @@ export function TableFieldComponent({
   const supportsSections = definition.meta?.supports_sections ?? (definition.sections?.length ?? 0) > 0;
   const allowsCustomRows = definition.meta?.allows_custom_rows !== false;
 
-  const emitPanelChange = (nextPanels: any[]) => {
+  const emitPanelChange = (nextPanels: Array<Record<string, unknown>>) => {
     setPanelInstances(nextPanels);
     onChange?.(nextPanels);
   };
 
-  const resolvePanelDefinition = (panel: any): TableDefinition | null => {
-    const template =
-      (panel?.template_id && templateMap.get(panel.template_id)) ||
-      (panel?.template_id && templateMap.get(panel.templateId));
-    const rawDefinition = panel?.template_definition || template?.definition;
+  const resolvePanelDefinition = (panel: Record<string, unknown>): TableDefinition | null => {
+    const templateId = getPanelTemplateId(panel);
+    const template = templateId ? templateMap.get(templateId) : undefined;
+    const templateDefinition = template?.definition;
+    const rawDefinition = panel.template_definition || templateDefinition;
     if (!rawDefinition) return null;
-    const cloned = cloneDefinition(rawDefinition);
+    const cloned = cloneDefinition(rawDefinition as TableDefinition);
     if (cloned.meta) {
       cloned.meta.uses_panel_instances = false;
     }
     if (Array.isArray(cloned.columns) && measurementFamilies.length > 0) {
-      const familyMap = new Map<string, any>();
+      const familyMap = new Map<string, Record<string, unknown>>();
       measurementFamilies.forEach((family) => {
-        if (family?.code) {
-          familyMap.set(family.code, family);
+        const familyCode = typeof family.code === 'string' ? family.code : '';
+        if (familyCode) {
+          familyMap.set(familyCode, family);
         }
       });
 
@@ -238,18 +251,19 @@ export function TableFieldComponent({
         }
 
         const family = familyMap.get(column.measurement_family_code);
-        if (!family || !Array.isArray(family.measurement_units)) {
+        const measurementUnits = family?.measurement_units;
+        if (!family || !Array.isArray(measurementUnits)) {
           return column;
         }
 
-        const units = family.measurement_units.map((unit: any) => ({
-          code: unit.code,
-          label: unit.name || unit.code,
-          symbol: unit.symbol ?? null
+        const units = (measurementUnits as Array<Record<string, unknown>>).map((unit) => ({
+          code: String(unit.code || ''),
+          label: String(unit.name || unit.code || ''),
+          symbol: typeof unit.symbol === 'string' ? unit.symbol : null
         }));
 
         const defaultUnit =
-          family.standard_unit?.code ??
+          ((family.standard_unit as Record<string, unknown> | null)?.code as string | undefined) ??
           (Array.isArray(units) && units.length > 0 ? units[0].code : column.default_unit ?? null);
 
         return {
@@ -262,21 +276,19 @@ export function TableFieldComponent({
     return cloned;
   };
 
-  const resolvePanelLabel = (panel: any): string => {
-    const template =
-      (panel?.template_id && templateMap.get(panel.template_id)) ||
-      (panel?.template_id && templateMap.get(panel.templateId));
-    return panel?.template_label || template?.label || 'Facts Panel';
+  const resolvePanelLabel = (panel: Record<string, unknown>): string => {
+    const templateId = getPanelTemplateId(panel);
+    const template = templateId ? templateMap.get(templateId) : undefined;
+    return String(panel.template_label || template?.label || 'Facts Panel');
   };
 
-  const resolvePanelMeta = (panel: any) => {
-    const template =
-      (panel?.template_id && templateMap.get(panel.template_id)) ||
-      (panel?.template_id && templateMap.get(panel.templateId));
+  const resolvePanelMeta = (panel: Record<string, unknown>) => {
+    const templateId = getPanelTemplateId(panel);
+    const template = templateId ? templateMap.get(templateId) : undefined;
     return {
-      region: panel?.template_region || template?.region,
-      regulator: panel?.template_regulator || template?.regulator,
-      locale: panel?.template_locale || template?.locale
+      region: panel.template_region || template?.region,
+      regulator: panel.template_regulator || template?.regulator,
+      locale: panel.template_locale || template?.locale
     };
   };
 
@@ -302,14 +314,14 @@ export function TableFieldComponent({
       setSelectedTemplateId('');
     };
 
-    const updatePanel = (index: number, updates: Record<string, any>) => {
+    const updatePanel = (index: number, updates: Record<string, unknown>) => {
       const nextPanels = panelInstances.map((panel, panelIndex) =>
         panelIndex === index ? { ...panel, ...updates } : panel
       );
       emitPanelChange(nextPanels);
     };
 
-    const updatePanelRows = (index: number, rows: any[]) => {
+    const updatePanelRows = (index: number, rows: unknown[]) => {
       const current = panelInstances[index] ?? {};
       const nextData = {
         ...(current.data && typeof current.data === 'object' ? current.data : {}),
@@ -338,11 +350,16 @@ export function TableFieldComponent({
               <SelectValue placeholder={templatesLoading ? 'Loading templates...' : 'Add panel from template'} />
             </SelectTrigger>
             <SelectContent>
-              {templates.map((template) => (
-                <SelectItem key={template.id} value={template.id}>
-                  {template.label}
-                </SelectItem>
-              ))}
+              {templates.map((template, templateIndex) => {
+                const templateId = typeof template.id === 'string' ? template.id : `template-${templateIndex}`;
+                const templateLabel =
+                  typeof template.label === 'string' ? template.label : templateId;
+                return (
+                  <SelectItem key={templateId} value={templateId}>
+                    {templateLabel}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
           <span className="text-xs text-muted-foreground">
@@ -360,6 +377,7 @@ export function TableFieldComponent({
               const panelDefinition = resolvePanelDefinition(panel);
               const panelLabel = resolvePanelLabel(panel);
               const panelMeta = resolvePanelMeta(panel);
+              const panelTemplateId = getPanelTemplateId(panel);
               const panelField: ProductField = {
                 id: `${field.id}-panel-${index}`,
                 code: `${field.code}_panel_${index}`,
@@ -372,24 +390,25 @@ export function TableFieldComponent({
                 }
               };
 
-              const panelRows = Array.isArray(panel?.data?.rows)
-                ? panel.data.rows
-                : Array.isArray(panel?.data)
-                ? panel.data
+              const panelData = isRecord(panel.data) ? panel.data : null;
+              const panelRows = Array.isArray(panelData?.rows)
+                ? (panelData.rows as unknown[])
+                : Array.isArray(panel.data)
+                ? (panel.data as unknown[])
                 : [];
 
               return (
-                <div key={panel.template_id ?? index} className="rounded-lg border border-border/60 bg-background p-4">
+                <div key={panelTemplateId ?? index} className="rounded-lg border border-border/60 bg-background p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 pb-3">
                     <div>
                       <div className="text-sm font-semibold text-foreground">{panelLabel}</div>
                       <div className="text-xs text-muted-foreground">
-                        {panelMeta.region ?? 'Ã¢â‚¬â€'} Ã¢â‚¬Â¢ {panelMeta.regulator ?? 'Ã¢â‚¬â€'} Ã¢â‚¬Â¢ {panelMeta.locale ?? 'Ã¢â‚¬â€'}
+                        {String(panelMeta.region ?? "-")} • {String(panelMeta.regulator ?? "-")} • {String(panelMeta.locale ?? "-")}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Select
-                        value={panel.template_id ?? panel.templateId ?? ''}
+                        value={panelTemplateId ?? ''}
                         onValueChange={(value) => {
                           const template = templateMap.get(value);
                           updatePanel(index, {
@@ -408,11 +427,17 @@ export function TableFieldComponent({
                           <SelectValue placeholder="Template" />
                         </SelectTrigger>
                         <SelectContent>
-                          {templates.map((template) => (
-                            <SelectItem key={template.id} value={template.id}>
-                              {template.label}
-                            </SelectItem>
-                          ))}
+                          {templates.map((template, templateIndex) => {
+                            const templateId =
+                              typeof template.id === 'string' ? template.id : `template-${templateIndex}`;
+                            const templateLabel =
+                              typeof template.label === 'string' ? template.label : templateId;
+                            return (
+                              <SelectItem key={templateId} value={templateId}>
+                                {templateLabel}
+                              </SelectItem>
+                            );
+                          })}
                         </SelectContent>
                       </Select>
                       <Button
@@ -432,7 +457,7 @@ export function TableFieldComponent({
                     <TableFieldComponent
                       field={panelField}
                       value={panelRows}
-                      onChange={(rows) => updatePanelRows(index, rows)}
+                      onChange={(rows) => updatePanelRows(index, Array.isArray(rows) ? rows : [])}
                       disabled={disabled}
                       className="bg-transparent p-0"
                     />
@@ -450,17 +475,17 @@ export function TableFieldComponent({
     );
   })() : null;
 
-  const normalizeIncomingRows = (incoming: any): InternalTableRow[] => {
+  const normalizeIncomingRows = (incoming: unknown): InternalTableRow[] => {
     if (!Array.isArray(incoming)) {
       return [];
     }
 
     return incoming
-      .map((row: any) => {
+      .map((row: unknown) => {
         if (!row || typeof row !== 'object') return null;
         const internalRow: InternalTableRow = {
           __internal_id: createInternalId(),
-          ...row
+          ...(row as Record<string, unknown>)
         };
         return internalRow;
       })
@@ -536,7 +561,8 @@ export function TableFieldComponent({
   const emitChange = (nextRows: InternalTableRow[]) => {
     const output = nextRows.map((row) => {
       const { __internal_id, ...rest } = row;
-      const cleaned: Record<string, any> = {};
+      void __internal_id;
+      const cleaned: Record<string, unknown> = {};
 
       Object.entries(rest).forEach(([key, cellValue]) => {
         if (cellValue === undefined) return;
@@ -560,8 +586,8 @@ export function TableFieldComponent({
               break;
             }
             case 'measurement': {
-              if (currentValue && typeof currentValue === 'object') {
-                const normalized: Record<string, any> = {
+              if (isRecord(currentValue)) {
+                const normalized: Record<string, unknown> = {
                   amount: currentValue.amount ?? '',
                   unit:
                     currentValue.unit ??
@@ -596,7 +622,7 @@ export function TableFieldComponent({
     onChange?.(output);
   };
 
-  const handleCellChange = (rowId: string, columnKey: string, newValue: any) => {
+  const handleCellChange = (rowId: string, columnKey: string, newValue: unknown) => {
     setRows((prev) => {
       const next = prev.map((row) => {
         if (row.__internal_id !== rowId) return row;
@@ -618,9 +644,13 @@ export function TableFieldComponent({
     setRows((prev) => {
       const next = prev.map((row) => {
         if (row.__internal_id !== rowId) return row;
+        const rawCell = row[column.key];
         const currentValue: MeasurementCellValue =
-          row[column.key] && typeof row[column.key] === 'object'
-            ? { amount: row[column.key].amount ?? '', unit: row[column.key].unit ?? '' }
+          isRecord(rawCell)
+            ? {
+                amount: String(rawCell.amount ?? ''),
+                unit: String(rawCell.unit ?? '')
+              }
             : {
                 amount: '',
                 unit: column.default_unit ?? column.units?.[0]?.code ?? ''
@@ -753,17 +783,17 @@ export function TableFieldComponent({
       }
       case 'measurement': {
         const measurementValue: MeasurementCellValue =
-          cellValue && typeof cellValue === 'object'
+          isRecord(cellValue)
             ? {
-                amount: cellValue.amount ?? '',
+                amount: String(cellValue.amount ?? ''),
                 unit:
-                  cellValue.unit ??
-                  column.default_unit ??
-                  column.units?.[0]?.code ??
-                  ''
+                  String(cellValue.unit ?? '') ||
+                  (column.default_unit ??
+                    column.units?.[0]?.code ??
+                    '')
               }
             : {
-                amount: cellValue ?? '',
+                amount: String(cellValue ?? ''),
                 unit: column.default_unit ?? column.units?.[0]?.code ?? ''
               };
 
@@ -863,17 +893,17 @@ export function TableFieldComponent({
               const sectionColumns = getSectionColumns(section.key);
               return (
             <table className="min-w-full divide-y divide-border text-sm">
-              <thead className="bg-muted/40">
-                <tr>
+              <thead className="bg-muted/50">
+                <tr className="border-b border-border">
                   {sectionColumns.map((column) => (
                     <th
                       key={column.key}
-                      className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                      className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground"
                     >
                       {column.label}
                     </th>
                   ))}
-                  {allowsCustomRows && <th className="px-3 py-2 text-right text-xs font-semibold text-muted-foreground">Actions</th>}
+                  {allowsCustomRows && <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
@@ -935,3 +965,5 @@ export function TableFieldComponent({
     </div>
   );
 }
+
+

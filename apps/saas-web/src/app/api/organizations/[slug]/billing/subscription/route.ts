@@ -8,6 +8,12 @@ import {
   getOrganizationUsageSnapshot,
 } from "@/lib/billing-policy";
 
+type ActiveSubscriptionRow = {
+  id: string;
+  plan_id: string;
+  status: string;
+};
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -41,7 +47,7 @@ export async function GET(
       );
     }
 
-    const { data: subscriptionRow, error: subscriptionError } = await (supabaseServer as any)
+    const { data: subscriptionRow, error: subscriptionError } = await supabaseServer
       .from("organization_subscriptions")
       .select(`
         id,
@@ -186,7 +192,7 @@ export async function POST(
 
     const targetStatus = useTrial ? "trialing" : "active";
 
-    const { data: currentRows, error: currentRowsError } = await (supabaseServer as any)
+    const { data: currentRows, error: currentRowsError } = await supabaseServer
       .from("organization_subscriptions")
       .select("id,plan_id,status")
       .eq("organization_id", organization.id)
@@ -201,7 +207,7 @@ export async function POST(
       );
     }
 
-    const activeRows = (currentRows || []) as Array<any>;
+    const activeRows = (currentRows || []) as unknown as ActiveSubscriptionRow[];
     const existingEquivalent = activeRows.find(
       (row) => row.plan_id === plan.id && row.status === targetStatus
     );
@@ -216,7 +222,7 @@ export async function POST(
 
     if (activeRows.length > 0) {
       const activeIds = activeRows.map((row) => row.id);
-      const { error: cancelExistingError } = await (supabaseServer as any)
+      const { error: cancelExistingError } = await supabaseServer
         .from("organization_subscriptions")
         .update({
           status: "canceled",
@@ -253,7 +259,7 @@ export async function POST(
       updated_at: nowIso,
     };
 
-    const { data: insertedSubscription, error: subscriptionInsertError } = await (supabaseServer as any)
+    const { data: insertedSubscription, error: subscriptionInsertError } = await supabaseServer
       .from("organization_subscriptions")
       .insert(subscriptionInsertPayload)
       .select("id,plan_id,status,current_period_start,current_period_end,trial_end,created_at,updated_at")
@@ -267,7 +273,7 @@ export async function POST(
       );
     }
 
-    const { error: billingEventError } = await (supabaseServer as any)
+    const { error: billingEventError } = await supabaseServer
       .from("organization_billing_events")
       .insert({
         organization_id: organization.id,

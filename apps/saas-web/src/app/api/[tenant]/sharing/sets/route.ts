@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Json } from "@tradetool/database";
 import { supabaseServer } from "@/lib/supabase";
 import {
   isMissingColumnError,
@@ -110,11 +111,12 @@ function dedupeStringArray(values: unknown): string[] {
   return Array.from(out);
 }
 
-function isMissingShareSetFoundationError(error: any): boolean {
+function isMissingShareSetFoundationError(error: unknown): boolean {
   if (!error) return false;
+  if (typeof error !== "object") return false;
   if (isMissingTableError(error)) return true;
-  if (error?.code === "PGRST205") return true;
-  const message = String(error?.message || "").toLowerCase();
+  if ((error as { code?: string }).code === "PGRST205") return true;
+  const message = String((error as { message?: string }).message || "").toLowerCase();
   return (
     message.includes("share_sets") ||
     message.includes("share_set_items") ||
@@ -132,7 +134,7 @@ async function queryAssetSets(params: {
   const rangeFrom = (page - 1) * pageSize;
   const rangeTo = rangeFrom + pageSize - 1;
 
-  let withFolders = (supabaseServer as any)
+  let withFolders = supabaseServer
     .from("dam_collections")
     .select("id,name,asset_ids,folder_ids,created_at,updated_at", {
       count: "exact",
@@ -154,7 +156,7 @@ async function queryAssetSets(params: {
     return withFoldersResult;
   }
 
-  let withoutFolders = (supabaseServer as any)
+  let withoutFolders = supabaseServer
     .from("dam_collections")
     .select("id,name,asset_ids,created_at,updated_at", {
       count: "exact",
@@ -181,7 +183,7 @@ async function queryShareSetSummaries(params: {
   const rangeFrom = (page - 1) * pageSize;
   const rangeTo = rangeFrom + pageSize - 1;
 
-  let query = (supabaseServer as any)
+  let query = supabaseServer
     .from("share_sets")
     .select("id,module_key,name,description,created_at,updated_at", {
       count: "exact",
@@ -219,12 +221,12 @@ async function queryShareSetSummaries(params: {
   const setIds = setRows.map((row) => row.id);
 
   const [itemResult, grantResult] = await Promise.all([
-    (supabaseServer as any)
+    supabaseServer
       .from("share_set_items")
       .select("share_set_id,resource_type,market_ids,channel_ids,locale_ids")
       .eq("organization_id", organizationId)
       .in("share_set_id", setIds),
-    (supabaseServer as any)
+    supabaseServer
       .from("partner_share_set_grants")
       .select("share_set_id,partner_organization_id,status")
       .eq("organization_id", organizationId)
@@ -287,7 +289,7 @@ async function countShareSetsByModule(
   organizationId: string,
   moduleKey: ShareSetModule
 ): Promise<number> {
-  const { count, error } = await (supabaseServer as any)
+  const { count, error } = await supabaseServer
     .from("share_sets")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
@@ -442,7 +444,7 @@ async function buildLegacyAssetSetSummaries(params: {
   const grantCounts = new Map<string, { memberIds: Set<string>; permissionCount: number }>();
 
   if (ids.length > 0) {
-    const { data: grants, error: grantsError } = await (supabaseServer as any)
+    const { data: grants, error: grantsError } = await supabaseServer
       .from("member_scope_permissions")
       .select("collection_id,member_id,permission_key")
       .eq("organization_id", organizationId)
@@ -689,14 +691,14 @@ export async function POST(
         ? body.metadata
         : {};
 
-    const insertResult = await (supabaseServer as any)
+    const insertResult = await supabaseServer
       .from("share_sets")
       .insert({
         organization_id: organization.id,
         module_key: moduleValue,
         name,
         description,
-        metadata,
+        metadata: metadata as Json,
         created_by: userId,
       })
       .select("id,module_key,name,description,created_at,updated_at")
@@ -704,7 +706,7 @@ export async function POST(
 
     if (insertResult.error) {
       if (isMissingShareSetFoundationError(insertResult.error) && moduleValue === "assets") {
-        const legacyInsert = await (supabaseServer as any)
+        const legacyInsert = await supabaseServer
           .from("dam_collections")
           .insert({
             organization_id: organization.id,

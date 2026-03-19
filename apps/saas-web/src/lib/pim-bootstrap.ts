@@ -1,7 +1,9 @@
 import { CORE_BASIC_INFO_GROUP_CODE, CORE_DOCUMENTATION_GROUP_CODE } from '@/lib/pim-core';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database, Json } from '@tradetool/database';
 
 export async function ensureBasicInformationGroup(
-  supabase: any,
+  supabase: SupabaseClient<Database>,
   organizationId: string
 ): Promise<string> {
   const payload = {
@@ -39,8 +41,8 @@ type CoreFieldSeed = {
   is_localizable?: boolean;
   is_channelable?: boolean;
   sort_order: number;
-  validation_rules: Record<string, any>;
-  options: Record<string, any>;
+  validation_rules: Json;
+  options: Json;
 };
 
 const CORE_FIELD_SEEDS: CoreFieldSeed[] = [
@@ -171,7 +173,7 @@ const DOCUMENTATION_FIELD_SEEDS: CoreFieldSeed[] = [
 ];
 
 async function ensureDocumentationGroup(
-  supabase: any,
+  supabase: SupabaseClient<Database>,
   organizationId: string
 ): Promise<string> {
   const payload = {
@@ -200,7 +202,7 @@ async function ensureDocumentationGroup(
 }
 
 async function ensureFieldsInGroup(
-  supabase: any,
+  supabase: SupabaseClient<Database>,
   organizationId: string,
   fieldGroupId: string,
   fieldSeeds: CoreFieldSeed[]
@@ -257,7 +259,7 @@ async function ensureFieldsInGroup(
 }
 
 export async function ensureCoreBasicInformationFields(
-  supabase: any,
+  supabase: SupabaseClient<Database>,
   organizationId: string
 ): Promise<void> {
   const basicInfoGroupId = await ensureBasicInformationGroup(supabase, organizationId);

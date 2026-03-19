@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import NextImage from "next/image";
 import Link from "next/link";
 import {
   ArrowUpDown,
@@ -33,6 +34,8 @@ import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { BulkActionToolbar } from "@/components/dam/bulk-action-toolbar";
+import { AddToKitDialog } from "@/components/updates/AddToKitDialog";
+import { TranslationPanel } from "@/components/products/TranslationPanel";
 import {
   AuthoringScopePicker,
   type AuthoringScopeValue,
@@ -41,7 +44,6 @@ import {
   normalizeAuthoringScope,
 } from "@/components/scope/authoring-scope-picker";
 import { type PIMProduct } from "./mock-pim-data";
-import { getProductUrl } from "@/lib/product-utils";
 import { useMarketContext } from "@/components/market-context";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
@@ -50,6 +52,9 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 const isParentProduct = (product: PIMProduct): boolean => product.type === 'parent';
 const isVariantProduct = (product: PIMProduct): boolean => product.type === 'variant';
 const isStandaloneProduct = (product: PIMProduct): boolean => product.type === 'standalone';
+const MAX_INLINE_VARIANTS = 15;
+const isViewAllVariantsRow = (product: PIMProduct): boolean =>
+  Boolean((product as PIMProduct & { isViewAllLink?: boolean }).isViewAllLink);
 
 type ProductStatus = 'Draft' | 'Enrichment' | 'Review' | 'Active' | 'Discontinued' | 'Archived';
 
@@ -65,11 +70,55 @@ const PRODUCT_STATUSES: ProductStatus[] = [
 const PRODUCT_MODEL_FILTER_ALL = "__all_models__";
 const PRODUCT_MODEL_FILTER_UNASSIGNED = "__unassigned_model__";
 
+type ProductApiRow = {
+  id?: string;
+  organization_id?: string;
+  organization_slug?: string;
+  organization_name?: string;
+  type?: PIMProduct["type"];
+  parent_id?: string | null;
+  has_variants?: boolean;
+  variant_count?: number;
+  product_name?: string;
+  scin?: string;
+  sku?: string | null;
+  barcode?: string | null;
+  upc?: string | null;
+  brand_line?: string;
+  product_families?: { name?: string | null } | null;
+  variant_axis?: PIMProduct["variantAxis"];
+  status?: PIMProduct["status"];
+  launch_date?: string;
+  msrp?: number;
+  cost_of_goods?: number;
+  margin_percent?: number;
+  assets_count?: number;
+  content_score?: number;
+  short_description?: string;
+  long_description?: string;
+  features?: string[];
+  specifications?: Record<string, unknown>;
+  meta_title?: string;
+  meta_description?: string;
+  keywords?: string[];
+  weight_g?: number;
+  dimensions?: Record<string, unknown>;
+  inheritance?: PIMProduct["inheritance"];
+  is_inherited?: PIMProduct["isInherited"];
+  marketplace_content?: Record<string, unknown>;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  last_modified_by?: string;
+};
+
+type ErrorPayload = { error?: string };
+
 interface PIMTableProps {
   tenantSlug: string;
   selectedBrandSlug?: string | null;
   isPartnerAllView?: boolean;
-  onProductClick?: (product: PIMProduct) => void;
+  onProductClick?: (product: PIMProduct, options?: { section?: string }) => void;
   onCreateProduct?: () => void;
 }
 
@@ -90,24 +139,26 @@ type ScopeFilterMode = "all" | "in_scope" | "out_of_scope";
 type ProductBulkScopeMode = "set" | "add" | "clear";
 
 const DEFAULT_VISIBLE_COLUMNS = {
-  productName: true,
-  scin: true,
-  sku: true,
-  family: true,
-  upc: true,
   status: true,
-  lastModified: true,
+  productName: true,
+  assets: true,
+  sku: true,
+  upc: true,
+  scin: true,
+  family: true,
+  contentScore: true,
   brandLine: false,
   msrp: false,
   costOfGoods: false,
   marginPercent: false,
   assetsCount: false,
-  contentScore: false
+  lastModified: false
 };
 
 type ProductLinkRecord = {
   product_id?: string | null;
   asset_id?: string | null;
+  document_slot_code?: string | null;
   channel_id?: string | null;
   market_id?: string | null;
   locale_id?: string | null;
@@ -121,9 +172,20 @@ type ProductLinkRecord = {
 };
 
 type ProductFrontImage = {
+  slot: CoreAssetSlot;
   assetId: string;
   previewUrl: string;
   filename: string | null;
+};
+
+type CoreAssetSlot = "front" | "back" | "left" | "right";
+
+const CORE_ASSET_SLOT_ORDER: CoreAssetSlot[] = ["front", "back", "left", "right"];
+const CORE_ASSET_SLOT_CODES: Record<CoreAssetSlot, string> = {
+  front: "image_front",
+  back: "image_back",
+  left: "image_left",
+  right: "image_right",
 };
 
 const cloneAuthoringScope = (scope: AuthoringScopeValue): AuthoringScopeValue => ({
@@ -176,6 +238,7 @@ export function PIMTable({
     channels,
     locales,
     markets,
+    selectedDestination,
     selectedDestinationId,
     selectedChannel,
     selectedChannelId,
@@ -205,6 +268,7 @@ export function PIMTable({
   const [sortField, setSortField] = useState<keyof PIMProduct>("productName");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
+  const [isAddToKitDialogOpen, setIsAddToKitDialogOpen] = useState(false);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [shareSetOptions, setShareSetOptions] = useState<ProductShareSetOption[]>([]);
   const [selectedShareSetId, setSelectedShareSetId] = useState("");
@@ -224,15 +288,33 @@ export function PIMTable({
   const [bulkScopeSubmitting, setBulkScopeSubmitting] = useState(false);
   const [bulkScopeError, setBulkScopeError] = useState<string | null>(null);
   const [bulkScopeStatusMessage, setBulkScopeStatusMessage] = useState<string | null>(null);
+  const [bulkDeleteSubmitting, setBulkDeleteSubmitting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
+  const [bulkDeleteStatusMessage, setBulkDeleteStatusMessage] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [pendingDeleteProducts, setPendingDeleteProducts] = useState<PIMProduct[]>([]);
+  const [canTranslate, setCanTranslate] = useState(false);
+  const [isTranslatePanelOpen, setIsTranslatePanelOpen] = useState(false);
 
   // Product creation workflow state
   const [creationMode, setCreationMode] = useState(false);
   const [creatingProducts, setCreatingProducts] = useState<Partial<PIMProduct>[]>([]);
 
   const visibleColumns = DEFAULT_VISIBLE_COLUMNS;
+  const primaryColumnCount =
+    (visibleColumns.status ? 1 : 0) +
+    (visibleColumns.productName ? 1 : 0) +
+    (visibleColumns.assets ? 1 : 0) +
+    (visibleColumns.sku ? 1 : 0) +
+    (visibleColumns.upc ? 1 : 0) +
+    (visibleColumns.scin ? 1 : 0) +
+    (visibleColumns.family ? 1 : 0) +
+    (visibleColumns.contentScore ? 1 : 0);
+  const tableColumnCount = primaryColumnCount + 1; // + actions
 
-  const [frontImageByProductId, setFrontImageByProductId] = useState<Record<string, ProductFrontImage>>({});
-  const [failedFrontImageAssetIds, setFailedFrontImageAssetIds] = useState<Set<string>>(new Set());
+  const [coreAssetImagesByProductId, setCoreAssetImagesByProductId] = useState<Record<string, ProductFrontImage[]>>({});
+  const [failedCoreAssetImageIds, setFailedCoreAssetImageIds] = useState<Set<string>>(new Set());
   
   // Hierarchy state
   const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
@@ -242,8 +324,12 @@ export function PIMTable({
     const query = new URLSearchParams();
     if (isPartnerAllView) query.set("view", "all");
     if (selectedMarketId) query.set("marketId", selectedMarketId);
+    if (selectedChannelId) query.set("channelId", selectedChannelId);
+    if (selectedLocaleId) query.set("localeId", selectedLocaleId);
+    if (selectedDestinationId) query.set("destinationId", selectedDestinationId);
     if (selectedLocale?.code) query.set("locale", selectedLocale.code);
     if (selectedChannel?.code) query.set("channel", selectedChannel.code);
+    if (selectedDestination?.code) query.set("destination", selectedDestination.code);
     if (normalizedSelectedBrand) query.set("brand", normalizedSelectedBrand);
 
     return query.toString()
@@ -252,7 +338,11 @@ export function PIMTable({
   }, [
     isPartnerAllView,
     normalizedSelectedBrand,
+    selectedChannelId,
     selectedChannel?.code,
+    selectedDestinationId,
+    selectedDestination?.code,
+    selectedLocaleId,
     selectedLocale?.code,
     selectedMarketId,
     tenantSlug,
@@ -354,7 +444,7 @@ export function PIMTable({
   
   // Get filtered products with hierarchy (memoized for performance)
   const getFilteredProductsWithHierarchy = useMemo(() => {
-    let filtered = products.filter(product => {
+    const filtered = products.filter(product => {
       const matchesSearch = searchQuery === "" || 
         product.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (product.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -395,28 +485,26 @@ export function PIMTable({
         if (expandedParents.has(product.id)) {
           const variants = filtered.filter(p => p.parentId === product.id);
           
-          // Show first 15 variants
-          const visibleVariants = variants.slice(0, 15);
+          // Show first N variants inline.
+          const visibleVariants = variants.slice(0, MAX_INLINE_VARIANTS);
           visibleVariants.forEach(variant => {
             result.push(variant);
             processedIds.add(variant.id);
           });
-          
-          // Add "view all" link as pseudo-product if there are more than 15 variants
-          if (variants.length > 15) {
+
+          if (variants.length > MAX_INLINE_VARIANTS) {
             result.push({
-              id: `${product.id}_view_all`,
+              id: `${product.id}_view_all_variants`,
               type: 'standalone' as const,
-              productName: `View all ${variants.length} variations`,
+              parentId: product.id,
+              productName: `View all ${variants.length} variants`,
               sku: '',
               assetsCount: 0,
               contentScore: 0,
               lastModified: '',
               lastModifiedBy: '',
               status: 'Active' as const,
-              // Special flag to identify this as a "view all" row
               isViewAllLink: true,
-              parentId: product.id
             } as PIMProduct & { isViewAllLink: boolean });
           }
         }
@@ -468,30 +556,31 @@ export function PIMTable({
         if (isCancelled) return;
         
         if (data.success && data.data) {
+          const rawProducts = Array.isArray(data.data) ? (data.data as ProductApiRow[]) : [];
           // Transform Supabase data to PIMProduct format
-          const transformedProducts = data.data.map((product: any) => ({
-            id: product.id,
+          const transformedProducts = rawProducts.map((product) => ({
+            id: product.id || "",
             organizationId: product.organization_id,
             organizationSlug: product.organization_slug,
             organizationName: product.organization_name,
-            type: product.type,
-            parentId: product.parent_id,
+            type: product.type || "standalone",
+            parentId: product.parent_id || undefined,
             hasVariants: product.has_variants,
             variantCount: product.variant_count,
-            productName: product.product_name,
+            productName: product.product_name || "",
             scin: product.scin,
-            sku: product.sku,
-            upc: product.barcode ?? product.upc,
+            sku: product.sku ?? null,
+            upc: product.barcode ?? product.upc ?? undefined,
             brandLine: product.brand_line,
-            family: product.product_families?.name,
+            family: product.product_families?.name ?? undefined,
             variantAxis: product.variant_axis || {},
-            status: product.status,
+            status: product.status || "Draft",
             launchDate: product.launch_date,
             msrp: product.msrp,
             costOfGoods: product.cost_of_goods,
-            marginPercent: product.margin_percent,
-            assetsCount: product.assets_count,
-            contentScore: product.content_score,
+            marginPercent: product.margin_percent ?? undefined,
+            assetsCount: product.assets_count ?? 0,
+            contentScore: product.content_score ?? 0,
             shortDescription: product.short_description,
             longDescription: product.long_description,
             features: product.features || [],
@@ -507,11 +596,11 @@ export function PIMTable({
             createdBy: product.created_by,
             createdAt: product.created_at,
             updatedAt: product.updated_at,
-            lastModifiedBy: product.last_modified_by,
-            lastModified: product.updated_at,
+            lastModifiedBy: product.last_modified_by || product.created_by || "system",
+            lastModified: product.updated_at || product.created_at || new Date().toISOString(),
             // Add parent SKU for variants by finding the parent product
             parent_sku: product.type === 'variant' && product.parent_id
-              ? data.data.find((p: any) => p.id === product.parent_id)?.sku
+              ? rawProducts.find((p) => p.id === product.parent_id)?.sku
               : undefined,
           }));
           
@@ -521,7 +610,13 @@ export function PIMTable({
           setProducts([]);
         }
       } catch (error) {
-        if (isCancelled || (error as Error)?.name === "AbortError") {
+        const abortError = error as { name?: string; message?: string };
+        if (
+          isCancelled ||
+          controller.signal.aborted ||
+          abortError?.name === "AbortError" ||
+          abortError?.message === "PIM table request disposed"
+        ) {
           return;
         }
         console.error("Failed to load products:", error);
@@ -537,9 +632,24 @@ export function PIMTable({
     void loadProducts();
     return () => {
       isCancelled = true;
-      controller.abort();
+      if (!controller.signal.aborted) {
+        controller.abort();
+      }
     };
   }, [buildScopedProductsUrl]);
+
+  // Check translation eligibility once on mount (not for shared brand views)
+  useEffect(() => {
+    if (isSharedBrandView) return;
+    let cancelled = false;
+    fetch(`/api/${tenantSlug}/localization/eligibility`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((payload) => {
+        if (!cancelled) setCanTranslate(Boolean(payload?.data?.canTranslateProduct));
+      })
+      .catch(() => { /* non-critical */ });
+    return () => { cancelled = true; };
+  }, [isSharedBrandView, tenantSlug]);
 
   useEffect(() => {
     if (
@@ -557,82 +667,103 @@ export function PIMTable({
   useEffect(() => {
     let isCancelled = false;
 
-    const loadFrontImages = async () => {
+    const loadCoreAssetImages = async () => {
       if (products.length === 0) {
-        setFrontImageByProductId({});
+        setCoreAssetImagesByProductId({});
         return;
       }
 
       try {
-        const query = new URLSearchParams({
-          document_slot_code: "image_front",
+        const slotRequests = CORE_ASSET_SLOT_ORDER.map(async (slot) => {
+          const query = new URLSearchParams({
+            document_slot_code: CORE_ASSET_SLOT_CODES[slot],
+          });
+          if (isPartnerAllView) {
+            query.set("view", "all");
+          }
+          if (normalizedSelectedBrand) {
+            query.set("brand", normalizedSelectedBrand);
+          }
+
+          const response = await fetch(`/api/${tenantSlug}/product-links?${query.toString()}`);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch ${slot} image slot links (${response.status})`);
+          }
+          const payload = await response.json();
+          return {
+            slot,
+            links: (payload?.data || []) as ProductLinkRecord[],
+          };
         });
-        if (isPartnerAllView) {
-          query.set("view", "all");
-        }
-        if (normalizedSelectedBrand) {
-          query.set("brand", normalizedSelectedBrand);
-        }
 
-        const response = await fetch(`/api/${tenantSlug}/product-links?${query.toString()}`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch image slots (${response.status})`);
-        }
-
-        const payload = await response.json();
+        const slotLinkResults = await Promise.all(slotRequests);
         if (isCancelled) return;
 
-        const links = (payload?.data || []) as ProductLinkRecord[];
         const productIds = new Set(products.map((product) => product.id));
-        const bestByProduct = new Map<
+        const bestByProductAndSlot = new Map<
           string,
           { rank: number; createdAt: number; image: ProductFrontImage }
         >();
 
-        for (const link of links) {
-          const productId = String(link.product_id || "").trim();
-          const assetId = String(link.asset_id || link.dam_assets?.id || "").trim();
-          if (!productId || !assetId || !productIds.has(productId)) {
-            continue;
-          }
-          if (!doesScopedLinkMatch(link)) {
-            continue;
-          }
+        for (const result of slotLinkResults) {
+          for (const link of result.links) {
+            const productId = String(link.product_id || "").trim();
+            const assetId = String(link.asset_id || link.dam_assets?.id || "").trim();
+            if (!productId || !assetId || !productIds.has(productId)) {
+              continue;
+            }
+            if (!doesScopedLinkMatch(link)) {
+              continue;
+            }
 
-          const rank = getScopedLinkRank(link);
-          const createdAt = link.created_at ? Date.parse(link.created_at) || 0 : 0;
-          const existing = bestByProduct.get(productId);
-          if (
-            !existing ||
-            rank > existing.rank ||
-            (rank === existing.rank && createdAt > existing.createdAt)
-          ) {
-            bestByProduct.set(productId, {
-              rank,
-              createdAt,
-              image: {
-                assetId,
-                previewUrl: buildAssetPreviewPath(assetId),
-                filename: link.dam_assets?.filename || null,
-              },
-            });
+            const rank = getScopedLinkRank(link);
+            const createdAt = link.created_at ? Date.parse(link.created_at) || 0 : 0;
+            const key = `${productId}:${result.slot}`;
+            const existing = bestByProductAndSlot.get(key);
+            if (
+              !existing ||
+              rank > existing.rank ||
+              (rank === existing.rank && createdAt > existing.createdAt)
+            ) {
+              bestByProductAndSlot.set(key, {
+                rank,
+                createdAt,
+                image: {
+                  slot: result.slot,
+                  assetId,
+                  previewUrl: buildAssetPreviewPath(assetId),
+                  filename: link.dam_assets?.filename || null,
+                },
+              });
+            }
           }
         }
 
-        const nextMap: Record<string, ProductFrontImage> = {};
-        for (const [productId, entry] of bestByProduct.entries()) {
-          nextMap[productId] = entry.image;
+        const nextMap: Record<string, ProductFrontImage[]> = {};
+        for (const [key, entry] of bestByProductAndSlot.entries()) {
+          const [productId] = key.split(":");
+          if (!nextMap[productId]) {
+            nextMap[productId] = [];
+          }
+          nextMap[productId].push(entry.image);
         }
-        setFrontImageByProductId(nextMap);
-        setFailedFrontImageAssetIds(new Set());
+
+        Object.keys(nextMap).forEach((productId) => {
+          nextMap[productId] = nextMap[productId].sort(
+            (a, b) => CORE_ASSET_SLOT_ORDER.indexOf(a.slot) - CORE_ASSET_SLOT_ORDER.indexOf(b.slot)
+          );
+        });
+
+        setCoreAssetImagesByProductId(nextMap);
+        setFailedCoreAssetImageIds(new Set());
       } catch (error) {
         if (isCancelled) return;
-        console.error("Failed to load front image slot links:", error);
-        setFrontImageByProductId({});
+        console.error("Failed to load core asset image slot links:", error);
+        setCoreAssetImagesByProductId({});
       }
     };
 
-    void loadFrontImages();
+    void loadCoreAssetImages();
     return () => {
       isCancelled = true;
     };
@@ -645,48 +776,6 @@ export function PIMTable({
     products,
     tenantSlug,
   ]);
-
-  // Start product creation workflow (clear view)
-  const handleStartCreation = () => {
-    const newId = `new_${Date.now()}`;
-    const newProductRow: Partial<PIMProduct> = {
-      id: newId,
-      type: 'parent',
-      productName: '',
-      sku: '',
-      status: 'Draft',
-      brandLine: '',
-      family: '',
-      contentScore: 0,
-      assetsCount: 0,
-      variantCount: 0,
-      hasVariants: false,
-    };
-    
-    setCreationMode(true);
-    setCreatingProducts([newProductRow]);
-  };
-
-  // Add another product row in creation mode
-  const handleAddProductRow = () => {
-    const newId = `new_${Date.now()}`;
-    const newProductRow: Partial<PIMProduct> = {
-      id: newId,
-      type: 'parent',
-      productName: '',
-      sku: '',
-      upc: '',
-      status: 'Draft',
-      brandLine: '',
-      family: '',
-      contentScore: 0,
-      assetsCount: 0,
-      variantCount: 0,
-      hasVariants: false,
-    };
-    
-    setCreatingProducts(prev => [...prev, newProductRow]);
-  };
 
   // Exit creation mode
   const handleExitCreationMode = () => {
@@ -781,7 +870,9 @@ export function PIMTable({
   };
   // Get filtered products with hierarchy, then sort (memoized for performance)
   const filteredAndSortedProducts = useMemo(() => {
-    return getFilteredProductsWithHierarchy.sort((a, b) => {
+    const rows = [...getFilteredProductsWithHierarchy];
+
+    const compareBySortField = (a: PIMProduct, b: PIMProduct) => {
       const aValue = a[sortField];
       const bValue = b[sortField];
       
@@ -800,8 +891,40 @@ export function PIMTable({
       }
       
       return sortDirection === "asc" ? comparison : -comparison;
+    };
+
+    if (!showVariantHierarchy) {
+      return rows.sort(compareBySortField);
+    }
+
+    const rowById = new Map(rows.map((row) => [row.id, row]));
+    const getGroupId = (row: PIMProduct) => {
+      if (isViewAllVariantsRow(row) && row.parentId && rowById.has(row.parentId)) {
+        return row.parentId;
+      }
+      if (isVariantProduct(row) && row.parentId && rowById.has(row.parentId)) {
+        return row.parentId;
+      }
+      return row.id;
+    };
+
+    return rows.sort((a, b) => {
+      const aGroupId = getGroupId(a);
+      const bGroupId = getGroupId(b);
+
+      if (aGroupId !== bGroupId) {
+        const aRoot = rowById.get(aGroupId) || a;
+        const bRoot = rowById.get(bGroupId) || b;
+        return compareBySortField(aRoot, bRoot);
+      }
+
+      const aRank = isViewAllVariantsRow(a) ? 2 : isVariantProduct(a) ? 1 : 0;
+      const bRank = isViewAllVariantsRow(b) ? 2 : isVariantProduct(b) ? 1 : 0;
+      if (aRank !== bRank) return aRank - bRank;
+
+      return compareBySortField(a, b);
     });
-  }, [getFilteredProductsWithHierarchy, sortField, sortDirection]);
+  }, [getFilteredProductsWithHierarchy, showVariantHierarchy, sortField, sortDirection]);
 
   const realProductIds = useMemo(() => {
     return new Set(products.map((product) => product.id));
@@ -816,6 +939,20 @@ export function PIMTable({
   const selectedShareableProducts = useMemo(() => {
     return products.filter((product) => selectedProductIds.has(product.id) && !isSharedRow(product));
   }, [isSharedRow, products, selectedProductIds]);
+
+  const openDeleteDialogForProducts = useCallback((productsToDelete: PIMProduct[]) => {
+    const filtered = productsToDelete.filter((product) => !isSharedRow(product));
+    if (filtered.length === 0) {
+      return;
+    }
+    setPendingDeleteProducts(filtered);
+    setDeleteConfirmText("");
+    setBulkDeleteError(null);
+    setBulkDeleteStatusMessage(null);
+    setShareStatusMessage(null);
+    setBulkScopeStatusMessage(null);
+    setShowDeleteDialog(true);
+  }, [isSharedRow]);
 
   const shareMarketOptions = useMemo<ScopeConstraintOption[]>(
     () =>
@@ -933,12 +1070,16 @@ export function PIMTable({
     }
     setShareStatusMessage(null);
     setBulkScopeStatusMessage(null);
+    setBulkDeleteError(null);
+    setBulkDeleteStatusMessage(null);
   }, [selectableProductIds, selectedProductIds]);
 
   const handleClearSelection = useCallback(() => {
     setSelectedProductIds(new Set());
     setShareStatusMessage(null);
     setBulkScopeStatusMessage(null);
+    setBulkDeleteError(null);
+    setBulkDeleteStatusMessage(null);
   }, []);
 
   const fetchShareSetOptions = useCallback(async (): Promise<ProductShareSetOption[]> => {
@@ -1270,18 +1411,122 @@ export function PIMTable({
     console.log('Bulk move products:', Array.from(selectedProductIds));
   };
 
-  const handleBulkDelete = () => {
-    // TODO: Show confirmation modal then delete
-    if (confirm(`Delete ${selectedProductIds.size} selected products?`)) {
-      console.log('Bulk deleting products:', Array.from(selectedProductIds));
-      setProducts(prev => prev.filter(p => !selectedProductIds.has(p.id)));
-      setSelectedProductIds(new Set());
+  const handleBulkDelete = useCallback(() => {
+    if (selectedShareableProducts.length === 0 || bulkDeleteSubmitting) {
+      return;
     }
-  };
+    openDeleteDialogForProducts(selectedShareableProducts);
+  }, [bulkDeleteSubmitting, openDeleteDialogForProducts, selectedShareableProducts]);
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (pendingDeleteProducts.length === 0 || bulkDeleteSubmitting) {
+      return;
+    }
+    if (deleteConfirmText.trim().toLowerCase() !== "delete") {
+      return;
+    }
+
+    setBulkDeleteSubmitting(true);
+    setBulkDeleteError(null);
+    setBulkDeleteStatusMessage(null);
+    setShareStatusMessage(null);
+    setBulkScopeStatusMessage(null);
+
+    try {
+      const deletedIds = new Set<string>();
+      const failures: Array<{ name: string; message: string }> = [];
+      const deletionQueue = [...pendingDeleteProducts].sort((a, b) => {
+        const rank = (product: PIMProduct) =>
+          isVariantProduct(product) ? 0 : isStandaloneProduct(product) ? 1 : 2;
+        return rank(a) - rank(b);
+      });
+
+      for (const product of deletionQueue) {
+        const query = new URLSearchParams();
+        if (normalizedSelectedBrand) {
+          query.set("brand", normalizedSelectedBrand);
+        }
+        const url = query.toString()
+          ? `/api/${tenantSlug}/products/${product.id}?${query.toString()}`
+          : `/api/${tenantSlug}/products/${product.id}`;
+
+        const response = await fetch(url, { method: "DELETE" });
+        if (response.ok) {
+          deletedIds.add(product.id);
+          continue;
+        }
+
+        let payload: ErrorPayload | null = null;
+        try {
+          payload = await response.json();
+        } catch {
+          payload = null;
+        }
+
+        failures.push({
+          name: product.productName || product.sku || product.id,
+          message:
+            payload?.error || `Failed with ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`,
+        });
+      }
+
+      if (deletedIds.size > 0) {
+        setProducts((previous) => previous.filter((product) => !deletedIds.has(product.id)));
+        setSelectedProductIds((previous) => {
+          const next = new Set(previous);
+          deletedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+        setBulkDeleteStatusMessage(
+          `Deleted ${deletedIds.size} product${deletedIds.size === 1 ? "" : "s"}.`
+        );
+      }
+
+      if (failures.length > 0) {
+        const preview = failures
+          .slice(0, 3)
+          .map((failure) => `${failure.name}: ${failure.message}`)
+          .join(" | ");
+        const suffix = failures.length > 3 ? ` (+${failures.length - 3} more)` : "";
+        setBulkDeleteError(
+          `Could not delete ${failures.length} product${failures.length === 1 ? "" : "s"}: ${preview}${suffix}`
+        );
+      }
+
+      setShowDeleteDialog(false);
+      setDeleteConfirmText("");
+      setPendingDeleteProducts([]);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to delete selected products.";
+      setBulkDeleteError(message);
+    } finally {
+      setBulkDeleteSubmitting(false);
+    }
+  }, [
+    bulkDeleteSubmitting,
+    deleteConfirmText,
+    normalizedSelectedBrand,
+    pendingDeleteProducts,
+    tenantSlug,
+  ]);
 
   const handleBulkShare = () => {
     void openShareDialog();
   };
+
+  const handleBulkAddToKit = () => {
+    if (isSharedBrandView || selectedShareableProducts.length === 0) return;
+    setIsAddToKitDialogOpen(true);
+  };
+
+  const handleBulkTranslate = useCallback(() => {
+    if (isSharedBrandView || selectedShareableProducts.length === 0) return;
+    if (selectedShareableProducts.length > 100) {
+      // API limit — surface to user via the dialog (which shows the warning itself)
+    }
+    setIsTranslatePanelOpen(true);
+  }, [isSharedBrandView, selectedShareableProducts.length]);
 
   const handleStatusChange = async (product: Partial<PIMProduct>, status: ProductStatus) => {
     if (!product.id) {
@@ -1291,7 +1536,17 @@ export function PIMTable({
       return;
     }
     try {
-      const response = await fetch(`/api/organizations/${tenantSlug}/products/${product.id}/status`, {
+      // Status is a core product column, not scoped field-value content.
+      // Use the global product PATCH route (no scope query params).
+      const query = new URLSearchParams();
+      if (normalizedSelectedBrand) {
+        query.set("brand", normalizedSelectedBrand);
+      }
+      const url = query.toString()
+        ? `/api/${tenantSlug}/products/${product.id}?${query.toString()}`
+        : `/api/${tenantSlug}/products/${product.id}`;
+
+      const response = await fetch(url, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -1300,7 +1555,17 @@ export function PIMTable({
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to update product status (${response.status})`);
+        let payload: ErrorPayload | null = null;
+        try {
+          payload = await response.json();
+        } catch {
+          payload = null;
+        }
+        throw new Error(
+          payload?.error
+            ? `Failed to update product status (${response.status}): ${payload.error}`
+            : `Failed to update product status (${response.status})`
+        );
       }
 
       setProducts(prev => prev.map(p => p.id === product.id ? { ...p, status } : p));
@@ -1320,20 +1585,24 @@ export function PIMTable({
   }, [sortField, sortDirection]);
 
   // Content score color coding
-  const getContentScoreColor = (score: number) => {
-    if (score >= 90) return "text-green-600";
-    if (score >= 70) return "text-yellow-600"; 
+  const normalizeContentScore = (score: number) => {
+    if (!Number.isFinite(score)) return 0;
+    return Math.min(100, Math.max(0, Math.round(score)));
+  };
+
+  const getContentScoreTextColor = (score: number) => {
+    if (score >= 90) return "text-emerald-600";
+    if (score >= 70) return "text-yellow-600";
+    if (score >= 50) return "text-orange-500";
     return "text-red-600";
   };
 
-  // Margin color coding
-  const getMarginColor = (margin?: number) => {
-    if (!margin) return "text-muted-foreground";
-    if (margin >= 55) return "text-green-600";
-    if (margin >= 45) return "text-yellow-600";
-    return "text-red-600";
+  const getContentScoreBarColor = (score: number) => {
+    if (score >= 90) return "bg-emerald-500";
+    if (score >= 70) return "bg-yellow-500";
+    if (score >= 50) return "bg-orange-500";
+    return "bg-red-500";
   };
-
 
   // Hierarchy handling functions
   const toggleParentExpansion = (parentId: string) => {
@@ -1345,15 +1614,6 @@ export function PIMTable({
         newSet.add(parentId);
       }
       return newSet;
-    });
-  };
-
-  // Format date
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
     });
   };
 
@@ -1522,6 +1782,12 @@ export function PIMTable({
         {bulkScopeStatusMessage ? (
           <p className="text-sm text-blue-700">{bulkScopeStatusMessage}</p>
         ) : null}
+        {bulkDeleteStatusMessage ? (
+          <p className="text-sm text-emerald-700">{bulkDeleteStatusMessage}</p>
+        ) : null}
+        {bulkDeleteError ? (
+          <p className="text-sm text-red-600">{bulkDeleteError}</p>
+        ) : null}
       </div>
 
       {/* Products Table */}
@@ -1531,34 +1797,40 @@ export function PIMTable({
             {/* Table Header */}
             <thead className="bg-muted/50">
               <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
-                {/* Hierarchy Toggle + Select All */}
-                <th className="w-16 px-4 py-3">
-                  <div className="flex items-center gap-1">
-                    {/* Reserve space to align with chevron position in body rows */}
-                    <div className="flex items-center gap-1">
+                {/* Status */}
+                {visibleColumns.status && (
+                  <th
+                    className="w-[220px] px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
+                    onClick={() => handleSort("status")}
+                  >
+                    <div className="flex items-center gap-2">
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setShowVariantHierarchy(!showVariantHierarchy)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setShowVariantHierarchy(!showVariantHierarchy);
+                        }}
                         className="h-4 w-4 p-0 hover:bg-muted/60"
                         title={showVariantHierarchy ? "Flatten view" : "Show hierarchy"}
                       >
                         {showVariantHierarchy ? <GitBranch className="w-3 h-3" /> : <Layers className="w-3 h-3" />}
                       </Button>
+                      <input
+                        type="checkbox"
+                        checked={
+                          selectableProductIds.length > 0 &&
+                          selectableProductIds.every((id) => selectedProductIds.has(id))
+                        }
+                        onChange={handleSelectAll}
+                        className="w-3 h-3 text-blue-600 border-input rounded focus:ring-blue-500"
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                      <span>Status</span>
+                      <ArrowUpDown className="w-3 h-3" />
                     </div>
-
-                    {/* Select All Checkbox */}
-                    <input
-                      type="checkbox"
-                      checked={
-                        selectableProductIds.length > 0 &&
-                        selectableProductIds.every((id) => selectedProductIds.has(id))
-                      }
-                      onChange={handleSelectAll}
-                      className="w-3 h-3 text-blue-600 border-input rounded focus:ring-blue-500"
-                    />
-                  </div>
-                </th>
+                  </th>
+                )}
 
                 {/* Product Name */}
                 {visibleColumns.productName && (
@@ -1573,22 +1845,16 @@ export function PIMTable({
                   </th>
                 )}
 
-                {/* SCIN */}
-                {visibleColumns.scin && (
-                  <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
-                    onClick={() => handleSort("scin")}
-                  >
-                    <div className="flex items-center gap-1">
-                      SCIN
-                      <ArrowUpDown className="w-3 h-3" />
-                    </div>
+                {/* Assets */}
+                {visibleColumns.assets && (
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider min-w-[180px]">
+                    Assets
                   </th>
                 )}
 
                 {/* SKU */}
                 {visibleColumns.sku && (
-                  <th 
+                  <th
                     className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
                     onClick={() => handleSort("sku")}
                   >
@@ -1599,35 +1865,9 @@ export function PIMTable({
                   </th>
                 )}
 
-                {/* Brand Line */}
-                {visibleColumns.brandLine && (
-                  <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
-                    onClick={() => handleSort("brandLine")}
-                  >
-                    <div className="flex items-center gap-1">
-                      Brand Line
-                      <ArrowUpDown className="w-3 h-3" />
-                    </div>
-                  </th>
-                )}
-
-                {/* Family */}
-                {visibleColumns.family && (
-                  <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
-                    onClick={() => handleSort("family")}
-                  >
-                    <div className="flex items-center gap-1">
-                      Product Model
-                      <ArrowUpDown className="w-3 h-3" />
-                    </div>
-                  </th>
-                )}
-
                 {/* Barcode */}
                 {visibleColumns.upc && (
-                  <th 
+                  <th
                     className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
                     onClick={() => handleSort("upc")}
                   >
@@ -1638,92 +1878,40 @@ export function PIMTable({
                   </th>
                 )}
 
-                {/* Status */}
-                {visibleColumns.status && (
-                  <th 
+                {/* SCIN */}
+                {visibleColumns.scin && (
+                  <th
                     className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
-                    onClick={() => handleSort("status")}
+                    onClick={() => handleSort("scin")}
                   >
                     <div className="flex items-center gap-1">
-                      Status
+                      SCIN
                       <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
                 )}
 
-                {/* MSRP */}
-                {visibleColumns.msrp && (
-                  <th 
+                {/* Product Model */}
+                {visibleColumns.family && (
+                  <th
                     className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
-                    onClick={() => handleSort("msrp")}
+                    onClick={() => handleSort("family")}
                   >
                     <div className="flex items-center gap-1">
-                      MSRP
+                      Product Model
                       <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
                 )}
 
-                {/* Cost of Goods */}
-                {visibleColumns.costOfGoods && (
-                  <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
-                    onClick={() => handleSort("costOfGoods")}
-                  >
-                    <div className="flex items-center gap-1">
-                      COGS
-                      <ArrowUpDown className="w-3 h-3" />
-                    </div>
-                  </th>
-                )}
-
-                {/* Margin % */}
-                {visibleColumns.marginPercent && (
-                  <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
-                    onClick={() => handleSort("marginPercent")}
-                  >
-                    <div className="flex items-center gap-1">
-                      Margin %
-                      <ArrowUpDown className="w-3 h-3" />
-                    </div>
-                  </th>
-                )}
-
-                {/* Assets */}
-                {visibleColumns.assetsCount && (
-                  <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
-                    onClick={() => handleSort("assetsCount")}
-                  >
-                    <div className="flex items-center gap-1">
-                      Assets
-                      <ArrowUpDown className="w-3 h-3" />
-                    </div>
-                  </th>
-                )}
-
-                {/* Content Score */}
+                {/* Completeness */}
                 {visibleColumns.contentScore && (
-                  <th 
+                  <th
                     className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
                     onClick={() => handleSort("contentScore")}
                   >
                     <div className="flex items-center gap-1">
-                      Content Score
-                      <ArrowUpDown className="w-3 h-3" />
-                    </div>
-                  </th>
-                )}
-
-                {/* Last Modified */}
-                {visibleColumns.lastModified && (
-                  <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
-                    onClick={() => handleSort("lastModified")}
-                  >
-                    <div className="flex items-center gap-1">
-                      Last Modified
+                      Completeness
                       <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
@@ -1742,70 +1930,15 @@ export function PIMTable({
               {creationMode ? (
                 creatingProducts.map((product, index) => (
                 <tr key={product.id} className="bg-blue-50 border-2 border-muted/30 h-12" style={{ borderBottom: index === creatingProducts.length - 1 ? "none" : "1px solid #e5e7eb" }}>
-                  {/* Hierarchy + Checkbox */}
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        disabled
-                        className="w-4 h-4"
-                      />
-                    </div>
-                  </td>
-
-                  {/* Product Name */}
-                  {visibleColumns.productName && (
-                    <td className="px-6 py-4 max-w-120">
-                      <div className="break-words">
-                        {product.productName || <span className="text-muted-foreground">Enter product name...</span>}
-                      </div>
-                    </td>
-                  )}
-
-                  {/* SCIN */}
-                  {visibleColumns.scin && (
-                    <td className="px-6 py-4">
-                      <span className="font-normal text-muted-foreground">
-                        Auto
-                      </span>
-                    </td>
-                  )}
-
-                  {/* SKU */}
-                  {visibleColumns.sku && (
-                    <td className="px-6 py-4">
-                      <span className="font-normal">
-                        {product.sku || <span className="text-muted-foreground">Enter SKU...</span>}
-                      </span>
-                    </td>
-                  )}
-
-                  {/* Brand Line */}
-                  {visibleColumns.brandLine && (
-                    <td className="px-6 py-4">
-                      {product.brandLine || <span className="text-muted-foreground">Enter brand line...</span>}
-                    </td>
-                  )}
-
-                  {/* Family */}
-                  {visibleColumns.family && (
-                    <td className="px-6 py-4">
-                      {product.family || <span className="text-muted-foreground">Select model...</span>}
-                    </td>
-                  )}
-
-                  {/* Barcode */}
-                  {visibleColumns.upc && (
-                    <td className="px-6 py-4">
-                      <span className="font-normal">
-                        {product.upc || <span className="text-muted-foreground">Enter barcode...</span>}
-                      </span>
-                    </td>
-                  )}
-
                   {/* Status */}
-                    {visibleColumns.status && (
-                      <td className="px-6 py-4">
+                  {visibleColumns.status && (
+                    <td className="px-4 py-4">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          disabled
+                          className="w-3 h-3"
+                        />
                         <Select
                           value={product.status || "Draft"}
                           onValueChange={(value) => handleStatusChange(product, value as ProductStatus)}
@@ -1825,8 +1958,66 @@ export function PIMTable({
                             ))}
                           </SelectContent>
                         </Select>
-                      </td>
-                    )}
+                      </div>
+                    </td>
+                  )}
+
+                  {/* Product Name */}
+                  {visibleColumns.productName && (
+                    <td className="px-6 py-4 max-w-120">
+                      <div className="break-words">
+                        {product.productName || <span className="text-muted-foreground">Enter product name...</span>}
+                      </div>
+                    </td>
+                  )}
+
+                  {/* Assets */}
+                  {visibleColumns.assets && (
+                    <td className="px-6 py-4">
+                      <span className="text-sm text-muted-foreground">-</span>
+                    </td>
+                  )}
+
+                  {/* SKU */}
+                  {visibleColumns.sku && (
+                    <td className="px-6 py-4">
+                      <span className="font-normal">
+                        {product.sku || <span className="text-muted-foreground">Enter SKU...</span>}
+                      </span>
+                    </td>
+                  )}
+
+                  {/* Barcode */}
+                  {visibleColumns.upc && (
+                    <td className="px-6 py-4">
+                      <span className="font-normal">
+                        {product.upc || <span className="text-muted-foreground">Enter barcode...</span>}
+                      </span>
+                    </td>
+                  )}
+
+                  {/* SCIN */}
+                  {visibleColumns.scin && (
+                    <td className="px-6 py-4">
+                      <span className="font-normal text-muted-foreground">
+                        Auto
+                      </span>
+                    </td>
+                  )}
+
+                  {/* Product Model */}
+                  {visibleColumns.family && (
+                    <td className="px-6 py-4">
+                      {product.family || <span className="text-muted-foreground">Select model...</span>}
+                    </td>
+                  )}
+
+                  {/* Completeness */}
+                  {visibleColumns.contentScore && (
+                    <td className="px-6 py-4 text-sm text-muted-foreground">
+                      -
+                    </td>
+                  )}
 
                   {/* Actions */}
                   <td className="px-6 py-4 text-right">
@@ -1856,62 +2047,54 @@ export function PIMTable({
                 const isSelected = selectedProductIds.has(product.id);
                 const nextProduct = filteredAndSortedProducts[index + 1];
                 const prevProduct = filteredAndSortedProducts[index - 1];
-                const isViewAllLink = (product as any).isViewAllLink;
                 const isSharedProductRow = isSharedRow(product);
                 const isInCurrentScope = isProductInCurrentScope(product);
+                const isViewAllLink = isViewAllVariantsRow(product);
+                const normalizedContentScore = normalizeContentScore(product.contentScore);
                 
                 // Determine if this row is part of an expanded variant group
                 const isInExpandedGroup = (isVariantProduct(product) || isViewAllLink) && 
                   expandedParents.has(product.parentId || '');
                 const isFirstInGroup = isInExpandedGroup && 
-                  (!prevProduct || (prevProduct.parentId !== product.parentId && !(prevProduct as any).isViewAllLink));
+                  (!prevProduct || prevProduct.parentId !== product.parentId);
                 const isLastInGroup = isInExpandedGroup && 
-                  (!nextProduct || (nextProduct.parentId !== product.parentId && !isViewAllLink));
-                
-                // Special handling for "View all variations" link
+                  (!nextProduct || nextProduct.parentId !== product.parentId);
+
                 if (isViewAllLink) {
+                  const parentProduct = products.find((p) => p.id === product.parentId);
                   return (
                     <tr
                       key={product.id}
                       className={cn(
-                        "hover:bg-muted/20 transition-colors cursor-pointer",
-                        "bg-blue-50/30 border-l-2 border-r-2 border-muted/30",
-                        isLastInGroup && "border-b-2 border-muted/30"
+                        "bg-muted/20 hover:bg-muted/30 transition-colors cursor-pointer",
+                        isInExpandedGroup && "border-l-2 border-r-2 border-gray-300",
+                        isLastInGroup && "border-b-2 border-gray-300"
                       )}
-                      style={{ borderBottom: index === filteredAndSortedProducts.length - 1 ? "none" : "1px solid #e5e7eb" }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // Find the parent product and navigate to its detail page
-                        const parentProduct = products.find(p => p.id === product.parentId);
+                      style={{
+                        borderBottom:
+                          index === filteredAndSortedProducts.length - 1 ? "none" : "1px solid #e5e7eb",
+                      }}
+                      onClick={(event) => {
+                        event.stopPropagation();
                         if (parentProduct) {
-                          onProductClick?.(parentProduct);
+                          onProductClick?.(parentProduct, { section: "variants" });
                         }
                       }}
                     >
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-1">
-                          <div className="flex items-center gap-1" style={{ marginLeft: '16px' }}>
-                            <div className="w-3 h-3 flex items-center justify-center">
-                              <div className="w-2 h-px bg-gray-300" />
-                            </div>
-                          </div>
-                          {/* No checkbox for view all link */}
-                        </div>
+                      <td colSpan={tableColumnCount} className="px-6 py-3">
+                        <button
+                          type="button"
+                          className="text-sm text-blue-700 hover:underline"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (parentProduct) {
+                              onProductClick?.(parentProduct, { section: "variants" });
+                            }
+                          }}
+                        >
+                          {product.productName}
+                        </button>
                       </td>
-                      
-                      {/* Product Name - View All Link */}
-                      {visibleColumns.productName && (
-                        <td className="px-6 py-4" colSpan={Object.values(visibleColumns).filter(Boolean).length + 1}>
-                          <div className="flex items-center gap-3">
-                            <div className="flex-shrink-0 w-12 h-12"></div>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-blue-600 hover:underline font-normal text-sm">
-                                {product.productName}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                      )}
                     </tr>
                   );
                 }
@@ -1937,9 +2120,10 @@ export function PIMTable({
                     }}
                     onClick={() => onProductClick?.(product)}
                   >
-                    {/* Hierarchy + Checkbox */}
+                    {/* Status */}
+                    {visibleColumns.status && (
                     <td className="px-4 py-4">
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-2">
                         {/* Hierarchy indicators - always reserve space */}
                         <div className="flex items-center gap-1" style={{ marginLeft: isVariantProduct(product) ? '16px' : '0px' }}>
                           {showVariantHierarchy && isParentProduct(product) && (
@@ -1979,126 +2163,130 @@ export function PIMTable({
                           disabled={isSharedProductRow}
                           className="w-3 h-3 text-blue-600 border-input rounded focus:ring-blue-500"
                         />
+
+                        {isParentProduct(product) ? (
+                          <div className="text-sm text-foreground">
+                            Variants ({product.variantCount || 0})
+                          </div>
+                        ) : (
+                          <Select
+                            value={product.status || "Draft"}
+                            onValueChange={(value) => handleStatusChange(product, value as ProductStatus)}
+                            disabled={isSharedProductRow}
+                          >
+                            <SelectTrigger
+                              className="h-8 w-[140px]"
+                              onPointerDown={(event) => event.stopPropagation()}
+                            >
+                              <SelectValue placeholder="Draft" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {PRODUCT_STATUSES.map((statusOption) => (
+                                <SelectItem key={statusOption} value={statusOption}>
+                                  {statusOption}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
                       </div>
                     </td>
+                    )}
 
-                    {/* Product Name with Image */}
+                    {/* Product Name */}
                     {visibleColumns.productName && (
                       <td className="px-6 py-4">
-                        <div className="flex items-start gap-3">
-                          {/* Product Image */}
-                          <div className="flex-shrink-0 w-12 h-12 bg-gray-100 rounded-lg border border-muted/30 flex items-center justify-center overflow-hidden">
-                            {(() => {
-                              const frontImage = frontImageByProductId[product.id];
-                              const canRenderFrontImage =
-                                Boolean(frontImage) &&
-                                !failedFrontImageAssetIds.has(frontImage.assetId);
-
-                              if (frontImage && canRenderFrontImage) {
-                                return (
-                                  <img
-                                    src={frontImage.previewUrl}
-                                    alt={frontImage.filename || `${product.productName} front image`}
-                                    className="h-full w-full object-cover"
-                                    loading="lazy"
-                                    onError={() => {
-                                      setFailedFrontImageAssetIds((previous) => {
-                                        if (previous.has(frontImage.assetId)) {
-                                          return previous;
-                                        }
-                                        const next = new Set(previous);
-                                        next.add(frontImage.assetId);
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                );
-                              }
-
-                              if (product.assetsCount > 0) {
-                                return (
-                                  <div className="w-full h-full bg-gradient-to-br from-blue-100 to-purple-100 flex items-center justify-center">
-                                    <ImageIcon className="w-5 h-5 text-muted-foreground" />
-                                  </div>
-                                );
-                              }
-
-                              return <div className="text-xs text-muted-foreground text-center">No image</div>;
-                            })()}
-                          </div>
-                          
-                          <div className="flex-1 min-w-0">
-                            {/* Clear product name display */}
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <div className="font-normal flex-1 min-w-0 text-sm text-foreground">
-                                  {product.productName}
-                                </div>
-                                
-                                {/* Content inheritance indicator */}
-                                {isVariantProduct(product) && product.isInherited?.productName && (
-                                  <div className="w-2 h-2 bg-blue-400 rounded-full flex-shrink-0" title="Inherited from parent" />
-                                )}
-                              </div>
-                              
-                              {/* Secondary info row */}
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                  {isParentProduct(product)
-                                    ? 'Parent product'
-                                    : isVariantProduct(product)
-                                    ? 'Variant'
-                                    : 'Single SKU'}
-                                </span>
-                                {!isInCurrentScope ? (
-                                  <Badge variant="outline" className="px-2 py-0.5 text-xs border-amber-300 text-amber-800">
-                                    Missing in scope
-                                  </Badge>
-                                ) : null}
-                                {/* Variation count indicator for parents */}
-                                {isParentProduct(product) && (
-                                  <span className="text-sm text-muted-foreground whitespace-nowrap">
-                                    {product.variantCount && product.variantCount > 15 ? (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          onProductClick?.(product);
-                                        }}
-                                        className="text-sm text-muted-foreground hover:underline"
-                                      >
-                                        View {product.variantCount} variations
-                                      </button>
-                                    ) : (
-                                      `Variations (${product.variantCount})`
-                                    )}
-                                  </span>
-                                )}
-                                
-                                {/* Variant attributes for variants */}
-                                {isVariantProduct(product) && product.variantAxis && (
-                                  <div className="flex gap-2 flex-wrap">
-                                    {Object.entries(product.variantAxis).map(([key, value]) => (
-                                      <span key={key} className="text-xs text-muted-foreground">
-                                        {value}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <div className="font-normal flex-1 min-w-0 text-sm text-foreground">
+                              {product.productName}
                             </div>
-                            
-                            {/* Simplified product metadata - no categories or parent references for cleaner display */}
+                            {isVariantProduct(product) && product.isInherited?.productName && (
+                              <div className="w-2 h-2 bg-blue-400 rounded-full flex-shrink-0" title="Inherited from parent" />
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {!isInCurrentScope ? (
+                              <Badge variant="outline" className="px-2 py-0.5 text-xs border-amber-300 text-amber-800">
+                                Missing in scope
+                              </Badge>
+                            ) : null}
+                            {isParentProduct(product) && (
+                              <span className="text-sm text-muted-foreground whitespace-nowrap">
+                                {product.variantCount ? `Variations (${product.variantCount})` : "Variations (0)"}
+                              </span>
+                            )}
+                            {isVariantProduct(product) && product.variantAxis && (
+                              <div className="flex gap-2 flex-wrap">
+                                {Object.entries(product.variantAxis).map(([key, value]) => (
+                                  <span key={key} className="text-xs text-muted-foreground">
+                                    {value}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
                     )}
 
-                    {/* SCIN */}
-                    {visibleColumns.scin && (
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-foreground font-normal">
-                          {product.scin || product.id}
-                        </div>
+                    {/* Assets */}
+                    {visibleColumns.assets && (
+                      <td className="px-4 py-4">
+                        {(() => {
+                          const coreImages = coreAssetImagesByProductId[product.id] || [];
+                          const visibleImages = coreImages.slice(0, CORE_ASSET_SLOT_ORDER.length);
+                          if (visibleImages.length === 0) {
+                            return product.assetsCount > 0 ? (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <ImageIcon className="w-4 h-4" />
+                                <span>{product.assetsCount} linked</span>
+                              </div>
+                            ) : null;
+                          }
+
+                          return (
+                            <div className="flex items-center gap-3">
+                              {visibleImages.map((image) => {
+                                const failed = failedCoreAssetImageIds.has(image.assetId);
+                                return (
+                                  <div
+                                    key={`${product.id}-${image.slot}-${image.assetId}`}
+                                    className="h-14 w-14 overflow-hidden"
+                                    title={`${image.slot.toUpperCase()}: ${image.filename || image.assetId}`}
+                                  >
+                                    {failed ? (
+                                      <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
+                                        {image.slot[0].toUpperCase()}
+                                      </div>
+                                    ) : (
+                                      <NextImage
+                                        src={image.previewUrl}
+                                        alt={image.filename || `${product.productName} ${image.slot}`}
+                                        className="h-full w-full object-cover"
+                                        loading="lazy"
+                                        width={56}
+                                        height={56}
+                                        unoptimized
+                                        onError={() => {
+                                          setFailedCoreAssetImageIds((previous) => {
+                                            if (previous.has(image.assetId)) {
+                                              return previous;
+                                            }
+                                            const next = new Set(previous);
+                                            next.add(image.assetId);
+                                            return next;
+                                          });
+                                        }}
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </td>
                     )}
 
@@ -2107,24 +2295,6 @@ export function PIMTable({
                       <td className="px-6 py-4">
                         <div className="text-sm text-foreground font-normal">
                           {product.sku}
-                        </div>
-                      </td>
-                    )}
-
-                    {/* Brand Line */}
-                    {visibleColumns.brandLine && (
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-foreground">
-                          {product.brandLine || '-'}
-                        </div>
-                      </td>
-                    )}
-
-                    {/* Family */}
-                    {visibleColumns.family && (
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-foreground">
-                          {product.family || "Unassigned"}
                         </div>
                       </td>
                     )}
@@ -2138,81 +2308,46 @@ export function PIMTable({
                       </td>
                     )}
 
-                    {/* Status */}
-                    {visibleColumns.status && (
+                    {/* SCIN */}
+                    {visibleColumns.scin && (
                       <td className="px-6 py-4">
-                        <Select
-                          value={product.status || "Draft"}
-                          onValueChange={(value) => handleStatusChange(product, value as ProductStatus)}
-                          disabled={isSharedProductRow}
-                        >
-                          <SelectTrigger
-                            className="h-8 w-[140px]"
-                            onPointerDown={(event) => event.stopPropagation()}
-                          >
-                            <SelectValue placeholder="Draft" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {PRODUCT_STATUSES.map((statusOption) => (
-                              <SelectItem key={statusOption} value={statusOption}>
-                                {statusOption}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="text-sm text-foreground font-normal">
+                          {product.scin || product.id}
+                        </div>
                       </td>
                     )}
 
-                    {/* MSRP */}
-                    {visibleColumns.msrp && (
+                    {/* Product Model */}
+                    {visibleColumns.family && (
                       <td className="px-6 py-4">
                         <div className="text-sm text-foreground">
-                          {product.msrp ? `$${product.msrp}` : '-'}
+                          {product.family || "Unassigned"}
                         </div>
                       </td>
                     )}
 
-                    {/* Cost of Goods */}
-                    {visibleColumns.costOfGoods && (
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-foreground">
-                          {product.costOfGoods ? `$${product.costOfGoods}` : '-'}
-                        </div>
-                      </td>
-                    )}
-
-                    {/* Margin % */}
-                    {visibleColumns.marginPercent && (
-                      <td className="px-6 py-4 text-sm">
-                        <span className={cn("font-medium", getMarginColor(product.marginPercent))}>
-                          {product.marginPercent ? `${product.marginPercent}%` : '-'}
-                        </span>
-                      </td>
-                    )}
-
-                    {/* Assets */}
-                    {visibleColumns.assetsCount && (
-                      <td className="px-6 py-4 text-sm text-muted-foreground">
-                        <div className="flex items-center gap-1">
-                          <ImageIcon className="w-4 h-4" />
-                          {product.assetsCount}
-                        </div>
-                      </td>
-                    )}
-
-                    {/* Content Score */}
+                    {/* Completeness */}
                     {visibleColumns.contentScore && (
                       <td className="px-6 py-4 text-sm">
-                        <span className={cn("text-sm font-medium", getContentScoreColor(product.contentScore))}>
-                          {product.contentScore}%
-                        </span>
-                      </td>
-                    )}
-
-                    {/* Last Modified */}
-                    {visibleColumns.lastModified && (
-                      <td className="px-6 py-4 text-sm text-muted-foreground">
-                        <div>{formatDate(product.lastModified)}</div>
+                        <div className="flex items-center gap-3">
+                          <div className="h-2 w-28 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-[width] duration-200 ease-out",
+                                getContentScoreBarColor(normalizedContentScore)
+                              )}
+                              style={{ width: `${normalizedContentScore}%` }}
+                            />
+                          </div>
+                          <span
+                            className={cn(
+                              "text-sm font-medium tabular-nums",
+                              getContentScoreTextColor(normalizedContentScore)
+                            )}
+                          >
+                            {normalizedContentScore}%
+                          </span>
+                        </div>
                       </td>
                     )}
 
@@ -2253,7 +2388,7 @@ export function PIMTable({
                                   className="flex items-center gap-2 px-3 py-2 text-sm font-sans cursor-pointer rounded-md hover:bg-muted outline-none text-red-600"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    console.log('Delete product:', product.id);
+                                    openDeleteDialogForProducts([product]);
                                   }}
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -2546,6 +2681,98 @@ export function PIMTable({
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={showDeleteDialog}
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open);
+          if (!open) {
+            setDeleteConfirmText("");
+            setPendingDeleteProducts([]);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Delete Product{pendingDeleteProducts.length === 1 ? "" : "s"}</DialogTitle>
+            <DialogDescription>
+              This action permanently deletes the selected product records.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <p className="font-medium">You are about to delete:</p>
+              <p>
+                {pendingDeleteProducts.length} product{pendingDeleteProducts.length === 1 ? "" : "s"}
+              </p>
+              <p className="mt-1">
+                This cannot be undone. Parent products with remaining variants will not be deleted.
+              </p>
+            </div>
+
+            <div className="rounded-md border border-border bg-muted/20 p-3">
+              <p className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
+                Selected items
+              </p>
+              <div className="space-y-1 text-sm">
+                {pendingDeleteProducts.slice(0, 8).map((product) => (
+                  <p key={product.id} className="text-foreground">
+                    {product.productName || product.sku || product.id}
+                    <span className="ml-2 text-muted-foreground">
+                      ({isVariantProduct(product) ? "Variant" : isParentProduct(product) ? "Parent" : "Single SKU"})
+                    </span>
+                  </p>
+                ))}
+                {pendingDeleteProducts.length > 8 ? (
+                  <p className="text-muted-foreground">
+                    +{pendingDeleteProducts.length - 8} more
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                To confirm, type <span className="rounded bg-muted px-1 font-mono">delete</span>
+              </label>
+              <Input
+                value={deleteConfirmText}
+                onChange={(event) => setDeleteConfirmText(event.target.value)}
+                placeholder="Type 'delete' to confirm"
+                className="h-8"
+              />
+            </div>
+
+            {bulkDeleteError ? (
+              <p className="text-sm text-destructive">{bulkDeleteError}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowDeleteDialog(false);
+                setDeleteConfirmText("");
+                setPendingDeleteProducts([]);
+              }}
+              disabled={bulkDeleteSubmitting}
+              className="h-8 px-3 text-sm"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                void handleConfirmDelete();
+              }}
+              disabled={bulkDeleteSubmitting || deleteConfirmText.trim().toLowerCase() !== "delete"}
+              className="h-8 px-3 text-sm"
+            >
+              {bulkDeleteSubmitting ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Bulk Action Toolbar */}
       <BulkActionToolbar
         selectedCount={isSharedBrandView ? 0 : selectedShareableProducts.length}
@@ -2554,7 +2781,40 @@ export function PIMTable({
         onMove={handleBulkMove}
         onDelete={handleBulkDelete}
         onShare={handleBulkShare}
+        onAddToKit={!isSharedBrandView ? handleBulkAddToKit : undefined}
+        onTranslate={canTranslate && !isSharedBrandView ? handleBulkTranslate : undefined}
         onClear={handleClearSelection}
+      />
+
+      {canTranslate && !isSharedBrandView && (
+        <TranslationPanel
+          tenantSlug={tenantSlug}
+          productId={selectedShareableProducts[0]?.id ?? ''}
+          productIds={selectedShareableProducts.map((p) => p.id)}
+          open={isTranslatePanelOpen}
+          onOpenChange={setIsTranslatePanelOpen}
+          initialSourceLocaleId={selectedLocaleId ?? undefined}
+          productInfoById={Object.fromEntries(
+            selectedShareableProducts.map((p) => [
+              p.id,
+              {
+                name: p.productName,
+                thumbnailUrl: coreAssetImagesByProductId[p.id]?.[0]?.previewUrl,
+              },
+            ])
+          )}
+        />
+      )}
+
+      <AddToKitDialog
+        tenantSlug={tenantSlug}
+        open={isAddToKitDialogOpen}
+        onOpenChange={setIsAddToKitDialogOpen}
+        items={selectedShareableProducts.map((p) => ({
+          type: "product" as const,
+          id: p.id,
+          name: p.productName ?? undefined,
+        }))}
       />
     </div>
   );

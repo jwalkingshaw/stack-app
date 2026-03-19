@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import NextImage from "next/image";
 import {
   ArrowLeft,
   ArrowRight,
@@ -20,6 +21,7 @@ import {
   Edit3,
   Expand,
   Palette,
+  PackagePlus,
   Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -39,6 +41,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@tradetool/ui";
 import { cn } from "@/lib/utils";
+import { AddToKitDialog } from "@/components/updates/AddToKitDialog";
 import type {
   AssetCategory,
   AssetCategoryAssignment,
@@ -78,6 +81,23 @@ type AssetVersionRecord = {
   isCurrent: boolean;
 };
 
+type AssetVersionCreatedPayload = Record<string, unknown>;
+
+type LinkedProductRecord = {
+  id: string;
+  productId: string;
+  productName: string;
+  sku?: string;
+  brand?: string;
+  linkType?: string;
+  linkContext?: string;
+};
+
+type ApiResponsePayload<TData = unknown> = {
+  data?: TData;
+  error?: string;
+};
+
 interface AssetViewPanelProps {
   tenantSlug: string;
   selectedBrandSlug?: string | null;
@@ -108,7 +128,7 @@ interface AssetViewPanelProps {
     productName?: string;
     brand?: string;
   }>;
-  onVersionCreated?: (updatedAsset: Record<string, any>) => Promise<void> | void;
+  onVersionCreated?: (updatedAsset: AssetVersionCreatedPayload) => Promise<void> | void;
 }
 
 const arrayEquals = (a: string[], b: string[]) => {
@@ -132,15 +152,65 @@ const formatDate = (dateString: string) =>
     minute: "2-digit",
   });
 
-async function parseJsonSafely(response: Response): Promise<any | null> {
+async function parseJsonSafely<T = unknown>(response: Response): Promise<T | null> {
   const text = await response.text();
   if (!text) return null;
   try {
-    return JSON.parse(text);
+    return JSON.parse(text) as T;
   } catch {
     return null;
   }
 }
+
+const toRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+
+const readStringFromRecord = (record: Record<string, unknown> | null, keys: string[]): string | null => {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return null;
+};
+
+const normalizeLinkedProduct = (value: unknown): LinkedProductRecord | null => {
+  const row = toRecord(value);
+  if (!row) return null;
+
+  const id = row.id;
+  const productId = row.productId ?? row.product_id;
+  if (typeof id !== "string" || typeof productId !== "string") {
+    return null;
+  }
+
+  return {
+    id,
+    productId,
+    productName:
+      typeof row.productName === "string"
+        ? row.productName
+        : typeof row.product_name === "string"
+          ? row.product_name
+          : "",
+    sku: typeof row.sku === "string" ? row.sku : undefined,
+    brand: typeof row.brand === "string" ? row.brand : undefined,
+    linkType:
+      typeof row.linkType === "string"
+        ? row.linkType
+        : typeof row.link_type === "string"
+          ? row.link_type
+          : undefined,
+    linkContext:
+      typeof row.linkContext === "string"
+        ? row.linkContext
+        : typeof row.link_context === "string"
+          ? row.link_context
+          : undefined,
+  };
+};
 
 const getPreviewUrl = (asset: AssetWithAssignments) =>
   asset.preview ||
@@ -229,6 +299,7 @@ export function AssetViewPanel({
   const [, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isAddToKitDialogOpen, setIsAddToKitDialogOpen] = useState(false);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [isLoadingShare, setIsLoadingShare] = useState(false);
   const [isSavingShare, setIsSavingShare] = useState(false);
@@ -236,15 +307,7 @@ export function AssetViewPanel({
   const [shareAllowDownloads, setShareAllowDownloads] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [shareCopyLabel, setShareCopyLabel] = useState("Copy link");
-  const [linkedProducts, setLinkedProducts] = useState<Array<{
-    id: string;
-    productId: string;
-    productName: string;
-    sku?: string;
-    brand?: string;
-    linkType?: string;
-    linkContext?: string;
-  }>>([]);
+  const [linkedProducts, setLinkedProducts] = useState<LinkedProductRecord[]>([]);
   const [isLoadingLinkedProducts, setIsLoadingLinkedProducts] = useState(false);
   const [productToLinkId, setProductToLinkId] = useState<string>("none");
   const [isUpdatingLinks, setIsUpdatingLinks] = useState(false);
@@ -326,6 +389,7 @@ export function AssetViewPanel({
     setNewTagName("");
     setIsDeleting(false);
     setIsDeleteDialogOpen(false);
+    setIsAddToKitDialogOpen(false);
     setIsShareDialogOpen(false);
     setIsLoadingShare(false);
     setIsSavingShare(false);
@@ -395,15 +459,11 @@ export function AssetViewPanel({
 
   const rightsSummary = useMemo(() => {
     if (!asset?.metadata) return { usageRights: null as string | null, validTo: null as string | null };
+    const metadataRecord = toRecord(asset.metadata);
     const usageRights =
-      (asset.metadata as any).usageRights ||
-      (asset.metadata as any).usage_rights ||
-      (asset.metadata as any).usageGroupId ||
-      null;
+      readStringFromRecord(metadataRecord, ["usageRights", "usage_rights", "usageGroupId"]) || null;
     const validTo =
-      (asset.metadata as any).validTo ||
-      (asset.metadata as any).valid_to ||
-      null;
+      readStringFromRecord(metadataRecord, ["validTo", "valid_to"]) || null;
     return { usageRights, validTo };
   }, [asset]);
 
@@ -442,15 +502,22 @@ export function AssetViewPanel({
       if (!response.ok) {
         throw new Error(`Failed to load linked products (${response.status})`);
       }
-      const payload = await response.json();
-      setLinkedProducts((payload?.data?.productLinks || []) as any[]);
+      const payload = (await response.json()) as ApiResponsePayload<{
+        productLinks?: unknown[];
+      }>;
+      const productLinks = Array.isArray(payload?.data?.productLinks)
+        ? payload.data.productLinks
+            .map((row) => normalizeLinkedProduct(row))
+            .filter((row): row is LinkedProductRecord => row !== null)
+        : [];
+      setLinkedProducts(productLinks);
     } catch (error) {
       console.error("Failed to fetch linked products:", error);
       setLinkedProducts([]);
     } finally {
       setIsLoadingLinkedProducts(false);
     }
-  }, [asset?.id, tenantSlug]);
+  }, [asset?.id, tenantSlug, brandQuerySuffix]);
 
   useEffect(() => {
     fetchLinkedProducts();
@@ -469,10 +536,10 @@ export function AssetViewPanel({
         `/api/${tenantSlug}/assets/${asset.id}/versions${brandQuerySuffix}`
       );
       if (!response.ok) {
-        const payload = await parseJsonSafely(response);
+        const payload = await parseJsonSafely<ApiResponsePayload>(response);
         throw new Error(payload?.error || `Failed to load version history (${response.status})`);
       }
-      const payload = await parseJsonSafely(response);
+      const payload = await parseJsonSafely<ApiResponsePayload<AssetVersionRecord[]>>(response);
       setVersionHistory((Array.isArray(payload?.data) ? payload.data : []) as AssetVersionRecord[]);
     } catch (error) {
       console.error("Failed to fetch version history:", error);
@@ -518,11 +585,11 @@ export function AssetViewPanel({
           }
         );
         if (!response.ok) {
-          const payload = await parseJsonSafely(response);
+          const payload = await parseJsonSafely<ApiResponsePayload>(response);
           throw new Error(payload?.error || `Failed to create version (${response.status})`);
         }
 
-        const payload = await parseJsonSafely(response);
+        const payload = await parseJsonSafely<ApiResponsePayload<AssetVersionCreatedPayload>>(response);
         if (payload?.data && onVersionCreated) {
           await onVersionCreated(payload.data);
         }
@@ -579,11 +646,11 @@ export function AssetViewPanel({
           }
         );
         if (!response.ok) {
-          const payload = await parseJsonSafely(response);
+          const payload = await parseJsonSafely<ApiResponsePayload>(response);
           throw new Error(payload?.error || `Failed to restore version (${response.status})`);
         }
 
-        const payload = await parseJsonSafely(response);
+        const payload = await parseJsonSafely<ApiResponsePayload<AssetVersionCreatedPayload>>(response);
         if (payload?.data && onVersionCreated) {
           await onVersionCreated(payload.data);
         }
@@ -827,50 +894,7 @@ export function AssetViewPanel({
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
   }, []);
 
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (isShareDialogOpen || isDeleteDialogOpen) return;
-
-      const isMenuOpen = Boolean(
-        document.querySelector(
-          "[data-radix-dropdown-menu-content][data-state='open'], [role='menu'][data-state='open']"
-        )
-      );
-      if (isMenuOpen) return;
-
-      const target = event.target as HTMLElement | null;
-      const tagName = target?.tagName?.toLowerCase();
-      const isTypingField =
-        tagName === "input" ||
-        tagName === "textarea" ||
-        tagName === "select" ||
-        Boolean(target?.isContentEditable);
-
-      const isInteractiveTarget = Boolean(
-        target?.closest(
-          "button, a, [role='button'], [role='switch'], [role='menuitem'], [role='tab'], [role='combobox']"
-        )
-      );
-
-      if (isTypingField || isInteractiveTarget) return;
-
-      if (event.key === "ArrowLeft" && canGoPrevious) {
-        event.preventDefault();
-        onPrevious?.();
-        return;
-      }
-
-      if (event.key === "ArrowRight" && canGoNext) {
-        event.preventDefault();
-        onNext?.();
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, isShareDialogOpen, isDeleteDialogOpen, canGoPrevious, canGoNext, onPrevious, onNext]);
+  // Keyboard shortcuts intentionally disabled.
 
   const handleDownload = async () => {
     if (!asset?.id || isDownloading) return;
@@ -1034,6 +1058,15 @@ export function AssetViewPanel({
               <Share2 className="h-4 w-4" />
               Share
             </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9 gap-1.5 px-3"
+              onClick={() => setIsAddToKitDialogOpen(true)}
+            >
+              <PackagePlus className="h-4 w-4" />
+              Add to Kit
+            </Button>
             <div className="flex items-center overflow-hidden rounded-md border border-border">
               <Button
                 type="button"
@@ -1122,10 +1155,13 @@ export function AssetViewPanel({
                 )}
               >
                 {isImage && previewUrl ? (
-                  <img
+                  <NextImage
                     src={previewUrl}
                     alt={asset.originalFilename}
                     className="max-h-full max-w-full object-contain"
+                    width={1280}
+                    height={900}
+                    unoptimized
                   />
                 ) : (
                   <div className="flex h-full min-h-[420px] w-full items-center justify-center text-white/70">
@@ -1698,11 +1734,14 @@ export function AssetViewPanel({
                             <div className="mt-2 flex items-start gap-3">
                               {hasImagePreview ? (
                                 <div className="h-16 w-16 overflow-hidden rounded-md border border-border/60 bg-muted/20">
-                                  <img
+                                  <NextImage
                                     src={versionPreviewUrl || ""}
                                     alt={`${version.filename} preview`}
                                     className="h-full w-full object-contain bg-white"
                                     loading="lazy"
+                                    width={64}
+                                    height={64}
+                                    unoptimized
                                   />
                                 </div>
                               ) : null}
@@ -1847,6 +1886,13 @@ export function AssetViewPanel({
           </div>
         </DialogContent>
       </Dialog>
+
+      <AddToKitDialog
+        tenantSlug={tenantSlug}
+        open={isAddToKitDialogOpen}
+        onOpenChange={setIsAddToKitDialogOpen}
+        items={asset ? [{ type: "asset", id: asset.id, name: asset.originalFilename ?? undefined }] : []}
+      />
     </>
   );
 }

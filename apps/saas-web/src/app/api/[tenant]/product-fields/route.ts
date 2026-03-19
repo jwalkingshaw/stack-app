@@ -53,7 +53,18 @@ const PRODUCT_FIELDS_SELECT_LEGACY = `
   updated_at
 `;
 
-function isMissingColumnError(error: any): boolean {
+type PostgrestLikeError = { code?: string | null } | null | undefined;
+
+type ProductFieldRow = Record<string, unknown> & {
+  allowed_channel_ids?: unknown;
+  allowed_market_ids?: unknown;
+  allowed_locale_ids?: unknown;
+  is_translatable?: unknown;
+  is_write_assist_enabled?: unknown;
+  translation_content_type?: unknown;
+};
+
+function isMissingColumnError(error: PostgrestLikeError): boolean {
   return error?.code === "42703";
 }
 
@@ -95,7 +106,7 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch product fields" }, { status: 500 });
     }
 
-    const normalized = (result.data || []).map((field: any) => ({
+    const normalized = (((result.data || []) as unknown) as ProductFieldRow[]).map((field) => ({
       ...field,
       allowed_channel_ids: Array.isArray(field.allowed_channel_ids) ? field.allowed_channel_ids : [],
       allowed_market_ids: Array.isArray(field.allowed_market_ids) ? field.allowed_market_ids : [],

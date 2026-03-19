@@ -1,281 +1,287 @@
-'use client'
+"use client";
 
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { 
-  BarChart3, 
-  FolderOpen, 
-  Users, 
-  TrendingUp, 
-  Upload,
-  Eye,
-  Download,
-  Calendar,
-  Settings,
-  Plus,
-  ArrowRight,
-  Database,
-  FileImage,
-  Zap
-} from "lucide-react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContentContainer } from "@/components/ui/page-content-container";
+import { Skeleton } from "@/components/ui/skeleton";
+
+type SummaryPayload = {
+  totals: {
+    updates: number;
+    published: number;
+    draft: number;
+    updatesWithKit: number;
+    kitItems: number;
+    recipients: number;
+    opened: number;
+    acknowledged: number;
+    activated: number;
+    overdueRecipients: number;
+    openRate: number;
+  };
+  recent: Array<{
+    id: string;
+    title: string;
+    status: string;
+    urgency: string;
+    dueAt: string | null;
+    publishedAt: string | null;
+    updatedAt: string;
+    recipientCount: number;
+    openCount: number;
+    acknowledgeCount: number;
+    openRate: number;
+    hasKit: boolean;
+  }>;
+};
+
+type NotificationEvent = {
+  id: string;
+  title: string;
+  description: string;
+  createdAt: string;
+  href: string;
+  isRead: boolean;
+};
 
 interface DashboardClientProps {
-  tenantSlug: string
+  tenantSlug: string;
+}
+
+function formatDate(input: string | null): string {
+  if (!input) return "-";
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleDateString();
 }
 
 export default function DashboardClient({ tenantSlug }: DashboardClientProps) {
-  // No loading states - everything is pre-authenticated and ready
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [summary, setSummary] = useState<SummaryPayload | null>(null);
+  const [events, setEvents] = useState<NotificationEvent[]>([]);
+
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const [summaryRes, eventsRes] = await Promise.all([
+        fetch(`/api/${tenantSlug}/updates/summary`, { cache: "no-store" }),
+        fetch(`/api/me/notifications?workspaceSlug=${encodeURIComponent(tenantSlug)}&compact=1&limit=24`, {
+          cache: "no-store",
+        }),
+      ]);
+
+      if (summaryRes.ok) {
+        const summaryPayload = await summaryRes.json().catch(() => ({}));
+        setSummary(summaryPayload?.data || null);
+      } else {
+        setSummary(null);
+      }
+
+      if (eventsRes.ok) {
+        const eventsPayload = await eventsRes.json().catch(() => ({}));
+        const rows = Array.isArray(eventsPayload?.notifications)
+          ? eventsPayload.notifications
+          : [];
+        setEvents(rows);
+      } else {
+        setEvents([]);
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [tenantSlug]);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+
+  const latestEvents = useMemo(() => events.slice(0, 8), [events]);
+
   return (
     <main className="w-full min-h-full">
       <PageHeader
         title="Dashboard"
+        actions={[
+          {
+            label: "Refresh",
+            icon: ({ className }) => <RefreshCw className={`${className ?? ""} ${refreshing ? "animate-spin" : ""}`} />,
+            variant: "outline",
+            onClick: async () => {
+              setRefreshing(true);
+              try {
+                await fetchData(true);
+              } finally {
+                setRefreshing(false);
+              }
+            },
+            disabled: refreshing,
+          },
+        ]}
       />
-      
-      <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-        {/* Enhanced Quick Stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6 mb-12 sm:mb-16">
-            <Card variant="interactive" className="animate-slide-up" style={{animationDelay: '100ms'}}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                <CardTitle className="text-sm font-semibold text-muted-foreground">Total Assets</CardTitle>
-                <div className="p-2.5 bg-primary/10 rounded-xl">
-                  <FolderOpen className="h-5 w-5 text-primary" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-light text-foreground mb-2">1,234</div>
-                <p className="text-sm text-green-600 font-medium flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />
-                  12% from last month
-                </p>
-              </CardContent>
-            </Card>
+      <PageContentContainer mode="form" padding="page" className="space-y-4">
 
-            <Card variant="interactive" className="animate-slide-up" style={{animationDelay: '200ms'}}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                <CardTitle className="text-sm font-semibold text-muted-foreground">Downloads</CardTitle>
-                <div className="p-2.5 bg-green-500/10 rounded-xl">
-                  <Download className="h-5 w-5 text-green-600" />
+        {loading ? (
+          <div className="space-y-4">
+            {/* Stat cards */}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="rounded-lg border border-border bg-white p-4 space-y-2">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-7 w-12" />
+                  <Skeleton className="h-3 w-28" />
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-light text-foreground mb-2">89</div>
-                <p className="text-sm text-green-600 font-medium flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />
-                  7% from last week
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card variant="interactive" className="animate-slide-up" style={{animationDelay: '300ms'}}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                <CardTitle className="text-sm font-semibold text-muted-foreground">Team Members</CardTitle>
-                <div className="p-2.5 bg-purple-500/10 rounded-xl">
-                  <Users className="h-5 w-5 text-purple-600" />
+              ))}
+            </div>
+            {/* Table + activity */}
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <div className="rounded-lg border border-border bg-white p-4 xl:col-span-2 space-y-3">
+                <Skeleton className="h-4 w-32" />
+                <div className="space-y-2">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Skeleton key={i} className="h-8 w-full" />
+                  ))}
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-light text-foreground mb-2">12</div>
-                <p className="text-sm text-green-600 font-medium flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />
-                  2 new this month
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card variant="interactive" className="animate-slide-up" style={{animationDelay: '400ms'}}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-                <CardTitle className="text-sm font-semibold text-muted-foreground">Storage Used</CardTitle>
-                <div className="p-2.5 bg-orange-500/10 rounded-xl">
-                  <Database className="h-5 w-5 text-orange-600" />
+              </div>
+              <div className="rounded-lg border border-border bg-white p-4 space-y-3">
+                <Skeleton className="h-4 w-28" />
+                <div className="space-y-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-3xl font-light text-foreground mb-3">2.1 GB</div>
-                <div className="w-full bg-muted rounded-full h-2.5 mb-2">
-                  <div className="bg-orange-500 h-2.5 rounded-full transition-all duration-300" style={{width: '42%'}}></div>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  of 5.0 GB limit
-                </p>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="rounded-lg border border-border bg-white p-4">
+                <p className="text-xs text-muted-foreground">Updates</p>
+                <p className="text-2xl font-semibold text-foreground">
+                  {summary?.totals.updates ?? 0}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {summary?.totals.published ?? 0} published | {summary?.totals.draft ?? 0} draft
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-white p-4">
+                <p className="text-xs text-muted-foreground">Updates With Kit</p>
+                <p className="text-2xl font-semibold text-foreground">
+                  {summary?.totals.updatesWithKit ?? 0}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {summary?.totals.kitItems ?? 0} total kit items referenced
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-white p-4">
+                <p className="text-xs text-muted-foreground">Message Opens</p>
+                <p className="text-2xl font-semibold text-foreground">
+                  {Math.round((summary?.totals.openRate ?? 0) * 100)}%
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {summary?.totals.opened ?? 0} of {summary?.totals.recipients ?? 0} recipients
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-white p-4">
+                <p className="text-xs text-muted-foreground">Acknowledged</p>
+                <p className="text-2xl font-semibold text-foreground">
+                  {summary?.totals.acknowledged ?? 0}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {summary?.totals.activated ?? 0} activated
+                </p>
+              </div>
+              <div className="rounded-lg border border-border bg-white p-4">
+                <p className="text-xs text-muted-foreground">Overdue Recipients</p>
+                <p className="text-2xl font-semibold text-foreground">
+                  {summary?.totals.overdueRecipients ?? 0}
+                </p>
+                <p className="text-xs text-muted-foreground">need follow-up</p>
+              </div>
+            </div>
 
-          {/* Enhanced Main Tools Grid */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lg:gap-8 mb-12 sm:mb-16">
-            {/* Enhanced Digital Assets Card */}
-            <Card variant="interactive" className="group animate-slide-up" style={{animationDelay: '500ms'}}>
-              <Link href={`/${tenantSlug}/assets`} className="block h-full">
-                <CardHeader className="pb-4">
-                  <div className="flex items-start sm:items-center justify-between gap-4">
-                    <div className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 min-w-0">
-                      <div className="p-3 sm:p-4 bg-primary/10 rounded-xl sm:rounded-2xl group-hover:bg-primary/20 transition-colors flex-shrink-0">
-                        <FileImage className="w-6 sm:w-8 h-6 sm:h-8 text-primary" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <CardTitle className="text-xl sm:text-2xl font-semibold mb-1 sm:mb-2">Digital Assets</CardTitle>
-                        <CardDescription className="text-sm sm:text-base">
-                          Organize, search, and share your digital assets
-                        </CardDescription>
-                      </div>
-                    </div>
-                    <ArrowRight className="w-5 sm:w-6 h-5 sm:h-6 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all flex-shrink-0" />
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+              <div className="rounded-lg border border-border bg-white p-4 xl:col-span-2">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-foreground">Recent Updates</h2>
+                  <Link href={`/${tenantSlug}/updates`} className="text-xs text-primary hover:underline">
+                    Open module
+                  </Link>
+                </div>
+                {summary?.recent?.length ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] text-sm">
+                      <thead className="bg-muted/50">
+                        <tr className="border-b border-border">
+                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Title</th>
+                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</th>
+                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Kit</th>
+                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Recipients</th>
+                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Open Rate</th>
+                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Due</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {summary.recent.map((update) => (
+                          <tr key={update.id} className="border-b border-border/60">
+                            <td className="px-2 py-2">
+                              <Link
+                                href={`/${tenantSlug}/updates/${update.id}`}
+                                className="font-medium text-foreground hover:underline"
+                              >
+                                {update.title}
+                              </Link>
+                            </td>
+                            <td className="px-2 py-2">{update.status}</td>
+                            <td className="px-2 py-2">{update.hasKit ? "Yes" : "No"}</td>
+                            <td className="px-2 py-2">{update.recipientCount}</td>
+                            <td className="px-2 py-2">{Math.round(update.openRate * 100)}%</td>
+                            <td className="px-2 py-2">{formatDate(update.dueAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-8 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <FolderOpen className="w-4 h-4" />
-                      <span className="font-medium">1,234 assets</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Upload className="w-4 h-4" />
-                      <span className="font-medium">12 uploaded today</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Link>
-            </Card>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No updates created yet.</p>
+                )}
+              </div>
 
-            {/* Analytics (Coming Soon) */}
-            <Card className="group opacity-75 cursor-not-allowed animate-slide-up" style={{animationDelay: '600ms'}}>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="p-4 bg-primary/10 rounded-2xl">
-                      <BarChart3 className="w-8 h-8 text-primary" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-2xl font-semibold mb-2">Analytics Dashboard</CardTitle>
-                      <CardDescription className="text-base">
-                        Track performance and team collaboration
-                      </CardDescription>
-                    </div>
-                  </div>
-                  <div className="text-xs bg-muted text-muted-foreground px-3 py-2 rounded-full font-medium">
-                    Coming Soon
-                  </div>
+              <div className="rounded-lg border border-border bg-white p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-foreground">Recent Activity</h2>
+                  <Link href="/notifications" className="text-xs text-primary hover:underline">
+                    Open notifications
+                  </Link>
                 </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-8 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4" />
-                    <span className="font-medium">Performance metrics</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Eye className="w-4 h-4" />
-                    <span className="font-medium">Usage insights</span>
-                  </div>
+                <div className="space-y-2">
+                  {latestEvents.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No recent activity.</p>
+                  ) : (
+                    latestEvents.map((event) => (
+                      <Link
+                        key={event.id}
+                        href={event.href}
+                        className={`block rounded-md border p-2 text-sm ${
+                          event.isRead ? "border-border bg-white" : "border-primary/40 bg-primary/5"
+                        }`}
+                      >
+                        <p className="font-medium text-foreground">{event.title}</p>
+                        <p className="line-clamp-2 text-xs text-muted-foreground">
+                          {event.description}
+                        </p>
+                      </Link>
+                    ))
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* Campaign Management (Coming Soon) */}
-            <Card className="group opacity-75 cursor-not-allowed animate-slide-up" style={{animationDelay: '700ms'}}>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="p-4 bg-green-500/10 rounded-2xl">
-                      <Zap className="w-8 h-8 text-green-600" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-2xl font-semibold mb-2">Campaign Management</CardTitle>
-                      <CardDescription className="text-base">
-                        Plan and execute marketing campaigns
-                      </CardDescription>
-                    </div>
-                  </div>
-                  <div className="text-xs bg-muted text-muted-foreground px-3 py-2 rounded-full font-medium">
-                    Coming Soon
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-8 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    <span className="font-medium">Campaign planning</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Users className="w-4 h-4" />
-                    <span className="font-medium">Team coordination</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Team & Settings */}
-            <Card variant="interactive" className="group animate-slide-up" style={{animationDelay: '800ms'}}>
-              <Link href={`/${tenantSlug}/settings`} className="block h-full">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="p-4 bg-purple-500/10 rounded-2xl group-hover:bg-purple-500/20 transition-colors">
-                        <Settings className="w-8 h-8 text-purple-600" />
-                      </div>
-                      <div>
-                        <CardTitle className="text-2xl font-semibold mb-2">Workspace Settings</CardTitle>
-                        <CardDescription className="text-base">
-                          Manage team, billing, and preferences
-                        </CardDescription>
-                      </div>
-                    </div>
-                    <ArrowRight className="w-6 h-6 text-muted-foreground group-hover:text-purple-600 group-hover:translate-x-1 transition-all" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-8 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <Users className="w-4 h-4" />
-                      <span className="font-medium">12 team members</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Database className="w-4 h-4" />
-                      <span className="font-medium">Pro plan</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Link>
-            </Card>
+              </div>
+            </div>
           </div>
-
-          {/* Recent Activity */}
-          <Card variant="elevated" className="animate-slide-up" style={{animationDelay: '900ms'}}>
-            <CardHeader>
-              <CardTitle className="text-2xl">Recent Activity</CardTitle>
-              <CardDescription className="text-base">Latest updates from your team</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-start space-x-4 p-3 rounded-lg hover:bg-muted/30 transition-colors">
-                <div className="w-3 h-3 bg-green-500 rounded-full mt-1 flex-shrink-0"></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-foreground">New product images uploaded</p>
-                  <p className="text-sm text-muted-foreground mt-1">Added 15 high-resolution product shots to the Spring Collection folder</p>
-                  <p className="text-xs text-muted-foreground mt-2 font-medium">2 hours ago</p>
-                </div>
-              </div>
-              <div className="flex items-start space-x-4 p-3 rounded-lg hover:bg-muted/30 transition-colors">
-                <div className="w-3 h-3 bg-primary rounded-full mt-1 flex-shrink-0"></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-foreground">Campaign assets shared with retailers</p>
-                  <p className="text-sm text-muted-foreground mt-1">Marketing materials for Q2 campaign distributed to 5 retail partners</p>
-                  <p className="text-xs text-muted-foreground mt-2 font-medium">5 hours ago</p>
-                </div>
-              </div>
-              <div className="flex items-start space-x-4 p-3 rounded-lg hover:bg-muted/30 transition-colors">
-                <div className="w-3 h-3 bg-orange-500 rounded-full mt-1 flex-shrink-0"></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-foreground">Team member invited</p>
-                  <p className="text-sm text-muted-foreground mt-1">Sarah Chen joined the design team with editor permissions</p>
-                  <p className="text-xs text-muted-foreground mt-2 font-medium">1 day ago</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-      </div>
+        )}
+      </PageContentContainer>
     </main>
-  )
+  );
 }

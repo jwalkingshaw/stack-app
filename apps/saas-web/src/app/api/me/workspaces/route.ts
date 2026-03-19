@@ -37,6 +37,7 @@ export async function GET() {
             currentOrganization.type ||
             "brand") as "brand" | "partner",
           partnerCategory: currentOrganization.partnerCategory ?? null,
+          logoUrl: currentOrganization.logoUrl ?? null,
           storageUsed: currentOrganization.storageUsed,
           storageLimit: currentOrganization.storageLimit,
           lastAccessed: undefined,
@@ -83,6 +84,7 @@ export async function GET() {
       role: membership.role,
       organizationType: membership.organization.organizationType,
       partnerCategory: membership.organization.partnerCategory,
+      logoUrl: membership.organization.logoUrl ?? null,
       storageUsed: membership.organization.storageUsed,
       storageLimit: membership.organization.storageLimit,
       lastAccessed: membership.lastAccessedAt ?? undefined,

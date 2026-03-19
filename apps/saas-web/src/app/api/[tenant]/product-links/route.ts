@@ -23,6 +23,18 @@ type LinkReadConstraints = {
   restrictToSharedAssetScope: boolean;
 };
 
+type ProductLinkRow = {
+  dam_assets:
+    | {
+        asset_scope?: string | null;
+      }
+    | Array<{
+        asset_scope?: string | null;
+      }>
+    | null;
+  [key: string]: unknown;
+};
+
 function normalizeOptionalText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
@@ -108,7 +120,7 @@ async function resolvePartnerLinkReadConstraints(params: {
     const channelScoped = new Set<string>();
     for (const channelId of productScope.channelIds) {
       const scopedIds = await getChannelScopedProductIds({
-        supabase: supabase as any,
+        supabase: supabase,
         organizationId: brandOrganizationId,
         channelId,
       });
@@ -481,11 +493,15 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch product-asset links" }, { status: 500 });
     }
 
+    const linkRows = (productLinks || []) as ProductLinkRow[];
     const filteredLinks = constraints.restrictToSharedAssetScope
-      ? ((productLinks || []) as any[]).filter(
-          (row) => String(row?.dam_assets?.asset_scope || "").toLowerCase() === "shared"
-        )
-      : productLinks || [];
+      ? linkRows.filter((row) => {
+          const assetRow = Array.isArray(row.dam_assets) ? row.dam_assets[0] : row.dam_assets;
+          const scope =
+            assetRow && typeof assetRow === "object" ? assetRow.asset_scope : null;
+          return String(scope || "").toLowerCase() === "shared";
+        })
+      : linkRows;
 
     return NextResponse.json({
       success: true,

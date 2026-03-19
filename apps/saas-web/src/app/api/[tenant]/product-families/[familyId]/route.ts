@@ -33,7 +33,7 @@ function isCrossTenantWrite(tenantSlug: string, selectedBrandSlug: string | null
   return selected !== tenantSlug.trim().toLowerCase();
 }
 
-function isMissingColumnError(error: any): boolean {
+function isMissingColumnError(error: { code?: string | null } | null | undefined): boolean {
   return error?.code === MISSING_COLUMN_ERROR;
 }
 
@@ -182,9 +182,9 @@ export async function PUT(
       .single();
 
     if (isMissingColumnError(updateResult.error)) {
-      const legacyPayload = { ...updatePayload };
-      delete (legacyPayload as any).require_sku_on_active;
-      delete (legacyPayload as any).require_barcode_on_active;
+      const legacyPayload: Record<string, unknown> = { ...updatePayload };
+      delete legacyPayload.require_sku_on_active;
+      delete legacyPayload.require_barcode_on_active;
 
       updateResult = await supabase
         .from("product_families")

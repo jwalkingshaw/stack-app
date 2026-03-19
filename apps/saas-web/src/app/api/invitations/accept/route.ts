@@ -234,20 +234,25 @@ export async function POST(request: NextRequest) {
       return invalidInvitationResponse();
     }
 
-    const raw = rawInvitation as any;
-    const invitation: InvitationRow = {
+    const raw = rawInvitation as Record<string, unknown>;
+    const invitation = {
       ...raw,
-      partner_organization_id: raw.partner_organization_id ?? null,
-      invited_by: raw.invited_by ?? null,
-      permission_bundle_id: raw.permission_bundle_id ?? null,
-      invite_permissions: raw.invite_permissions ?? {},
+      partner_organization_id:
+        typeof raw.partner_organization_id === 'string' ? raw.partner_organization_id : null,
+      invited_by: typeof raw.invited_by === 'string' ? raw.invited_by : null,
+      permission_bundle_id:
+        typeof raw.permission_bundle_id === 'string' ? raw.permission_bundle_id : null,
+      invite_permissions:
+        raw.invite_permissions && typeof raw.invite_permissions === 'object'
+          ? (raw.invite_permissions as Record<string, unknown>)
+          : {},
       partner_org: Array.isArray(raw.partner_org)
-        ? raw.partner_org[0] ?? null
-        : raw.partner_org ?? null,
+        ? ((raw.partner_org[0] ?? null) as InvitationRow['partner_org'])
+        : ((raw.partner_org ?? null) as InvitationRow['partner_org']),
       brand_org: Array.isArray(raw.brand_org)
-        ? raw.brand_org[0] ?? null
-        : raw.brand_org ?? null,
-    };
+        ? ((raw.brand_org[0] ?? null) as InvitationRow['brand_org'])
+        : ((raw.brand_org ?? null) as InvitationRow['brand_org']),
+    } as InvitationRow;
 
     const invitationShareSetSnapshot = await loadInvitationShareSetAssignments({
       supabase,
@@ -424,7 +429,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Accept invitation in Supabase
-    const { data: acceptResult, error: acceptError } = await supabase.rpc(
+    const { error: acceptError } = await supabase.rpc(
       'accept_invitation',
       {
         invitation_token_param: invitationToken,
@@ -611,8 +616,8 @@ export async function POST(request: NextRequest) {
 
       const candidateOrgIds = Array.from(
         new Set(
-          (membershipRows || [])
-            .map((row: any) => row.organization_id)
+          ((membershipRows || []) as Array<{ organization_id: string | null }>)
+            .map((row) => row.organization_id)
             .filter((orgId: unknown): orgId is string => typeof orgId === 'string')
         )
       );
@@ -637,7 +642,7 @@ export async function POST(request: NextRequest) {
         }
 
         partnerOrgs = Array.isArray(partnerOrgRows)
-          ? partnerOrgRows.map((org: any) => ({
+          ? (partnerOrgRows as Array<{ id: string; name: string | null; slug: string | null }>).map((org) => ({
               id: org.id,
               name: org.name ?? null,
               slug: org.slug ?? null,
@@ -951,17 +956,18 @@ export async function GET(request: NextRequest) {
       return invalidInvitationResponse();
     }
 
-    const raw = rawInvitation as any;
-    const invitation: InvitationRow = {
+    const raw = rawInvitation as Record<string, unknown>;
+    const invitation = {
       ...raw,
-      partner_organization_id: raw.partner_organization_id ?? null,
+      partner_organization_id:
+        typeof raw.partner_organization_id === 'string' ? raw.partner_organization_id : null,
       partner_org: Array.isArray(raw.partner_org)
-        ? raw.partner_org[0] ?? null
-        : raw.partner_org ?? null,
+        ? ((raw.partner_org[0] ?? null) as InvitationRow['partner_org'])
+        : ((raw.partner_org ?? null) as InvitationRow['partner_org']),
       brand_org: Array.isArray(raw.brand_org)
-        ? raw.brand_org[0] ?? null
-        : raw.brand_org ?? null,
-    };
+        ? ((raw.brand_org[0] ?? null) as InvitationRow['brand_org'])
+        : ((raw.brand_org ?? null) as InvitationRow['brand_org']),
+    } as InvitationRow;
 
     if (!isInvitationActionable(invitation)) {
       return invalidInvitationResponse();

@@ -3,6 +3,7 @@
 import { ReactNode, useState } from 'react'
 import { AppHeader } from './AppHeader'
 import { SaaSSidebar, Organization, SidebarUser } from './SaaSSidebar'
+import { HeaderToolbarProvider } from './header-toolbar-context'
 
 export interface User {
   id: string
@@ -35,24 +36,16 @@ export interface AppLayoutShellProps {
       role: string
       organizationType?: 'brand' | 'partner'
       partnerCategory?: 'retailer' | 'distributor' | 'wholesaler' | null
+      logoUrl?: string | null
       lastAccessed?: string
       unreadCount?: number
     }>
-    storageUsed?: number
-    storageLimit?: number
     user?: SidebarUser | null
     onLogout?: () => void
-    folders?: Array<{
-      id: string
-      name: string
-      parentId: string | null
-      path: string
-    }>
   }
   showSidebar?: boolean
   sidebarDefaultOpen?: boolean
   contentClassName?: string
-  fullScreen?: boolean
 }
 
 export function AppLayoutShell({
@@ -62,8 +55,7 @@ export function AppLayoutShell({
   sidebarProps = {},
   showSidebar = true,
   sidebarDefaultOpen = true,
-  contentClassName = "",
-  fullScreen = false
+  contentClassName = ""
 }: AppLayoutShellProps) {
   const [, setSidebarCollapsed] = useState(!sidebarDefaultOpen)
 
@@ -89,11 +81,11 @@ export function AppLayoutShell({
 
   const resolvedLogout = sidebarProps.onLogout ?? headerProps.onLogout
 
-  // Force sidebar to show for saas-web, unless fullScreen mode
-  const shouldShowSidebar = showSidebar && authContext.isAuthenticated && !fullScreen
+  // Keep global navigation available whenever sidebar rendering is enabled.
+  const shouldShowSidebar = showSidebar && authContext.isAuthenticated
   
   const getContentClasses = () => {
-    let classes = "w-full"
+    const classes = "w-full"
     return `${classes} ${contentClassName}`
   }
   
@@ -101,18 +93,20 @@ export function AppLayoutShell({
   if (!shouldShowSidebar) {
     return (
       <div className="min-h-screen bg-[#f5f5f5] overflow-hidden">
-        <div className="h-screen w-full p-2">
-          <div className="h-full w-full bg-background rounded border border-muted/20 shadow-soft overflow-hidden">
-            <div className="h-full overflow-y-auto bg-white">
-              <AppHeader />
-              {children}
-            </div>
+        <div className="h-screen w-full p-3">
+          <div className="h-full w-full bg-background rounded shadow-soft overflow-hidden">
+            <HeaderToolbarProvider>
+              <div className="relative h-full overflow-y-auto bg-white isolate">
+                <AppHeader />
+                {children}
+              </div>
+            </HeaderToolbarProvider>
           </div>
         </div>
       </div>
     )
   }
-  
+
   // Render with minimal sidebar - no unified header
   return (
     <div className="min-h-screen bg-sidebar overflow-hidden">
@@ -124,8 +118,6 @@ export function AppLayoutShell({
             orgSlug={sidebarProps.orgSlug}
             currentPath={sidebarProps.currentPath}
             workspaces={sidebarProps.workspaces}
-            storageUsed={sidebarProps.storageUsed}
-            storageLimit={sidebarProps.storageLimit}
             defaultCollapsed={!sidebarDefaultOpen}
             onCollapseChange={setSidebarCollapsed}
             user={resolvedSidebarUser}
@@ -134,14 +126,16 @@ export function AppLayoutShell({
         </div>
 
         {/* Content area with grey border frame */}
-        <div className="flex-1 min-w-0 p-2 h-screen bg-[#f5f5f5]">
-          <div className="h-full w-full bg-background rounded border border-muted/20 shadow-soft overflow-hidden">
-            <div className="h-full overflow-y-auto bg-white">
-              <AppHeader />
-              <div className={getContentClasses()}>
-                {children}
+        <div className="flex-1 min-w-0 p-3 h-screen bg-[#f5f5f5]">
+          <div className="h-full w-full bg-background rounded shadow-soft overflow-hidden">
+            <HeaderToolbarProvider>
+              <div className="relative h-full overflow-y-auto bg-white isolate">
+                <AppHeader />
+                <div className={getContentClasses()}>
+                  {children}
+                </div>
               </div>
-            </div>
+            </HeaderToolbarProvider>
           </div>
         </div>
       </div>

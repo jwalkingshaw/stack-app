@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import NextImage from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Bell, LayoutGrid, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -15,6 +16,7 @@ import {
 interface WorkspaceRailProps {
   currentWorkspaceSlug: string
   currentWorkspaceName?: string
+  currentWorkspaceLogoUrl?: string | null
   currentPath?: string
   initialWorkspaces?: WorkspaceSummary[]
   className?: string
@@ -34,17 +36,23 @@ function getWorkspaceUnreadCount(workspace: WorkspaceSummary): number {
 export function WorkspaceRail({
   currentWorkspaceSlug,
   currentWorkspaceName,
+  currentWorkspaceLogoUrl,
   currentPath,
   initialWorkspaces,
   className,
 }: WorkspaceRailProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [failedLogos, setFailedLogos] = useState<Record<string, true>>({})
   const fallbackBrandSlug = (searchParams.get('brand') || '').trim().toLowerCase()
   const { sortedWorkspaces } = useWorkspaces({
     currentWorkspaceSlug,
     initialWorkspaces,
   })
+
+  useEffect(() => {
+    setFailedLogos({})
+  }, [currentWorkspaceLogoUrl, sortedWorkspaces])
 
   const workspaceEntries = useMemo(() => {
     const bySlug = new Map<string, WorkspaceSummary>()
@@ -58,11 +66,12 @@ export function WorkspaceRail({
         slug: currentWorkspaceSlug,
         name: currentWorkspaceName || currentWorkspaceSlug,
         role: 'member',
+        logoUrl: currentWorkspaceLogoUrl ?? null,
       })
     }
 
     return Array.from(bySlug.values())
-  }, [currentWorkspaceName, currentWorkspaceSlug, sortedWorkspaces])
+  }, [currentWorkspaceLogoUrl, currentWorkspaceName, currentWorkspaceSlug, sortedWorkspaces])
 
   const totalUnreadCount = useMemo(() => {
     return workspaceEntries.reduce((sum, workspace) => sum + getWorkspaceUnreadCount(workspace), 0)
@@ -107,7 +116,7 @@ export function WorkspaceRail({
     if (!suffix) return ''
     if (suffix.startsWith('/assets')) return '/assets'
     if (suffix.startsWith('/products')) return '/products'
-    if (suffix.startsWith('/folders')) return '/folders'
+    if (suffix.startsWith('/updates')) return '/updates'
     return ''
   })()
 
@@ -155,6 +164,7 @@ export function WorkspaceRail({
             !(isPartnerContext && Boolean(activeScope) && workspace.organizationType === 'partner')
           const isActive = isBrandViewActive || isCurrentWorkspaceActive
           const unreadCount = getWorkspaceUnreadCount(workspace)
+          const hasLogo = Boolean(workspace.logoUrl && !failedLogos[workspace.slug])
 
           return (
             <button
@@ -191,7 +201,21 @@ export function WorkspaceRail({
               )}
               aria-current={isActive ? 'page' : undefined}
             >
-              {getWorkspaceInitial(workspace)}
+              {hasLogo ? (
+                <NextImage
+                  src={workspace.logoUrl!}
+                  alt={`${workspace.name} logo`}
+                  className="h-7 w-7 rounded-md object-cover"
+                  width={28}
+                  height={28}
+                  unoptimized
+                  onError={() => {
+                    setFailedLogos((current) => ({ ...current, [workspace.slug]: true }))
+                  }}
+                />
+              ) : (
+                getWorkspaceInitial(workspace)
+              )}
               {unreadCount > 0 && (
                 <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
                   {unreadCount > 99 ? '99+' : unreadCount}

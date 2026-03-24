@@ -91,7 +91,6 @@ export function ProductsClient({
     <div className="space-y-6">
       <PageHeader
         title="Products"
-        description="Manage product models, variants, and shared partner catalog visibility."
       />
       <PageContentContainer mode="fluid" padding="page" className="space-y-4">
         {isSharedBrandView ? (

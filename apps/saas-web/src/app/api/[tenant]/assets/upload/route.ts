@@ -11,6 +11,7 @@ import {
   validateAuthoringScope,
 } from "@/lib/authoring-scope";
 import { getOrganizationBillingLimits } from "@/lib/billing-policy";
+import { addResourceToGlobalCatalogSet } from "@/lib/market-catalog";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -74,6 +75,38 @@ type UploadMetadata = {
   suggestedProductLinkReason: string | null;
   folderId: string | null;
   uploadProfileId: UploadProfileId | null;
+  // Compliance & approval
+  complianceStatus: string | null;
+  brandLegalApproval: string | null;
+  // Rights & talent
+  talentPresent: boolean | null;
+  releaseOnFile: boolean | null;
+  usageEnd: string | null;
+  usageTerritory: string | null;
+  licenseOwnership: string | null;
+  usagePlatforms: string[];
+  ftcDisclosureRequired: boolean | null;
+  athleteNames: string[];
+  talentContractEnd: string | null;
+  endorsementType: string | null;
+  expirationDate: string | null;
+  // Regulatory
+  regulatoryRegion: string[];
+  certifications: string[];
+  visibleClaims: string[];
+  claimsApprovedMarkets: string[];
+  wadaRiskLevel: string | null;
+  // Accessibility
+  altText: string | null;
+  // Label / artwork
+  artworkType: string | null;
+  colorProfile: string | null;
+  printVsDigital: string | null;
+  resolutionDpi: number | null;
+  labelVersion: string | null;
+  formulaVersion: string | null;
+  width: number | null;
+  height: number | null;
 };
 
 type ProductLinkCandidate = {
@@ -471,6 +504,38 @@ function parseUploadMetadata(raw: FormDataEntryValue | null): {
     suggestedProductLinkReason,
     folderId: normalizeOptionalString(value.folderId),
     uploadProfileId,
+    // Compliance & approval
+    complianceStatus: normalizeOptionalString(value.complianceStatus),
+    brandLegalApproval: normalizeOptionalString(value.brandLegalApproval),
+    // Rights & talent
+    talentPresent: typeof value.talentPresent === "boolean" ? value.talentPresent : null,
+    releaseOnFile: typeof value.releaseOnFile === "boolean" ? value.releaseOnFile : null,
+    usageEnd: normalizeOptionalString(value.usageEnd),
+    usageTerritory: normalizeOptionalString(value.usageTerritory),
+    licenseOwnership: normalizeOptionalString(value.licenseOwnership),
+    usagePlatforms: normalizeStringArray(value.usagePlatforms),
+    ftcDisclosureRequired: typeof value.ftcDisclosureRequired === "boolean" ? value.ftcDisclosureRequired : null,
+    athleteNames: normalizeStringArray(value.athleteNames ?? value.talentNames),
+    talentContractEnd: normalizeOptionalString(value.talentContractEnd),
+    endorsementType: normalizeOptionalString(value.endorsementType),
+    expirationDate: normalizeOptionalString(value.expirationDate),
+    // Regulatory
+    regulatoryRegion: normalizeStringArray(value.regulatoryRegion),
+    certifications: normalizeStringArray(value.certifications),
+    visibleClaims: normalizeStringArray(value.visibleClaims),
+    claimsApprovedMarkets: normalizeStringArray(value.claimsApprovedMarkets),
+    wadaRiskLevel: normalizeOptionalString(value.wadaRiskLevel),
+    // Accessibility
+    altText: normalizeOptionalString(value.altText),
+    // Label / artwork
+    artworkType: normalizeOptionalString(value.artworkType),
+    colorProfile: normalizeOptionalString(value.colorProfile),
+    printVsDigital: normalizeOptionalString(value.printVsDigital),
+    resolutionDpi: typeof value.resolutionDpi === "number" && Number.isFinite(value.resolutionDpi) ? Math.round(value.resolutionDpi) : null,
+    labelVersion: normalizeOptionalString(value.labelVersion),
+    formulaVersion: normalizeOptionalString(value.formulaVersion),
+    width: typeof value.width === "number" && Number.isFinite(value.width) ? Math.round(value.width) : null,
+    height: typeof value.height === "number" && Number.isFinite(value.height) ? Math.round(value.height) : null,
   };
 
   return { metadata, error: null };
@@ -1034,6 +1099,35 @@ export async function POST(
         tags: uploadMetadata?.tags || [],
         description,
         created_by: userId,
+        // Structured fields — promoted from JSONB
+        asset_status: "active",
+        compliance_status: uploadMetadata?.complianceStatus ?? null,
+        brand_legal_approval: uploadMetadata?.brandLegalApproval ?? null,
+        talent_present: uploadMetadata?.talentPresent ?? null,
+        release_on_file: uploadMetadata?.releaseOnFile ?? null,
+        usage_end: uploadMetadata?.usageEnd ?? null,
+        usage_territory: uploadMetadata?.usageTerritory ?? null,
+        license_ownership: uploadMetadata?.licenseOwnership ?? null,
+        usage_platforms: uploadMetadata?.usagePlatforms ?? [],
+        ftc_disclosure_required: uploadMetadata?.ftcDisclosureRequired ?? null,
+        athlete_names: uploadMetadata?.athleteNames ?? [],
+        talent_contract_end: uploadMetadata?.talentContractEnd ?? null,
+        endorsement_type: uploadMetadata?.endorsementType ?? null,
+        expiration_date: uploadMetadata?.expirationDate ?? null,
+        regulatory_region: uploadMetadata?.regulatoryRegion ?? [],
+        certifications: uploadMetadata?.certifications ?? [],
+        visible_claims: uploadMetadata?.visibleClaims ?? [],
+        claims_approved_markets: uploadMetadata?.claimsApprovedMarkets ?? [],
+        wada_risk_level: uploadMetadata?.wadaRiskLevel ?? "none",
+        alt_text: uploadMetadata?.altText ?? null,
+        artwork_type: uploadMetadata?.artworkType ?? null,
+        color_profile: uploadMetadata?.colorProfile ?? null,
+        print_vs_digital: uploadMetadata?.printVsDigital ?? "digital",
+        resolution_dpi: uploadMetadata?.resolutionDpi ?? null,
+        label_version: uploadMetadata?.labelVersion ?? null,
+        formula_version: uploadMetadata?.formulaVersion ?? null,
+        width: uploadMetadata?.width ?? null,
+        height: uploadMetadata?.height ?? null,
       })
       .select()
       .single();
@@ -1213,6 +1307,18 @@ export async function POST(
       });
     } catch (dynamicRulesError) {
       console.error("POST /assets/upload dynamic set rule application failed:", dynamicRulesError);
+    }
+
+    try {
+      await addResourceToGlobalCatalogSet({
+        organizationId: organization.id,
+        userId,
+        moduleKey: "assets",
+        resourceType: "asset",
+        resourceId: createdAsset.id,
+      });
+    } catch (globalSetError) {
+      console.error("POST /assets/upload global asset set auto-include failed:", globalSetError);
     }
 
     return NextResponse.json({

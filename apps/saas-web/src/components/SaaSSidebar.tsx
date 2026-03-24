@@ -4,6 +4,7 @@ import React, { ReactNode, useCallback, useEffect, useMemo, useState } from 'rea
 import NextImage from 'next/image'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import {
   BarChart3,
   Files,
@@ -72,6 +73,7 @@ export function SaaSSidebar({
   onLogout,
   children,
 }: SaaSSidebarProps) {
+  const t = useTranslations("Shell.Sidebar")
   const helpCenterUrl =
     process.env.NEXT_PUBLIC_HELP_CENTER_URL?.trim() || 'https://help.stackcess.com'
   const currentWorkspaceSlug = orgSlug ?? organization?.slug ?? ''
@@ -233,27 +235,27 @@ export function SaaSSidebar({
         label: '',
         items: [
           {
-            label: 'Dashboard',
+            label: t("dashboard"),
             path: buildPath(),
             icon: BarChart3,
           },
         ],
       },
       {
-        label: 'Catalog',
+        label: t("catalog"),
         items: [
           {
-            label: 'Assets',
+            label: t("assets"),
             path: buildPath('/assets'),
             icon: Files,
           },
           {
-            label: 'Products',
+            label: t("products"),
             path: buildPath('/products'),
             icon: Package,
           },
           {
-            label: 'Updates',
+            label: t("updates"),
             path: buildPath('/updates'),
             icon: Megaphone,
           },
@@ -262,7 +264,7 @@ export function SaaSSidebar({
     ]
 
     return groups.filter((group) => group.items.length > 0)
-  }, [buildPath])
+  }, [buildPath, t])
 
   const handleLogout = () => {
     onLogout?.()
@@ -275,6 +277,7 @@ export function SaaSSidebar({
           currentWorkspaceSlug={currentWorkspaceSlug}
           currentWorkspaceName={organizationName}
           currentWorkspaceLogoUrl={currentWorkspaceLogoUrl}
+          currentOrganizationType={organization?.organizationType}
           currentPath={currentPath}
           initialWorkspaces={workspaces}
         />
@@ -282,7 +285,7 @@ export function SaaSSidebar({
 
       <div
         className={`h-full flex flex-col overflow-hidden transition-all duration-300 ease-out ${
-          isCollapsed ? 'w-16 opacity-100' : 'w-56 opacity-100'
+          isCollapsed ? 'w-16 opacity-100' : 'w-48 opacity-100'
         }`}
       >
         <div className={`${isCollapsed ? 'py-3 px-2' : 'px-3 h-14'}`}>
@@ -291,18 +294,18 @@ export function SaaSSidebar({
               <button
                 type="button"
                 onClick={handleExpandFromLogo}
-                aria-label="Expand navigation sidebar"
-                title="Expand navigation sidebar"
+                aria-label={t("expandSidebar")}
+                title={t("expandSidebar")}
                 className="group flex h-9 w-9 items-center justify-center rounded-md text-foreground hover:bg-muted/60 focus:outline-none focus:!shadow-none focus-visible:outline-none focus-visible:!shadow-none"
               >
-                <div className="relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-md bg-primary text-primary-foreground text-xs font-semibold">
+                <div className="relative flex h-6 w-6 items-center justify-center overflow-hidden rounded-md bg-primary text-primary-foreground text-xs font-semibold">
                   {showWorkspaceLogo ? (
                     <NextImage
                       src={currentWorkspaceLogoUrl!}
                       alt={`${organizationName || 'Workspace'} logo`}
                       className="h-full w-full object-cover transition-opacity duration-150 group-hover:opacity-0 group-focus-visible:opacity-0"
-                      width={28}
-                      height={28}
+                      width={24}
+                      height={24}
                       unoptimized
                       onError={() => setWorkspaceLogoFailed(true)}
                     />
@@ -328,17 +331,17 @@ export function SaaSSidebar({
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      aria-label="Open account menu"
+                      aria-label={t("openAccountMenu")}
                       className="workspace-menu-trigger flex flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left text-foreground hover:bg-muted/60 focus:outline-none focus:!shadow-none focus-visible:outline-none focus-visible:!shadow-none"
                     >
-                      <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-md bg-primary text-primary-foreground text-xs font-semibold">
+                      <div className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-md bg-primary text-primary-foreground text-xs font-semibold">
                         {showWorkspaceLogo ? (
                           <NextImage
                             src={currentWorkspaceLogoUrl!}
                             alt={`${organizationName || 'Workspace'} logo`}
                             className="h-full w-full object-cover"
-                            width={28}
-                            height={28}
+                            width={24}
+                            height={24}
                             unoptimized
                             onError={() => setWorkspaceLogoFailed(true)}
                           />
@@ -346,9 +349,9 @@ export function SaaSSidebar({
                           workspaceInitial
                         )}
                       </div>
-                      <div className="flex-1">
-                        <div className="text-sm font-medium text-foreground truncate">
-                          {organizationName || 'Workspace'}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-normal text-foreground truncate">
+                          {organizationName || t("workspace")}
                         </div>
                       </div>
                       <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-150" aria-hidden="true" />
@@ -367,7 +370,7 @@ export function SaaSSidebar({
                     {user ? (
                       <>
                         <DropdownMenuLabel className="text-xs text-muted-foreground">
-                          Signed in as {userFullName || userEmail}
+                          {t("signedInAs", { user: userFullName || userEmail })}
                         </DropdownMenuLabel>
                         <DropdownMenuSeparator />
                       </>
@@ -376,21 +379,21 @@ export function SaaSSidebar({
                       onSelect={() => handleNavigation(`/${currentWorkspaceSlug}/settings`)}
                       className="cursor-pointer"
                     >
-                      Settings
+                      {t("settings")}
                     </DropdownMenuItem>
                     {canManageMembers ? (
                       <DropdownMenuItem
                         onSelect={() => handleNavigation(buildPath('/settings/team'))}
                         className="cursor-pointer"
                       >
-                        Invite &amp; manage members
+                        {t("inviteManageMembers")}
                       </DropdownMenuItem>
                     ) : null}
                     <DropdownMenuItem
                       onSelect={() => window.open(helpCenterUrl, '_blank', 'noopener,noreferrer')}
                       className="cursor-pointer"
                     >
-                      Help center
+                      {t("helpCenter")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
@@ -398,7 +401,7 @@ export function SaaSSidebar({
                       disabled={!onLogout}
                       className="cursor-pointer text-destructive focus:text-destructive"
                     >
-                      Log out
+                      {t("logOut")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -410,8 +413,8 @@ export function SaaSSidebar({
                 type="button"
                 onClick={toggleCollapsed}
                 className="h-8 w-8 rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                aria-label="Collapse navigation sidebar"
-                title="Collapse navigation sidebar"
+                aria-label={t("collapseSidebar")}
+                title={t("collapseSidebar")}
               >
                 <PanelLeftClose className="h-4 w-4 mx-auto" />
               </button>

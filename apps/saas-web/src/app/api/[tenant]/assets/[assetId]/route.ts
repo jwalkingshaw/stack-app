@@ -390,6 +390,15 @@ export async function PATCH(
     const hasProductLinks = Object.prototype.hasOwnProperty.call(body, "productLinks");
     const hasAuthoringScope = Object.prototype.hasOwnProperty.call(body, "authoringScope");
     const hasAppliesToChildren = Object.prototype.hasOwnProperty.call(body, "appliesToChildren");
+    // Tag/category assignments (normalized join-table replacements)
+    const hasTagIds = Object.prototype.hasOwnProperty.call(body, "tagIds");
+    const hasCategoryIds = Object.prototype.hasOwnProperty.call(body, "categoryIds");
+    const tagIds = hasTagIds ? normalizeStringArray(body.tagIds) : null;
+    const categoryIds = hasCategoryIds ? normalizeStringArray(body.categoryIds) : null;
+    const primaryCategoryId =
+      typeof body.primaryCategoryId === "string" && body.primaryCategoryId.trim()
+        ? body.primaryCategoryId.trim()
+        : null;
     const hasAutoSuggestedProductLinks = Object.prototype.hasOwnProperty.call(
       body,
       "autoSuggestedProductLinks"
@@ -621,24 +630,86 @@ export async function PATCH(
       };
     }
 
-    if (Object.keys(updatePayload).length === 0) {
+    // Structured DAM metadata fields — forwarded directly to dam_assets columns
+    const structuredFields: Array<[string, string, "string" | "boolean" | "number" | "array"]> = [
+      ["assetStatus",           "asset_status",           "string"],
+      ["complianceStatus",      "compliance_status",      "string"],
+      ["brandLegalApproval",    "brand_legal_approval",   "string"],
+      ["claimsReviewStatus",    "claims_review_status",   "string"],
+      ["artworkType",           "artwork_type",           "string"],
+      ["colorProfile",          "color_profile",          "string"],
+      ["printVsDigital",        "print_vs_digital",       "string"],
+      ["labelVersion",          "label_version",          "string"],
+      ["formulaVersion",        "formula_version",        "string"],
+      ["altText",               "alt_text",               "string"],
+      ["licenseOwnership",      "license_ownership",      "string"],
+      ["usageTerritory",        "usage_territory",        "string"],
+      ["usageEnd",              "usage_end",              "string"],
+      ["endorsementType",       "endorsement_type",       "string"],
+      ["talentContractEnd",     "talent_contract_end",    "string"],
+      ["expirationDate",        "expiration_date",        "string"],
+      ["wadaRiskLevel",         "wada_risk_level",        "string"],
+      ["talentPresent",         "talent_present",         "boolean"],
+      ["releaseOnFile",         "release_on_file",        "boolean"],
+      ["ftcDisclosureRequired", "ftc_disclosure_required","boolean"],
+      ["resolutionDpi",         "resolution_dpi",         "number"],
+      ["usagePlatforms",        "usage_platforms",        "array"],
+      ["athleteNames",          "athlete_names",          "array"],
+      ["regulatoryRegion",      "regulatory_region",      "array"],
+      ["certifications",        "certifications",         "array"],
+      ["visibleClaims",         "visible_claims",         "array"],
+      ["claimsApprovedMarkets", "claims_approved_markets","array"],
+    ];
+    for (const [camelKey, dbKey, type] of structuredFields) {
+      if (!Object.prototype.hasOwnProperty.call(body, camelKey)) continue;
+      const raw = body[camelKey];
+      if (type === "array") {
+        updatePayload[dbKey] = normalizeStringArray(raw);
+      } else if (type === "boolean") {
+        updatePayload[dbKey] = raw === null ? null : Boolean(raw);
+      } else if (type === "number") {
+        updatePayload[dbKey] =
+          typeof raw === "number" && Number.isFinite(raw) ? Math.round(raw) : null;
+      } else {
+        updatePayload[dbKey] =
+          typeof raw === "string" && raw.trim() ? raw.trim() : null;
+      }
+    }
+
+    if (Object.keys(updatePayload).length === 0 && !hasTagIds && !hasCategoryIds) {
       return NextResponse.json({
         data: existingAsset,
         message: "No asset metadata changes provided",
       });
     }
 
-    const { data: updatedAsset, error: updateError } = await supabase
-      .from("dam_assets")
-      .update(updatePayload)
-      .eq("id", assetId)
-      .eq("organization_id", organization.id)
-      .select()
-      .single();
+    let updatedAsset: unknown = existingAsset;
+    if (Object.keys(updatePayload).length > 0) {
+      const { data, error: updateError } = await supabase
+        .from("dam_assets")
+        .update(updatePayload)
+        .eq("id", assetId)
+        .eq("organization_id", organization.id)
+        .select()
+        .single();
 
-    if (updateError) {
-      console.error("PATCH /assets/[assetId] DB update failed:", updateError);
-      return NextResponse.json({ error: "Failed to update asset" }, { status: 500 });
+      if (updateError) {
+        console.error("PATCH /assets/[assetId] DB update failed:", updateError);
+        return NextResponse.json({ error: "Failed to update asset" }, { status: 500 });
+      }
+      updatedAsset = data;
+    }
+
+    // Replace tag assignments via join table (trigger keeps dam_assets.tags[] in sync)
+    if (hasTagIds && tagIds !== null) {
+      const db = new DatabaseQueries(supabase);
+      await db.replaceAssetTags(assetId, tagIds, userId);
+    }
+
+    // Replace category assignments via join table
+    if (hasCategoryIds && categoryIds !== null) {
+      const db = new DatabaseQueries(supabase);
+      await db.replaceAssetCategories(assetId, categoryIds, userId, primaryCategoryId);
     }
 
     if (hasProductLinks && normalizedProductLinks) {

@@ -92,6 +92,7 @@ export class DatabaseQueries {
       website,
       description,
       logoUrl,
+      defaultUiLocale: normalizeOptionalString(row?.default_ui_locale) ?? "en-US",
       industry: row.industry,
       teamSize: row.team_size,
       createdAt: row.created_at,
@@ -160,6 +161,7 @@ export class DatabaseQueries {
       canEditProducts: data.can_edit_products,
       canManageTeam: data.can_manage_team,
       permissions: data.permissions,
+      uiLocaleOverride: data.ui_locale_override ?? null,
       joinedAt: data.joined_at,
       status: data.status,
       createdAt: data.created_at,
@@ -454,6 +456,71 @@ export class DatabaseQueries {
   }
 
   // Assets
+  private mapDamAsset(row: any): DamAsset {
+    return {
+      id: row.id,
+      organizationId: row.organization_id,
+      folderId: row.folder_id,
+      filename: row.filename,
+      originalFilename: row.original_filename,
+      fileType: row.file_type,
+      assetType: row.asset_type,
+      assetScope: row.asset_scope,
+      assetStatus: row.asset_status ?? 'active',
+      currentVersionNumber: row.current_version_number,
+      currentVersionComment: row.current_version_comment,
+      currentVersionEffectiveFrom: row.current_version_effective_from,
+      currentVersionEffectiveTo: row.current_version_effective_to,
+      currentVersionChangedBy: row.current_version_changed_by,
+      currentVersionChangedAt: row.current_version_changed_at,
+      fileSize: row.file_size,
+      mimeType: row.mime_type,
+      filePath: row.file_path,
+      s3Key: row.s3_key,
+      s3Url: row.s3_url,
+      thumbnailUrls: row.thumbnail_urls,
+      width: row.width ?? null,
+      height: row.height ?? null,
+      metadata: row.metadata,
+      tags: row.tags ?? [],
+      description: row.description,
+      productIdentifiers: row.product_identifiers,
+      // Compliance & approval
+      complianceStatus: row.compliance_status ?? null,
+      brandLegalApproval: row.brand_legal_approval ?? null,
+      // Rights & talent
+      talentPresent: row.talent_present ?? null,
+      releaseOnFile: row.release_on_file ?? null,
+      usageEnd: row.usage_end ?? null,
+      usageTerritory: row.usage_territory ?? null,
+      licenseOwnership: row.license_ownership ?? null,
+      usagePlatforms: row.usage_platforms ?? [],
+      ftcDisclosureRequired: row.ftc_disclosure_required ?? null,
+      athleteNames: row.athlete_names ?? [],
+      talentContractEnd: row.talent_contract_end ?? null,
+      endorsementType: row.endorsement_type ?? null,
+      expirationDate: row.expiration_date ?? null,
+      // Regulatory & certifications
+      regulatoryRegion: row.regulatory_region ?? [],
+      certifications: row.certifications ?? [],
+      visibleClaims: row.visible_claims ?? [],
+      claimsApprovedMarkets: row.claims_approved_markets ?? [],
+      wadaRiskLevel: row.wada_risk_level ?? 'none',
+      // Accessibility
+      altText: row.alt_text ?? null,
+      // Label / artwork
+      artworkType: row.artwork_type ?? null,
+      colorProfile: row.color_profile ?? null,
+      printVsDigital: row.print_vs_digital ?? 'digital',
+      resolutionDpi: row.resolution_dpi ?? null,
+      labelVersion: row.label_version ?? null,
+      formulaVersion: row.formula_version ?? null,
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
   async getAssetsByOrganization(
     organizationId: string,
     folderId?: string,
@@ -474,36 +541,7 @@ export class DatabaseQueries {
       .range(offset, offset + limit - 1);
 
     if (error || !data) return [];
-
-    return (data as any).map((asset: any) => ({
-      id: asset.id,
-      organizationId: asset.organization_id,
-      folderId: asset.folder_id,
-      filename: asset.filename,
-      originalFilename: asset.original_filename,
-      fileType: asset.file_type,
-      assetType: asset.asset_type,
-      assetScope: asset.asset_scope,
-      currentVersionNumber: asset.current_version_number,
-      currentVersionComment: asset.current_version_comment,
-      currentVersionEffectiveFrom: asset.current_version_effective_from,
-      currentVersionEffectiveTo: asset.current_version_effective_to,
-      currentVersionChangedBy: asset.current_version_changed_by,
-      currentVersionChangedAt: asset.current_version_changed_at,
-      fileSize: asset.file_size,
-      mimeType: asset.mime_type,
-      filePath: asset.file_path,
-      s3Key: asset.s3_key,
-      s3Url: asset.s3_url,
-      thumbnailUrls: asset.thumbnail_urls,
-      metadata: asset.metadata,
-      tags: asset.tags,
-      description: asset.description,
-      productIdentifiers: asset.product_identifiers,
-      createdBy: asset.created_by,
-      createdAt: asset.created_at,
-      updatedAt: asset.updated_at,
-    }));
+    return (data as any).map((row: any) => this.mapDamAsset(row));
   }
 
   async createAsset(asset: Omit<DamAsset, 'id' | 'createdAt' | 'updatedAt'> & {
@@ -522,52 +560,56 @@ export class DatabaseQueries {
         file_type: asset.fileType,
         asset_type: (asset as any).assetType ?? asset.fileType,
         asset_scope: (asset as any).assetScope ?? 'internal',
+        asset_status: asset.assetStatus ?? 'active',
         file_size: asset.fileSize,
         mime_type: asset.mimeType,
         file_path: (asset as any).filePath ?? asset.s3Key,
         s3_key: asset.s3Key,
         s3_url: asset.s3Url,
+        width: asset.width ?? null,
+        height: asset.height ?? null,
         product_identifiers: (asset as any).productIdentifiers ?? [],
         thumbnail_urls: asset.thumbnailUrls,
         metadata: asset.metadata,
         tags: asset.tags,
         description: asset.description,
+        // Compliance & approval
+        compliance_status: asset.complianceStatus ?? null,
+        brand_legal_approval: asset.brandLegalApproval ?? null,
+        // Rights & talent
+        talent_present: asset.talentPresent ?? null,
+        release_on_file: asset.releaseOnFile ?? null,
+        usage_end: asset.usageEnd ?? null,
+        usage_territory: asset.usageTerritory ?? null,
+        license_ownership: asset.licenseOwnership ?? null,
+        usage_platforms: asset.usagePlatforms ?? [],
+        ftc_disclosure_required: asset.ftcDisclosureRequired ?? null,
+        athlete_names: asset.athleteNames ?? [],
+        talent_contract_end: asset.talentContractEnd ?? null,
+        endorsement_type: asset.endorsementType ?? null,
+        expiration_date: asset.expirationDate ?? null,
+        // Regulatory & certifications
+        regulatory_region: asset.regulatoryRegion ?? [],
+        certifications: asset.certifications ?? [],
+        visible_claims: asset.visibleClaims ?? [],
+        claims_approved_markets: asset.claimsApprovedMarkets ?? [],
+        wada_risk_level: asset.wadaRiskLevel ?? 'none',
+        // Accessibility
+        alt_text: asset.altText ?? null,
+        // Label / artwork
+        artwork_type: asset.artworkType ?? null,
+        color_profile: asset.colorProfile ?? null,
+        print_vs_digital: asset.printVsDigital ?? 'digital',
+        resolution_dpi: asset.resolutionDpi ?? null,
+        label_version: asset.labelVersion ?? null,
+        formula_version: asset.formulaVersion ?? null,
         created_by: asset.createdBy,
       })
       .select()
       .single();
 
     if (error || !data) return null;
-
-    return {
-      id: (data as any).id,
-      organizationId: (data as any).organization_id,
-      folderId: (data as any).folder_id,
-      filename: (data as any).filename,
-      originalFilename: (data as any).original_filename,
-      fileType: (data as any).file_type,
-      assetType: (data as any).asset_type,
-      assetScope: (data as any).asset_scope,
-      currentVersionNumber: (data as any).current_version_number,
-      currentVersionComment: (data as any).current_version_comment,
-      currentVersionEffectiveFrom: (data as any).current_version_effective_from,
-      currentVersionEffectiveTo: (data as any).current_version_effective_to,
-      currentVersionChangedBy: (data as any).current_version_changed_by,
-      currentVersionChangedAt: (data as any).current_version_changed_at,
-      fileSize: (data as any).file_size,
-      mimeType: (data as any).mime_type,
-      filePath: (data as any).file_path,
-      s3Key: (data as any).s3_key,
-      s3Url: (data as any).s3_url,
-      thumbnailUrls: (data as any).thumbnail_urls,
-      metadata: (data as any).metadata,
-      tags: (data as any).tags,
-      description: (data as any).description,
-      productIdentifiers: (data as any).product_identifiers,
-      createdBy: (data as any).created_by,
-      createdAt: (data as any).created_at,
-      updatedAt: (data as any).updated_at,
-    };
+    return this.mapDamAsset(data as any);
   }
 
   async updateAssetMetadata(
@@ -580,6 +622,39 @@ export class DatabaseQueries {
       metadata?: Record<string, any> | null;
       thumbnailUrls?: Record<string, any> | null;
       tags?: string[];
+      assetStatus?: string;
+      // Compliance & approval
+      complianceStatus?: string | null;
+      brandLegalApproval?: string | null;
+      // Rights & talent
+      talentPresent?: boolean | null;
+      releaseOnFile?: boolean | null;
+      usageEnd?: string | null;
+      usageTerritory?: string | null;
+      licenseOwnership?: string | null;
+      usagePlatforms?: string[];
+      ftcDisclosureRequired?: boolean | null;
+      athleteNames?: string[];
+      talentContractEnd?: string | null;
+      endorsementType?: string | null;
+      expirationDate?: string | null;
+      // Regulatory
+      regulatoryRegion?: string[];
+      certifications?: string[];
+      visibleClaims?: string[];
+      claimsApprovedMarkets?: string[];
+      wadaRiskLevel?: string;
+      // Accessibility
+      altText?: string | null;
+      // Label / artwork
+      artworkType?: string | null;
+      colorProfile?: string | null;
+      printVsDigital?: string;
+      resolutionDpi?: number | null;
+      labelVersion?: string | null;
+      formulaVersion?: string | null;
+      width?: number | null;
+      height?: number | null;
     }
   ): Promise<DamAsset | null> {
     const payload: Record<string, any> = {};
@@ -588,33 +663,44 @@ export class DatabaseQueries {
       payload.filename = updates.filename.trim();
       payload.original_filename = updates.filename.trim();
     }
-
-    if (updates.description !== undefined) {
-      payload.description = updates.description ? updates.description.trim() : null;
-    }
-
-    if (updates.folderId !== undefined) {
-      payload.folder_id = updates.folderId;
-    }
-
-    if (updates.metadata !== undefined) {
-      payload.metadata = updates.metadata;
-    }
-
-    if (updates.thumbnailUrls !== undefined) {
-      payload.thumbnail_urls = updates.thumbnailUrls;
-    }
-
-    if (updates.tags !== undefined) {
-      payload.tags = updates.tags;
-    }
+    if (updates.description !== undefined) payload.description = updates.description ? updates.description.trim() : null;
+    if (updates.folderId !== undefined) payload.folder_id = updates.folderId;
+    if (updates.metadata !== undefined) payload.metadata = updates.metadata;
+    if (updates.thumbnailUrls !== undefined) payload.thumbnail_urls = updates.thumbnailUrls;
+    if (updates.tags !== undefined) payload.tags = updates.tags;
+    if (updates.assetStatus !== undefined) payload.asset_status = updates.assetStatus;
+    if (updates.complianceStatus !== undefined) payload.compliance_status = updates.complianceStatus;
+    if (updates.brandLegalApproval !== undefined) payload.brand_legal_approval = updates.brandLegalApproval;
+    if (updates.talentPresent !== undefined) payload.talent_present = updates.talentPresent;
+    if (updates.releaseOnFile !== undefined) payload.release_on_file = updates.releaseOnFile;
+    if (updates.usageEnd !== undefined) payload.usage_end = updates.usageEnd;
+    if (updates.usageTerritory !== undefined) payload.usage_territory = updates.usageTerritory;
+    if (updates.licenseOwnership !== undefined) payload.license_ownership = updates.licenseOwnership;
+    if (updates.usagePlatforms !== undefined) payload.usage_platforms = updates.usagePlatforms;
+    if (updates.ftcDisclosureRequired !== undefined) payload.ftc_disclosure_required = updates.ftcDisclosureRequired;
+    if (updates.athleteNames !== undefined) payload.athlete_names = updates.athleteNames;
+    if (updates.talentContractEnd !== undefined) payload.talent_contract_end = updates.talentContractEnd;
+    if (updates.endorsementType !== undefined) payload.endorsement_type = updates.endorsementType;
+    if (updates.expirationDate !== undefined) payload.expiration_date = updates.expirationDate;
+    if (updates.regulatoryRegion !== undefined) payload.regulatory_region = updates.regulatoryRegion;
+    if (updates.certifications !== undefined) payload.certifications = updates.certifications;
+    if (updates.visibleClaims !== undefined) payload.visible_claims = updates.visibleClaims;
+    if (updates.claimsApprovedMarkets !== undefined) payload.claims_approved_markets = updates.claimsApprovedMarkets;
+    if (updates.wadaRiskLevel !== undefined) payload.wada_risk_level = updates.wadaRiskLevel;
+    if (updates.altText !== undefined) payload.alt_text = updates.altText;
+    if (updates.artworkType !== undefined) payload.artwork_type = updates.artworkType;
+    if (updates.colorProfile !== undefined) payload.color_profile = updates.colorProfile;
+    if (updates.printVsDigital !== undefined) payload.print_vs_digital = updates.printVsDigital;
+    if (updates.resolutionDpi !== undefined) payload.resolution_dpi = updates.resolutionDpi;
+    if (updates.labelVersion !== undefined) payload.label_version = updates.labelVersion;
+    if (updates.formulaVersion !== undefined) payload.formula_version = updates.formulaVersion;
+    if (updates.width !== undefined) payload.width = updates.width;
+    if (updates.height !== undefined) payload.height = updates.height;
 
     if (Object.keys(payload).length === 0) {
-      const asset = await this.getAssetById(id, organizationId);
-      return asset;
+      return this.getAssetById(id, organizationId);
     }
 
-    // Ensure lightweight metadata edits still produce a new version token for clients.
     payload.updated_at = new Date().toISOString();
 
     const { data, error } = await (this.supabase as any)
@@ -626,36 +712,7 @@ export class DatabaseQueries {
       .single();
 
     if (error || !data) return null;
-
-    return {
-      id: (data as any).id,
-      organizationId: (data as any).organization_id,
-      folderId: (data as any).folder_id,
-      filename: (data as any).filename,
-      originalFilename: (data as any).original_filename,
-      fileType: (data as any).file_type,
-      assetType: (data as any).asset_type,
-      assetScope: (data as any).asset_scope,
-      currentVersionNumber: (data as any).current_version_number,
-      currentVersionComment: (data as any).current_version_comment,
-      currentVersionEffectiveFrom: (data as any).current_version_effective_from,
-      currentVersionEffectiveTo: (data as any).current_version_effective_to,
-      currentVersionChangedBy: (data as any).current_version_changed_by,
-      currentVersionChangedAt: (data as any).current_version_changed_at,
-      fileSize: (data as any).file_size,
-      mimeType: (data as any).mime_type,
-      filePath: (data as any).file_path,
-      s3Key: (data as any).s3_key,
-      s3Url: (data as any).s3_url,
-      thumbnailUrls: (data as any).thumbnail_urls,
-      metadata: (data as any).metadata,
-      tags: (data as any).tags,
-      description: (data as any).description,
-      productIdentifiers: (data as any).product_identifiers,
-      createdBy: (data as any).created_by,
-      createdAt: (data as any).created_at,
-      updatedAt: (data as any).updated_at,
-    };
+    return this.mapDamAsset(data as any);
   }
 
   async deleteAsset(id: string, organizationId: string): Promise<boolean> {
@@ -686,36 +743,7 @@ export class DatabaseQueries {
       .single();
 
     if (error || !data) return null;
-
-    return {
-      id: (data as any).id,
-      organizationId: (data as any).organization_id,
-      folderId: (data as any).folder_id,
-      filename: (data as any).filename,
-      originalFilename: (data as any).original_filename,
-      fileType: (data as any).file_type,
-      assetType: (data as any).asset_type,
-      assetScope: (data as any).asset_scope,
-      currentVersionNumber: (data as any).current_version_number,
-      currentVersionComment: (data as any).current_version_comment,
-      currentVersionEffectiveFrom: (data as any).current_version_effective_from,
-      currentVersionEffectiveTo: (data as any).current_version_effective_to,
-      currentVersionChangedBy: (data as any).current_version_changed_by,
-      currentVersionChangedAt: (data as any).current_version_changed_at,
-      fileSize: (data as any).file_size,
-      mimeType: (data as any).mime_type,
-      filePath: (data as any).file_path,
-      s3Key: (data as any).s3_key,
-      s3Url: (data as any).s3_url,
-      productIdentifiers: (data as any).product_identifiers,
-      thumbnailUrls: (data as any).thumbnail_urls,
-      metadata: (data as any).metadata,
-      tags: (data as any).tags,
-      description: (data as any).description,
-      createdBy: (data as any).created_by,
-      createdAt: (data as any).created_at,
-      updatedAt: (data as any).updated_at,
-    };
+    return this.mapDamAsset(data as any);
   }
 
   // Asset tag taxonomy -------------------------------------------------------
@@ -1077,6 +1105,7 @@ export class DatabaseQueries {
     teamSize?: string;
     organizationType?: 'brand' | 'partner';
     partnerCategory?: 'retailer' | 'distributor' | 'wholesaler' | null;
+    defaultUiLocale?: string;
   }): Promise<Organization | null> {
     const { data: orgData, error } = await (this.supabase as any)
       .from('organizations')
@@ -1088,6 +1117,7 @@ export class DatabaseQueries {
         partner_category: (data as any).partnerCategory ?? null,
         industry: (data as any).industry,
         team_size: (data as any).teamSize,
+        default_ui_locale: (data as any).defaultUiLocale || "en-US",
         storage_limit: 5368709120, // 5GB for all workspaces
       })
       .select()

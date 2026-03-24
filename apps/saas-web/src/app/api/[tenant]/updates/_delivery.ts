@@ -2,6 +2,10 @@ import { Resend } from "resend";
 import type { Database, Json } from "@tradetool/database";
 import { supabaseServer } from "@/lib/supabase";
 import { normalizeUuidArray } from "./_shared";
+import {
+  resolvePartnerGrantedAssetIds,
+  resolvePartnerGrantedProductIds,
+} from "@/lib/partner-brand-view";
 
 const supabase = supabaseServer;
 
@@ -25,6 +29,19 @@ type RecipientSelection = {
 type RecipientResolutionResult =
   | { ok: true; partnerOrganizationIds: string[] }
   | { ok: false; status: number; error: string };
+
+type RecipientKitAccessCheckResult =
+  | { ok: true }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      blockedRecipients: Array<{
+        partnerOrganizationId: string;
+        missingProductIds: string[];
+        missingAssetIds: string[];
+      }>;
+    };
 
 type ConsentStatus = "opted_in" | "opted_out" | null;
 type ChannelConsentDecision = {
@@ -327,6 +344,153 @@ export async function resolveRecipientOrganizations(params: {
     ok: true,
     partnerOrganizationIds: byShareSet.partnerOrganizationIds,
   };
+}
+
+async function loadUpdateKitResourceIds(params: {
+  organizationId: string;
+  updateId: string;
+}): Promise<
+  | { ok: true; productIds: string[]; assetIds: string[] }
+  | { ok: false; status: number; error: string }
+> {
+  const { data, error } = await supabase
+    .from("partner_update_kit_items")
+    .select("product_id,asset_id")
+    .eq("organization_id", params.organizationId)
+    .eq("partner_update_id", params.updateId);
+
+  if (error) {
+    return { ok: false, status: 500, error: "Failed to load kit access requirements" };
+  }
+
+  const productIds = new Set<string>();
+  const assetIds = new Set<string>();
+
+  for (const row of (data || []) as Array<{
+    product_id: string | null;
+    asset_id: string | null;
+  }>) {
+    if (row.product_id) productIds.add(row.product_id);
+    if (row.asset_id) assetIds.add(row.asset_id);
+  }
+
+  return {
+    ok: true,
+    productIds: Array.from(productIds),
+    assetIds: Array.from(assetIds),
+  };
+}
+
+function formatBlockedRecipientAccessError(params: {
+  blockedRecipients: Array<{
+    partnerOrganizationId: string;
+    missingProductIds: string[];
+    missingAssetIds: string[];
+  }>;
+}): string {
+  const blockedCount = params.blockedRecipients.length;
+  const sample = params.blockedRecipients.slice(0, 3).map((row) => {
+    const missingProductCount = row.missingProductIds.length;
+    const missingAssetCount = row.missingAssetIds.length;
+    return `${row.partnerOrganizationId} (missing ${missingProductCount} product${missingProductCount === 1 ? "" : "s"}, ${missingAssetCount} asset${missingAssetCount === 1 ? "" : "s"})`;
+  });
+
+  return [
+    `${blockedCount} selected partner${blockedCount === 1 ? "" : "s"} cannot access all Kit items via current Share Set grants.`,
+    "Assign or adjust Share Sets for those partners before sending this update.",
+    sample.length > 0 ? `Examples: ${sample.join("; ")}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export async function validateRecipientKitAccess(params: {
+  organizationId: string;
+  updateId: string;
+  partnerOrganizationIds: string[];
+}): Promise<RecipientKitAccessCheckResult> {
+  const partnerOrganizationIds = Array.from(new Set(params.partnerOrganizationIds));
+  if (partnerOrganizationIds.length === 0) {
+    return { ok: true };
+  }
+
+  const requiredResources = await loadUpdateKitResourceIds({
+    organizationId: params.organizationId,
+    updateId: params.updateId,
+  });
+  if (!requiredResources.ok) {
+    return {
+      ok: false,
+      status: requiredResources.status,
+      error: requiredResources.error,
+      blockedRecipients: [],
+    };
+  }
+
+  if (
+    requiredResources.productIds.length === 0 &&
+    requiredResources.assetIds.length === 0
+  ) {
+    return { ok: true };
+  }
+
+  const blockedRecipients: Array<{
+    partnerOrganizationId: string;
+    missingProductIds: string[];
+    missingAssetIds: string[];
+  }> = [];
+
+  for (const partnerOrganizationId of partnerOrganizationIds) {
+    const [grantedProducts, grantedAssets] = await Promise.all([
+      resolvePartnerGrantedProductIds({
+        brandOrganizationId: params.organizationId,
+        partnerOrganizationId,
+      }),
+      resolvePartnerGrantedAssetIds({
+        brandOrganizationId: params.organizationId,
+        partnerOrganizationId,
+      }),
+    ]);
+
+    if (!grantedProducts.foundationAvailable || !grantedAssets.foundationAvailable) {
+      return {
+        ok: false,
+        status: 503,
+        error:
+          "Share Set visibility foundation is unavailable. Apply latest sharing migrations first.",
+        blockedRecipients: [],
+      };
+    }
+
+    const grantedProductIds = new Set(grantedProducts.productIds);
+    const grantedAssetIds = new Set(grantedAssets.assetIds);
+
+    const missingProductIds = requiredResources.productIds.filter(
+      (id) => !grantedProductIds.has(id)
+    );
+    const missingAssetIds = requiredResources.assetIds.filter(
+      (id) => !grantedAssetIds.has(id)
+    );
+
+    if (missingProductIds.length > 0 || missingAssetIds.length > 0) {
+      blockedRecipients.push({
+        partnerOrganizationId,
+        missingProductIds,
+        missingAssetIds,
+      });
+    }
+  }
+
+  if (blockedRecipients.length > 0) {
+    return {
+      ok: false,
+      status: 400,
+      error: formatBlockedRecipientAccessError({ blockedRecipients }),
+      blockedRecipients,
+    };
+  }
+
+  return { ok: true };
 }
 
 export async function getUpdateForDelivery(params: {
@@ -697,13 +861,19 @@ export async function resolvePartnerEmailTargets(params: {
 
 export function buildUpdateEmailUrl(params: {
   brandTenantSlug: string;
+  partnerOrgSlug?: string | null;
+  updateId?: string | null;
 }): string | null {
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
   if (!appUrl) return null;
   try {
     const url = new URL(appUrl);
-    url.pathname = "/notifications";
-    url.searchParams.set("brand", params.brandTenantSlug);
+    if (params.partnerOrgSlug && params.updateId) {
+      url.pathname = `/${params.partnerOrgSlug}/view/${params.brandTenantSlug}/updates/${params.updateId}`;
+    } else {
+      url.pathname = "/notifications";
+      url.searchParams.set("brand", params.brandTenantSlug);
+    }
     return url.toString();
   } catch {
     return null;
@@ -716,6 +886,13 @@ function getEmailSender(): Resend | null {
   return new Resend(apiKey);
 }
 
+const URGENCY_COLORS: Record<string, { bg: string; text: string }> = {
+  critical: { bg: "#fef2f2", text: "#b91c1c" },
+  high:     { bg: "#fff7ed", text: "#c2410c" },
+  normal:   { bg: "#eff6ff", text: "#1d4ed8" },
+  low:      { bg: "#f9fafb", text: "#6b7280" },
+};
+
 function buildPartnerUpdateEmailHtml(params: {
   brandLabel: string;
   updateTitle: string;
@@ -725,44 +902,105 @@ function buildPartnerUpdateEmailHtml(params: {
   ctaUrl: string | null;
   isReminder: boolean;
 }): string {
-  const dueDateText = params.dueAt
-    ? new Date(params.dueAt).toLocaleString("en-US", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
-    : "No due date set";
+  const urgencyKey = (params.urgency || "normal").toLowerCase();
+  const urgencyColor = URGENCY_COLORS[urgencyKey] ?? URGENCY_COLORS.normal;
+  const urgencyLabel = urgencyKey.charAt(0).toUpperCase() + urgencyKey.slice(1);
 
-  const summary = params.summary || "Open the update to review details.";
-  const heading = params.isReminder ? "Update reminder" : "New partner update";
+  const dueDateText = params.dueAt
+    ? new Date(params.dueAt).toLocaleDateString("en-US", { dateStyle: "long" })
+    : null;
+
+  const summary = params.summary || "";
+  const isReminder = params.isReminder;
+
+  const ctaLabel = isReminder ? "View Update" : "Open Kit";
   const ctaBlock = params.ctaUrl
-    ? `<p style="margin-top: 20px;">
-         <a href="${params.ctaUrl}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:600;">
-           View Update
-         </a>
-       </p>`
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:24px;">
+         <tr>
+           <td>
+             <a href="${params.ctaUrl}"
+                style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;letter-spacing:0.01em;">
+               ${ctaLabel} →
+             </a>
+           </td>
+         </tr>
+       </table>`
     : "";
 
-  return `
-    <!doctype html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>${heading}</title>
-      </head>
-      <body style="font-family: Arial, sans-serif; background:#f5f6f8; margin:0; padding:24px;">
-        <div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:10px;padding:24px;">
-          <p style="margin:0 0 12px;color:#6b7280;font-size:12px;letter-spacing:0.06em;text-transform:uppercase;">${heading}</p>
-          <h1 style="margin:0 0 10px;font-size:22px;color:#111827;">${params.updateTitle}</h1>
-          <p style="margin:0 0 12px;color:#374151;font-size:14px;">${summary}</p>
-          <p style="margin:0 0 6px;color:#111827;font-size:14px;"><strong>Brand:</strong> ${params.brandLabel}</p>
-          <p style="margin:0 0 6px;color:#111827;font-size:14px;"><strong>Urgency:</strong> ${params.urgency}</p>
-          <p style="margin:0;color:#111827;font-size:14px;"><strong>Due:</strong> ${dueDateText}</p>
-          ${ctaBlock}
-        </div>
-      </body>
-    </html>
-  `;
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>${params.updateTitle}</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:580px;">
+
+          <!-- Header -->
+          <tr>
+            <td style="padding-bottom:16px;">
+              <p style="margin:0;font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#6b7280;">
+                ${isReminder ? "Reminder from" : "New update from"} ${params.brandLabel}
+              </p>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background:#ffffff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;">
+
+              <!-- Urgency bar -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="background:${urgencyColor.bg};padding:10px 24px;">
+                    <span style="display:inline-block;font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:${urgencyColor.text};">
+                      ${urgencyLabel}
+                    </span>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Body -->
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="padding:28px 28px 8px;">
+                    <h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#111827;line-height:1.3;">
+                      ${params.updateTitle}
+                    </h1>
+                    ${summary ? `<p style="margin:0 0 20px;font-size:15px;color:#4b5563;line-height:1.6;">${summary}</p>` : ""}
+                    ${dueDateText
+                      ? `<p style="margin:0;font-size:13px;color:#6b7280;">
+                           <span style="font-weight:600;color:#111827;">Due:</span> ${dueDateText}
+                         </p>`
+                      : ""}
+                    ${ctaBlock}
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top:20px;text-align:center;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;">
+                You're receiving this because you're a partner of ${params.brandLabel}.
+                Powered by <a href="https://stackcess.com" style="color:#6b7280;text-decoration:none;">Stackcess</a>.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 }
 
 export async function sendUpdateEmails(params: {
@@ -789,7 +1027,19 @@ export async function sendUpdateEmails(params: {
   }
 
   const from = (process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev").trim();
-  const ctaUrl = buildUpdateEmailUrl({ brandTenantSlug: params.brandTenantSlug });
+
+  // Batch-fetch partner org slugs so each email CTA links directly to the update
+  const partnerOrgIds = params.recipients.map((r) => r.partnerOrganizationId).filter(Boolean);
+  const partnerSlugMap: Record<string, string> = {};
+  if (partnerOrgIds.length > 0) {
+    const { data: orgRows } = await supabase
+      .from("organizations")
+      .select("id,slug")
+      .in("id", partnerOrgIds);
+    for (const row of (orgRows || []) as Array<{ id: string; slug: string }>) {
+      if (row.id && row.slug) partnerSlugMap[row.id] = row.slug;
+    }
+  }
 
   const subjectPrefix = params.isReminder ? "Reminder:" : "New update:";
   const subject = `${subjectPrefix} ${params.update.title}`;
@@ -810,6 +1060,13 @@ export async function sendUpdateEmails(params: {
       });
       continue;
     }
+
+    const partnerSlug = partnerSlugMap[recipient.partnerOrganizationId] ?? null;
+    const ctaUrl = buildUpdateEmailUrl({
+      brandTenantSlug: params.brandTenantSlug,
+      partnerOrgSlug: partnerSlug,
+      updateId: params.update.id,
+    });
 
     const { data, error } = await sender.emails.send({
       from,
@@ -928,6 +1185,5 @@ export async function loadExistingUpdateRecipients(params: {
       status: String(row.status || "queued"),
     }));
 }
-
 
 

@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   X,
   Save,
-  Loader2,
   Tag as TagIcon,
   FileText,
   Link2,
@@ -14,6 +13,7 @@ import {
   Trash,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -318,7 +318,7 @@ export function AssetEditorPanel({
                         variant={isSelected ? "default" : "secondary"}
                         className={cn(
                           "cursor-pointer text-xs px-2 py-1 transition-colors",
-                          isSelected ? "bg-blue-600 hover:bg-blue-700 text-white" : ""
+                          isSelected ? "bg-[var(--color-accent-blue)] hover:bg-[var(--color-accent-blue-hover)] text-white" : ""
                         )}
                         onClick={() => toggleTag(tag.id)}
                       >
@@ -435,7 +435,7 @@ export function AssetEditorPanel({
             >
               {isDeleting ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <LoadingSkeleton size="sm" className="mr-2" />
                   Deleting...
                 </>
               ) : (
@@ -460,7 +460,7 @@ export function AssetEditorPanel({
             >
               {isSaving ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <LoadingSkeleton size="sm" className="mr-2" />
                   Saving...
                 </>
               ) : (
@@ -476,3 +476,4 @@ export function AssetEditorPanel({
     </>
   );
 }
+

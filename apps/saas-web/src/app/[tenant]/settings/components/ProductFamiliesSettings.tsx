@@ -5,11 +5,10 @@ import { useRouter } from 'next/navigation';
 import {
   Search
 } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ItemList } from '@/components/ui/item-list';
+import { CenteredFormModal } from '@/components/ui/modal-shells';
 import { SettingsPageContent } from './settings-page-content';
 
 interface ProductFamily {
@@ -17,6 +16,7 @@ interface ProductFamily {
   code: string;
   name: string;
   description: string;
+  is_active: boolean;
   field_groups_count?: number;
   products_count?: number;
   created_at: string;
@@ -56,8 +56,21 @@ export default function ProductFamiliesSettings({ tenantSlug }: ProductFamiliesS
       }
 
       const result = await response.json();
-      console.log('Product families API response:', result);
-      setFamilies(result.data || result || []);
+      const rows = (result?.data || result || []) as Partial<ProductFamily>[];
+      setFamilies(
+        rows.map((row) => ({
+          ...row,
+          id: String(row.id || ''),
+          code: String(row.code || ''),
+          name: String(row.name || ''),
+          description: String(row.description || ''),
+          is_active: row.is_active !== false,
+          field_groups_count: Number(row.field_groups_count || 0),
+          products_count: Number(row.products_count || 0),
+          created_at: String(row.created_at || ''),
+          updated_at: String(row.updated_at || ''),
+        }))
+      );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch families';
       setError(errorMessage);
@@ -143,9 +156,6 @@ export default function ProductFamiliesSettings({ tenantSlug }: ProductFamiliesS
       {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Product Models</h2>
-        <p className="text-muted-foreground">
-          Define product models with groups, attributes, and variant axes
-        </p>
       </div>
 
       {/* Error Display */}
@@ -170,6 +180,7 @@ export default function ProductFamiliesSettings({ tenantSlug }: ProductFamiliesS
         getKey={(family) => family.id}
         renderTitle={(family) => family.name}
         renderSubtitle={(family) => family.description}
+        getStatus={(family) => (family.is_active ? 'active' : 'inactive')}
         renderRight={(family) => (
           <div className="flex items-center gap-2">
             <Badge variant="secondary">
@@ -192,60 +203,49 @@ export default function ProductFamiliesSettings({ tenantSlug }: ProductFamiliesS
         createLabel="Add product model"
       />
 
-      {/* Create Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-          <DialogTitle>Create Product Model</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
-                Model Name *
-              </label>
-              <Input
-                value={formData.name}
-                onChange={(e) => {
-                  const newName = e.target.value;
-                  setFormData(prev => ({
-                    ...prev,
-                    name: newName
-                  }));
-                }}
-                placeholder="e.g., Supplements, Apparel"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
-                Description
-              </label>
-              <Input
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Brief description of this model..."
-              />
-            </div>
-            {error && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
-                {error}
-              </div>
-            )}
-            <div className="flex gap-2 pt-4">
-              <Button variant="outline" onClick={() => setShowCreateDialog(false)} className="flex-1">
-                Cancel
-              </Button>
-              <Button
-                onClick={handleCreate}
-                variant="accent-blue"
-                disabled={formLoading || !formData.name.trim()}
-                className="flex-1"
-              >
-                {formLoading ? 'Creating...' : 'Create Model'}
-              </Button>
-            </div>
+      <CenteredFormModal
+        open={showCreateDialog}
+        title="Create Product Model"
+        onOpenChange={setShowCreateDialog}
+        onCancel={() => setShowCreateDialog(false)}
+        onPrimaryAction={() => void handleCreate()}
+        primaryActionLabel="Create Model"
+        primaryActionDisabled={formLoading || !formData.name.trim()}
+        primaryActionLoading={formLoading}
+        primaryActionLoadingLabel="Creating..."
+      >
+        <div>
+          <label className="mb-2 block text-sm font-medium text-foreground">
+            Model Name *
+          </label>
+          <Input
+            value={formData.name}
+            onChange={(e) => {
+              const newName = e.target.value;
+              setFormData(prev => ({
+                ...prev,
+                name: newName
+              }));
+            }}
+            placeholder="e.g., Supplements, Apparel"
+          />
+        </div>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-foreground">
+            Description
+          </label>
+          <Input
+            value={formData.description}
+            onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+            placeholder="Brief description of this model..."
+          />
+        </div>
+        {error && (
+          <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+            {error}
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+      </CenteredFormModal>
 
     </SettingsPageContent>
   );

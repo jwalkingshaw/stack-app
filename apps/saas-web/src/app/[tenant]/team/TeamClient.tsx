@@ -4,21 +4,19 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  UserPlus,
   Mail,
   Shield,
-  MoreVertical,
   Copy,
   Check,
   Clock,
-  Users as UsersIcon,
-  Trash2,
-  ChevronRight
+  Trash2
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PageHeader } from "@/components/ui/page-header";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ItemList } from "@/components/ui/item-list";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { SettingsPageContent } from "../settings/components/settings-page-content";
@@ -708,6 +706,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
   const showPartners = view === "partners";
   const showPermissions = view === "permissions";
   const showAssetSets = view === "assetSets";
+  const activeTeamTab = showPartners ? "partners" : "internal";
   const canManagePartnerInvites = canManageInvites && organizationType === "brand";
   const canManageBrandSharing = canManageInvites && organizationType === "brand";
   const headerTitle = showPartners ? "Partners" : "Team";
@@ -720,118 +719,57 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
   const pendingPartnerInvitations = pendingInvitations.filter(
     (invitation) => invitation.invitation_type === "partner"
   );
+  const openInviteChooser = () => router.push(`/${tenantSlug}/settings/team/invite`);
 
   return (
     <SettingsPageContent page="team">
       <PageHeader
         title={headerTitle}
         description={headerDescription}
-        actions={[
-          ...(canManageInvites && showInternal
-            ? [
-                {
-                  label: "Invite Team Member",
-                  onClick: () => router.push(`/${tenantSlug}/settings/team/invite/team`),
-                  icon: UserPlus,
-                },
-              ]
-            : []),
-          ...(canManagePartnerInvites && showPartners
-            ? [
-                {
-                  label: "Invite Partner",
-                  onClick: () => router.push(`/${tenantSlug}/settings/team/invite/partner`),
-                  icon: UsersIcon,
-                },
-              ]
-            : []),
-        ]}
       />
 
       <div className="bg-background rounded-lg border border-border shadow-soft p-3">
-        <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
-          <Link href={`/${tenantSlug}/settings/team`}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={showInternal ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}
-            >
-              Internal
-            </Button>
-          </Link>
-          <Link href={`/${tenantSlug}/settings/team/partners`}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={showPartners ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}
-            >
-              Partners
-            </Button>
-          </Link>
-        </div>
+        <Tabs value={activeTeamTab}>
+          <TabsList>
+            <TabsTrigger value="internal" asChild>
+              <Link href={`/${tenantSlug}/settings/team`}>Internal</Link>
+            </TabsTrigger>
+            <TabsTrigger value="partners" asChild>
+              <Link href={`/${tenantSlug}/settings/team/partners`}>Partners</Link>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Team Members List */}
       {showInternal && (
-      <div className="bg-background rounded-lg border border-border shadow-soft">
-        {loading ? (
-          <div className="p-8 space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-16 bg-muted rounded animate-pulse" />
-            ))}
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {members.map((member) => (
-              <div
-                key={member.id}
-                className="p-4 hover:bg-muted/50 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 flex-1">
-                    <div className="w-10 h-10 bg-primary/10 text-primary rounded-full flex items-center justify-center text-sm font-medium">
-                      {member.email.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-medium text-foreground truncate">
-                          {member.email}
-                        </h3>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge variant={getRoleVariant(member.role)}>
-                          {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {getRoleDescription(member.role)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs text-muted-foreground">
-                      Joined {new Date(member.joinedAt).toLocaleDateString()}
-                    </span>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!loading && members.length === 0 && (
-          <div className="p-12 text-center">
-            <UsersIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-60" />
-            <p className="text-muted-foreground">No team members yet</p>
-          </div>
-        )}
-      </div>
+        <ItemList
+          items={members}
+          getKey={(member) => member.id}
+          renderTitle={(member) => member.email}
+          renderSubtitle={(member) => (
+            <div className="flex items-center gap-2">
+              <Badge variant={getRoleVariant(member.role)}>
+                {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
+              </Badge>
+              <span>{getRoleDescription(member.role)}</span>
+            </div>
+          )}
+          onClickItem={
+            canManageInvites
+              ? (member) => router.push(`/${tenantSlug}/settings/team/members/${member.id}`)
+              : undefined
+          }
+          loading={loading}
+          loadingRows={4}
+          emptyMessage="No team members yet"
+          headerLabel="members"
+          onCreate={canManageInvites ? openInviteChooser : undefined}
+          createLabel={canManageInvites ? "Invite user" : undefined}
+        />
       )}
 
-      {!canManageInvites && (
+      {!loading && !canManageInvites && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           You do not have permission to manage invitations in this workspace.
         </div>
@@ -916,39 +854,23 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       )}
 
       {showPartners && (
-        <div className="bg-background rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
-            <h3 className="text-sm font-medium text-foreground">Partner Organizations</h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              Active partner relationships with current access scope.
-            </p>
-          </div>
-          {partnerRelationships.length === 0 ? (
-            <div className="p-12 text-center">
-              <UsersIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-60" />
-              <p className="text-muted-foreground">No partner organizations connected yet</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {partnerRelationships.map((relationship) => (
-                <Link
-                  key={relationship.id}
-                  href={`/${tenantSlug}/settings/team/partners/${relationship.partner_organization_id}`}
-                  className="block p-4 hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {relationship.partner_organization?.name || relationship.partner_organization_id}
-                      </p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
+        <ItemList
+          items={partnerRelationships}
+          getKey={(relationship) => relationship.id}
+          renderTitle={(relationship) =>
+            relationship.partner_organization?.name || relationship.partner_organization_id
+          }
+          renderSubtitle={() => "Active partner relationships with current access scope."}
+          onClickItem={(relationship) =>
+            router.push(`/${tenantSlug}/settings/team/partners/${relationship.partner_organization_id}`)
+          }
+          loading={loading}
+          loadingRows={4}
+          emptyMessage="No partner organizations connected yet"
+          headerLabel="partner relationships"
+          onCreate={canManagePartnerInvites ? openInviteChooser : undefined}
+          createLabel={canManagePartnerInvites ? "Invite user" : undefined}
+        />
       )}
 
       {showPartners && canManagePartnerInvites && pendingPartnerInvitations.length > 0 && (

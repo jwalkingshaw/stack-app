@@ -41,6 +41,9 @@ type UpdateDetail = {
     product_id: string | null;
     asset_id: string | null;
     content_json?: Record<string, unknown> | null;
+    is_available?: boolean;
+    unavailable_reason?: string | null;
+    unavailable_message?: string | null;
   }>;
   productLookup?: Record<string, { name: string | null; sku: string | null; type: string | null }>;
   assetLookup?: Record<string, { filename: string | null; fileType: string | null; mimeType: string | null }>;
@@ -325,6 +328,7 @@ export function PartnerUpdateDetailClient({
                     const product = item.product_id ? (data.productLookup ?? {})[item.product_id] : null;
                     const asset = item.asset_id ? (data.assetLookup ?? {})[item.asset_id] : null;
                     const textContent = item.item_type === "text" ? extractTextContent(item.content_json) : null;
+                    const isAvailable = item.is_available !== false;
 
                     if (item.item_type === "product") {
                       const productName = product?.name ?? item.title ?? "Product";
@@ -349,14 +353,21 @@ export function PartnerUpdateDetailClient({
                             {item.description ? (
                               <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
                             ) : null}
+                            {!isAvailable ? (
+                              <p className="mt-1 text-xs text-amber-700">
+                                {item.unavailable_message || "This product is unavailable for your current access."}
+                              </p>
+                            ) : null}
                           </div>
-                          {item.product_id ? (
+                          {item.product_id && isAvailable ? (
                             <Button variant="outline" size="sm" className="shrink-0 gap-1.5" asChild>
                               <Link href={`/${tenantSlug}/view/${scope}/products/${item.product_id}`}>
                                 View Product
                                 <ExternalLink className="h-3.5 w-3.5" />
                               </Link>
                             </Button>
+                          ) : !isAvailable ? (
+                            <Badge variant="secondary" className="shrink-0">Unavailable</Badge>
                           ) : null}
                         </div>
                       );
@@ -382,14 +393,21 @@ export function PartnerUpdateDetailClient({
                             {item.description ? (
                               <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
                             ) : null}
+                            {!isAvailable ? (
+                              <p className="mt-1 text-xs text-amber-700">
+                                {item.unavailable_message || "This asset is unavailable for your current access."}
+                              </p>
+                            ) : null}
                           </div>
-                          {item.asset_id ? (
+                          {item.asset_id && isAvailable ? (
                             <Button variant="outline" size="sm" className="shrink-0 gap-1.5" asChild>
                               <Link href={`/api/${tenantSlug}/assets/${item.asset_id}/preview`} target="_blank" rel="noreferrer">
                                 <Download className="h-3.5 w-3.5" />
                                 Download
                               </Link>
                             </Button>
+                          ) : !isAvailable ? (
+                            <Badge variant="secondary" className="shrink-0">Unavailable</Badge>
                           ) : null}
                         </div>
                       );
@@ -429,15 +447,65 @@ export function PartnerUpdateDetailClient({
                       );
                     }
 
-                    // Fallback for unknown types
-                    return (
-                      <div key={item.id} className="rounded-lg border border-border p-4">
-                        <p className="text-sm font-medium text-foreground">{item.title || item.item_type}</p>
-                        {item.description ? (
-                          <p className="mt-1 text-sm text-muted-foreground">{item.description}</p>
-                        ) : null}
-                      </div>
-                    );
+                    if (item.item_type === "email") {
+                      const cj = item.content_json ?? {};
+                      const label = item.title || (typeof cj.label === "string" ? cj.label : null) || "Email";
+                      const subjectLine = typeof cj.subjectLine === "string" ? cj.subjectLine : null;
+                      const headline = typeof cj.headline === "string" ? cj.headline : null;
+                      const bodyCopy = typeof cj.bodyCopy === "string" ? cj.bodyCopy : null;
+                      const ctaLabel = typeof cj.ctaLabel === "string" ? cj.ctaLabel : null;
+                      return (
+                        <div key={item.id} className="overflow-hidden rounded-lg border border-border">
+                          <div className="flex items-center gap-2.5 border-b border-border bg-muted/20 px-4 py-3">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-sky-100">
+                              <svg className="h-3.5 w-3.5 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                              </svg>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-foreground">{label}</p>
+                              <p className="text-xs text-muted-foreground">Email template</p>
+                            </div>
+                          </div>
+                          <div className="space-y-1 p-4 text-sm">
+                            {subjectLine ? <p className="text-xs text-muted-foreground">Subject: <span className="font-medium text-foreground">{subjectLine}</span></p> : null}
+                            {headline ? <p className="font-semibold text-foreground">{headline}</p> : null}
+                            {bodyCopy ? <p className="text-muted-foreground line-clamp-3">{bodyCopy}</p> : null}
+                            {ctaLabel ? (
+                              <p className="pt-1">
+                                <span className="inline-flex items-center rounded bg-foreground px-3 py-1.5 text-xs font-medium text-background">{ctaLabel}</span>
+                              </p>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (item.item_type === "social") {
+                      const cj = item.content_json ?? {};
+                      const label = item.title || (typeof cj.label === "string" ? cj.label : null) || "Social Post";
+                      const caption = typeof cj.caption === "string" ? cj.caption : null;
+                      return (
+                        <div key={item.id} className="overflow-hidden rounded-lg border border-border">
+                          <div className="flex items-center gap-2.5 border-b border-border bg-muted/20 px-4 py-3">
+                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-pink-100">
+                              <svg className="h-3.5 w-3.5 text-pink-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+                              </svg>
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-foreground">{label}</p>
+                              <p className="text-xs text-muted-foreground">Social post</p>
+                            </div>
+                          </div>
+                          {caption ? (
+                            <p className="p-4 text-sm text-foreground whitespace-pre-wrap">{caption}</p>
+                          ) : null}
+                        </div>
+                      );
+                    }
+
+                    return null;
                   })}
                 </div>
               )}

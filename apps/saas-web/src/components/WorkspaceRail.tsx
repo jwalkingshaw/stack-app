@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import NextImage from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { Bell, LayoutGrid, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkspaces, WorkspaceSummary } from '@/hooks/useWorkspaces'
@@ -17,6 +18,7 @@ interface WorkspaceRailProps {
   currentWorkspaceSlug: string
   currentWorkspaceName?: string
   currentWorkspaceLogoUrl?: string | null
+  currentOrganizationType?: 'brand' | 'partner'
   currentPath?: string
   initialWorkspaces?: WorkspaceSummary[]
   className?: string
@@ -37,10 +39,12 @@ export function WorkspaceRail({
   currentWorkspaceSlug,
   currentWorkspaceName,
   currentWorkspaceLogoUrl,
+  currentOrganizationType,
   currentPath,
   initialWorkspaces,
   className,
 }: WorkspaceRailProps) {
+  const t = useTranslations("Shell.WorkspaceRail")
   const router = useRouter()
   const searchParams = useSearchParams()
   const [failedLogos, setFailedLogos] = useState<Record<string, true>>({})
@@ -87,9 +91,11 @@ export function WorkspaceRail({
     organizationType: currentWorkspace?.organizationType,
   })
   const activeScope = pathScope || selectedBrandSlug
-  const isPartnerContext = currentWorkspace?.organizationType === 'partner'
+  const isPartnerContext =
+    currentOrganizationType === 'partner' || currentWorkspace?.organizationType === 'partner'
+  const showCreateWorkspaceButton = !isPartnerContext
   const partnerAllViewPath = `/${currentWorkspaceSlug}/view/all`
-  const overviewButtonLabel = isPartnerContext ? 'View all' : 'Home'
+  const overviewButtonLabel = isPartnerContext ? t("viewAll") : t("home")
 
   const isAllBrandsActive = Boolean(
     currentPath?.startsWith('/home') ||
@@ -126,7 +132,7 @@ export function WorkspaceRail({
         'h-full w-16 border-r border-muted/30 bg-[#ebebeb] flex flex-col items-center py-3',
         className
       )}
-      aria-label="Workspace switcher"
+      aria-label={t("workspaceSwitcher")}
     >
       <div className="flex w-full flex-col items-center gap-2">
         <button
@@ -170,7 +176,7 @@ export function WorkspaceRail({
             <button
               key={workspace.slug}
               type="button"
-              title={`${workspace.name}${unreadCount > 0 ? ` (${unreadCount} new)` : ''}`}
+              title={`${workspace.name}${unreadCount > 0 ? ` (${unreadCount} ${t("newCount")})` : ''}`}
               onClick={() => {
                 if (isPartnerContext && workspace.organizationType === 'brand') {
                   router.push(
@@ -226,21 +232,25 @@ export function WorkspaceRail({
         })}
       </div>
 
-      <div className="mt-3 h-px w-8 bg-border" />
+      {showCreateWorkspaceButton ? (
+        <>
+          <div className="mt-3 h-px w-8 bg-border" />
 
-      <button
-        type="button"
-        title="Create workspace"
-        onClick={() => router.push('/onboarding?create=1')}
-        className="mt-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <Plus className="h-5 w-5" />
-      </button>
+          <button
+            type="button"
+            title={t("createWorkspace")}
+            onClick={() => router.push('/onboarding?create=1')}
+            className="mt-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
+        </>
+      ) : null}
 
       <div className="mt-auto">
         <button
           type="button"
-          title="Notifications"
+          title={t("notifications")}
           onClick={() => router.push('/notifications')}
           className={cn(
             'relative flex h-10 w-10 items-center justify-center rounded-xl hover:bg-muted',

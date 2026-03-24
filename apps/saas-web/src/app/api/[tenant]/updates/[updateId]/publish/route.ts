@@ -14,6 +14,7 @@ import {
   sendUpdateEmails,
   setPublishedUpdateState,
   upsertPartnerUpdateRecipients,
+  validateRecipientKitAccess,
 } from "../../_delivery";
 
 // POST /api/[tenant]/updates/[updateId]/publish
@@ -87,6 +88,20 @@ export async function POST(
         { error: "No eligible active partner recipients matched this selection" },
         { status: 400 }
       );
+    }
+
+    if (partnerOrganizationIds.length > 0) {
+      const kitAccessValidation = await validateRecipientKitAccess({
+        organizationId: access.context.organizationId,
+        updateId: resolvedParams.updateId,
+        partnerOrganizationIds,
+      });
+      if (!kitAccessValidation.ok) {
+        return NextResponse.json(
+          { error: kitAccessValidation.error, blockedRecipients: kitAccessValidation.blockedRecipients },
+          { status: kitAccessValidation.status }
+        );
+      }
     }
 
     const dispatchDecisions = await buildRecipientDispatchDecisions({

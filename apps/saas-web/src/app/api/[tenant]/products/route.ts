@@ -12,6 +12,10 @@ import {
 import { getChannelScopedProductIds } from "@/lib/product-channel-scope";
 import { assertBillingCapacity, isBillableSkuRecord } from "@/lib/billing-policy";
 import { validateAuthoringScope } from "@/lib/authoring-scope";
+import {
+  addResourceToGlobalCatalogSet,
+  resolveMarketCatalogProductIds,
+} from "@/lib/market-catalog";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -64,6 +68,35 @@ const PRODUCT_SELECT_WITH_BARCODE = `
 
 const PRODUCT_SELECT_WITH_UPC = PRODUCT_SELECT_WITH_BARCODE.replace("barcode", "upc");
 
+const PRODUCT_TABLE_SELECT_WITH_BARCODE = `
+  id,
+  organization_id,
+  scin,
+  type,
+  parent_id,
+  has_variants,
+  variant_count,
+  product_name,
+  sku,
+  barcode,
+  brand_line,
+  family_id,
+  status,
+  assets_count,
+  content_score,
+  marketplace_content,
+  created_by,
+  created_at,
+  updated_at,
+  last_modified_by,
+  product_families!family_id (
+    name
+  )
+`;
+
+const PRODUCT_TABLE_SELECT_WITH_UPC =
+  PRODUCT_TABLE_SELECT_WITH_BARCODE.replace("barcode", "upc");
+
 const PRODUCT_RETURN_SELECT_WITH_BARCODE = `
   id,
   scin,
@@ -96,6 +129,7 @@ const PRODUCT_RETURN_SELECT_WITH_UPC =
   PRODUCT_RETURN_SELECT_WITH_BARCODE.replace("barcode", "upc");
 
 const UPC_MISSING_COLUMN_ERROR = "42703";
+type ProductListMode = "full" | "table";
 
 type ProductAuthoringScope = {
   mode: "global" | "scoped";
@@ -169,6 +203,7 @@ const SCOPED_FIELD_CODE_CANDIDATES: Record<string, string[]> = {
 };
 
 const SCOPED_PRODUCT_LIST_COLUMNS = new Set(Object.keys(SCOPED_FIELD_CODE_CANDIDATES));
+const TABLE_SCOPED_PRODUCT_LIST_COLUMNS = new Set(["product_name", "sku", "barcode", "brand_line"]);
 
 function normalizeBarcodeInput(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -248,6 +283,14 @@ function applyMarketVisibilityFilter(params: {
   return params.products.filter((product) =>
     isProductVisibleForMarketScope({ product, scope: params.scope })
   );
+}
+
+function intersectIds(left: string[] | null, right: string[] | null): string[] | null {
+  if (!left && !right) return null;
+  if (!left) return Array.from(new Set(right || []));
+  if (!right) return Array.from(new Set(left));
+  const rightSet = new Set(right);
+  return Array.from(new Set(left.filter((id) => rightSet.has(id))));
 }
 
 function normalizeScopeToken(value: string | null): string | null {
@@ -411,13 +454,18 @@ async function applyScopedOverridesForOrganization(params: {
   organizationId: string;
   products: ProductListRow[];
   scope: ScopeSelection;
+  columns?: string[];
 }): Promise<ProductListRow[]> {
   if (!hasScopedSelection(params.scope)) return params.products;
   if (params.products.length === 0) return params.products;
 
+  const scopedColumns =
+    params.columns && params.columns.length > 0
+      ? params.columns
+      : Array.from(SCOPED_PRODUCT_LIST_COLUMNS);
   const fieldMap = await resolveScopedFieldMap({
     organizationId: params.organizationId,
-    columns: Array.from(SCOPED_PRODUCT_LIST_COLUMNS),
+    columns: scopedColumns,
   });
   if (fieldMap.size === 0) return params.products;
 
@@ -496,6 +544,7 @@ async function applyScopedOverridesForOrganization(params: {
 async function applyScopedOverridesToProducts(params: {
   products: ProductListRow[];
   scope: ScopeSelection;
+  columns?: string[];
 }): Promise<ProductListRow[]> {
   if (!hasScopedSelection(params.scope)) return params.products;
   if (params.products.length === 0) return params.products;
@@ -517,6 +566,7 @@ async function applyScopedOverridesToProducts(params: {
       organizationId,
       products,
       scope: params.scope,
+      columns: params.columns,
     });
     overridden.forEach((product) => {
       const productId = String(product.id || "").trim();
@@ -552,7 +602,14 @@ type OrganizationLookup = Record<
 async function fetchProductsForOrganization(params: {
   organizationId: string;
   constrainedProductIds?: string[] | null;
+  listMode?: ProductListMode;
 }) {
+  const isTableMode = params.listMode === "table";
+  const selectWithBarcode = isTableMode
+    ? PRODUCT_TABLE_SELECT_WITH_BARCODE
+    : PRODUCT_SELECT_WITH_BARCODE;
+  const selectWithUpc = isTableMode ? PRODUCT_TABLE_SELECT_WITH_UPC : PRODUCT_SELECT_WITH_UPC;
+
   const buildProductQuery = (selectClause: string) => {
     let query = supabase
       .from("products")
@@ -567,9 +624,9 @@ async function fetchProductsForOrganization(params: {
     return query;
   };
 
-  let productsResult = await buildProductQuery(PRODUCT_SELECT_WITH_BARCODE);
+  let productsResult = await buildProductQuery(selectWithBarcode);
   if (productsResult.error?.code === UPC_MISSING_COLUMN_ERROR) {
-    productsResult = await buildProductQuery(PRODUCT_SELECT_WITH_UPC);
+    productsResult = await buildProductQuery(selectWithUpc);
   }
 
   const rows = Array.isArray(productsResult.data)
@@ -621,9 +678,14 @@ export async function GET(
     const requestUrl = new URL(request.url);
     const scopeSelection = parseScopeSelectionFromSearchParams(requestUrl.searchParams);
     const selectedBrandSlug = requestUrl.searchParams.get("brand");
+    const requestedListMode = (requestUrl.searchParams.get("listMode") || "").trim().toLowerCase();
     const requestedViewScope = (requestUrl.searchParams.get("view") || "")
       .trim()
       .toLowerCase();
+    const listMode: ProductListMode = requestedListMode === "table" ? "table" : "full";
+    const scopedListColumns = Array.from(
+      listMode === "table" ? TABLE_SCOPED_PRODUCT_LIST_COLUMNS : SCOPED_PRODUCT_LIST_COLUMNS
+    );
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -641,6 +703,25 @@ export async function GET(
       context.mode === "tenant" &&
       context.tenantOrganization.organizationType === "partner";
 
+    let marketCatalogProductIds: string[] | null = null;
+    // Only apply market catalog filter for brand's own view (preview mode).
+    // For partner_brand, resolvePartnerGrantedProductIds already handles market access via partner_market_assignments.
+    if (context.mode === "tenant" && !isPartnerAllViewRequest && scopeSelection.marketId) {
+      const marketCatalog = await resolveMarketCatalogProductIds({
+        organizationId: targetOrganizationId,
+        marketId: scopeSelection.marketId,
+      });
+
+      if (!marketCatalog.foundationAvailable) {
+        return NextResponse.json(
+          { error: "Market catalog foundation is unavailable. Apply database migrations first." },
+          { status: 503 }
+        );
+      }
+
+      marketCatalogProductIds = marketCatalog.ids;
+    }
+
     if (isPartnerAllViewRequest) {
       const partnerOrganizationId = context.tenantOrganization.id;
       const brandOrganizationIds = await resolvePartnerSharedBrandOrganizationIds({
@@ -649,6 +730,7 @@ export async function GET(
 
       const ownProductsResult = await fetchProductsForOrganization({
         organizationId: partnerOrganizationId,
+        listMode,
       });
       if (ownProductsResult.error) {
         console.error("Error fetching own products:", ownProductsResult.error);
@@ -660,6 +742,12 @@ export async function GET(
           const granted = await resolvePartnerGrantedProductIds({
             brandOrganizationId,
             partnerOrganizationId,
+            scope: {
+              marketId: scopeSelection.marketId,
+              channelId: scopeSelection.channelId,
+              localeId: scopeSelection.localeId,
+              destinationId: scopeSelection.destinationId,
+            },
           });
           if (!granted.foundationAvailable || granted.productIds.length === 0) {
             return null;
@@ -685,6 +773,7 @@ export async function GET(
           fetchProductsForOrganization({
             organizationId: brandOrganizationId,
             constrainedProductIds: grantedProductIds,
+            listMode,
           })
         )
       );
@@ -709,6 +798,7 @@ export async function GET(
       const mergedProducts = await applyScopedOverridesToProducts({
         products: Array.from(mergedProductsById.values()),
         scope: scopeSelection,
+        columns: scopedListColumns,
       });
       const visibilityFilteredProducts = applyMarketVisibilityFilter({
         products: mergedProducts,
@@ -761,6 +851,14 @@ export async function GET(
       const grantedSetProducts = await resolvePartnerGrantedProductIds({
         brandOrganizationId: targetOrganizationId,
         partnerOrganizationId: context.tenantOrganization.id,
+        scope: {
+          // Do not pass marketId: partner's market access is determined by partner_market_assignments,
+          // not the ambient scope toolbar market. Passing it would filter to only markets matching
+          // the brand's auto-selected default market, hiding products the partner should see.
+          channelId: scopeSelection.channelId,
+          localeId: scopeSelection.localeId,
+          destinationId: scopeSelection.destinationId,
+        },
       });
 
       if (grantedSetProducts.foundationAvailable) {
@@ -831,6 +929,8 @@ export async function GET(
       }
     }
 
+    constrainedProductIds = intersectIds(constrainedProductIds, marketCatalogProductIds);
+
     if (constrainedProductIds && constrainedProductIds.length === 0) {
       return NextResponse.json({
         success: true,
@@ -851,6 +951,7 @@ export async function GET(
     const productsResult = await fetchProductsForOrganization({
       organizationId: targetOrganizationId,
       constrainedProductIds,
+      listMode,
     });
 
     if (productsResult.error) {
@@ -861,6 +962,7 @@ export async function GET(
     const scopedProducts = await applyScopedOverridesToProducts({
       products: productsResult.products,
       scope: scopeSelection,
+      columns: scopedListColumns,
     });
     const visibleProducts = applyMarketVisibilityFilter({
       products: scopedProducts,
@@ -1160,6 +1262,21 @@ export async function POST(
         );
       }
       return NextResponse.json({ error: "Failed to create product" }, { status: 500 });
+    }
+
+    if (product?.id) {
+      try {
+        await addResourceToGlobalCatalogSet({
+          organizationId,
+          userId: user.id,
+          moduleKey: "products",
+          resourceType: type === "variant" ? "variant" : "product",
+          resourceId: product.id,
+          includeDescendants: type === "parent",
+        });
+      } catch (error) {
+        console.error("Failed to auto-include new product in Global Products set:", error);
+      }
     }
 
     return NextResponse.json(

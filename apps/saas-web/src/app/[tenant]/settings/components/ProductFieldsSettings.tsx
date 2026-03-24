@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Type,
   FileText,
@@ -16,13 +16,13 @@ import {
   Search,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
+import { ConfirmActionModal, FullscreenFormModal } from '@/components/ui/modal-shells';
 import { SettingsPageContent } from './settings-page-content';
 import { ItemList } from '@/components/ui/item-list';
+import { readApiData, readApiError } from '@/lib/api-contract';
 import IdentifierField from '@/components/field-types/IdentifierField';
 import TextField from '@/components/field-types/TextField';
 import TextAreaField from '@/components/field-types/TextAreaField';
@@ -116,6 +116,8 @@ interface FieldGroupAssignment {
 
 const SYSTEM_FIELD_CODES = new Set([
   'facts_panel',
+  'ingredients',
+  'other_ingredients',
   'title',
   'scin',
   'sku',
@@ -163,8 +165,6 @@ const DEFAULT_TABLE_FIELD_DEFINITION = {
 const cloneDefaultTableDefinition = () =>
   JSON.parse(JSON.stringify(DEFAULT_TABLE_FIELD_DEFINITION));
 
-const DIALOG_FORM_WIDTH_CLASS = 'mx-auto w-full max-w-4xl';
-
 const generateCode = (name: string): string => {
   return name
     .toLowerCase()
@@ -182,8 +182,11 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   const [markets, setMarkets] = useState<Market[]>([]);
   const [marketLocales, setMarketLocales] = useState<MarketLocaleAssignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [scopeDataLoading, setScopeDataLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const scopeDataReadyRef = useRef(false);
+  const scopeDataRequestRef = useRef<Promise<void> | null>(null);
 
   // Dialog states
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -218,33 +221,60 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [hasCustomCode, setHasCustomCode] = useState(false);
 
+  const fetchScopeData = useCallback(async () => {
+    if (scopeDataReadyRef.current) return;
+    if (scopeDataRequestRef.current) {
+      await scopeDataRequestRef.current;
+      return;
+    }
+
+    const request = (async () => {
+      try {
+        setScopeDataLoading(true);
+        const response = await fetch(`/api/${tenantSlug}/market-context`);
+        if (!response.ok) {
+          console.error('Failed to fetch market context:', response.status);
+          return;
+        }
+
+        const marketContext = await response.json();
+        setChannels(((marketContext?.channels || []) as ActiveRecord[]).filter((item) => item.is_active) as MarketChannel[]);
+        setLocales(((marketContext?.locales || []) as ActiveRecord[]).filter((item) => item.is_active) as MarketLocale[]);
+        setMarkets(((marketContext?.markets || []) as ActiveRecord[]).filter((item) => item.is_active) as Market[]);
+        setMarketLocales(
+          ((marketContext?.marketLocales || []) as ActiveRecord[]).filter((item) => item.is_active) as MarketLocaleAssignment[]
+        );
+        scopeDataReadyRef.current = true;
+      } catch (err) {
+        console.error('Error fetching market context:', err);
+      } finally {
+        setScopeDataLoading(false);
+      }
+    })();
+
+    scopeDataRequestRef.current = request;
+    try {
+      await request;
+    } finally {
+      scopeDataRequestRef.current = null;
+    }
+  }, [tenantSlug]);
+
   // Fetch data
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch fields and groups separately for better error handling
-      const [
-        fieldsResponse,
-        groupsResponse,
-        channelsResponse,
-        localesResponse,
-        marketsResponse,
-        marketLocalesResponse
-      ] = await Promise.all([
+      const [fieldsResponse, groupsResponse] = await Promise.all([
         fetch(`/api/${tenantSlug}/product-fields`),
-        fetch(`/api/${tenantSlug}/field-groups`),
-        fetch(`/api/${tenantSlug}/channels`),
-        fetch(`/api/${tenantSlug}/locales`),
-        fetch(`/api/${tenantSlug}/markets`),
-        fetch(`/api/${tenantSlug}/market-locales`)
+        fetch(`/api/${tenantSlug}/field-groups`)
       ]);
 
       // Handle fields response
       if (fieldsResponse.ok) {
-        const fieldsData = await fieldsResponse.json();
-        setFields(fieldsData || []);
+        const fieldsPayload = await fieldsResponse.json().catch(() => []);
+        setFields(readApiData<ProductField[]>(fieldsPayload, []));
       } else {
         console.error('Failed to fetch attributes:', fieldsResponse.status);
         setFields([]); // Set empty array instead of failing
@@ -252,43 +282,11 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
 
       // Handle groups response
       if (groupsResponse.ok) {
-        const groupsData = await groupsResponse.json();
-        setFieldGroups(groupsData || []);
+        const groupsPayload = await groupsResponse.json().catch(() => []);
+        setFieldGroups(readApiData<FieldGroup[]>(groupsPayload, []));
       } else {
         console.error('Failed to fetch field groups:', groupsResponse.status);
         setFieldGroups([]); // Set empty array instead of failing
-      }
-
-      if (channelsResponse.ok) {
-        const channelsData = await channelsResponse.json();
-        setChannels((channelsData || []).filter((item: ActiveRecord) => item.is_active));
-      } else {
-        console.error('Failed to fetch channels:', channelsResponse.status);
-        setChannels([]);
-      }
-
-      if (localesResponse.ok) {
-        const localesData = await localesResponse.json();
-        setLocales((localesData || []).filter((item: ActiveRecord) => item.is_active));
-      } else {
-        console.error('Failed to fetch locales:', localesResponse.status);
-        setLocales([]);
-      }
-
-      if (marketsResponse.ok) {
-        const marketsData = await marketsResponse.json();
-        setMarkets((marketsData || []).filter((item: ActiveRecord) => item.is_active));
-      } else {
-        console.error('Failed to fetch markets:', marketsResponse.status);
-        setMarkets([]);
-      }
-
-      if (marketLocalesResponse.ok) {
-        const marketLocalesData = await marketLocalesResponse.json();
-        setMarketLocales((marketLocalesData || []).filter((item: ActiveRecord) => item.is_active));
-      } else {
-        console.error('Failed to fetch market locales:', marketLocalesResponse.status);
-        setMarketLocales([]);
       }
 
     } catch (err) {
@@ -297,18 +295,17 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       // Ensure we still have empty arrays to render the table
       setFields([]);
       setFieldGroups([]);
-      setChannels([]);
-      setLocales([]);
-      setMarkets([]);
-      setMarketLocales([]);
     } finally {
       setLoading(false);
     }
   }, [tenantSlug]);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    scopeDataReadyRef.current = false;
+    scopeDataRequestRef.current = null;
+    void fetchData();
+    void fetchScopeData();
+  }, [fetchData, fetchScopeData]);
 
   const marketLocaleMap = useMemo(() => {
     const localeById = new Map(locales.map((locale) => [locale.id, locale]));
@@ -350,12 +347,15 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         body: JSON.stringify(formData)
       });
 
+      const responsePayload = await response.json().catch(() => null);
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create attribute');
+        throw new Error(readApiError(responsePayload, 'Failed to create attribute'));
       }
 
-      const createdField = await response.json();
+      const createdField = readApiData<{ id: string } | null>(responsePayload, null);
+      if (!createdField?.id) {
+        throw new Error('Attribute created but response payload was incomplete.');
+      }
 
       // Assign field to selected field groups
       if (selectedFieldGroupId) {
@@ -369,7 +369,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         );
 
         if (!assignmentResponse.ok) {
-          const errorData = await assignmentResponse.json();
+          const errorData = await assignmentResponse.json().catch(() => null);
           console.error('Failed to assign field to group:', errorData);
         }
       }
@@ -399,26 +399,26 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         body: JSON.stringify(formData)
       });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to update attribute');
+      const responsePayload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(readApiError(responsePayload, 'Failed to update attribute'));
+      }
+
+      const assignmentResponse = await fetch(
+        `/api/${tenantSlug}/product-fields/${selectedField.id}/field-group`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field_group_id: selectedFieldGroupId })
         }
+      );
 
-        const assignmentResponse = await fetch(
-          `/api/${tenantSlug}/product-fields/${selectedField.id}/field-group`,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ field_group_id: selectedFieldGroupId })
-          }
-        );
+      if (!assignmentResponse.ok) {
+        const errorData = await assignmentResponse.json().catch(() => null);
+        throw new Error(readApiError(errorData, 'Failed to update attribute group'));
+      }
 
-        if (!assignmentResponse.ok) {
-          const errorData = await assignmentResponse.json();
-          throw new Error(errorData.error || 'Failed to update attribute group');
-        }
-
-        await fetchData(); // Refresh list
+      await fetchData(); // Refresh list
       setShowEditDialog(false);
       resetForm();
     } catch (err) {
@@ -441,8 +441,8 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete attribute');
+        const errorData = await response.json().catch(() => null);
+        throw new Error(readApiError(errorData, 'Failed to delete attribute'));
       }
 
       await fetchData(); // Refresh list
@@ -487,6 +487,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   const openCreateDialog = () => {
     resetForm();
     setError(null);
+    void fetchScopeData();
     setShowTypeSelector(true);
   };
 
@@ -544,6 +545,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   };
 
   const openEditDialog = (field: ProductField) => {
+    void fetchScopeData();
     setSelectedField(field);
     setSelectedFieldType(FIELD_TYPES.find(t => t.id === field.field_type) ?? null);
     const tableDefinition = field.options?.table_definition
@@ -600,9 +602,6 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Attributes</h2>
-        <p className="text-muted-foreground">
-          Define custom attributes to capture product information
-        </p>
       </div>
 
       {/* Error Display */}
@@ -629,11 +628,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         getKey={(f) => f.id}
         renderTitle={(f) => f.name}
         renderSubtitle={(f) => FIELD_TYPES.find(t => t.id === f.field_type)?.label ?? f.field_type}
-        renderRight={(f) => (
-          <Badge variant={f.is_active ? 'success' : 'neutral'}>
-            {f.is_active ? 'Active' : 'Inactive'}
-          </Badge>
-        )}
+        getStatus={(f) => (f.is_active ? 'active' : 'inactive')}
         onClickItem={openEditDialog}
         isLocked={isSystemAttribute}
         loading={loading}
@@ -645,99 +640,65 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       />
 
       {/* Field Type Selector Dialog */}
-      <Dialog open={showTypeSelector} onOpenChange={setShowTypeSelector}>
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-white" />
-          <DialogPrimitive.Content className="fixed inset-0 z-50 bg-background">
-            <div className="flex h-full flex-col">
-              {/* Header with X close button */}
-              <div className="border-b border-border/60 py-6">
-                <div className={`${DIALOG_FORM_WIDTH_CLASS} flex items-center justify-between px-4 sm:px-6`}>
-                  <DialogPrimitive.Title className="text-xl font-semibold text-foreground">Choose Attribute Type</DialogPrimitive.Title>
-                  <button
-                    onClick={() => setShowTypeSelector(false)}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                  >
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+      <FullscreenFormModal
+        open={showTypeSelector}
+        title="Choose Attribute Type"
+        onOpenChange={setShowTypeSelector}
+        onBack={() => setShowTypeSelector(false)}
+        frameBody={false}
+        bodyClassName="flex min-h-[calc(100vh-9rem)] items-center justify-center p-0"
+      >
+        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {FIELD_TYPES.map((type) => {
+            const Icon = type.icon;
+            return (
+              <button
+                key={type.id}
+                onClick={() => selectFieldType(type)}
+                className="group flex h-28 w-full flex-col gap-2 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+                  <Icon className="h-4 w-4" />
                 </div>
-              </div>
-
-              {/* Centered content */}
-              <div className="flex-1 overflow-y-auto">
-                <div className={`${DIALOG_FORM_WIDTH_CLASS} flex min-h-full w-full items-center justify-center px-4 py-6 sm:px-6`}>
-                  <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {FIELD_TYPES.map((type) => {
-                      const Icon = type.icon;
-                      return (
-                        <button
-                          key={type.id}
-                          onClick={() => selectFieldType(type)}
-                          className="group flex h-28 w-full flex-col gap-2 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                        >
-                          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
-                            <Icon className="h-4 w-4" />
-                          </div>
-                          <div className="space-y-1.5">
-                            <div className="text-sm font-semibold text-foreground">{type.label}</div>
-                            <p className="text-xs leading-[1.2] text-muted-foreground">{type.description}</p>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                <div className="space-y-1.5">
+                  <div className="text-sm font-semibold text-foreground">{type.label}</div>
+                  <p className="text-xs leading-[1.2] text-muted-foreground">{type.description}</p>
                 </div>
-              </div>
-            </div>
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </Dialog>
+              </button>
+            );
+          })}
+        </div>
+      </FullscreenFormModal>
 
       {/* Create/Edit Dialog */}
-      <Dialog open={showCreateDialog || showEditDialog} onOpenChange={(open) => {
-        if (!open) {
+      <FullscreenFormModal
+        open={showCreateDialog || showEditDialog}
+        title={`${showEditDialog ? 'Edit' : 'Create'} ${selectedFieldType?.label ?? ''} Attribute`}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowCreateDialog(false);
+            setShowEditDialog(false);
+            resetForm();
+          }
+        }}
+        onBack={() => {
           setShowCreateDialog(false);
           setShowEditDialog(false);
           resetForm();
-        }
-      }}>
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-white" />
-          <DialogPrimitive.Content className="fixed inset-0 z-50 bg-background">
-            <div className="flex h-full flex-col">
-              {/* Header with X close button */}
-              <div className="border-b border-border/60 py-6">
-                <div className={`${DIALOG_FORM_WIDTH_CLASS} flex items-center justify-between px-4 sm:px-6`}>
-                  <DialogPrimitive.Title className="text-xl font-semibold text-foreground">
-                    {showEditDialog ? 'Edit' : 'Create'} {selectedFieldType?.label} Attribute
-                  </DialogPrimitive.Title>
-                  <button
-                    onClick={() => {
-                      setShowCreateDialog(false);
-                      setShowEditDialog(false);
-                      resetForm();
-                    }}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                  >
-                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
+        }}
+        primaryActionLabel={showEditDialog ? 'Update Attribute' : 'Create Attribute'}
+        onPrimaryAction={() => void (showEditDialog ? handleUpdate() : handleCreate())}
+        primaryActionDisabled={formLoading || !formData.name.trim() || !formData.code.trim() || !formData.field_type}
+        primaryActionLoading={formLoading}
+        primaryActionLoadingLabel={showEditDialog ? 'Updating...' : 'Creating...'}
+      >
+        {error && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
 
-              {/* Scrollable content */}
-              <div className="flex-1 overflow-y-auto py-8">
-                <div className={`${DIALOG_FORM_WIDTH_CLASS} flex flex-col gap-8 px-4 sm:px-6`}>
-                  {error && (
-                    <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                      {error}
-                    </div>
-                  )}
-
-                  <div className="space-y-10">
+        <div className="space-y-10">
                     <section className="space-y-6">
                       <div className="space-y-1">
                         <h3 className="text-base font-semibold text-foreground">General</h3>
@@ -954,6 +915,12 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                         <p className="mt-1 text-xs text-muted-foreground">
                           Limit which channels or markets this attribute applies to. Leave empty to allow all.
                         </p>
+                        {scopeDataLoading && (
+                          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                            <LoadingSkeleton size="sm" />
+                            <span>Loading channels and markets...</span>
+                          </div>
+                        )}
                         <div className="mt-4 grid gap-4 sm:grid-cols-2">
                           {formData.is_channelable && (
                             <div className="space-y-2">
@@ -1174,107 +1141,49 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                     onChange={(options) => setFormData({ ...formData, options: options as unknown as Record<string, unknown> })}
                   />
                 )}
-                    </section>
-                  </div>
-              </div>
-            </div>
-
-            {/* Fixed footer with buttons */}
-            <div className="border-t border-border py-5">
-              <div className={`${DIALOG_FORM_WIDTH_CLASS} flex justify-end gap-3 px-4 sm:px-6`}>
-                <Button variant="outline" onClick={() => {
-                  setShowCreateDialog(false);
-                  setShowEditDialog(false);
-                  resetForm();
-                }}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={showEditDialog ? handleUpdate : handleCreate}
-                  variant="accent-blue"
-                  disabled={formLoading || !formData.name.trim() || !formData.code.trim() || !formData.field_type}
-                >
-                  {formLoading ? (
-                    <>
-                      <LoadingSpinner size="sm" color="white" className="mr-2" />
-                      {showEditDialog ? 'Updating...' : 'Creating...'}
-                    </>
-                  ) : (
-                    showEditDialog ? 'Update Attribute' : 'Create Attribute'
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </Dialog>
+          </section>
+        </div>
+      </FullscreenFormModal>
 
       {/* Delete Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Attribute</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {error && (
-              <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-                {error}
-              </div>
-            )}
-
-            <p>
-              Are you sure you want to delete <strong>{selectedField?.name}</strong>?
-            </p>
-
-            <div className="bg-red-50 p-3 rounded-md">
-              <p className="text-sm text-red-800">
-                <strong>Warning:</strong> This action cannot be undone. All data associated with this field will be permanently lost.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-sm font-medium text-red-800 block mb-2">
-                  To confirm deletion, type <strong>delete</strong> below:
-                </label>
-                <Input
-                  value={deleteConfirmText}
-                  onChange={(e) => setDeleteConfirmText(e.target.value)}
-                  placeholder="Type 'delete' to confirm"
-                  className="border-red-200 focus:border-red-400"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4">
-              <Button variant="outline" onClick={() => {
-                setShowDeleteDialog(false);
-                setSelectedField(null);
-                setDeleteConfirmText('');
-              }}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={formLoading || deleteConfirmText !== 'delete'}
-              >
-                {formLoading ? (
-                  <>
-                    <LoadingSpinner size="sm" color="white" className="mr-2" />
-                    Deleting...
-                  </>
-                ) : (
-                  'Delete Attribute'
-                )}
-              </Button>
-            </div>
+      <ConfirmActionModal
+        open={showDeleteDialog}
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open);
+          if (!open) {
+            setSelectedField(null);
+            setDeleteConfirmText('');
+          }
+        }}
+        title="Delete Attribute"
+        description={`Are you sure you want to delete ${selectedField?.name || 'this attribute'}? This action cannot be undone.`}
+        confirmLabel="Delete Attribute"
+        confirmDisabled={formLoading || deleteConfirmText !== 'delete'}
+        confirmLoading={formLoading}
+        confirmLoadingLabel="Deleting..."
+        onConfirm={() => void handleDelete()}
+        variant="destructive"
+      >
+        {error && (
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+        <div className="space-y-3">
+          <label className="block text-sm font-medium text-red-800">
+            To confirm deletion, type <strong>delete</strong> below:
+          </label>
+          <Input
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder="Type 'delete' to confirm"
+            className="border-red-200 focus:border-red-400"
+          />
+        </div>
+      </ConfirmActionModal>
     </SettingsPageContent>
   );
 }
+
 
 

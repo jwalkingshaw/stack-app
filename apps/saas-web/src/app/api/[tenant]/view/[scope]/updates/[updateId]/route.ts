@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  resolvePartnerGrantedAssetIds,
+  resolvePartnerGrantedProductIds,
+} from "@/lib/partner-brand-view";
 import { supabaseServer } from "@/lib/supabase";
 import {
   appendUpdateActivity,
@@ -12,6 +16,7 @@ import {
 async function loadKitItems(params: {
   organizationId: string;
   updateId: string;
+  partnerOrganizationId: string;
 }) {
   const { data, error } = await supabaseServer
     .from("partner_update_kit_items")
@@ -28,13 +33,74 @@ async function loadKitItems(params: {
   }
 
   const items = (data || []) as Array<Record<string, unknown>>;
+  const [grantedProducts, grantedAssets] = await Promise.all([
+    resolvePartnerGrantedProductIds({
+      brandOrganizationId: params.organizationId,
+      partnerOrganizationId: params.partnerOrganizationId,
+    }),
+    resolvePartnerGrantedAssetIds({
+      brandOrganizationId: params.organizationId,
+      partnerOrganizationId: params.partnerOrganizationId,
+    }),
+  ]);
+
+  if (!grantedProducts.foundationAvailable || !grantedAssets.foundationAvailable) {
+    return {
+      ok: false as const,
+      status: 503,
+      error: "Share Set visibility foundation is unavailable. Apply latest sharing migrations first.",
+    };
+  }
+
+  const grantedProductIds = new Set(grantedProducts.productIds);
+  const grantedAssetIds = new Set(grantedAssets.assetIds);
+  const transformedItems: Array<Record<string, unknown>> = items.map((row): Record<string, unknown> => {
+    const itemType = typeof row.item_type === "string" ? row.item_type : "";
+    const productId = typeof row.product_id === "string" ? row.product_id : null;
+    const assetId = typeof row.asset_id === "string" ? row.asset_id : null;
+
+    const productRestricted =
+      itemType === "product" && productId && !grantedProductIds.has(productId);
+    const assetRestricted =
+      itemType === "asset" && assetId && !grantedAssetIds.has(assetId);
+
+    if (!productRestricted && !assetRestricted) {
+      return {
+        ...row,
+        is_available: true,
+        unavailable_reason: null,
+        unavailable_message: null,
+      };
+    }
+
+    const unavailableMessage = productRestricted
+      ? "This product is unavailable for your current access."
+      : "This asset is unavailable for your current access.";
+
+    return {
+      ...row,
+      is_available: false,
+      product_id: productRestricted ? null : productId,
+      asset_id: assetRestricted ? null : assetId,
+      unavailable_reason: productRestricted ? "product_access_denied" : "asset_access_denied",
+      unavailable_message: unavailableMessage,
+    };
+  });
 
   // Resolve product names and asset filenames for display
   const productIds = Array.from(
-    new Set(items.map((r) => r.product_id).filter((id): id is string => typeof id === "string" && Boolean(id)))
+    new Set(
+      transformedItems
+        .map((r) => r.product_id)
+        .filter((id): id is string => typeof id === "string" && Boolean(id))
+    )
   );
   const assetIds = Array.from(
-    new Set(items.map((r) => r.asset_id).filter((id): id is string => typeof id === "string" && Boolean(id)))
+    new Set(
+      transformedItems
+        .map((r) => r.asset_id)
+        .filter((id): id is string => typeof id === "string" && Boolean(id))
+    )
   );
 
   const productLookup: Record<string, { name: string | null; sku: string | null; type: string | null }> = {};
@@ -75,7 +141,7 @@ async function loadKitItems(params: {
 
   return {
     ok: true as const,
-    items,
+    items: transformedItems,
     productLookup,
     assetLookup,
   };
@@ -129,6 +195,7 @@ export async function GET(
     const kitItemsResult = await loadKitItems({
       organizationId: recipient.organizationId,
       updateId: resolvedParams.updateId,
+      partnerOrganizationId: scopeAccess.partnerOrganizationId,
     });
     if (!kitItemsResult.ok) {
       return NextResponse.json({ error: kitItemsResult.error }, { status: kitItemsResult.status });

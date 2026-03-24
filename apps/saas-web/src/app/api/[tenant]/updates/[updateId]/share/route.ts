@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
-import { requireUpdatesContext } from "../../_shared";
+import { normalizeUuidArray, requireUpdatesContext } from "../../_shared";
 
 type ShareRow = {
   id: string;
@@ -10,7 +10,112 @@ type ShareRow = {
   token: string;
   public_enabled: boolean;
   expires_at: string;
+  onboarding_share_set_ids?: string[] | null;
 };
+
+function isMissingColumnError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  if (error.code === "42703") return true;
+  const message = String(error.message || "").toLowerCase();
+  return message.includes("onboarding_share_set_ids");
+}
+
+async function selectShareRow(params: {
+  organizationId: string;
+  updateId: string;
+}): Promise<{ row: ShareRow | null; error: { code?: string; message?: string } | null }> {
+  const withOnboarding = await supabaseServer
+    .from("partner_update_shares")
+    .select("id,organization_id,partner_update_id,token,public_enabled,expires_at,onboarding_share_set_ids")
+    .eq("organization_id", params.organizationId)
+    .eq("partner_update_id", params.updateId)
+    .maybeSingle();
+
+  if (!withOnboarding.error) {
+    return {
+      row: withOnboarding.data ? (withOnboarding.data as unknown as ShareRow) : null,
+      error: null,
+    };
+  }
+
+  if (!isMissingColumnError(withOnboarding.error)) {
+    return {
+      row: null,
+      error: {
+        code: withOnboarding.error.code,
+        message: withOnboarding.error.message,
+      },
+    };
+  }
+
+  const legacy = await supabaseServer
+    .from("partner_update_shares")
+    .select("id,organization_id,partner_update_id,token,public_enabled,expires_at")
+    .eq("organization_id", params.organizationId)
+    .eq("partner_update_id", params.updateId)
+    .maybeSingle();
+
+  return {
+    row: legacy.data
+      ? ({ ...(legacy.data as unknown as ShareRow), onboarding_share_set_ids: [] } as ShareRow)
+      : null,
+    error: legacy.error
+      ? {
+          code: legacy.error.code,
+          message: legacy.error.message,
+        }
+      : null,
+  };
+}
+
+async function validateOnboardingShareSetIds(params: {
+  organizationId: string;
+  shareSetIds: string[];
+}):
+  Promise<{ ok: true; validatedIds: string[] } | { ok: false; status: number; error: string }> {
+  const normalizedIds = Array.from(new Set(params.shareSetIds));
+  if (normalizedIds.length === 0) {
+    return { ok: true, validatedIds: [] };
+  }
+
+  const { data, error } = await supabaseServer
+    .from("share_sets")
+    .select("id,module_key")
+    .eq("organization_id", params.organizationId)
+    .in("id", normalizedIds)
+    .in("module_key", ["assets", "products"]);
+
+  if (error) {
+    if (error.code === "42P01" || error.code === "PGRST205") {
+      return {
+        ok: false,
+        status: 503,
+        error: "Share set tables are unavailable. Apply database migrations first.",
+      };
+    }
+    return {
+      ok: false,
+      status: 500,
+      error: "Failed to validate onboarding share sets",
+    };
+  }
+
+  const foundIds = new Set(
+    ((data || []) as Array<{ id: string | null }>)
+      .map((row) => String(row.id || "").trim())
+      .filter(Boolean)
+  );
+
+  if (foundIds.size !== normalizedIds.length) {
+    return {
+      ok: false,
+      status: 400,
+      error: "One or more onboarding share sets are invalid for this workspace.",
+    };
+  }
+
+  return { ok: true, validatedIds: normalizedIds };
+}
 
 function buildShareUrl(request: NextRequest, params: { tenant: string; token: string }): string {
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").trim();
@@ -66,15 +171,13 @@ async function ensureShareRow(params: {
   userId: string;
 }): Promise<{ ok: true; row: ShareRow } | { ok: false; status: number; error: string }> {
   const { organizationId, updateId, userId } = params;
-  const { data, error } = await supabaseServer
-    .from("partner_update_shares")
-    .select("id,organization_id,partner_update_id,token,public_enabled,expires_at")
-    .eq("organization_id", organizationId)
-    .eq("partner_update_id", updateId)
-    .maybeSingle();
+  const existing = await selectShareRow({
+    organizationId,
+    updateId,
+  });
 
-  if (error) return { ok: false, status: 500, error: "Failed to load update share settings" };
-  if (data) return { ok: true, row: data as ShareRow };
+  if (existing.error) return { ok: false, status: 500, error: "Failed to load update share settings" };
+  if (existing.row) return { ok: true, row: existing.row };
 
   const token = await issueUniqueToken(organizationId);
   if (!token) {
@@ -91,14 +194,41 @@ async function ensureShareRow(params: {
       expires_at: defaultExpiryIso(),
       created_by: userId,
     })
-    .select("id,organization_id,partner_update_id,token,public_enabled,expires_at")
+    .select("id,organization_id,partner_update_id,token,public_enabled,expires_at,onboarding_share_set_ids")
     .maybeSingle();
+
+  if (insertError && isMissingColumnError(insertError)) {
+    const legacyInsert = await supabaseServer
+      .from("partner_update_shares")
+      .insert({
+        organization_id: organizationId,
+        partner_update_id: updateId,
+        token,
+        public_enabled: false,
+        expires_at: defaultExpiryIso(),
+        created_by: userId,
+      })
+      .select("id,organization_id,partner_update_id,token,public_enabled,expires_at")
+      .maybeSingle();
+
+    if (legacyInsert.error || !legacyInsert.data) {
+      return { ok: false, status: 500, error: "Failed to initialize update share settings" };
+    }
+
+    return {
+      ok: true,
+      row: {
+        ...(legacyInsert.data as unknown as ShareRow),
+        onboarding_share_set_ids: [],
+      },
+    };
+  }
 
   if (insertError || !inserted) {
     return { ok: false, status: 500, error: "Failed to initialize update share settings" };
   }
 
-  return { ok: true, row: inserted as ShareRow };
+  return { ok: true, row: inserted as unknown as ShareRow };
 }
 
 // GET /api/[tenant]/updates/[updateId]/share
@@ -134,6 +264,7 @@ export async function GET(
       success: true,
       publicEnabled: Boolean(shareResult.row.public_enabled),
       expiresAt: shareResult.row.expires_at,
+      onboardingShareSetIds: normalizeUuidArray(shareResult.row.onboarding_share_set_ids || []),
       shareUrl: buildShareUrl(request, {
         tenant: resolvedParams.tenant,
         token: shareResult.row.token,
@@ -176,6 +307,9 @@ export async function PATCH(
 
     const body = await request.json().catch(() => ({}));
     const updatePayload: Record<string, unknown> = {};
+    let onboardingShareSetIdsResponse = normalizeUuidArray(
+      shareResult.row.onboarding_share_set_ids || []
+    );
 
     if (Object.prototype.hasOwnProperty.call(body, "publicEnabled")) {
       if (typeof body.publicEnabled !== "boolean") {
@@ -198,6 +332,31 @@ export async function PATCH(
       updatePayload.expires_at = parsed.toISOString();
     }
 
+    if (
+      Object.prototype.hasOwnProperty.call(body, "onboardingShareSetIds") ||
+      Object.prototype.hasOwnProperty.call(body, "onboarding_share_set_ids")
+    ) {
+      const rawOnboardingShareSetIds =
+        body.onboardingShareSetIds ?? body.onboarding_share_set_ids;
+      if (!Array.isArray(rawOnboardingShareSetIds)) {
+        return NextResponse.json(
+          { error: "onboardingShareSetIds must be an array of UUIDs" },
+          { status: 400 }
+        );
+      }
+
+      const normalizedOnboardingShareSetIds = normalizeUuidArray(rawOnboardingShareSetIds);
+      const validation = await validateOnboardingShareSetIds({
+        organizationId: access.context.organizationId,
+        shareSetIds: normalizedOnboardingShareSetIds,
+      });
+      if (!validation.ok) {
+        return NextResponse.json({ error: validation.error }, { status: validation.status });
+      }
+      updatePayload.onboarding_share_set_ids = validation.validatedIds;
+      onboardingShareSetIdsResponse = validation.validatedIds;
+    }
+
     if (Object.prototype.hasOwnProperty.call(body, "regenerateToken")) {
       if (body.regenerateToken !== true && body.regenerateToken !== false) {
         return NextResponse.json({ error: "regenerateToken must be a boolean" }, { status: 400 });
@@ -215,25 +374,45 @@ export async function PATCH(
       return NextResponse.json({ error: "No share settings provided" }, { status: 400 });
     }
 
-    const { data: updated, error: updateError } = await supabaseServer
+    const updateQuery = supabaseServer
       .from("partner_update_shares")
       .update(updatePayload)
       .eq("organization_id", access.context.organizationId)
-      .eq("partner_update_id", resolvedParams.updateId)
-      .select("id,organization_id,partner_update_id,token,public_enabled,expires_at")
+      .eq("partner_update_id", resolvedParams.updateId);
+
+    let updatedResult = await updateQuery
+      .select("id,organization_id,partner_update_id,token,public_enabled,expires_at,onboarding_share_set_ids")
       .maybeSingle();
 
-    if (updateError || !updated) {
+    if (updatedResult.error && isMissingColumnError(updatedResult.error)) {
+      if (Object.prototype.hasOwnProperty.call(updatePayload, "onboarding_share_set_ids")) {
+        return NextResponse.json(
+          { error: "Share link onboarding sets are unavailable until latest migrations are applied." },
+          { status: 503 }
+        );
+      }
+
+      updatedResult = await updateQuery
+        .select("id,organization_id,partner_update_id,token,public_enabled,expires_at")
+        .maybeSingle();
+    }
+
+    if (updatedResult.error || !updatedResult.data) {
       return NextResponse.json({ error: "Failed to update share settings" }, { status: 500 });
     }
 
+    const updated = updatedResult.data as unknown as ShareRow;
+
     return NextResponse.json({
       success: true,
-      publicEnabled: Boolean((updated as ShareRow).public_enabled),
-      expiresAt: String((updated as ShareRow).expires_at),
+      publicEnabled: Boolean(updated.public_enabled),
+      expiresAt: String(updated.expires_at),
+      onboardingShareSetIds: normalizeUuidArray(
+        updated.onboarding_share_set_ids || onboardingShareSetIdsResponse
+      ),
       shareUrl: buildShareUrl(request, {
         tenant: resolvedParams.tenant,
-        token: String((updated as ShareRow).token),
+        token: String(updated.token),
       }),
     });
   } catch (error) {

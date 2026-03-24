@@ -3,15 +3,18 @@
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
-import { Loader2, Building2, Globe, Users, CheckCircle2, XCircle } from "lucide-react";
+import { Building2, Globe, Users, CheckCircle2, XCircle, Package } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { AuthLayoutShell } from "@tradetool/ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useSlugAvailability } from "@/hooks/useSlugAvailability";
+import { SUPPORTED_UI_LOCALES, UI_LOCALE_LABELS } from "@/lib/ui-locales";
 
 interface CountryOption {
   code: string;
@@ -19,6 +22,7 @@ interface CountryOption {
 }
 
 export default function OnboardingPage() {
+  const t = useTranslations("Onboarding");
   const tenantBaseDomain = process.env.NEXT_PUBLIC_TENANT_BASE_DOMAIN || "stackcess.com";
   const { user, isAuthenticated, isLoading } = useAuth();
   const searchParams = useSearchParams();
@@ -34,6 +38,7 @@ export default function OnboardingPage() {
     business_type: "brand",
     partner_category: "retailer",
     default_market_country_code: "US",
+    default_ui_locale: "en-US",
   });
   const [countries, setCountries] = useState<CountryOption[]>([]);
   const [countriesLoading, setCountriesLoading] = useState(false);
@@ -43,6 +48,7 @@ export default function OnboardingPage() {
   const brandId = searchParams.get("brand_id");
   const accessLevel = searchParams.get("access_level") as "view" | "edit" | null;
   const invitationToken = searchParams.get("token");
+  const returnTo = searchParams.get("return_to");
   const hasPartnerInviteContext =
     typeof invitationToken === "string" &&
     invitationToken.trim().length > 0 &&
@@ -50,6 +56,9 @@ export default function OnboardingPage() {
     brandId.trim().length > 0;
   const isPartnerOnboarding = onboardingType === "partner" || hasPartnerInviteContext;
   const isPartnerBusinessType = formData.business_type !== "brand";
+
+  // Kit share fast-path: partner coming from a /u/[tenant]/[token] link
+  const isKitShareFlow = isPartnerOnboarding && typeof returnTo === "string" && returnTo.startsWith("/u/");
 
   const {
     availability,
@@ -62,20 +71,22 @@ export default function OnboardingPage() {
   } = useSlugAvailability();
 
   useEffect(() => {
+    // Only redirect if we've finished loading and are definitely not authenticated
     if (!isLoading && !isAuthenticated) {
       router.push("/login");
     }
   }, [isLoading, isAuthenticated, router]);
 
+  // Skip countries fetch for partner kit-share flow — not needed
   useEffect(() => {
-    const fetchCountries = async () => {
-      if (!isAuthenticated) return;
+    if (isKitShareFlow) return;
+    if (!isAuthenticated) return;
 
+    const fetchCountries = async () => {
       try {
         setCountriesLoading(true);
         const response = await fetch("/api/reference/countries");
         if (!response.ok) return;
-
         const data = await response.json();
         setCountries(Array.isArray(data) ? data : []);
       } catch (error) {
@@ -86,7 +97,7 @@ export default function OnboardingPage() {
     };
 
     fetchCountries();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isKitShareFlow]);
 
   useEffect(() => {
     if (!isPartnerOnboarding) return;
@@ -103,11 +114,7 @@ export default function OnboardingPage() {
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/(^-|-$)/g, "");
 
-      setFormData((prev) => ({
-        ...prev,
-        [field]: value,
-        companySlug: slug,
-      }));
+      setFormData((prev) => ({ ...prev, [field]: value, companySlug: slug }));
 
       if (slug && slug.length >= 3) {
         clearSuggestions();
@@ -116,10 +123,7 @@ export default function OnboardingPage() {
       return;
     }
 
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+    setFormData((prev) => ({ ...prev, [field]: value }));
 
     if (field === "companySlug" && value && value.length >= 3) {
       clearSuggestions();
@@ -128,43 +132,22 @@ export default function OnboardingPage() {
   };
 
   const handleSuggestionSelect = (selectedSlug: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      companySlug: selectedSlug,
-    }));
+    setFormData((prev) => ({ ...prev, companySlug: selectedSlug }));
     clearSuggestions();
     checkAvailability(selectedSlug);
   };
 
   const getSlugStatusIcon = () => {
-    if (isCheckingAvailability) {
-      return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
-    }
-
-    if (!availability) {
-      return null;
-    }
-
-    if (availability.available) {
-      return <CheckCircle2 className="h-4 w-4 text-[var(--color-success)]" />;
-    }
-
+    if (isCheckingAvailability) return <LoadingSkeleton size="sm" />;
+    if (!availability) return null;
+    if (availability.available) return <CheckCircle2 className="h-4 w-4 text-[var(--color-success)]" />;
     return <XCircle className="h-4 w-4 text-destructive" />;
   };
 
   const getSlugStatusMessage = () => {
-    if (isCheckingAvailability) {
-      return <span className="text-sm text-muted-foreground">Checking availability...</span>;
-    }
-
-    if (!availability) {
-      return null;
-    }
-
-    if (availability.available) {
-      return <span className="text-sm text-[var(--color-success)]">Available.</span>;
-    }
-
+    if (isCheckingAvailability) return <span className="text-sm text-muted-foreground">{t("slug.checking")}</span>;
+    if (!availability) return null;
+    if (availability.available) return <span className="text-sm text-[var(--color-success)]">{t("slug.available")}</span>;
     return (
       <div className="space-y-2">
         <span className="text-sm text-destructive">{availability.message}</span>
@@ -177,12 +160,9 @@ export default function OnboardingPage() {
             className="text-xs"
           >
             {isLoadingSuggestions ? (
-              <>
-                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                Finding alternatives...
-              </>
+              <><LoadingSkeleton size="sm" className="mr-1" />{t("slug.findingAlternatives")}</>
             ) : (
-              "Suggest alternatives"
+              t("slug.suggestAlternatives")
             )}
           </Button>
         )}
@@ -192,7 +172,6 @@ export default function OnboardingPage() {
 
   const handleCreateOrganization = async () => {
     setLoading(true);
-
     try {
       const organizationType = isPartnerOnboarding || isPartnerBusinessType ? "partner" : "brand";
       const partnerCategory =
@@ -200,22 +179,19 @@ export default function OnboardingPage() {
           ? (isPartnerOnboarding ? formData.partner_category : formData.business_type)
           : null;
 
-      const requestBody = {
-        name: formData.companyName,
-        slug: formData.companySlug,
-        industry: formData.industry,
-        teamSize: formData.teamSize,
-        default_market_country_code: formData.default_market_country_code,
-        organization_type: organizationType,
-        partner_category: partnerCategory,
-      };
-
       const response = await fetch("/api/workspaces/create", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(requestBody),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: formData.companyName,
+          slug: formData.companySlug,
+          industry: formData.industry || "other",
+          teamSize: formData.teamSize || "1-5",
+          default_market_country_code: formData.default_market_country_code,
+          default_ui_locale: formData.default_ui_locale,
+          organization_type: organizationType,
+          partner_category: partnerCategory,
+        }),
       });
 
       if (!response.ok) {
@@ -230,9 +206,7 @@ export default function OnboardingPage() {
       if (isPartnerOnboarding && brandId && createdOrgId) {
         const relationshipResponse = await fetch("/api/partner-relationships/create", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             brand_organization_id: brandId,
             partner_organization_id: createdOrgId,
@@ -240,16 +214,19 @@ export default function OnboardingPage() {
             invitation_token: invitationToken,
           }),
         });
-
         if (!relationshipResponse.ok) {
-          const relationshipError = await relationshipResponse.json().catch(() => ({}));
-          throw new Error(relationshipError.error || "Failed to create brand-partner relationship");
+          const err = await relationshipResponse.json().catch(() => ({}));
+          throw new Error(err.error || "Failed to create brand-partner relationship");
         }
       }
 
-      const isSelfServePartnerWorkspace =
-        organizationType === "partner" && !hasPartnerInviteContext;
+      // Kit share flow: return to the share link — it will auto-accept and redirect
+      if (returnTo && returnTo.startsWith("/u/")) {
+        router.push(returnTo);
+        return;
+      }
 
+      const isSelfServePartnerWorkspace = organizationType === "partner" && !hasPartnerInviteContext;
       if (isSelfServePartnerWorkspace) {
         router.push(`/${createdOrgSlug}/settings/billing?source=partner_signup`);
       } else {
@@ -257,20 +234,26 @@ export default function OnboardingPage() {
       }
     } catch (error) {
       console.error("Organization creation error:", error);
-
-      if (error instanceof Error) {
-        alert(`Organization creation failed: ${error.message}`);
-      } else {
-        alert("Organization creation failed: Unknown error");
-      }
-
+      alert(error instanceof Error ? `Organization creation failed: ${error.message}` : "Organization creation failed");
       router.push("/demo-org");
     } finally {
       setLoading(false);
     }
   };
 
-  if (isLoading) {
+  // ── Kit share fast-path ──────────────────────────────────────────────────
+  // Minimal single-step form: company name + slug only. No countries, no industry,
+  // no team size, no step 2 confirmation. Get the partner in fast.
+  if (isKitShareFlow) {
+    const canSubmit =
+      !isLoading &&
+      isAuthenticated &&
+      !!formData.companyName &&
+      !!formData.companySlug &&
+      availability?.available === true &&
+      !isCheckingAvailability &&
+      !loading;
+
     return (
       <AuthLayoutShell
         authContext={{ isAuthenticated: false }}
@@ -278,15 +261,103 @@ export default function OnboardingPage() {
         contentClassName="pt-0"
       >
         <div className="flex min-h-screen items-center justify-center px-4 py-12">
-          <Card className="w-full max-w-[520px] rounded-2xl border border-muted/30 bg-white shadow-sm">
-            <CardContent className="px-6 py-8 sm:px-8">
-              <div className="text-center">
-                <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-xl border border-muted/30 bg-white">
-                  <Image src="/stackcess-icon-wb-logo.svg" alt="STACKCESS" width={32} height={32} className="h-8 w-8" />
-                </div>
-                <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin text-foreground" />
-                <p className="text-[var(--font-size-sm)] text-muted-foreground">Preparing your workspace...</p>
+          <Card className="w-full max-w-[480px] rounded-2xl border-0 bg-white shadow-none">
+            <CardHeader className="space-y-3 px-6 pb-4 pt-8 text-left sm:px-8">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-muted/30 bg-white">
+                <Package className="h-6 w-6 text-foreground" />
               </div>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">
+                STACKCESS
+              </span>
+              <h1 className="text-2xl font-semibold leading-tight tracking-tight text-foreground">
+                {t("kitFlow.title")}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {t("kitFlow.subtitle")}
+              </p>
+            </CardHeader>
+
+            <CardContent className="space-y-5 px-6 pb-8 pt-0 sm:px-8">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">
+                  {t("fields.organizationName")}
+                </label>
+                <Input
+                  type="text"
+                  value={formData.companyName}
+                  onChange={(e) => handleInputChange("companyName", e.target.value)}
+                  placeholder={t("kitFlow.organizationPlaceholder")}
+                  className="h-12 rounded-[0.5rem]"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">
+                  {t("fields.workspaceUrl")}
+                </label>
+                <div className="flex items-center">
+                  <div className="relative flex-1">
+                    <Input
+                      type="text"
+                      value={formData.companySlug}
+                      onChange={(e) => handleInputChange("companySlug", e.target.value)}
+                      placeholder="acme"
+                      className={cn(
+                        "h-12 rounded-r-none border-r-0 pr-10",
+                        availability?.available === false
+                          ? "border-red-300"
+                          : availability?.available === true
+                            ? "border-green-300"
+                            : "border-muted/30"
+                      )}
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">{getSlugStatusIcon()}</div>
+                  </div>
+                  <div className="inline-flex h-12 items-center rounded-r-[0.5rem] border border-l-0 border-muted/30 bg-muted/40 px-4 text-sm text-muted-foreground">
+                    .{tenantBaseDomain}
+                  </div>
+                </div>
+                <div className="mt-2 min-h-[20px]">{getSlugStatusMessage()}</div>
+                {suggestions.length > 0 && (
+                  <div className="mt-3 rounded-lg border border-muted/30 bg-muted/30 p-3">
+                    <p className="mb-2 text-sm font-medium text-foreground">{t("slug.alternatives")}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {suggestions.map((suggestion, index) => (
+                        <Button
+                          key={index}
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSuggestionSelect(suggestion)}
+                          className="h-8 text-xs"
+                        >
+                          {suggestion}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <Button
+                onClick={() => void handleCreateOrganization()}
+                disabled={!canSubmit}
+                className="mt-2 h-12 w-full rounded-[0.5rem] text-base font-semibold"
+                size="lg"
+              >
+                {loading ? (
+                  <><LoadingSkeleton size="sm" className="mr-2" />{t("actions.creatingWorkspace")}</>
+                ) : isLoading ? (
+                  <><LoadingSkeleton size="sm" className="mr-2" />{t("actions.loading")}</>
+                ) : (
+                  "Create workspace & access kit →"
+                )}
+              </Button>
+
+              <p className="text-center text-xs text-muted-foreground">
+                {t("kitFlow.freeHint")}
+              </p>
             </CardContent>
           </Card>
         </div>
@@ -294,6 +365,8 @@ export default function OnboardingPage() {
     );
   }
 
+  // ── Full onboarding (brand signup or partner invite) ─────────────────────
+  // Render immediately — don't block on isLoading. The submit is gated by canProceed.
   if (step === 1) {
     return (
       <AuthLayoutShell
@@ -302,7 +375,7 @@ export default function OnboardingPage() {
         contentClassName="pt-0"
       >
         <div className="flex min-h-screen items-center justify-center px-4 py-12">
-          <Card className="w-full max-w-[520px] rounded-2xl border border-muted/30 bg-white shadow-sm">
+          <Card className="w-full max-w-[520px] rounded-2xl border-0 bg-white shadow-none">
             <CardHeader className="space-y-3 px-6 pb-4 pt-8 text-left sm:px-8">
               <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-muted/30 bg-white">
                 <Image src="/stackcess-icon-wb-logo.svg" alt="STACKCESS" width={32} height={32} className="h-8 w-8" />
@@ -336,7 +409,7 @@ export default function OnboardingPage() {
 
               <div>
                 <label className="mb-2 block text-sm font-medium text-foreground">
-                  {isPartnerOnboarding ? "Partner URL" : "Workspace URL"}
+                  {isPartnerOnboarding ? "Partner URL" : t("fields.workspaceUrl")}
                 </label>
                 <div className="flex items-center">
                   <div className="relative flex-1">
@@ -360,12 +433,10 @@ export default function OnboardingPage() {
                     .{tenantBaseDomain}
                   </div>
                 </div>
-
                 <div className="mt-2 min-h-[20px]">{getSlugStatusMessage()}</div>
-
                 {suggestions.length > 0 && (
                   <div className="mt-3 rounded-lg border border-muted/30 bg-muted/30 p-3">
-                    <p className="mb-2 text-sm font-medium text-foreground">Available alternatives:</p>
+                    <p className="mb-2 text-sm font-medium text-foreground">{t("slug.alternatives")}</p>
                     <div className="flex flex-wrap gap-2">
                       {suggestions.map((suggestion, index) => (
                         <Button
@@ -382,7 +453,6 @@ export default function OnboardingPage() {
                     </div>
                   </div>
                 )}
-
                 <p className="mt-1 text-xs text-muted-foreground">This will be your organization&apos;s unique URL.</p>
               </div>
 
@@ -420,16 +490,14 @@ export default function OnboardingPage() {
                     </SelectContent>
                   </Select>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    This sets your default workspace experience and billing model. Both brands and partners can subscribe to paid plans.
+                    This sets your default workspace experience and billing model.
                   </p>
                 </div>
               )}
 
               {isPartnerOnboarding && (
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">
-                    Partner Business Type
-                  </label>
+                  <label className="mb-2 block text-sm font-medium text-foreground">Partner Business Type</label>
                   <Select
                     value={formData.partner_category}
                     onValueChange={(value) => handleInputChange("partner_category", value)}
@@ -443,9 +511,6 @@ export default function OnboardingPage() {
                       <SelectItem value="wholesaler">Wholesaler</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    This determines partner workflow defaults and permission presets for your own workspace.
-                  </p>
                 </div>
               )}
 
@@ -466,18 +531,16 @@ export default function OnboardingPage() {
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium text-foreground">Primary Market</label>
+                <label className="mb-2 block text-sm font-medium text-foreground">{t("fields.primaryMarket")}</label>
                 <Select
                   value={formData.default_market_country_code}
                   onValueChange={(value) => handleInputChange("default_market_country_code", value)}
                 >
                   <SelectTrigger className="h-12 rounded-[0.5rem] px-4">
-                    <SelectValue placeholder={countriesLoading ? "Loading markets..." : "Select primary market"} />
+                    <SelectValue placeholder={countriesLoading ? t("fields.loadingMarkets") : t("fields.selectPrimaryMarket")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {countries.length === 0 && (
-                      <SelectItem value="US">United States (US)</SelectItem>
-                    )}
+                    {countries.length === 0 && <SelectItem value="US">United States (US)</SelectItem>}
                     {countries.map((country) => (
                       <SelectItem key={country.code} value={country.code}>
                         {country.name} ({country.code})
@@ -486,8 +549,28 @@ export default function OnboardingPage() {
                   </SelectContent>
                 </Select>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  We will create this as your default market and seed its primary language.
+                  {t("fields.primaryMarketHint")}
                 </p>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">{t("fields.workspaceLanguage")}</label>
+                <Select
+                  value={formData.default_ui_locale}
+                  onValueChange={(value) => handleInputChange("default_ui_locale", value)}
+                >
+                  <SelectTrigger className="h-12 rounded-[0.5rem] px-4">
+                    <SelectValue placeholder={t("fields.selectWorkspaceLanguage")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUPPORTED_UI_LOCALES.map((localeCode) => (
+                      <SelectItem key={localeCode} value={localeCode}>
+                        {UI_LOCALE_LABELS[localeCode]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-muted-foreground">{t("fields.workspaceLanguageHint")}</p>
               </div>
 
               <Button
@@ -499,18 +582,16 @@ export default function OnboardingPage() {
                   isCheckingAvailability ||
                   (!isPartnerOnboarding && !formData.business_type) ||
                   (isPartnerOnboarding && !formData.partner_category) ||
-                  !formData.default_market_country_code
+                  !formData.default_market_country_code ||
+                  !formData.default_ui_locale
                 }
                 className="mt-3 h-12 w-full rounded-[0.5rem] text-base font-semibold"
                 size="lg"
               >
                 {isCheckingAvailability ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Checking availability...
-                  </>
+                  <><LoadingSkeleton size="sm" className="mr-2" />{t("slug.checking")}</>
                 ) : (
-                  "Continue"
+                  t("actions.continue")
                 )}
               </Button>
             </CardContent>
@@ -527,14 +608,18 @@ export default function OnboardingPage() {
       contentClassName="pt-0"
     >
       <div className="flex min-h-screen items-center justify-center px-4 py-12">
-        <Card className="w-full max-w-[520px] rounded-2xl border border-muted/30 bg-white shadow-sm">
+        <Card className="w-full max-w-[520px] rounded-2xl border-0 bg-white shadow-none">
           <CardHeader className="space-y-3 px-6 pb-4 pt-8 text-left sm:px-8">
             <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-muted/30 bg-white">
               <Image src="/stackcess-icon-wb-logo.svg" alt="STACKCESS" width={40} height={40} className="h-10 w-10" />
             </div>
             <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">STACKCESS</span>
-            <CardTitle className="text-[var(--font-size-2xl)] font-semibold leading-tight tracking-tight">Ready to create {formData.companyName}?</CardTitle>
-            <p className="text-[var(--font-size-sm)] text-muted-foreground">We&apos;ll set up your digital asset management workspace.</p>
+            <CardTitle className="text-[var(--font-size-2xl)] font-semibold leading-tight tracking-tight">
+              {t("confirm.title", { name: formData.companyName })}
+            </CardTitle>
+            <p className="text-[var(--font-size-sm)] text-muted-foreground">
+              {t("confirm.subtitle")}
+            </p>
           </CardHeader>
 
           <CardContent className="space-y-4 px-6 pb-8 pt-0 sm:px-8">
@@ -544,14 +629,14 @@ export default function OnboardingPage() {
                   <Globe className="h-5 w-5 text-foreground" />
                   <div>
                     <div className="font-medium text-foreground">{formData.companySlug}.{tenantBaseDomain}</div>
-                    <div className="text-sm text-muted-foreground">Your workspace URL</div>
+                    <div className="text-sm text-muted-foreground">{t("confirm.workspaceUrl")}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Building2 className="h-5 w-5 text-foreground" />
                   <div>
                     <div className="font-medium text-foreground">{formData.companyName}</div>
-                    <div className="text-sm text-muted-foreground">Organization name</div>
+                    <div className="text-sm text-muted-foreground">{t("confirm.organizationName")}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -566,13 +651,11 @@ export default function OnboardingPage() {
                     <Building2 className="h-5 w-5 text-foreground" />
                     <div>
                       <div className="font-medium text-foreground">
-                        {(isPartnerOnboarding ? formData.partner_category : formData.business_type)
-                          .charAt(0)
-                          .toUpperCase() +
-                          (isPartnerOnboarding ? formData.partner_category : formData.business_type).slice(1)}
+                        {((isPartnerOnboarding ? formData.partner_category : formData.business_type).charAt(0).toUpperCase() +
+                          (isPartnerOnboarding ? formData.partner_category : formData.business_type).slice(1))}
                       </div>
                       <div className="text-sm text-muted-foreground">
-                        {isPartnerOnboarding ? "Partner business type" : "Business type"}
+                        {isPartnerOnboarding ? t("confirm.partnerBusinessType") : t("confirm.businessType")}
                       </div>
                     </div>
                   </div>
@@ -581,9 +664,18 @@ export default function OnboardingPage() {
                   <Globe className="h-5 w-5 text-foreground" />
                   <div>
                     <div className="font-medium text-foreground">
-                      {countries.find((country) => country.code === formData.default_market_country_code)?.name || formData.default_market_country_code}
+                      {countries.find((c) => c.code === formData.default_market_country_code)?.name || formData.default_market_country_code}
                     </div>
-                    <div className="text-sm text-muted-foreground">Default market</div>
+                    <div className="text-sm text-muted-foreground">{t("confirm.defaultMarket")}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Globe className="h-5 w-5 text-foreground" />
+                  <div>
+                    <div className="font-medium text-foreground">
+                      {UI_LOCALE_LABELS[formData.default_ui_locale as keyof typeof UI_LOCALE_LABELS] || formData.default_ui_locale}
+                    </div>
+                    <div className="text-sm text-muted-foreground">{t("confirm.workspaceLanguage")}</div>
                   </div>
                 </div>
               </div>
@@ -591,18 +683,15 @@ export default function OnboardingPage() {
 
             <div className="space-y-3">
               <Button
-                onClick={handleCreateOrganization}
+                onClick={() => void handleCreateOrganization()}
                 disabled={loading}
                 className="h-12 w-full rounded-[0.5rem] text-base font-semibold"
                 size="lg"
               >
                 {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating workspace...
-                  </>
+                  <><LoadingSkeleton size="sm" className="mr-2" />{t("actions.creatingWorkspace")}</>
                 ) : (
-                  "Create Organization"
+                  t("actions.createOrganization")
                 )}
               </Button>
 
@@ -611,7 +700,7 @@ export default function OnboardingPage() {
                 variant="ghost"
                 className="h-12 w-full rounded-[0.5rem] border-0 text-base font-semibold"
               >
-                Back to edit
+                {t("actions.backToEdit")}
               </Button>
             </div>
           </CardContent>
@@ -620,3 +709,6 @@ export default function OnboardingPage() {
     </AuthLayoutShell>
   );
 }
+
+
+

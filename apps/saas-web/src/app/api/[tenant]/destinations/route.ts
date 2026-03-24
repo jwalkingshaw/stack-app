@@ -158,17 +158,19 @@ export async function POST(
       return NextResponse.json({ error: "Name and code are required." }, { status: 400 });
     }
 
-    if (channelId) {
-      const { data: channel, error: channelError } = await supabase
-        .from("channels")
-        .select("id")
-        .eq("organization_id", targetOrganizationId)
-        .eq("id", channelId)
-        .maybeSingle();
+    if (!channelId) {
+      return NextResponse.json({ error: "Destination requires a channel." }, { status: 400 });
+    }
 
-      if (channelError || !channel) {
-        return NextResponse.json({ error: "Invalid channel selected." }, { status: 400 });
-      }
+    const { data: channel, error: channelError } = await supabase
+      .from("channels")
+      .select("id")
+      .eq("organization_id", targetOrganizationId)
+      .eq("id", channelId)
+      .maybeSingle();
+
+    if (channelError || !channel) {
+      return NextResponse.json({ error: "Invalid channel selected." }, { status: 400 });
     }
 
     if (marketId) {

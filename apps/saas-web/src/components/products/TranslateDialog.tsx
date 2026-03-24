@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, Languages, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Languages } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
 import { MultiSelect, MultiSelectOption } from '@/components/ui/multi-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getLocaleShortName } from '@/lib/locale-utils';
@@ -401,7 +402,7 @@ export function TranslateDialog({
               <label className="text-sm font-medium text-foreground">To markets</label>
               {dataLoading ? (
                 <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <LoadingSkeleton size="sm" />
                   Loading…
                 </div>
               ) : (
@@ -525,7 +526,7 @@ export function TranslateDialog({
               <Button onClick={handleSubmit} disabled={!canSubmit || dataLoading}>
                 {submitting ? (
                   <>
-                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    <LoadingSkeleton size="sm" className="mr-1.5" />
                     Translating…
                   </>
                 ) : (
@@ -538,3 +539,4 @@ export function TranslateDialog({
     </Dialog>
   );
 }
+

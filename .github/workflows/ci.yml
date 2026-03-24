@@ -66,6 +66,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate locale catalogs
+        run: npm run i18n:check
+
       - name: Type check (monorepo)
         run: npm run type-check
 

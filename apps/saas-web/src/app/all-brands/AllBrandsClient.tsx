@@ -8,6 +8,7 @@ import { useWorkspaces, WorkspaceSummary } from "@/hooks/useWorkspaces";
 import { SaaSSidebar } from "@/components/SaaSSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 
 interface AllBrandsClientProps {
   userName: string;
@@ -152,7 +153,7 @@ export default function AllBrandsClient({
           disabled={refreshing}
           className="gap-2"
         >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? <LoadingSkeleton size="sm" /> : <RefreshCw className="h-4 w-4" />}
           Refresh
         </Button>
       </div>
@@ -294,3 +295,4 @@ export default function AllBrandsClient({
     </div>
   );
 }
+

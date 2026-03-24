@@ -6,9 +6,10 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { AuthLayoutShell } from "@tradetool/ui";
 import { useMe } from "@/hooks/useMe";
-import { Check, Loader2 } from "lucide-react";
+import { Check } from "lucide-react";
 
 export default function WelcomePage() {
   const searchParams = useSearchParams();
@@ -95,13 +96,15 @@ export default function WelcomePage() {
         contentClassName="pt-0"
       >
         <div className="flex min-h-screen items-center justify-center px-4 py-12">
-          <Card className="w-full max-w-[520px] rounded-2xl border border-muted/30 bg-white shadow-sm">
+          <Card className="w-full max-w-[520px] rounded-2xl border-0 bg-white shadow-none">
             <CardContent className="px-6 py-8 sm:px-8">
               <div className="text-center">
                 <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-xl border border-muted/30 bg-white">
                   <Image src="/stackcess-icon-wb-logo.svg" alt="STACKCESS" width={32} height={32} className="h-8 w-8" />
                 </div>
-                <Loader2 className="mx-auto mb-3 h-5 w-5 animate-spin text-foreground" />
+                <div className="mx-auto mb-3 w-fit">
+                  <LoadingSkeleton size="md" />
+                </div>
                 <p className="text-[var(--font-size-sm)] text-muted-foreground">Getting things ready...</p>
               </div>
             </CardContent>
@@ -118,7 +121,7 @@ export default function WelcomePage() {
       contentClassName="pt-0"
     >
       <div className="flex min-h-screen items-center justify-center px-4 py-12">
-        <Card className="w-full max-w-[520px] rounded-2xl border border-muted/30 bg-white shadow-sm">
+        <Card className="w-full max-w-[520px] rounded-2xl border-0 bg-white shadow-none">
           <CardHeader className="space-y-3 px-6 pb-4 pt-8 text-left sm:px-8">
             <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-muted/30 bg-white">
               <Image src="/stackcess-icon-wb-logo.svg" alt="STACKCESS" width={32} height={32} className="h-8 w-8" />
@@ -197,3 +200,4 @@ export default function WelcomePage() {
     </AuthLayoutShell>
   );
 }
+

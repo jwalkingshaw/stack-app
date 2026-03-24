@@ -21,14 +21,36 @@ type ShareSetDynamicRule = {
   name: string | null;
   is_active: boolean;
   priority: number;
+  // Tag / folder / usage group
   include_tags: string[];
   include_folder_ids: string[];
   include_usage_group_ids: string[];
+  exclude_tags: string[];
+  exclude_folder_ids: string[];
+  // New asset conditions
+  include_compliance_statuses: string[];
+  exclude_compliance_statuses: string[];
+  include_brand_legal_approvals: string[];
+  exclude_brand_legal_approvals: string[];
+  include_asset_statuses: string[];
+  exclude_asset_statuses: string[];
+  include_file_types: string[];
+  exclude_file_types: string[];
+  include_artwork_types: string[];
+  exclude_artwork_types: string[];
+  include_print_vs_digital: string | null;
+  include_certifications: string[];
+  exclude_certifications: string[];
+  include_regulatory_regions: string[];
+  exclude_regulatory_regions: string[];
+  include_wada_risk_levels: string[];
+  exclude_wada_risk_levels: string[];
+  require_talent_release: boolean;
+  usage_end_within_days: number | null;
+  // Product conditions
   include_product_types: string[];
   include_product_family_ids: string[];
   include_product_name_contains: string[];
-  exclude_tags: string[];
-  exclude_folder_ids: string[];
   exclude_product_types: string[];
   exclude_product_family_ids: string[];
   exclude_product_name_contains: string[];
@@ -39,6 +61,28 @@ type ShareSetDynamicRule = {
 };
 
 const ALLOWED_PRODUCT_TYPES = new Set(["parent", "variant", "standalone"]);
+
+const RULE_SELECT_COLUMNS = [
+  "id", "share_set_id", "organization_id", "name", "is_active", "priority",
+  // Tag / folder / usage group
+  "include_tags", "include_folder_ids", "include_usage_group_ids",
+  "exclude_tags", "exclude_folder_ids",
+  // Asset conditions
+  "include_compliance_statuses", "exclude_compliance_statuses",
+  "include_brand_legal_approvals", "exclude_brand_legal_approvals",
+  "include_asset_statuses", "exclude_asset_statuses",
+  "include_file_types", "exclude_file_types",
+  "include_artwork_types", "exclude_artwork_types",
+  "include_print_vs_digital",
+  "include_certifications", "exclude_certifications",
+  "include_regulatory_regions", "exclude_regulatory_regions",
+  "include_wada_risk_levels", "exclude_wada_risk_levels",
+  "require_talent_release", "usage_end_within_days",
+  // Product conditions
+  "include_product_types", "include_product_family_ids", "include_product_name_contains",
+  "exclude_product_types", "exclude_product_family_ids", "exclude_product_name_contains",
+  "metadata", "created_by", "created_at", "updated_at",
+].join(",");
 
 function isMissingRuleFoundationError(error: unknown): boolean {
   if (!error) return false;
@@ -53,7 +97,18 @@ function isMissingRuleFoundationError(error: unknown): boolean {
     message.includes("include_product_family_ids") ||
     message.includes("exclude_product_family_ids") ||
     message.includes("include_product_name_contains") ||
-    message.includes("exclude_product_name_contains")
+    message.includes("exclude_product_name_contains") ||
+    message.includes("include_compliance_statuses") ||
+    message.includes("include_brand_legal_approvals") ||
+    message.includes("include_asset_statuses") ||
+    message.includes("include_file_types") ||
+    message.includes("include_artwork_types") ||
+    message.includes("include_print_vs_digital") ||
+    message.includes("include_certifications") ||
+    message.includes("include_regulatory_regions") ||
+    message.includes("include_wada_risk_levels") ||
+    message.includes("require_talent_release") ||
+    message.includes("usage_end_within_days")
   );
 }
 
@@ -73,14 +128,36 @@ function normalizeRuleInput(raw: unknown): {
   name: string | null;
   isActive: boolean;
   priority: number;
+  // Tag / folder / usage group
   includeTags: string[];
   includeFolderIds: string[];
   includeUsageGroupIds: string[];
+  excludeTags: string[];
+  excludeFolderIds: string[];
+  // Asset conditions
+  includeComplianceStatuses: string[];
+  excludeComplianceStatuses: string[];
+  includeBrandLegalApprovals: string[];
+  excludeBrandLegalApprovals: string[];
+  includeAssetStatuses: string[];
+  excludeAssetStatuses: string[];
+  includeFileTypes: string[];
+  excludeFileTypes: string[];
+  includeArtworkTypes: string[];
+  excludeArtworkTypes: string[];
+  includePrintVsDigital: string | null;
+  includeCertifications: string[];
+  excludeCertifications: string[];
+  includeRegulatoryRegions: string[];
+  excludeRegulatoryRegions: string[];
+  includeWadaRiskLevels: string[];
+  excludeWadaRiskLevels: string[];
+  requireTalentRelease: boolean;
+  usageEndWithinDays: number | null;
+  // Product conditions
   includeProductTypes: string[];
   includeProductFamilyIds: string[];
   includeProductNameContains: string[];
-  excludeTags: string[];
-  excludeFolderIds: string[];
   excludeProductTypes: string[];
   excludeProductFamilyIds: string[];
   excludeProductNameContains: string[];
@@ -110,6 +187,35 @@ function normalizeRuleInput(raw: unknown): {
       ? (input.metadata as Record<string, unknown>)
       : {};
 
+  const usageEndWithinDaysRaw =
+    typeof input.usageEndWithinDays === "number"
+      ? input.usageEndWithinDays
+      : typeof input.usage_end_within_days === "number"
+        ? input.usage_end_within_days
+        : null;
+  const usageEndWithinDays =
+    usageEndWithinDaysRaw !== null && Number.isFinite(usageEndWithinDaysRaw) && usageEndWithinDaysRaw > 0
+      ? Math.floor(usageEndWithinDaysRaw)
+      : null;
+
+  const includePrintVsDigitalRaw =
+    typeof input.includePrintVsDigital === "string"
+      ? input.includePrintVsDigital
+      : typeof input.include_print_vs_digital === "string"
+        ? input.include_print_vs_digital
+        : null;
+  const includePrintVsDigital =
+    includePrintVsDigitalRaw === "print" || includePrintVsDigitalRaw === "digital"
+      ? includePrintVsDigitalRaw
+      : null;
+
+  const requireTalentRelease =
+    typeof input.requireTalentRelease === "boolean"
+      ? input.requireTalentRelease
+      : typeof input.require_talent_release === "boolean"
+        ? input.require_talent_release
+        : false;
+
   return {
     name,
     isActive,
@@ -117,13 +223,34 @@ function normalizeRuleInput(raw: unknown): {
     includeTags: normalizeStringArray(input.includeTags, { lowercase: true }),
     includeFolderIds: normalizeUuidArray(input.includeFolderIds),
     includeUsageGroupIds: normalizeStringArray(input.includeUsageGroupIds, { lowercase: true }),
+    excludeTags: normalizeStringArray(input.excludeTags, { lowercase: true }),
+    excludeFolderIds: normalizeUuidArray(input.excludeFolderIds),
+    // Asset conditions
+    includeComplianceStatuses: normalizeStringArray(input.includeComplianceStatuses),
+    excludeComplianceStatuses: normalizeStringArray(input.excludeComplianceStatuses),
+    includeBrandLegalApprovals: normalizeStringArray(input.includeBrandLegalApprovals),
+    excludeBrandLegalApprovals: normalizeStringArray(input.excludeBrandLegalApprovals),
+    includeAssetStatuses: normalizeStringArray(input.includeAssetStatuses),
+    excludeAssetStatuses: normalizeStringArray(input.excludeAssetStatuses),
+    includeFileTypes: normalizeStringArray(input.includeFileTypes, { lowercase: true }),
+    excludeFileTypes: normalizeStringArray(input.excludeFileTypes, { lowercase: true }),
+    includeArtworkTypes: normalizeStringArray(input.includeArtworkTypes),
+    excludeArtworkTypes: normalizeStringArray(input.excludeArtworkTypes),
+    includePrintVsDigital,
+    includeCertifications: normalizeStringArray(input.includeCertifications),
+    excludeCertifications: normalizeStringArray(input.excludeCertifications),
+    includeRegulatoryRegions: normalizeStringArray(input.includeRegulatoryRegions),
+    excludeRegulatoryRegions: normalizeStringArray(input.excludeRegulatoryRegions),
+    includeWadaRiskLevels: normalizeStringArray(input.includeWadaRiskLevels, { lowercase: true }),
+    excludeWadaRiskLevels: normalizeStringArray(input.excludeWadaRiskLevels, { lowercase: true }),
+    requireTalentRelease,
+    usageEndWithinDays,
+    // Product conditions
     includeProductTypes: normalizeStringArray(input.includeProductTypes, { lowercase: true }),
     includeProductFamilyIds: normalizeUuidArray(input.includeProductFamilyIds),
     includeProductNameContains: normalizeStringArray(input.includeProductNameContains, {
       lowercase: true,
     }),
-    excludeTags: normalizeStringArray(input.excludeTags, { lowercase: true }),
-    excludeFolderIds: normalizeUuidArray(input.excludeFolderIds),
     excludeProductTypes: normalizeStringArray(input.excludeProductTypes, { lowercase: true }),
     excludeProductFamilyIds: normalizeUuidArray(input.excludeProductFamilyIds),
     excludeProductNameContains: normalizeStringArray(input.excludeProductNameContains, {
@@ -160,7 +287,18 @@ function validateRuleForModule(params: {
     const hasInclude =
       input.includeTags.length > 0 ||
       input.includeFolderIds.length > 0 ||
-      input.includeUsageGroupIds.length > 0;
+      input.includeUsageGroupIds.length > 0 ||
+      input.includeComplianceStatuses.length > 0 ||
+      input.includeBrandLegalApprovals.length > 0 ||
+      input.includeAssetStatuses.length > 0 ||
+      input.includeFileTypes.length > 0 ||
+      input.includeArtworkTypes.length > 0 ||
+      input.includePrintVsDigital !== null ||
+      input.includeCertifications.length > 0 ||
+      input.includeRegulatoryRegions.length > 0 ||
+      input.includeWadaRiskLevels.length > 0 ||
+      input.requireTalentRelease ||
+      input.usageEndWithinDays !== null;
     if (!hasInclude) {
       return {
         ok: false,
@@ -252,7 +390,7 @@ export async function GET(
     const { data, error } = await supabaseServer
       .from("share_set_dynamic_rules")
       .select(
-        "id,share_set_id,organization_id,name,is_active,priority,include_tags,include_folder_ids,include_usage_group_ids,include_product_types,include_product_family_ids,include_product_name_contains,exclude_tags,exclude_folder_ids,exclude_product_types,exclude_product_family_ids,exclude_product_name_contains,metadata,created_by,created_at,updated_at"
+        RULE_SELECT_COLUMNS
       )
       .eq("organization_id", organization.id)
       .eq("share_set_id", setResult.data.id)
@@ -311,14 +449,36 @@ export async function POST(
       name: input!.name,
       is_active: input!.isActive,
       priority: input!.priority,
+      // Tag / folder / usage group
       include_tags: input!.includeTags,
       include_folder_ids: input!.includeFolderIds,
       include_usage_group_ids: input!.includeUsageGroupIds,
+      exclude_tags: input!.excludeTags,
+      exclude_folder_ids: input!.excludeFolderIds,
+      // Asset conditions
+      include_compliance_statuses: input!.includeComplianceStatuses,
+      exclude_compliance_statuses: input!.excludeComplianceStatuses,
+      include_brand_legal_approvals: input!.includeBrandLegalApprovals,
+      exclude_brand_legal_approvals: input!.excludeBrandLegalApprovals,
+      include_asset_statuses: input!.includeAssetStatuses,
+      exclude_asset_statuses: input!.excludeAssetStatuses,
+      include_file_types: input!.includeFileTypes,
+      exclude_file_types: input!.excludeFileTypes,
+      include_artwork_types: input!.includeArtworkTypes,
+      exclude_artwork_types: input!.excludeArtworkTypes,
+      include_print_vs_digital: input!.includePrintVsDigital,
+      include_certifications: input!.includeCertifications,
+      exclude_certifications: input!.excludeCertifications,
+      include_regulatory_regions: input!.includeRegulatoryRegions,
+      exclude_regulatory_regions: input!.excludeRegulatoryRegions,
+      include_wada_risk_levels: input!.includeWadaRiskLevels,
+      exclude_wada_risk_levels: input!.excludeWadaRiskLevels,
+      require_talent_release: input!.requireTalentRelease,
+      usage_end_within_days: input!.usageEndWithinDays,
+      // Product conditions
       include_product_types: input!.includeProductTypes,
       include_product_family_ids: input!.includeProductFamilyIds,
       include_product_name_contains: input!.includeProductNameContains,
-      exclude_tags: input!.excludeTags,
-      exclude_folder_ids: input!.excludeFolderIds,
       exclude_product_types: input!.excludeProductTypes,
       exclude_product_family_ids: input!.excludeProductFamilyIds,
       exclude_product_name_contains: input!.excludeProductNameContains,
@@ -330,7 +490,7 @@ export async function POST(
       .from("share_set_dynamic_rules")
       .insert(payload)
       .select(
-        "id,share_set_id,organization_id,name,is_active,priority,include_tags,include_folder_ids,include_usage_group_ids,include_product_types,include_product_family_ids,include_product_name_contains,exclude_tags,exclude_folder_ids,exclude_product_types,exclude_product_family_ids,exclude_product_name_contains,metadata,created_by,created_at,updated_at"
+        RULE_SELECT_COLUMNS
       )
       .single();
 
@@ -383,14 +543,36 @@ export async function PATCH(
       name: input!.name,
       is_active: input!.isActive,
       priority: input!.priority,
+      // Tag / folder / usage group
       include_tags: input!.includeTags,
       include_folder_ids: input!.includeFolderIds,
       include_usage_group_ids: input!.includeUsageGroupIds,
+      exclude_tags: input!.excludeTags,
+      exclude_folder_ids: input!.excludeFolderIds,
+      // Asset conditions
+      include_compliance_statuses: input!.includeComplianceStatuses,
+      exclude_compliance_statuses: input!.excludeComplianceStatuses,
+      include_brand_legal_approvals: input!.includeBrandLegalApprovals,
+      exclude_brand_legal_approvals: input!.excludeBrandLegalApprovals,
+      include_asset_statuses: input!.includeAssetStatuses,
+      exclude_asset_statuses: input!.excludeAssetStatuses,
+      include_file_types: input!.includeFileTypes,
+      exclude_file_types: input!.excludeFileTypes,
+      include_artwork_types: input!.includeArtworkTypes,
+      exclude_artwork_types: input!.excludeArtworkTypes,
+      include_print_vs_digital: input!.includePrintVsDigital,
+      include_certifications: input!.includeCertifications,
+      exclude_certifications: input!.excludeCertifications,
+      include_regulatory_regions: input!.includeRegulatoryRegions,
+      exclude_regulatory_regions: input!.excludeRegulatoryRegions,
+      include_wada_risk_levels: input!.includeWadaRiskLevels,
+      exclude_wada_risk_levels: input!.excludeWadaRiskLevels,
+      require_talent_release: input!.requireTalentRelease,
+      usage_end_within_days: input!.usageEndWithinDays,
+      // Product conditions
       include_product_types: input!.includeProductTypes,
       include_product_family_ids: input!.includeProductFamilyIds,
       include_product_name_contains: input!.includeProductNameContains,
-      exclude_tags: input!.excludeTags,
-      exclude_folder_ids: input!.excludeFolderIds,
       exclude_product_types: input!.excludeProductTypes,
       exclude_product_family_ids: input!.excludeProductFamilyIds,
       exclude_product_name_contains: input!.excludeProductNameContains,
@@ -404,7 +586,7 @@ export async function PATCH(
       .eq("share_set_id", setResult.data.id)
       .eq("id", ruleId)
       .select(
-        "id,share_set_id,organization_id,name,is_active,priority,include_tags,include_folder_ids,include_usage_group_ids,include_product_types,include_product_family_ids,include_product_name_contains,exclude_tags,exclude_folder_ids,exclude_product_types,exclude_product_family_ids,exclude_product_name_contains,metadata,created_by,created_at,updated_at"
+        RULE_SELECT_COLUMNS
       )
       .maybeSingle();
 

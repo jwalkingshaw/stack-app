@@ -6,7 +6,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "../lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-blue)] disabled:pointer-events-none disabled:opacity-50 disabled:bg-muted/30 cursor-pointer [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  "inline-flex items-center justify-center whitespace-nowrap rounded-full text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent-blue)] disabled:pointer-events-none disabled:opacity-50 disabled:bg-muted/30 cursor-pointer [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -17,7 +17,7 @@ const buttonVariants = cva(
         outline:
           "border-[1px] border-[var(--color-border)] bg-transparent text-foreground hover:border-[var(--color-border-hover)] hover:bg-[var(--color-interactive-hover)] active:bg-[var(--color-interactive-pressed)] shadow-soft",
         secondary:
-          "border-[1px] border-[var(--color-border-strong)] bg-transparent text-foreground hover:border-[var(--color-foreground-muted)] hover:bg-[var(--color-interactive-hover)] active:bg-[var(--color-interactive-pressed)] shadow-soft",
+          "border-[1px] border-[var(--color-border-strong)] bg-transparent text-foreground hover:border-[var(--color-foreground-muted)] hover:bg-[var(--color-secondary-button-hover)] active:bg-[var(--color-secondary-button-active)] shadow-soft",
         ghost: "border-[1px] border-transparent hover:bg-[var(--color-interactive-hover)] hover:text-foreground active:bg-[var(--color-interactive-pressed)]",
         link: "text-primary underline-offset-4 hover:underline",
       },

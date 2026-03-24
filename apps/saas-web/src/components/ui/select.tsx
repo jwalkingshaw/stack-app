@@ -16,7 +16,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex h-8 w-full items-center justify-between rounded-lg border border-muted/30 bg-white px-3 py-1 text-sm shadow-soft transition-colors",
+      "flex h-8 w-full items-center justify-between rounded-full border border-muted/30 bg-white px-3 py-1 text-sm shadow-soft transition-colors",
       "hover:border-muted/30 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus:border-muted/30 data-[state=open]:border-muted/30",
       "disabled:cursor-not-allowed disabled:opacity-50",
       className
@@ -45,7 +45,7 @@ const SelectContent = React.forwardRef<
       )}
       {...props}
     >
-      <SelectPrimitive.Viewport className="max-h-[60vh] overflow-y-auto p-0">
+      <SelectPrimitive.Viewport className="max-h-[220px] overflow-y-auto p-0">
         {children}
       </SelectPrimitive.Viewport>
     </SelectPrimitive.Content>
@@ -60,7 +60,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex w-full cursor-default select-none items-center rounded-md py-2 pl-8 pr-2 text-sm outline-none",
+      "relative flex w-full cursor-default select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none",
       "focus:bg-muted/50 focus:text-foreground focus:!shadow-none focus-visible:!shadow-none data-[highlighted]:bg-muted/50 data-[highlighted]:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className
     )}

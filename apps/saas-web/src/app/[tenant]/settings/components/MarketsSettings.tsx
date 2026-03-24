@@ -1,13 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/input';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { SettingsPageContent } from './settings-page-content';
 import { CreateMarketDialog } from './markets/CreateMarketDialog';
-import { ManageMarketDialog } from './markets/ManageMarketDialog';
 import { MarketsTable } from './markets/MarketsTable';
 import { toMap } from './markets/types';
 import { useMarketsSettingsData } from './markets/use-markets-settings-data';
@@ -17,22 +15,20 @@ interface MarketsSettingsProps {
 }
 
 export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
+  const router = useRouter();
   const [search, setSearch] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [manageMarketId, setManageMarketId] = useState<string | null>(null);
 
   const {
     loading,
+    referenceLoading,
+    referenceReady,
     saving,
     error,
     setError,
+    ensureReferenceData,
     runAction,
-    patchMarket,
     createMarket,
-    assignCountry,
-    unassignCountry,
-    assignLocale,
-    unassignLocale,
     createLocale,
     markets,
     locales,
@@ -54,9 +50,6 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
     () => new Map(localeCatalog.map((entry) => [entry.code.toLowerCase(), entry])),
     [localeCatalog]
   );
-  const marketById = useMemo(() => toMap(markets, 'id'), [markets]);
-  const activeLocales = useMemo(() => locales.filter((row) => row.is_active), [locales]);
-  const manageMarket = manageMarketId ? marketById.get(manageMarketId) || null : null;
 
   const activeLocaleIdsByMarket = useMemo(() => {
     const out = new Map<string, string[]>();
@@ -80,21 +73,6 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
     return out;
   }, [marketCountries]);
 
-  const manageLocaleIds = manageMarketId ? activeLocaleIdsByMarket.get(manageMarketId) || [] : [];
-  const manageCountryCodes = manageMarketId ? activeCountryCodesByMarket.get(manageMarketId) || [] : [];
-  const manageAvailableCountries = useMemo(() => {
-    const used = new Set(manageCountryCodes);
-    return countries.filter((country) => !used.has(country.code));
-  }, [countries, manageCountryCodes]);
-  const manageAvailableLocales = useMemo(() => {
-    const assignedCodes = new Set(
-      manageLocaleIds
-        .map((localeId) => localeById.get(localeId)?.code?.toLowerCase())
-        .filter((code): code is string => Boolean(code))
-    );
-    return localeCatalog.filter((entry) => !assignedCodes.has(entry.code.toLowerCase()));
-  }, [localeCatalog, localeById, manageLocaleIds]);
-
   const filteredMarkets = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return markets;
@@ -110,12 +88,12 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
         .filter((row): row is (typeof countries)[number] => Boolean(row))
         .some((row) => `${row.name} ${row.code}`.toLowerCase().includes(q));
     });
-  }, [activeCountryCodesByMarket, activeLocaleIdsByMarket, countryByCode, countries, localeById, locales, markets, search]);
+  }, [activeCountryCodesByMarket, activeLocaleIdsByMarket, countryByCode, localeById, markets, search]);
 
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading markets..." size="lg" />
+        <PageSkeleton text="Loading markets..." size="lg" />
       </div>
     );
   }
@@ -141,9 +119,6 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
       <SettingsPageContent page="markets">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Markets</h1>
-          <p className="text-sm text-muted-foreground">
-            Reference data comes from API and market writes are server-validated.
-          </p>
         </div>
 
         {error && (
@@ -153,42 +128,28 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
         )}
 
         <section className="space-y-4 rounded-lg border border-border/60 bg-card p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search markets..."
               className="max-w-sm"
             />
-            <Button
-              variant="accent-blue"
-              className="gap-2"
-              onClick={() => {
-                setError(null);
-                setShowCreateDialog(true);
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              Add Market
-            </Button>
           </div>
 
           <MarketsTable
             markets={filteredMarkets}
-            saving={saving}
             localeById={localeById}
             activeLocaleIdsByMarket={activeLocaleIdsByMarket}
             activeCountryCodesByMarket={activeCountryCodesByMarket}
-            onSetDefaultMarket={(marketId) =>
-              runAction(() => patchMarket(marketId, { is_default: true }), 'Failed to set default market.')
-            }
-            onToggleMarketActive={(marketId, isActive) =>
-              runAction(
-                () => patchMarket(marketId, { is_active: !isActive }),
-                'Failed to update market status.'
-              )
-            }
-            onManageMarket={setManageMarketId}
+            onAddMarket={() => {
+              setError(null);
+              void ensureReferenceData();
+              setShowCreateDialog(true);
+            }}
+            onManageMarket={(nextMarketId) => {
+              router.push(`/${tenantSlug}/settings/markets/${nextMarketId}`);
+            }}
           />
         </section>
       </SettingsPageContent>
@@ -196,6 +157,8 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
       <CreateMarketDialog
         open={showCreateDialog}
         saving={saving}
+        referenceLoading={referenceLoading}
+        referenceReady={referenceReady}
         countries={countries}
         localeCatalog={localeCatalog}
         currencies={currencies}
@@ -231,66 +194,7 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
           }, 'Failed to create market.')
         }
       />
-
-      <ManageMarketDialog
-        open={Boolean(manageMarketId)}
-        saving={saving}
-        market={manageMarket}
-        localeById={localeById}
-        countryByCode={countryByCode}
-        activeLocaleIds={manageLocaleIds}
-        activeCountryCodes={manageCountryCodes}
-        availableLocaleCatalog={manageAvailableLocales}
-        availableCountries={manageAvailableCountries}
-        onOpenChange={(open) => {
-          if (!open && !saving) setManageMarketId(null);
-        }}
-        onAssignCountry={(countryCode) =>
-          manageMarket &&
-          runAction(
-            () => assignCountry(manageMarket.id, countryCode),
-            'Failed to assign country.'
-          )
-        }
-        onUnassignCountry={(countryCode) =>
-          manageMarket &&
-          runAction(
-            () => unassignCountry(manageMarket.id, countryCode),
-            'Failed to unassign country.'
-          )
-        }
-        onAssignLocaleCode={(localeCode) =>
-          manageMarket &&
-          runAction(
-            async () => {
-              const locale = await ensureLocaleByCode(localeCode);
-              await assignLocale(manageMarket.id, locale.id);
-            },
-            'Failed to assign language.'
-          )
-        }
-        onUnassignLocale={(localeId) =>
-          manageMarket &&
-          runAction(
-            () => unassignLocale(manageMarket.id, localeId),
-            'Failed to unassign language.'
-          )
-        }
-        onSetDefaultLocale={(localeId) =>
-          manageMarket &&
-          runAction(
-            () => patchMarket(manageMarket.id, { default_locale_id: localeId }),
-            'Failed to set default language.'
-          )
-        }
-        onCreateLocaleAndAssign={(name, code) =>
-          manageMarket &&
-          runAction(async () => {
-            const created = await createLocale(name, code);
-            await assignLocale(manageMarket.id, created.id);
-          }, 'Failed to create language.')
-        }
-      />
     </>
   );
 }
+

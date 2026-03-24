@@ -1,22 +1,35 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { ItemList } from '@/components/ui/item-list';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
+import { CenteredFormModal, FullscreenFormModal } from '@/components/ui/modal-shells';
+import { Switch } from '@/components/ui/switch';
 import { SettingsPageContent } from './settings-page-content';
 
 interface ChannelsSettingsProps {
   tenantSlug: string;
 }
 
-interface Channel {
+interface ChannelRecord {
   id: string;
   code: string;
   name: string;
   is_active: boolean;
 }
+
+type ChannelDraft = {
+  name: string;
+  code: string;
+  is_active: boolean;
+};
+
+const INITIAL_DRAFT: ChannelDraft = {
+  name: '',
+  code: '',
+  is_active: true,
+};
 
 const generateCode = (value: string) =>
   value
@@ -24,85 +37,126 @@ const generateCode = (value: string) =>
     .trim()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
-    .slice(0, 50);
+    .slice(0, 64);
+
+const notifyMarketContextRefresh = () => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event('market-context:refresh'));
+};
 
 export default function ChannelsSettings({ tenantSlug }: ChannelsSettingsProps) {
-  const [channels, setChannels] = useState<Channel[]>([]);
+  const [channels, setChannels] = useState<ChannelRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [channelName, setChannelName] = useState('');
-  const [channelCode, setChannelCode] = useState('');
+  const [search, setSearch] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [selectedChannel, setSelectedChannel] = useState<ChannelRecord | null>(null);
+  const [draft, setDraft] = useState<ChannelDraft>(INITIAL_DRAFT);
 
-  const fetchChannels = useCallback(async () => {
+  const loadChannels = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-
       const response = await fetch(`/api/${tenantSlug}/channels`);
       if (!response.ok) {
-        throw new Error('Failed to fetch channels');
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || 'Failed to load channels.');
       }
-
-      const data = await response.json();
-      setChannels(data || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load channels');
+      const rows = (await response.json().catch(() => [])) as ChannelRecord[];
+      setChannels(Array.isArray(rows) ? rows : []);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Failed to load channels.');
     } finally {
       setLoading(false);
     }
   }, [tenantSlug]);
 
   useEffect(() => {
-    fetchChannels();
-  }, [fetchChannels]);
+    loadChannels();
+  }, [loadChannels]);
 
-  const handleCreateChannel = async () => {
-    const name = channelName.trim();
-    if (!name) return;
+  const filteredChannels = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return channels;
+    return channels.filter((channel) =>
+      `${channel.name} ${channel.code}`.toLowerCase().includes(query)
+    );
+  }, [channels, search]);
 
-    const code = channelCode.trim() || generateCode(name);
+  const openCreate = () => {
+    setError(null);
+    setDraft(INITIAL_DRAFT);
+    setSelectedChannel(null);
+    setCreateOpen(true);
+  };
+
+  const openManage = (channel: ChannelRecord) => {
+    setError(null);
+    setSelectedChannel(channel);
+    setDraft({
+      name: channel.name,
+      code: channel.code,
+      is_active: channel.is_active,
+    });
+    setManageOpen(true);
+  };
+
+  const createChannel = async () => {
+    const name = draft.name.trim();
+    const code = draft.code.trim() || generateCode(name);
+    if (!name || !code) return;
 
     try {
       setSaving(true);
+      setError(null);
       const response = await fetch(`/api/${tenantSlug}/channels`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, code })
+        body: JSON.stringify({ name, code }),
       });
-
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create channel');
+        throw new Error(payload?.error || 'Failed to create channel.');
       }
-
-      setChannelName('');
-      setChannelCode('');
-      await fetchChannels();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create channel');
+      setCreateOpen(false);
+      await loadChannels();
+      notifyMarketContextRefresh();
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Failed to create channel.');
     } finally {
       setSaving(false);
     }
   };
 
-  const handleToggleActive = async (id: string, isActive: boolean) => {
+  const updateChannel = async () => {
+    if (!selectedChannel) return;
+    const name = draft.name.trim();
+    const code = draft.code.trim() || generateCode(name);
+    if (!name || !code) return;
+
     try {
       setSaving(true);
-      const response = await fetch(`/api/${tenantSlug}/channels/${id}`, {
+      setError(null);
+      const response = await fetch(`/api/${tenantSlug}/channels/${selectedChannel.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_active: !isActive })
+        body: JSON.stringify({
+          name,
+          code,
+          is_active: draft.is_active,
+        }),
       });
-
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update channel');
+        throw new Error(payload?.error || 'Failed to update channel.');
       }
-
-      await fetchChannels();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update channel');
+      setManageOpen(false);
+      await loadChannels();
+      notifyMarketContextRefresh();
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : 'Failed to update channel.');
     } finally {
       setSaving(false);
     }
@@ -111,73 +165,133 @@ export default function ChannelsSettings({ tenantSlug }: ChannelsSettingsProps) 
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading channels..." size="lg" />
+        <PageSkeleton text="Loading channels..." size="lg" />
       </div>
     );
   }
 
   return (
-    <SettingsPageContent page="channels">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Channels</h1>
-        <p className="text-sm text-muted-foreground">
-          Define where product content is distributed.
-        </p>
-      </div>
-
-      {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
+    <>
+      <SettingsPageContent page="channels">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Channels</h1>
         </div>
-      )}
 
-      <section className="space-y-4 rounded-lg border border-border/60 bg-card p-6">
-        <header className="space-y-1">
-          <h2 className="text-lg font-semibold text-foreground">Channel List</h2>
-          <p className="text-sm text-muted-foreground">Add, enable, or disable channels.</p>
-        </header>
+        {error ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        ) : null}
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <section className="space-y-4 rounded-lg border border-border/60 bg-card p-6">
           <Input
-            placeholder="Channel name"
-            value={channelName}
-            onChange={(e) => setChannelName(e.target.value)}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search channels..."
+            className="max-w-sm"
           />
-          <Input
-            placeholder="Code (optional)"
-            value={channelCode}
-            onChange={(e) => setChannelCode(e.target.value)}
-          />
-          <Button variant="accent-blue" onClick={handleCreateChannel} disabled={saving || !channelName.trim()}>
-            Add channel
-          </Button>
-        </div>
 
-        <div className="space-y-2">
-          {channels.length === 0 && (
-            <div className="text-sm text-muted-foreground">No channels created yet.</div>
-          )}
-          {channels.map((channel) => (
-            <div key={channel.id} className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
-              <div>
-                <div className="text-sm font-medium text-foreground">{channel.name}</div>
-                <div className="text-xs text-muted-foreground">{channel.code}</div>
-              </div>
-              <div className="flex items-center gap-3">
-                {!channel.is_active && <Badge variant="neutral">Inactive</Badge>}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => handleToggleActive(channel.id, channel.is_active)}
-                  disabled={saving}
-                >
-                  {channel.is_active ? 'Disable' : 'Enable'}
-                </Button>
-              </div>
-            </div>
-          ))}
+          <ItemList
+            items={filteredChannels}
+            getKey={(channel) => channel.id}
+            renderTitle={(channel) => channel.name}
+            renderSubtitle={(channel) => channel.code}
+            getStatus={(channel) => (channel.is_active ? 'active' : 'inactive')}
+            onClickItem={openManage}
+            emptyMessage={search ? 'No channels match your search.' : 'No channels created yet.'}
+            headerLabel="channels"
+            onCreate={openCreate}
+            createLabel="Add channel"
+          />
+        </section>
+      </SettingsPageContent>
+
+      <FullscreenFormModal
+        open={createOpen}
+        title="Add Channel"
+        onOpenChange={(open) => !saving && setCreateOpen(open)}
+        onBack={() => !saving && setCreateOpen(false)}
+        primaryActionLabel="Create Channel"
+        onPrimaryAction={() => void createChannel()}
+        primaryActionDisabled={saving || !draft.name.trim()}
+        primaryActionLoading={saving}
+        primaryActionLoadingLabel="Creating..."
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="channel-create-name" className="text-sm font-medium text-foreground">
+              Name
+            </label>
+            <Input
+              id="channel-create-name"
+              value={draft.name}
+              onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+              placeholder="Channel name"
+              autoFocus
+            />
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="channel-create-code" className="text-sm font-medium text-foreground">
+              Code (optional)
+            </label>
+            <Input
+              id="channel-create-code"
+              value={draft.code}
+              onChange={(event) => setDraft((current) => ({ ...current, code: event.target.value }))}
+              placeholder="channel_code"
+            />
+          </div>
         </div>
-      </section>
-    </SettingsPageContent>
+      </FullscreenFormModal>
+
+      <CenteredFormModal
+        open={manageOpen}
+        title="Manage Channel"
+        onOpenChange={(open) => !saving && setManageOpen(open)}
+        onCancel={() => setManageOpen(false)}
+        onPrimaryAction={() => void updateChannel()}
+        primaryActionLabel="Save Changes"
+        primaryActionDisabled={saving || !draft.name.trim()}
+        primaryActionLoading={saving}
+        primaryActionLoadingLabel="Saving..."
+      >
+        <div className="space-y-1.5">
+          <label htmlFor="channel-manage-name" className="text-sm font-medium text-foreground">
+            Name
+          </label>
+          <Input
+            id="channel-manage-name"
+            value={draft.name}
+            onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="channel-manage-code" className="text-sm font-medium text-foreground">
+            Code
+          </label>
+          <Input
+            id="channel-manage-code"
+            value={draft.code}
+            onChange={(event) => setDraft((current) => ({ ...current, code: event.target.value }))}
+          />
+        </div>
+        <div className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2">
+          <div>
+            <p className="text-sm font-medium text-foreground">Active</p>
+            <p className="text-xs text-muted-foreground">
+              Inactive channels are hidden from scope selectors.
+            </p>
+          </div>
+          <Switch
+            checked={draft.is_active}
+            onCheckedChange={(checked) =>
+              setDraft((current) => ({ ...current, is_active: checked }))
+            }
+          />
+        </div>
+      </CenteredFormModal>
+    </>
   );
 }
+
+

@@ -11,10 +11,9 @@ import {
   Save,
   List
 } from 'lucide-react';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
+import { isLockedFieldGroupCode } from '@/lib/field-group-codes';
 import { SettingsSecondLevelPage } from '../../../components/settings-page-content';
-
-const LOCKED_GROUP_CODES = new Set(['basic_info', 'documentation']);
 
 interface FieldGroup {
   id: string;
@@ -32,7 +31,7 @@ export default function FieldGroupEditPage({
 }) {
   const { tenant, groupCode } = use(params);
   const router = useRouter();
-  const isLockedGroup = LOCKED_GROUP_CODES.has(groupCode);
+  const isLockedGroup = isLockedFieldGroupCode(groupCode);
 
   const [fieldGroup, setFieldGroup] = useState<FieldGroup | null>(null);
   const [loading, setLoading] = useState(true);
@@ -145,7 +144,7 @@ export default function FieldGroupEditPage({
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading field group..." size="lg" />
+        <PageSkeleton text="Loading field group..." size="lg" />
       </div>
     );
   }
@@ -187,9 +186,6 @@ export default function FieldGroupEditPage({
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Edit {fieldGroup.name}</h2>
-          <p className="text-muted-foreground">
-            {isLockedGroup ? "System groups are read-only." : "Update group metadata and ordering."}
-          </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <Button
@@ -312,5 +308,6 @@ export default function FieldGroupEditPage({
     </SettingsSecondLevelPage>
   );
 }
+
 
 

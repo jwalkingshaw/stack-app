@@ -20,7 +20,8 @@
       "Bash(grep:*)",
       "Bash(sed:*)",
       "Bash(find c:/Users/jason/tradetool/apps/saas-web/src/app/[tenant]/settings -name page.tsx -o -name page.ts)",
-      "Bash(wc -l /c/Users/jason/tradetool/apps/saas-web/src/app/[tenant]/settings/components/LocalizationSettings.tsx)"
+      "Bash(wc -l /c/Users/jason/tradetool/apps/saas-web/src/app/[tenant]/settings/components/LocalizationSettings.tsx)",
+      "Bash(find /c/Users/jason/tradetool/apps/saas-web/src/app/[tenant]/settings -path \"*[Ss]ets*\" -type d)"
     ],
     "deny": [],
     "ask": []

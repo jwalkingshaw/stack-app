@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import { getSafeUserData } from '@/lib/auth-server';
 import SettingsNavigation from './components/SettingsNavigation';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { createServerClient, DatabaseQueries } from '@tradetool/database';
 import { getOrganizationBillingLimits } from '@/lib/billing-policy';
 
@@ -68,7 +68,7 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
               <div className="w-full">
                 <main className="min-h-full">
                   <Suspense fallback={
-                    <PageLoader text="Loading..." size="lg" />
+                    <PageSkeleton text="Loading..." size="lg" />
                   }>
                     {children}
                   </Suspense>
@@ -81,3 +81,4 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
     </div>
   );
 }
+

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Check, X, Clock, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const AUTO_ACCEPT_STORAGE_KEY = "stackcess:auto-accept-invitation";
 
@@ -455,11 +456,11 @@ export default function InvitationAcceptClient() {
 
   if (loading || accepting || declining) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center p-4">
         <div className="w-full max-w-md">
-          <div className="bg-background rounded-lg border border-border shadow-soft p-8">
+          <div className="bg-background rounded-lg p-8">
             <div className="flex flex-col items-center space-y-4">
-              <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+              <Skeleton className="h-16 w-16 rounded-full bg-primary/20" />
               <h2 className="text-xl font-semibold text-foreground">
                 {accepting ? 'Joining organization...' : 'Loading...'}
               </h2>
@@ -475,9 +476,9 @@ export default function InvitationAcceptClient() {
 
   if (accepted) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center p-4">
         <div className="w-full max-w-md">
-          <div className="bg-background rounded-lg border border-border shadow-soft p-8">
+          <div className="bg-background rounded-lg p-8">
             <div className="flex flex-col items-center space-y-4 text-center">
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
                 <Check className="h-8 w-8 text-green-600" />
@@ -505,9 +506,9 @@ export default function InvitationAcceptClient() {
 
   if (declined) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center p-4">
         <div className="w-full max-w-md">
-          <div className="bg-background rounded-lg border border-border shadow-soft p-8">
+          <div className="bg-background rounded-lg p-8">
             <div className="flex flex-col items-center space-y-4 text-center">
               <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
                 <X className="h-8 w-8 text-red-600" />
@@ -534,9 +535,9 @@ export default function InvitationAcceptClient() {
 
   if (error || !invitation) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center p-4">
         <div className="w-full max-w-md">
-          <div className="bg-background rounded-lg border border-border shadow-soft p-8">
+          <div className="bg-background rounded-lg p-8">
             <div className="flex flex-col items-center space-y-4 text-center">
               <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
                 <X className="h-8 w-8 text-red-600" />
@@ -577,9 +578,9 @@ export default function InvitationAcceptClient() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#f5f5f5] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="bg-background rounded-lg border border-border shadow-soft p-8">
+        <div className="bg-background rounded-lg p-8">
           <div className="flex flex-col space-y-6">
             {/* Header */}
             <div className="text-center space-y-2">

@@ -2,14 +2,19 @@
 
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { usePathname } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { buildTenantPathForScope, splitTenantPathForScope } from '@/lib/tenant-view-scope'
+import { hasLiveScopeControls } from '@/lib/scope-visibility'
 import { BackLinkButton } from '@/components/ui/back-link-button'
 import { useHeaderToolbar } from './header-toolbar-context'
+import { useMarketContext } from './market-context'
 
 export function AppHeader() {
+  const t = useTranslations("Shell.Header")
   const headerRef = useRef<HTMLDivElement | null>(null)
   const pathname = usePathname()
   const { setShowScopeToolbar } = useHeaderToolbar()
+  const { channels, destinations, isLoading: marketContextLoading } = useMarketContext()
 
   const scopeControlMatch = pathname?.match(
     /^\/([^/]+)(?:\/view\/[^/]+)?\/(products|assets)(?:\/.*)?$/
@@ -29,16 +34,19 @@ export function AppHeader() {
   const backHref = tenantSlug
     ? buildTenantPathForScope({ tenantSlug, scope: scopeInfo.scope, suffix: '/products' })
     : '/'
-
   // List pages: inject scope toolbar into PageHeader via boolean context signal.
   // Product detail pages now render scope controls inside their own page headers.
-  const isListPage = showScopeControls && !isProductDetailPage
+  const isListPageRoute = showScopeControls && !isProductDetailPage
+  const shouldRenderListScopeToolbar =
+    isListPageRoute &&
+    !marketContextLoading &&
+    hasLiveScopeControls({ channels, destinations })
 
-  // Sync boolean into context — primitive, never causes infinite loops
+  // Sync boolean into context - primitive, never causes infinite loops
   useLayoutEffect(() => {
-    setShowScopeToolbar(isListPage)
+    setShowScopeToolbar(shouldRenderListScopeToolbar)
     return () => setShowScopeToolbar(false)
-  }, [isListPage, setShowScopeToolbar])
+  }, [shouldRenderListScopeToolbar, setShowScopeToolbar])
 
   // Measure header height so product detail panel can calc its own height
   useEffect(() => {
@@ -62,8 +70,8 @@ export function AppHeader() {
     }
   }, [isProductDetailPage])
 
-  // List pages: no DOM — scope toolbar is rendered inside PageHeader
-  if (isListPage) return null
+  // List pages: no DOM - scope toolbar is rendered inside PageHeader
+  if (isListPageRoute) return null
 
   // Pages with no controls
   if (!showScopeControls && !showBackButton) return null
@@ -78,7 +86,7 @@ export function AppHeader() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-[60px]">
             {showBackButton && (
-              <BackLinkButton href={backHref} label="Back" className="-ml-2" />
+              <BackLinkButton href={backHref} label={t("back")} className="-ml-2" />
             )}
           </div>
         </div>

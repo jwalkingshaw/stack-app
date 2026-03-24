@@ -125,7 +125,7 @@ export function SidebarShell({
   
   return (
     <div className={`bg-white border-r border-gray-200 h-screen flex flex-col transition-all duration-200 ${
-      isCollapsed ? 'w-16' : 'w-64'
+      isCollapsed ? 'w-16' : 'w-48'
     }`}>
       {/* Header with Organization */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200">

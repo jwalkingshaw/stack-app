@@ -2,9 +2,10 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import NextImage from 'next/image';
-import { CheckCheck, ChevronDown, ChevronUp, Languages, Loader2, Package } from 'lucide-react';
+import { CheckCheck, ChevronDown, ChevronUp, Languages, Package } from 'lucide-react';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
 import { MultiSelect, MultiSelectOption } from '@/components/ui/multi-select';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
@@ -604,7 +605,7 @@ export function TranslationPanel({
             <label className="text-sm font-medium text-foreground">To markets</label>
             {dataLoading ? (
               <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <LoadingSkeleton size="sm" />
                 Loading…
               </div>
             ) : (
@@ -658,7 +659,7 @@ export function TranslationPanel({
               {/* Custom fields section */}
               {secondaryLoading && (
                 <div className="flex items-center gap-2 px-4 py-3 border-t border-gray-200">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  <LoadingSkeleton size="sm" />
                   <span className="text-xs text-muted-foreground">Loading custom fields…</span>
                 </div>
               )}
@@ -759,7 +760,7 @@ export function TranslationPanel({
   function renderTranslating() {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center px-6">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <LoadingSkeleton size="lg" />
         <div>
           <p className="text-sm font-medium text-foreground">Translating…</p>
           <p className="text-xs text-muted-foreground mt-1">This usually takes a few seconds.</p>
@@ -783,7 +784,7 @@ export function TranslationPanel({
           <div className="flex-1 overflow-y-auto py-1">
             {reviewLoading ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                <LoadingSkeleton size="sm" />
               </div>
             ) : resultProductIds.length === 0 ? (
               <div className="px-3.5 py-3 text-xs text-muted-foreground">No products</div>
@@ -882,7 +883,7 @@ export function TranslationPanel({
           <div className="flex-1 overflow-y-auto">
             {reviewLoading && (
               <div className="flex items-center justify-center py-16">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                <LoadingSkeleton size="md" />
               </div>
             )}
 
@@ -963,10 +964,10 @@ export function TranslationPanel({
               size="sm"
               onClick={applyAll}
               disabled={applying || deduplicatedItems.length === 0}
-              className="h-8 text-xs"
-            >
-              {applying
-                ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            className="h-8 text-xs"
+          >
+            {applying
+                ? <LoadingSkeleton size="sm" className="mr-1.5" />
                 : <CheckCheck className="h-3.5 w-3.5 mr-1.5" />}
               Apply All
             </Button>
@@ -1026,3 +1027,4 @@ export function TranslationPanel({
     </Sheet>
   );
 }
+

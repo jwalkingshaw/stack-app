@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, CheckCheck, Loader2, X, Languages } from "lucide-react";
+import { Check, CheckCheck, X, Languages } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { cn } from "@/lib/utils";
 import { getLocaleShortName } from "@/lib/locale-utils";
 import { toast } from "@/components/ui/toast";
@@ -116,7 +117,7 @@ function TranslationRow({ item, scopeLabel, editedText, onTextChange, onApproveA
           disabled={submitting || !editedText.trim()}
           className="h-7 text-xs px-2.5"
         >
-          {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 mr-1" />}
+          {submitting ? <LoadingSkeleton size="sm" /> : <Check className="h-3 w-3 mr-1" />}
           Apply
         </Button>
       </div>
@@ -355,7 +356,7 @@ export function TranslationReviewSheet({ tenantSlug, productId, open, onOpenChan
         <div className="flex-1 overflow-y-auto">
           {loading && (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <LoadingSkeleton size="md" />
             </div>
           )}
 
@@ -403,7 +404,7 @@ export function TranslationReviewSheet({ tenantSlug, productId, open, onOpenChan
               className="h-8 text-xs"
             >
               {submitting.bulk
-                ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ? <LoadingSkeleton size="sm" className="mr-1.5" />
                 : <CheckCheck className="h-3.5 w-3.5 mr-1.5" />}
               Apply All
             </Button>
@@ -413,3 +414,4 @@ export function TranslationReviewSheet({ tenantSlug, productId, open, onOpenChan
     </Sheet>
   );
 }
+

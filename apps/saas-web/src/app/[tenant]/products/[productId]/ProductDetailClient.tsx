@@ -23,14 +23,18 @@ import { VariantNavigationHeader } from "@/components/products/VariantNavigation
 import { PageContentContainer } from "@/components/ui/page-content-container";
 import { ItemList } from "@/components/ui/item-list";
 import { ScopeToolbar } from "@/components/scope-toolbar";
+import { hasLiveScopeControls } from "@/lib/scope-visibility";
 import {
   buildCanonicalProductIdentifier,
   generateVariantUrl,
   parseProductIdentifier,
 } from "@/lib/product-utils";
-import { PageLoader } from "@/components/ui/loading-spinner";
+import { PageSkeleton } from "@/components/ui/loading-skeleton";
 import { useMarketContext } from "@/components/market-context";
+import { fetchJsonWithDedupe } from "@/lib/client-request-cache";
 import { buildTenantPathForScope } from "@/lib/tenant-view-scope";
+import { isBasicInformationFieldGroupCode } from "@/lib/field-group-codes";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   createGlobalAuthoringScope,
   normalizeAuthoringScope,
@@ -223,6 +227,11 @@ const PRODUCT_IMAGE_SLOTS: ProductImageSlot[] = [
   { code: "image_bottom", label: "Bottom", hint: "Base and underside view." },
   { code: "image_hero", label: "Hero", hint: "Channel-ready hero image." },
   { code: "image_lifestyle", label: "Lifestyle", hint: "In-use or context shot." },
+  // Label production slots
+  { code: "label_print_ready", label: "Label (Print-Ready)", hint: "CMYK ≥300dpi, with bleeds — for printers. Do not send to partners." },
+  { code: "label_digital", label: "Label (Digital)", hint: "sRGB version for Amazon, website, and digital channels." },
+  { code: "label_regulatory", label: "Label (Regulatory)", hint: "FDA/EU-approved PDF for regulatory submissions. Not for external distribution." },
+  { code: "supplement_facts_panel", label: "Supplement Facts Panel", hint: "Extracted Supplement/Nutrition Facts panel only." },
 ];
 
 const PRODUCT_IMAGE_SLOT_CODE_SET = new Set(PRODUCT_IMAGE_SLOTS.map((slot) => slot.code));
@@ -232,10 +241,13 @@ const PRIMARY_IMAGE_SLOT_CODES = new Set([
   "image_hero",
   "image_facts_panel",
   "image_label",
+  "label_print_ready",
+  "label_digital",
+  "label_regulatory",
+  "supplement_facts_panel",
 ]);
 const PRIMARY_DOCUMENT_SLOT_CODES = new Set(["coa", "legal", "sfp"]);
 const DOCUMENTATION_GROUP_CODE = "documentation";
-const BASIC_INFORMATION_GROUP_CODE = "basic_information";
 const MUTABLE_PRODUCT_COLUMNS = new Set([
   "type",
   "parent_id",
@@ -679,6 +691,7 @@ export function ProductDetailClient({
 
   const {
     channels,
+    destinations,
     locales,
     markets,
     selectedChannelId,
@@ -695,21 +708,22 @@ export function ProductDetailClient({
   const isScopeReady = useMemo(() => {
     if (marketContextLoading) return false;
     if (markets.length > 0 && !selectedMarketId) return false;
-    if (channels.length > 0 && !selectedChannel?.code) return false;
     if (locales.length > 0 && !selectedLocale?.code) return false;
-    if (availableDestinations.length > 0 && !selectedDestination?.code) return false;
     return true;
   }, [
     marketContextLoading,
     markets.length,
     selectedMarketId,
-    channels.length,
-    selectedChannel?.code,
     locales.length,
     selectedLocale?.code,
-    availableDestinations.length,
-    selectedDestination?.code,
   ]);
+
+  const showScopeToolbarSection = useMemo(
+    () =>
+      !marketContextLoading &&
+      hasLiveScopeControls({ channels, destinations }),
+    [channels, destinations, marketContextLoading]
+  );
 
   const canEditFields = !isSharedBrandView && isScopeReady;
 
@@ -1095,8 +1109,8 @@ export function ProductDetailClient({
     return processedGroups.sort((a, b) => {
       const aCode = String(a?.field_group?.code || "").trim().toLowerCase();
       const bCode = String(b?.field_group?.code || "").trim().toLowerCase();
-      const aIsBasic = aCode === BASIC_INFORMATION_GROUP_CODE;
-      const bIsBasic = bCode === BASIC_INFORMATION_GROUP_CODE;
+      const aIsBasic = isBasicInformationFieldGroupCode(aCode);
+      const bIsBasic = isBasicInformationFieldGroupCode(bCode);
       if (aIsBasic && !bIsBasic) return -1;
       if (!aIsBasic && bIsBasic) return 1;
 
@@ -1341,7 +1355,7 @@ export function ProductDetailClient({
       dynamicFieldGroupSections.find((section) => {
         const code = String(section.fieldGroup?.field_group?.code || '').trim().toLowerCase();
         const name = String(section.label || '').trim().toLowerCase();
-        return code === BASIC_INFORMATION_GROUP_CODE || name === 'basic information';
+        return isBasicInformationFieldGroupCode(code) || name === 'basic information';
       })?.id ?? dynamicFieldGroupSections[0]?.id;
 
     if (preferredSectionId) {
@@ -2182,6 +2196,8 @@ export function ProductDetailClient({
 
   // Load product data from API
   useEffect(() => {
+    let isCancelled = false;
+
     const fetchProduct = async () => {
       try {
         setLoading(true);
@@ -2200,16 +2216,18 @@ export function ProductDetailClient({
         const url = query.toString()
           ? `/api/${tenantSlug}/products/${productId}?${query.toString()}`
           : `/api/${tenantSlug}/products/${productId}`;
-        const response = await fetch(url);
+        const response = await fetchJsonWithDedupe<ApiEnvelope<Record<string, unknown>>>(url, {
+          ttlMs: 1500,
+        });
         console.log('Ã°Å¸â€œÂ¥ GET Response status:', response.status);
 
-        const rawData = await parseJsonSafely(response);
-        const data = asApiEnvelope<Record<string, unknown>>(rawData);
+        const data = asApiEnvelope<Record<string, unknown>>(response.data);
         console.log('Ã°Å¸â€œÂ¥ GET Response data:', data);
 
         if (!response.ok) {
           throw new Error(toErrorMessage(data, 'Failed to fetch product'));
         }
+        if (isCancelled) return;
 
         if (data?.success && data?.data) {
           const productPayload = data.data;
@@ -2366,15 +2384,23 @@ export function ProductDetailClient({
         }
       } catch (err) {
         console.error('Ã¢ÂÅ’ Error fetching product:', err);
-        setError(err instanceof Error ? err.message : 'An error occurred');
+        if (!isCancelled) {
+          setError(err instanceof Error ? err.message : 'An error occurred');
+        }
       } finally {
-        setLoading(false);
+        if (!isCancelled) {
+          setLoading(false);
+        }
       }
     };
 
     if (productId && tenantSlug && isScopeReady) {
       fetchProduct();
     }
+
+    return () => {
+      isCancelled = true;
+    };
   }, [
     productId,
     tenantSlug,
@@ -2458,6 +2484,20 @@ export function ProductDetailClient({
     }
   };
 
+  const handleCatalogVisibilityChange = async (nextVisibility: string) => {
+    if (!product?.id || !canEditFields || isSharedBrandView) return;
+    const prev = String(product.catalog_visibility || "standard");
+    if (nextVisibility === prev) return;
+    setProduct((p) => (p ? { ...p, catalog_visibility: nextVisibility } : p));
+    try {
+      await saveFieldValues({ catalog_visibility: nextVisibility });
+    } catch (error) {
+      setProduct((p) => (p ? { ...p, catalog_visibility: prev } : p));
+      console.error("Failed to update catalog visibility:", error);
+      toast.error("Failed to update catalog visibility.");
+    }
+  };
+
   const handleDeleteProduct = useCallback(async () => {
     if (!product?.id || isSharedBrandView || isDeletingProduct) return;
 
@@ -2507,7 +2547,7 @@ export function ProductDetailClient({
   if (loading) {
     return (
       <div className="h-full">
-        <PageLoader text="Loading product..." size="lg" />
+        <PageSkeleton text="Loading product..." size="lg" />
       </div>
     );
   }
@@ -2518,7 +2558,9 @@ export function ProductDetailClient({
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
           <Package className="w-8 h-8 mx-auto mb-4 text-muted-foreground" />
-          <h3 className="text-lg font-medium text-foreground mb-2">Product not found</h3>
+          <h3 className="text-lg font-medium text-foreground mb-2">
+            {error?.toLowerCase().includes('not been granted') ? 'Access required' : 'Product not found'}
+          </h3>
           <p className="text-muted-foreground mb-4">{error}</p>
           <Link
             href={buildTenantPathForScope({
@@ -2673,6 +2715,24 @@ export function ProductDetailClient({
                         </Select>
                       ) : null}
                       {!isSharedBrandView ? (
+                        <Select
+                          value={String(product.catalog_visibility || "standard")}
+                          onValueChange={(nextValue) => {
+                            void handleCatalogVisibilityChange(nextValue);
+                          }}
+                          disabled={saving || !canEditFields}
+                        >
+                          <SelectTrigger className="h-8 w-[160px] rounded-full border border-border/60 bg-background px-3 text-xs">
+                            <SelectValue placeholder="Visibility" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="standard">Standard</SelectItem>
+                            <SelectItem value="partner_exclusive">Partner Exclusive</SelectItem>
+                            <SelectItem value="restricted">Internal Only</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : null}
+                      {!isSharedBrandView ? (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -2720,9 +2780,11 @@ export function ProductDetailClient({
                   </div>
                 </div>
 
-                <div className="border-t border-border/50 pt-2">
-                  <ScopeToolbar showCycleControls />
-                </div>
+                {showScopeToolbarSection ? (
+                  <div className="border-t border-border/50 pt-2">
+                    <ScopeToolbar showCycleControls />
+                  </div>
+                ) : null}
 
               </div>
             </PageContentContainer>
@@ -2899,29 +2961,22 @@ export function ProductDetailClient({
 
                   return (
                     <div className="mx-auto w-full max-w-4xl space-y-4">
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant={activeSection === 'attributes-all' ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => setActiveSection('attributes-all')}
+                      <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value)}>
+                        <TabsList
+                          aria-label="Attribute group filters"
+                          className="flex-wrap justify-start"
                         >
-                          All groups ({fieldGroupStats.length})
-                        </Button>
-                        <Button
-                          variant={activeSection === 'attributes-required' ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => setActiveSection('attributes-required')}
-                        >
-                          Required ({requiredFieldGroupStats.length})
-                        </Button>
-                        <Button
-                          variant={activeSection === 'attributes-missing' ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => setActiveSection('attributes-missing')}
-                        >
-                          Missing ({missingFieldGroupStats.length})
-                        </Button>
-                      </div>
+                          <TabsTrigger value="attributes-all">
+                            All groups ({fieldGroupStats.length})
+                          </TabsTrigger>
+                          <TabsTrigger value="attributes-required">
+                            Required ({requiredFieldGroupStats.length})
+                          </TabsTrigger>
+                          <TabsTrigger value="attributes-missing">
+                            Missing ({missingFieldGroupStats.length})
+                          </TabsTrigger>
+                        </TabsList>
+                      </Tabs>
 
                       <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
                         <p className="text-sm text-muted-foreground">{description}</p>
@@ -3296,6 +3351,9 @@ export function ProductDetailClient({
                                             value={resolvedFieldValue}
                                             tenantSlug={tenantSlug}
                                             canEdit={canEditFields}
+                                            productName={product?.productName ?? product?.product_name ?? undefined}
+                                            ingredients={typeof fieldValues['ingredients'] === 'string' ? fieldValues['ingredients'] : undefined}
+                                            otherIngredients={typeof fieldValues['other_ingredients'] === 'string' ? fieldValues['other_ingredients'] : undefined}
                                             readonlyReasonOverride={!isScopeReady ? "Select scope in header" : null}
                                             onCommit={async (nextValue: unknown) => {
                                               handleFieldChange(field.code, nextValue);
@@ -4180,5 +4238,4 @@ export function ProductDetailClient({
     </div>
   );
 }
-
 

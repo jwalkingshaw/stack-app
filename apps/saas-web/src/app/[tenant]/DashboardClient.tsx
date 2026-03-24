@@ -5,6 +5,7 @@ import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageContentContainer } from "@/components/ui/page-content-container";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type SummaryPayload = {
@@ -107,7 +108,14 @@ export default function DashboardClient({ tenantSlug }: DashboardClientProps) {
         actions={[
           {
             label: "Refresh",
-            icon: ({ className }) => <RefreshCw className={`${className ?? ""} ${refreshing ? "animate-spin" : ""}`} />,
+            icon: ({ className }) =>
+              refreshing ? (
+                <span className={className}>
+                  <LoadingSkeleton size="sm" />
+                </span>
+              ) : (
+                <RefreshCw className={className} />
+              ),
             variant: "outline",
             onClick: async () => {
               setRefreshing(true);
@@ -285,3 +293,4 @@ export default function DashboardClient({ tenantSlug }: DashboardClientProps) {
     </main>
   );
 }
+

@@ -1,7 +1,8 @@
 "use client";
 
-import { Check, Loader2, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { cn } from "@/lib/utils";
 
 interface InlineConfirmActionsProps {
@@ -39,7 +40,7 @@ export function InlineConfirmActions({
         aria-label={confirmLabel}
         className="text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
       >
-        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+        {saving ? <LoadingSkeleton size="sm" /> : <Check className="h-3.5 w-3.5" />}
       </Button>
       <Button
         type="button"

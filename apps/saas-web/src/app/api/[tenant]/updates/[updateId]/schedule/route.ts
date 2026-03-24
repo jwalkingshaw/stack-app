@@ -10,6 +10,7 @@ import {
   resolveRecipientOrganizations,
   setScheduledUpdateState,
   upsertPartnerUpdateRecipients,
+  validateRecipientKitAccess,
 } from "../../_delivery";
 import { supabaseServer } from "@/lib/supabase";
 
@@ -99,6 +100,20 @@ export async function POST(
         { error: "No eligible active partner recipients matched this selection" },
         { status: 400 }
       );
+    }
+
+    if (partnerOrganizationIds.length > 0) {
+      const kitAccessValidation = await validateRecipientKitAccess({
+        organizationId: access.context.organizationId,
+        updateId: resolvedParams.updateId,
+        partnerOrganizationIds,
+      });
+      if (!kitAccessValidation.ok) {
+        return NextResponse.json(
+          { error: kitAccessValidation.error, blockedRecipients: kitAccessValidation.blockedRecipients },
+          { status: kitAccessValidation.status }
+        );
+      }
     }
 
     const dispatchDecisions = await buildRecipientDispatchDecisions({

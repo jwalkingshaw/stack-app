@@ -9,6 +9,7 @@ import {
   resolveCollectionAssetIds,
   resolveTenantBrandViewContext,
 } from "@/lib/partner-brand-view";
+import { resolveMarketCatalogAssetIds } from "@/lib/market-catalog";
 
 const DEFAULT_PERMISSIONS = {
   role: "viewer",
@@ -83,6 +84,12 @@ function parseCsvIds(value: string | null): string[] {
     .filter(Boolean);
 }
 
+function normalizeToken(value: string | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function filterAssetsByRecency<T extends RecencyAssetLike>(params: {
   assets: T[];
   createdAfter: Date | null;
@@ -116,6 +123,69 @@ function filterAssetsByRecency<T extends RecencyAssetLike>(params: {
   });
 }
 
+type StructuredFieldFilters = {
+  fileType: string | null;
+  assetStatus: string | null;
+  complianceStatus: string | null;
+  brandLegalApproval: string | null;
+  artworkType: string | null;
+  printVsDigital: string | null;
+  wadaRiskLevel: string | null;
+  athleteNames: string[];
+  certifications: string[];
+  regulatoryRegion: string[];
+  expiringBefore: Date | null;
+};
+
+function filterAssetsByStructuredFields<T extends Record<string, any>>(
+  assets: T[],
+  filters: StructuredFieldFilters
+): T[] {
+  const {
+    fileType, assetStatus, complianceStatus, brandLegalApproval,
+    artworkType, printVsDigital, wadaRiskLevel, athleteNames,
+    certifications, regulatoryRegion, expiringBefore,
+  } = filters;
+
+  if (
+    !fileType && !assetStatus && !complianceStatus && !brandLegalApproval &&
+    !artworkType && !printVsDigital && !wadaRiskLevel &&
+    athleteNames.length === 0 && certifications.length === 0 &&
+    regulatoryRegion.length === 0 && !expiringBefore
+  ) {
+    return assets;
+  }
+
+  return assets.filter((asset) => {
+    if (fileType && (asset.fileType ?? asset.file_type) !== fileType) return false;
+    if (assetStatus && (asset.assetStatus ?? asset.asset_status ?? "active") !== assetStatus) return false;
+    if (complianceStatus && (asset.complianceStatus ?? asset.compliance_status) !== complianceStatus) return false;
+    if (brandLegalApproval && (asset.brandLegalApproval ?? asset.brand_legal_approval) !== brandLegalApproval) return false;
+    if (artworkType && (asset.artworkType ?? asset.artwork_type) !== artworkType) return false;
+    if (printVsDigital && (asset.printVsDigital ?? asset.print_vs_digital ?? "digital") !== printVsDigital) return false;
+    if (wadaRiskLevel && (asset.wadaRiskLevel ?? asset.wada_risk_level ?? "none") !== wadaRiskLevel) return false;
+    if (athleteNames.length > 0) {
+      const assetAthletes: string[] = asset.athleteNames ?? asset.athlete_names ?? [];
+      if (!athleteNames.some((n) => assetAthletes.includes(n))) return false;
+    }
+    if (certifications.length > 0) {
+      const assetCerts: string[] = asset.certifications ?? [];
+      if (!certifications.some((c) => assetCerts.includes(c))) return false;
+    }
+    if (regulatoryRegion.length > 0) {
+      const assetRegions: string[] = asset.regulatoryRegion ?? asset.regulatory_region ?? [];
+      if (!regulatoryRegion.some((r) => assetRegions.includes(r))) return false;
+    }
+    if (expiringBefore) {
+      const end = asset.usageEnd ?? asset.usage_end ?? asset.expirationDate ?? asset.expiration_date ?? null;
+      if (!end) return false;
+      const endDate = new Date(end);
+      if (Number.isNaN(endDate.getTime()) || endDate >= expiringBefore) return false;
+    }
+    return true;
+  });
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string }> }
@@ -124,6 +194,10 @@ export async function GET(
     const { tenant } = await params;
     const requestUrl = new URL(request.url);
     const selectedBrandSlug = requestUrl.searchParams.get("brand");
+    const selectedMarketId = normalizeToken(requestUrl.searchParams.get("marketId"));
+    const selectedChannelId = normalizeToken(requestUrl.searchParams.get("channelId"));
+    const selectedLocaleId = normalizeToken(requestUrl.searchParams.get("localeId"));
+    const selectedDestinationId = normalizeToken(requestUrl.searchParams.get("destinationId"));
     const requestedViewScope = (requestUrl.searchParams.get("view") || "")
       .trim()
       .toLowerCase();
@@ -136,6 +210,18 @@ export async function GET(
     );
     const createdAfter = parseIsoDateParam(requestUrl.searchParams.get("createdAfter"));
     const updatedAfter = parseIsoDateParam(requestUrl.searchParams.get("updatedAfter"));
+    // New structured field filters
+    const filterFileType = normalizeToken(requestUrl.searchParams.get("fileType"));
+    const filterAssetStatus = normalizeToken(requestUrl.searchParams.get("assetStatus"));
+    const filterComplianceStatus = normalizeToken(requestUrl.searchParams.get("complianceStatus"));
+    const filterBrandLegalApproval = normalizeToken(requestUrl.searchParams.get("brandLegalApproval"));
+    const filterArtworkType = normalizeToken(requestUrl.searchParams.get("artworkType"));
+    const filterPrintVsDigital = normalizeToken(requestUrl.searchParams.get("printVsDigital"));
+    const filterWadaRiskLevel = normalizeToken(requestUrl.searchParams.get("wadaRiskLevel"));
+    const filterAthleteNames = parseCsvIds(requestUrl.searchParams.get("athleteNames"));
+    const filterCertifications = parseCsvIds(requestUrl.searchParams.get("certifications"));
+    const filterRegulatoryRegion = parseCsvIds(requestUrl.searchParams.get("regulatoryRegion"));
+    const filterExpiringBefore = parseIsoDateParam(requestUrl.searchParams.get("expiringBefore"));
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -165,6 +251,12 @@ export async function GET(
           const granted = await resolvePartnerGrantedAssetIds({
             brandOrganizationId,
             partnerOrganizationId: tenantOrganizationId,
+            scope: {
+              marketId: selectedMarketId,
+              channelId: selectedChannelId,
+              localeId: selectedLocaleId,
+              destinationId: selectedDestinationId,
+            },
           });
           if (!granted.foundationAvailable || granted.assetIds.length === 0) {
             return null;
@@ -246,6 +338,19 @@ export async function GET(
         createdAfter,
         updatedAfter,
       });
+      assets = filterAssetsByStructuredFields(assets, {
+        fileType: filterFileType,
+        assetStatus: filterAssetStatus,
+        complianceStatus: filterComplianceStatus,
+        brandLegalApproval: filterBrandLegalApproval,
+        artworkType: filterArtworkType,
+        printVsDigital: filterPrintVsDigital,
+        wadaRiskLevel: filterWadaRiskLevel,
+        athleteNames: filterAthleteNames,
+        certifications: filterCertifications,
+        regulatoryRegion: filterRegulatoryRegion,
+        expiringBefore: filterExpiringBefore,
+      });
 
       const [folders, permissions, tagsResult, categoriesResult] = await Promise.all([
         db.getFoldersByOrganization(tenantOrganizationId),
@@ -281,11 +386,37 @@ export async function GET(
     let allowedAssetIds: Set<string> | null = null;
     let hasOrgAssetScope = true;
     let restrictToSharedAssetScope = false;
+    let marketCatalogAllowedAssetIds: Set<string> | null = null;
+
+    // Only apply market catalog filter for brand's own view (preview mode).
+    // For partner_brand, resolvePartnerGrantedAssetIds handles market access via partner_market_assignments.
+    if (context.mode === "tenant" && selectedMarketId) {
+      const marketCatalog = await resolveMarketCatalogAssetIds({
+        organizationId: targetOrganizationId,
+        marketId: selectedMarketId,
+      });
+
+      if (!marketCatalog.foundationAvailable) {
+        return NextResponse.json(
+          { error: "Market catalog foundation is unavailable. Apply database migrations first." },
+          { status: 503 }
+        );
+      }
+      marketCatalogAllowedAssetIds = new Set(marketCatalog.ids);
+    }
 
     if (context.mode === "partner_brand") {
       const grantedSetAssets = await resolvePartnerGrantedAssetIds({
         brandOrganizationId: targetOrganizationId,
         partnerOrganizationId: context.tenantOrganization.id,
+        scope: {
+          // Do not pass marketId: partner market access is via partner_market_assignments.
+          // Passing the ambient scope toolbar market would filter out all products for partners
+          // assigned to a different market than the brand's default.
+          channelId: selectedChannelId,
+          localeId: selectedLocaleId,
+          destinationId: selectedDestinationId,
+        },
       });
 
       if (grantedSetAssets.foundationAvailable) {
@@ -344,6 +475,16 @@ export async function GET(
       }
     }
 
+    if (marketCatalogAllowedAssetIds) {
+      if (allowedAssetIds) {
+        allowedAssetIds = new Set(
+          Array.from(allowedAssetIds).filter((id) => marketCatalogAllowedAssetIds.has(id))
+        );
+      } else {
+        allowedAssetIds = marketCatalogAllowedAssetIds;
+      }
+    }
+
     let assets = await db.getAssetsByOrganization(
       targetOrganizationId,
       selectedFolderId || undefined,
@@ -377,6 +518,19 @@ export async function GET(
       assets,
       createdAfter,
       updatedAfter,
+    });
+    assets = filterAssetsByStructuredFields(assets, {
+      fileType: filterFileType,
+      assetStatus: filterAssetStatus,
+      complianceStatus: filterComplianceStatus,
+      brandLegalApproval: filterBrandLegalApproval,
+      artworkType: filterArtworkType,
+      printVsDigital: filterPrintVsDigital,
+      wadaRiskLevel: filterWadaRiskLevel,
+      athleteNames: filterAthleteNames,
+      certifications: filterCertifications,
+      regulatoryRegion: filterRegulatoryRegion,
+      expiringBefore: filterExpiringBefore,
     });
 
     let folders = await db.getFoldersByOrganization(targetOrganizationId);

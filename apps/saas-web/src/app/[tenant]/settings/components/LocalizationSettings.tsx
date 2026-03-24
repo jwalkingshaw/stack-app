@@ -1,14 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { CheckCircle2, ChevronLeft, Globe2, Languages, Loader2, RefreshCw, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, Globe2, Languages, RefreshCw, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import type { MultiSelectOption } from '@/components/ui/multi-select';
 import { SettingsContentBoundary, SettingsSecondLevelPage } from './settings-page-content';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -277,6 +278,9 @@ export default function LocalizationSettings({
   const [newGlossaryTargetLocaleId, setNewGlossaryTargetLocaleId] = useState('');
   const [newGlossaryEntriesText, setNewGlossaryEntriesText] = useState('');
   const [productFields, setProductFields] = useState<ProductFieldOption[]>([]);
+  const [jobMetadataLoading, setJobMetadataLoading] = useState(false);
+  const jobMetadataReadyRef = useRef(false);
+  const jobMetadataRequestRef = useRef<Promise<void> | null>(null);
 
   const localeById = useMemo(() => {
     const map = new Map<string, LocaleOption>();
@@ -372,35 +376,44 @@ export default function LocalizationSettings({
   }, [tenantSlug]);
 
   const fetchScopeOptions = useCallback(async () => {
-    const [marketsResponse, channelsResponse, destinationsResponse] = await Promise.all([
-      fetch(`/api/${tenantSlug}/markets`),
-      fetch(`/api/${tenantSlug}/channels`),
-      fetch(`/api/${tenantSlug}/destinations`),
-    ]);
-
-    if (!marketsResponse.ok) {
-      const payload = await marketsResponse.json().catch(() => ({}));
-      throw new Error(payload.error || 'Failed to load markets');
-    }
-    if (!channelsResponse.ok) {
-      const payload = await channelsResponse.json().catch(() => ({}));
-      throw new Error(payload.error || 'Failed to load channels');
-    }
-    if (!destinationsResponse.ok) {
-      const payload = await destinationsResponse.json().catch(() => ({}));
-      throw new Error(payload.error || 'Failed to load destinations');
+    const response = await fetch(`/api/${tenantSlug}/market-context`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || 'Failed to load localization scope options');
     }
 
-    const [marketsPayload, channelsPayload, destinationsPayload] = (await Promise.all([
-      marketsResponse.json(),
-      channelsResponse.json(),
-      destinationsResponse.json(),
-    ])) as [ScopeOption[], ScopeOption[], ScopeOption[]];
-
-    setMarkets(Array.isArray(marketsPayload) ? marketsPayload : []);
-    setChannels(Array.isArray(channelsPayload) ? channelsPayload : []);
-    setDestinations(Array.isArray(destinationsPayload) ? destinationsPayload : []);
+    const payload = await response.json().catch(() => ({}));
+    setMarkets(Array.isArray(payload?.markets) ? payload.markets : []);
+    setChannels(Array.isArray(payload?.channels) ? payload.channels : []);
+    setDestinations(Array.isArray(payload?.destinations) ? payload.destinations : []);
   }, [tenantSlug]);
+
+  const ensureJobMetadata = useCallback(async () => {
+    if (jobMetadataReadyRef.current) return;
+    if (jobMetadataRequestRef.current) {
+      await jobMetadataRequestRef.current;
+      return;
+    }
+
+    const request = (async () => {
+      try {
+        setJobMetadataLoading(true);
+        await Promise.all([fetchProductFields(), fetchScopeOptions()]);
+        jobMetadataReadyRef.current = true;
+      } catch (metadataError) {
+        console.error('Failed to load localization job metadata:', metadataError);
+      } finally {
+        setJobMetadataLoading(false);
+      }
+    })();
+
+    jobMetadataRequestRef.current = request;
+    try {
+      await request;
+    } finally {
+      jobMetadataRequestRef.current = null;
+    }
+  }, [fetchProductFields, fetchScopeOptions]);
 
   const fetchJobDetail = useCallback(
     async (jobId: string) => {
@@ -432,13 +445,14 @@ export default function LocalizationSettings({
       setError(null);
       setSaveNotice(null);
 
-      const tasks: Array<Promise<unknown>> = [fetchSettings()];
+      const tasks: Array<Promise<unknown>> = [fetchSettings(), fetchGlossaries()];
       if (!isGlossariesFocus) {
-        tasks.push(fetchJobs(), fetchProductFields(), fetchScopeOptions());
+        tasks.push(fetchJobs());
       }
-      tasks.push(fetchGlossaries());
-
       await Promise.all(tasks);
+      if (!isGlossariesFocus) {
+        void ensureJobMetadata();
+      }
     } catch (fetchError) {
       console.error('Failed to load localization settings page:', fetchError);
       setError(fetchError instanceof Error ? fetchError.message : 'Failed to load localization settings');
@@ -446,17 +460,25 @@ export default function LocalizationSettings({
       setLoading(false);
     }
   }, [
-    fetchGlossaries,
     fetchJobs,
-    fetchProductFields,
-    fetchScopeOptions,
+    fetchGlossaries,
     fetchSettings,
+    ensureJobMetadata,
     isGlossariesFocus,
   ]);
 
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
+
+  useEffect(() => {
+    jobMetadataReadyRef.current = false;
+    jobMetadataRequestRef.current = null;
+    setProductFields([]);
+    setMarkets([]);
+    setChannels([]);
+    setDestinations([]);
+  }, [tenantSlug]);
 
   const handleSave = async () => {
     try {
@@ -496,6 +518,7 @@ export default function LocalizationSettings({
     try {
       setRefreshingJobs(true);
       setError(null);
+      void ensureJobMetadata();
       await fetchJobs();
     } catch (jobsError) {
       console.error('Failed to refresh localization jobs:', jobsError);
@@ -588,6 +611,7 @@ export default function LocalizationSettings({
       setSelectedJobId(jobId);
       setLoadingJobDetail(true);
       setError(null);
+      void ensureJobMetadata();
       await fetchJobDetail(jobId);
     } catch (jobError) {
       console.error('Failed to load localization job detail:', jobError);
@@ -778,10 +802,10 @@ export default function LocalizationSettings({
       const destination = destinationId ? destinationById.get(destinationId) : null;
 
       const chunks: string[] = [];
-      if (locale) chunks.push(getLocaleShortName(locale.name));
-      if (market) chunks.push(market.name);
-      if (channel) chunks.push(channel.name);
-      if (destination) chunks.push(destination.name);
+      if (localeId) chunks.push(locale ? getLocaleShortName(locale.name) : localeId);
+      if (marketId) chunks.push(market?.name || marketId);
+      if (channelId) chunks.push(channel?.name || channelId);
+      if (destinationId) chunks.push(destination?.name || destinationId);
       return chunks.length > 0 ? chunks.join(' • ') : 'Global';
     },
     [channelById, destinationById, localeById, marketById]
@@ -811,7 +835,7 @@ export default function LocalizationSettings({
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading localization..." size="lg" />
+        <PageSkeleton text="Loading localization..." size="lg" />
       </div>
     );
   }
@@ -837,13 +861,6 @@ export default function LocalizationSettings({
           <h1 className="text-xl font-semibold text-foreground">
             {isGlossariesFocus ? 'Glossaries' : isJobsFocus ? 'Translation Activity' : 'Localization'}
           </h1>
-          <p className="text-sm text-muted-foreground">
-            {isGlossariesFocus
-              ? 'Manage terminology sets used during translation.'
-              : isJobsFocus
-                ? 'Track progress and review generated output.'
-                : 'Configure translation defaults, Write Assist, and review recent localization jobs.'}
-          </p>
         </div>
         {!focusSection ? (
           <Button variant="outline" size="sm" onClick={refreshAll} disabled={loading}>
@@ -1039,7 +1056,7 @@ export default function LocalizationSettings({
                   </CardDescription>
                 </div>
                 <Button variant="outline" size="sm" onClick={handleRefreshGlossaries} disabled={refreshingGlossaries}>
-                  <RefreshCw className={`mr-2 h-4 w-4 ${refreshingGlossaries ? 'animate-spin' : ''}`} />
+                  {refreshingGlossaries ? <LoadingSkeleton size="sm" className="mr-2" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                   Refresh
                 </Button>
               </div>
@@ -1152,12 +1169,15 @@ export default function LocalizationSettings({
               <CardDescription>Latest translation runs for this workspace.</CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={handleRefreshJobs} disabled={refreshingJobs}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${refreshingJobs ? 'animate-spin' : ''}`} />
+              {refreshingJobs ? <LoadingSkeleton size="sm" className="mr-2" /> : <RefreshCw className="mr-2 h-4 w-4" />}
               Refresh Runs
             </Button>
           </div>
         </CardHeader>
         <CardContent>
+          {jobMetadataLoading ? (
+            <div className="mb-3 text-xs text-muted-foreground">Loading field and scope labels...</div>
+          ) : null}
           {visibleJobs.length === 0 ? (
             <div className="rounded-md border border-dashed border-border/70 p-6 text-center text-sm text-muted-foreground">
               No translation runs yet.
@@ -1258,7 +1278,7 @@ export default function LocalizationSettings({
                 </CardDescription>
               </div>
               <Button variant="outline" size="sm" onClick={handleRefreshSelectedJob} disabled={refreshingJobDetail}>
-                <RefreshCw className={`mr-2 h-4 w-4 ${refreshingJobDetail ? 'animate-spin' : ''}`} />
+                {refreshingJobDetail ? <LoadingSkeleton size="sm" className="mr-2" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Refresh Detail
               </Button>
             </div>
@@ -1266,7 +1286,7 @@ export default function LocalizationSettings({
           <CardContent className="space-y-4">
             {loadingJobDetail && !selectedJob ? (
               <div className="flex items-center gap-2 rounded-md border border-border/60 p-4 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <LoadingSkeleton size="sm" />
                 Loading job detail...
               </div>
             ) : selectedJob ? (
@@ -1333,7 +1353,7 @@ export default function LocalizationSettings({
                     onClick={() => runBulkAction('approve')}
                     disabled={bulkActionLoading || selectedItems.length === 0}
                   >
-                    {bulkActionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {bulkActionLoading ? <LoadingSkeleton size="sm" className="mr-2" /> : null}
                     Bulk Approve
                   </Button>
                   <Button
@@ -1441,7 +1461,7 @@ export default function LocalizationSettings({
                               onClick={() => runItemAction(item.id, 'edit')}
                               disabled={!canMutate || isLoadingItem}
                             >
-                              {isLoadingItem ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                              {isLoadingItem ? <LoadingSkeleton size="sm" className="mr-2" /> : null}
                               Save Edit
                             </Button>
                             <Button
@@ -1449,7 +1469,7 @@ export default function LocalizationSettings({
                               onClick={() => runItemAction(item.id, 'approve')}
                               disabled={!canMutate || isLoadingItem}
                             >
-                              {isLoadingItem ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                              {isLoadingItem ? <LoadingSkeleton size="sm" className="mr-2" /> : null}
                               Approve
                             </Button>
                             <Button
@@ -1484,3 +1504,4 @@ export default function LocalizationSettings({
     </SettingsSecondLevelPage>
   );
 }
+

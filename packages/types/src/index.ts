@@ -19,6 +19,7 @@ export interface Organization {
   website?: string;
   description?: string;
   logoUrl?: string;
+  defaultUiLocale?: string;
   industry?: string;
   teamSize?: string;
   createdAt: string;
@@ -63,6 +64,7 @@ export interface OrganizationMember {
   canEditProducts: boolean;
   canManageTeam: boolean;
   permissions: Record<string, any>;
+  uiLocaleOverride?: string | null;
   joinedAt: string;
   status: 'active' | 'suspended' | 'left';
   invitedBy?: string;
@@ -103,6 +105,22 @@ export interface DamFolder {
   createdAt: string;
 }
 
+export type AssetStatus = 'draft' | 'active' | 'archived' | 'retired';
+export type ComplianceStatus = 'Pending' | 'Approved' | 'Rejected' | 'Under Review';
+export type BrandLegalApproval = 'Pending' | 'Approved' | 'Rejected';
+export type ClaimsReviewStatus = 'pending' | 'approved' | 'challenged' | 'expired';
+export type UsageTerritory = 'Global' | 'US' | 'EU' | 'APAC' | 'Other';
+export type LicenseOwnership = 'Work for Hire' | 'UGC License' | 'Licensed' | 'Owned' | 'Rights-Managed';
+export type ColorProfile = 'RGB' | 'sRGB' | 'CMYK' | 'Pantone' | 'Greyscale';
+export type PrintVsDigital = 'print' | 'digital';
+export type EndorsementType = 'Sponsored Athlete' | 'Paid Partnership' | 'UGC' | 'Ambassador';
+export type WadaRiskLevel = 'none' | 'low' | 'flagged';
+export type ArtworkType =
+  | 'Front Panel' | 'Back Panel' | 'Side Panel' | 'Carton'
+  | 'Shipper' | 'Tray' | 'Insert' | 'Hang Tag' | 'Hero Shot'
+  | 'Lifestyle' | 'Ingredient Focus' | 'Before/After'
+  | '360 Render' | '3D Render' | 'Social Graphic' | 'Other';
+
 export interface DamAsset {
   id: string;
   organizationId: string;
@@ -110,17 +128,18 @@ export interface DamAsset {
   filename: string;
   originalFilename: string;
   fileType: string;
-   assetType?: string;
-   assetScope?: string;
-   currentVersionNumber?: number;
-   currentVersionComment?: string | null;
-   currentVersionEffectiveFrom?: string | null;
-   currentVersionEffectiveTo?: string | null;
-   currentVersionChangedBy?: string | null;
-   currentVersionChangedAt?: string | null;
+  assetType?: string;
+  assetScope?: string;
+  assetStatus: AssetStatus;
+  currentVersionNumber?: number;
+  currentVersionComment?: string | null;
+  currentVersionEffectiveFrom?: string | null;
+  currentVersionEffectiveTo?: string | null;
+  currentVersionChangedBy?: string | null;
+  currentVersionChangedAt?: string | null;
   fileSize: number;
   mimeType: string;
-   filePath?: string;
+  filePath?: string;
   s3Key: string;
   s3Url: string;
   thumbnailUrls?: {
@@ -128,10 +147,49 @@ export interface DamAsset {
     medium?: string;
     large?: string;
   };
+  width?: number | null;
+  height?: number | null;
   metadata?: Record<string, any>;
   tags: string[];
   description?: string;
-   productIdentifiers?: string[];
+  productIdentifiers?: string[];
+
+  // Compliance & approval
+  complianceStatus?: ComplianceStatus | null;
+  brandLegalApproval?: BrandLegalApproval | null;
+  claimsReviewStatus?: ClaimsReviewStatus | null;
+
+  // Rights & talent
+  talentPresent?: boolean | null;
+  releaseOnFile?: boolean | null;
+  usageEnd?: string | null;
+  usageTerritory?: UsageTerritory | null;
+  licenseOwnership?: LicenseOwnership | null;
+  usagePlatforms: string[];
+  ftcDisclosureRequired?: boolean | null;
+  athleteNames: string[];
+  talentContractEnd?: string | null;
+  endorsementType?: EndorsementType | null;
+  expirationDate?: string | null;
+
+  // Regulatory & certifications
+  regulatoryRegion: string[];
+  certifications: string[];
+  visibleClaims: string[];
+  claimsApprovedMarkets: string[];
+  wadaRiskLevel: WadaRiskLevel;
+
+  // Accessibility
+  altText?: string | null;
+
+  // Label / artwork classification
+  artworkType?: ArtworkType | null;
+  colorProfile?: ColorProfile | null;
+  printVsDigital: PrintVsDigital;
+  resolutionDpi?: number | null;
+  labelVersion?: string | null;
+  formulaVersion?: string | null;
+
   createdBy: string;
   createdAt: string;
   updatedAt: string;

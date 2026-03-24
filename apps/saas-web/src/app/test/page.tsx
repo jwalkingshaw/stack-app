@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
 
 interface TestResult {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -128,11 +128,11 @@ export default function TestPage() {
             <button
               onClick={runHealthCheck}
               disabled={isLoading}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              className="bg-[var(--color-accent-blue)] text-white px-6 py-2 rounded-lg hover:bg-[var(--color-accent-blue-hover)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
             >
               {isLoading ? (
                 <>
-                  <LoadingSpinner size="sm" color="white" />
+                  <LoadingSkeleton size="sm" color="white" />
                   <span>Testing...</span>
                 </>
               ) : (
@@ -323,3 +323,4 @@ export default function TestPage() {
     </div>
   );
 }
+

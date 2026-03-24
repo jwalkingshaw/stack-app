@@ -6,11 +6,13 @@ import {
   PRODUCT_VIEW_PERMISSION_KEYS,
   getScopedPermissionSummary,
   resolvePartnerGrantedProductIds,
+  resolvePartnerProductVisibilityPolicy,
   resolveTenantBrandViewContext,
 } from '@/lib/partner-brand-view';
 import { getChannelScopedProductIds } from '@/lib/product-channel-scope';
 import { assertBillingCapacity, isBillableSkuRecord } from '@/lib/billing-policy';
 import { validateAuthoringScope } from '@/lib/authoring-scope';
+import { resolveMarketCatalogProductIds } from '@/lib/market-catalog';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -175,6 +177,7 @@ const PRODUCT_ROW_MUTABLE_COLUMNS = new Set([
   "inheritance",
   "is_inherited",
   "marketplace_content",
+  "catalog_visibility",
   "last_modified_by",
 ]);
 
@@ -192,6 +195,11 @@ type ProductFieldRow = {
   id: string;
   code: string;
   field_type: string;
+  is_localizable?: boolean | null;
+  is_channelable?: boolean | null;
+  allowed_channel_ids?: string[] | null;
+  allowed_market_ids?: string[] | null;
+  allowed_locale_ids?: string[] | null;
 };
 
 type ProductFieldValueRow = {
@@ -243,6 +251,13 @@ function normalizeScopeCode(value: string | null): string | null {
   return token ? token.toLowerCase() : null;
 }
 
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.length > 0);
+}
+
 function parseScopeSelectionFromRequest(request: NextRequest): ScopeSelection {
   const searchParams = new URL(request.url).searchParams;
   return {
@@ -270,6 +285,90 @@ function hasScopedSelection(scope: ScopeSelection): boolean {
 
 function hasScopedIdSelection(scope: ScopeSelection): boolean {
   return Boolean(scope.marketId || scope.channelId || scope.localeId || scope.destinationId);
+}
+
+function normalizeVisibilityCode(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+async function resolveAllowedFieldCodesForPartnerVisibility(params: {
+  organizationId: string;
+  familyId: string | null;
+  allowedGroupCodes: string[];
+  allowedFieldCodes: string[];
+}): Promise<Set<string>> {
+  const allowedCodes = new Set(
+    params.allowedFieldCodes.map((code) => normalizeVisibilityCode(code)).filter(Boolean)
+  );
+
+  const familyId = typeof params.familyId === "string" ? params.familyId.trim() : "";
+  if (!familyId) {
+    return allowedCodes;
+  }
+
+  const allowedGroupCodes = new Set(
+    params.allowedGroupCodes.map((code) => normalizeVisibilityCode(code)).filter(Boolean)
+  );
+
+  if (allowedGroupCodes.size === 0) {
+    return allowedCodes;
+  }
+
+  const { data, error } = await supabase
+    .from("product_family_field_groups")
+    .select(
+      "field_groups!field_group_id(code,product_field_group_assignments(product_fields!product_field_id(code)))"
+    )
+    .eq("product_family_id", familyId);
+
+  if (error || !Array.isArray(data)) {
+    return allowedCodes;
+  }
+
+  for (const row of data as Array<Record<string, unknown>>) {
+    const fieldGroup = row.field_groups;
+    if (!fieldGroup || typeof fieldGroup !== "object" || Array.isArray(fieldGroup)) continue;
+    const groupRecord = fieldGroup as Record<string, unknown>;
+    const groupCode = normalizeVisibilityCode(groupRecord.code);
+    if (!groupCode || !allowedGroupCodes.has(groupCode)) continue;
+
+    const assignments = Array.isArray(groupRecord.product_field_group_assignments)
+      ? groupRecord.product_field_group_assignments
+      : [];
+
+    for (const assignment of assignments) {
+      if (!assignment || typeof assignment !== "object" || Array.isArray(assignment)) continue;
+      const assignmentRecord = assignment as Record<string, unknown>;
+      const productFields = assignmentRecord.product_fields;
+      if (!productFields || typeof productFields !== "object" || Array.isArray(productFields)) continue;
+      const fieldCode = normalizeVisibilityCode((productFields as Record<string, unknown>).code);
+      if (fieldCode) allowedCodes.add(fieldCode);
+    }
+  }
+
+  return allowedCodes;
+}
+
+function filterScopedFieldValuesByAllowedCodes(
+  values: Record<string, unknown>,
+  allowedCodes: Set<string>
+): Record<string, unknown> {
+  if (allowedCodes.size === 0) return {};
+  const filtered: Record<string, unknown> = {};
+  for (const [fieldCode, value] of Object.entries(values)) {
+    if (allowedCodes.has(normalizeVisibilityCode(fieldCode))) {
+      filtered[fieldCode] = value;
+    }
+  }
+  return filtered;
+}
+
+function intersectIds(left: string[] | null, right: string[] | null): string[] | null {
+  if (!left && !right) return null;
+  if (!left) return Array.from(new Set(right || []));
+  if (!right) return Array.from(new Set(left));
+  const rightSet = new Set(right);
+  return Array.from(new Set(left.filter((id) => rightSet.has(id))));
 }
 
 function scoreDimensionByIdOrCode(params: {
@@ -430,7 +529,9 @@ async function resolveScopedFieldMap(params: {
 
   const { data, error } = await supabase
     .from("product_fields")
-    .select("id,code,field_type")
+    .select(
+      "id,code,field_type,is_localizable,is_channelable,allowed_channel_ids,allowed_market_ids,allowed_locale_ids"
+    )
     .eq("organization_id", params.organizationId)
     .in("code", candidateCodes);
 
@@ -443,7 +544,12 @@ async function resolveScopedFieldMap(params: {
   ((data || []) as ProductFieldRow[]).forEach((row) => {
     const code = String(row.code || "").trim().toLowerCase();
     if (!code) return;
-    byCode.set(code, row);
+    byCode.set(code, {
+      ...row,
+      allowed_channel_ids: toStringArray(row.allowed_channel_ids),
+      allowed_market_ids: toStringArray(row.allowed_market_ids),
+      allowed_locale_ids: toStringArray(row.allowed_locale_ids),
+    });
   });
 
   const mapped = new Map<string, ProductFieldRow>();
@@ -599,6 +705,88 @@ async function loadScopedProductFieldValueMap(params: {
   return resolvedValues;
 }
 
+async function validateScopedWriteScope(params: {
+  organizationId: string;
+  scope: ScopeSelection;
+}): Promise<{ ok: boolean; status?: number; error?: string }> {
+  if (!hasScopedIdSelection(params.scope)) {
+    return { ok: true };
+  }
+
+  const validation = await validateAuthoringScope({
+    supabase,
+    organizationId: params.organizationId,
+    rawScope: {
+      mode: "scoped",
+      marketIds: params.scope.marketId ? [params.scope.marketId] : [],
+      channelIds: params.scope.channelId ? [params.scope.channelId] : [],
+      localeIds: params.scope.localeId ? [params.scope.localeId] : [],
+      destinationIds: params.scope.destinationId ? [params.scope.destinationId] : [],
+    },
+  });
+
+  if (!validation.ok) {
+    return {
+      ok: false,
+      status: validation.status,
+      error: validation.error,
+    };
+  }
+
+  if (params.scope.localeId) {
+    const { data: locale, error: localeError } = await supabase
+      .from("locales")
+      .select("id")
+      .eq("organization_id", params.organizationId)
+      .eq("id", params.scope.localeId)
+      .maybeSingle();
+
+    if (localeError || !locale) {
+      return {
+        ok: false,
+        status: 400,
+        error: "Invalid language selected.",
+      };
+    }
+  }
+
+  return { ok: true };
+}
+
+function validateScopedFieldWrite(params: {
+  field: ProductFieldRow;
+  scope: ScopeSelection;
+  column: string;
+}): string | null {
+  const { field, scope, column } = params;
+  const fieldLabel = field.code || column;
+  const allowedChannels = toStringArray(field.allowed_channel_ids);
+  const allowedMarkets = toStringArray(field.allowed_market_ids);
+  const allowedLocales = toStringArray(field.allowed_locale_ids);
+
+  if (scope.channelId && !field.is_channelable) {
+    return `Field "${fieldLabel}" cannot be scoped by channel.`;
+  }
+
+  if (scope.localeId && !field.is_localizable) {
+    return `Field "${fieldLabel}" cannot be scoped by language.`;
+  }
+
+  if (scope.channelId && allowedChannels.length > 0 && !allowedChannels.includes(scope.channelId)) {
+    return `Field "${fieldLabel}" is not allowed for the selected channel.`;
+  }
+
+  if (scope.marketId && allowedMarkets.length > 0 && !allowedMarkets.includes(scope.marketId)) {
+    return `Field "${fieldLabel}" is not allowed for the selected market.`;
+  }
+
+  if (scope.localeId && allowedLocales.length > 0 && !allowedLocales.includes(scope.localeId)) {
+    return `Field "${fieldLabel}" is not allowed for the selected language.`;
+  }
+
+  return null;
+}
+
 async function persistScopedProductValueUpdates(params: {
   organizationId: string;
   productId: string;
@@ -625,6 +813,14 @@ async function persistScopedProductValueUpdates(params: {
   for (const column of scopedColumns) {
     const field = fieldMap.get(column);
     if (!field) continue;
+    const scopedFieldError = validateScopedFieldWrite({
+      field,
+      scope: params.scope,
+      column,
+    });
+    if (scopedFieldError) {
+      return { ok: false, error: scopedFieldError, unresolvedColumns };
+    }
     const nextValue = params.updates[column];
 
     if (nextValue === null || typeof nextValue === "undefined") {
@@ -818,19 +1014,43 @@ export async function GET(
 
     const { context } = contextResult;
     const targetOrganizationId = context.targetOrganization.id;
+    let marketCatalogProductIds: string[] | null = null;
+    if (requestScope.marketId) {
+      const marketCatalog = await resolveMarketCatalogProductIds({
+        organizationId: targetOrganizationId,
+        marketId: requestScope.marketId,
+      });
+
+      if (!marketCatalog.foundationAvailable) {
+        return NextResponse.json(
+          { error: 'Market catalog foundation is unavailable. Apply database migrations first.' },
+          { status: 503 }
+        );
+      }
+      marketCatalogProductIds = marketCatalog.ids;
+    }
 
     let constrainedProductIds: string[] | null = null;
+    let partnerAccessDenied = false;
     if (context.mode === 'partner_brand') {
       const grantedSetProducts = await resolvePartnerGrantedProductIds({
         brandOrganizationId: targetOrganizationId,
         partnerOrganizationId: context.tenantOrganization.id,
+        scope: {
+          marketId: requestScope.marketId,
+          channelId: requestScope.channelId,
+          localeId: requestScope.localeId,
+          destinationId: requestScope.destinationId,
+        },
       });
 
       if (grantedSetProducts.foundationAvailable) {
         constrainedProductIds = grantedSetProducts.productIds;
+        if (constrainedProductIds.length === 0) partnerAccessDenied = true;
       } else {
         if (!context.brandMemberId) {
           constrainedProductIds = [];
+          partnerAccessDenied = true;
         } else {
         constrainedProductIds = await resolveChannelScopedProductIds({
           organizationId: targetOrganizationId,
@@ -840,7 +1060,15 @@ export async function GET(
       }
     }
 
+    constrainedProductIds = intersectIds(constrainedProductIds, marketCatalogProductIds);
+
     if (constrainedProductIds && constrainedProductIds.length === 0) {
+      if (partnerAccessDenied) {
+        return NextResponse.json(
+          { error: 'You have not been granted access to view products from this brand. Ask the brand to share a product set with you.' },
+          { status: 403 }
+        );
+      }
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
@@ -874,6 +1102,12 @@ export async function GET(
       constrainedProductIds.length > 0 &&
       !constrainedProductIds.includes(product.id)
     ) {
+      if (partnerAccessDenied || context.mode === 'partner_brand') {
+        return NextResponse.json(
+          { error: 'You have not been granted access to view this product. Ask the brand to add it to a shared set.' },
+          { status: 403 }
+        );
+      }
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
@@ -888,9 +1122,41 @@ export async function GET(
       scope: requestScope,
       includeSystemFields: false,
     });
+    let filteredScopedCustomFieldValues = scopedCustomFieldValues;
+
+    if (context.mode === "partner_brand") {
+      const visibilityPolicy = await resolvePartnerProductVisibilityPolicy({
+        brandOrganizationId: targetOrganizationId,
+        partnerOrganizationId: context.tenantOrganization.id,
+      });
+
+      if (!visibilityPolicy.foundationAvailable) {
+        return NextResponse.json(
+          { error: "Share Set visibility foundation is unavailable. Apply database migrations first." },
+          { status: 503 }
+        );
+      }
+
+      if (!visibilityPolicy.allowAllGroups) {
+        const allowedCodes = await resolveAllowedFieldCodesForPartnerVisibility({
+          organizationId: targetOrganizationId,
+          familyId:
+            typeof resolvedProduct.family_id === "string"
+              ? resolvedProduct.family_id
+              : null,
+          allowedGroupCodes: visibilityPolicy.allowedGroupCodes,
+          allowedFieldCodes: visibilityPolicy.allowedFieldCodes,
+        });
+        filteredScopedCustomFieldValues = filterScopedFieldValuesByAllowedCodes(
+          scopedCustomFieldValues,
+          allowedCodes
+        );
+      }
+    }
+
     const hydratedProduct = {
       ...resolvedProduct,
-      ...scopedCustomFieldValues,
+      ...filteredScopedCustomFieldValues,
     };
 
     let variants = null;
@@ -1116,6 +1382,17 @@ export async function PUT(
       hasScopedFieldPayload;
 
     if (shouldUseScopedValueWrite) {
+      const scopedWriteValidation = await validateScopedWriteScope({
+        organizationId,
+        scope: requestScope,
+      });
+      if (!scopedWriteValidation.ok) {
+        return NextResponse.json(
+          { error: scopedWriteValidation.error || "Invalid scope selection." },
+          { status: scopedWriteValidation.status || 400 }
+        );
+      }
+
       const scopedUpdateData: Record<string, unknown> = {};
       const rowScopedUpdateData: Record<string, unknown> = {};
       const ignoredColumns: string[] = [];

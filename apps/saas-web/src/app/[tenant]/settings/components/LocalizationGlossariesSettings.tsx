@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ItemList } from '@/components/ui/item-list';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { SettingsContentBoundary, SettingsSecondLevelPage } from './settings-page-content';
@@ -133,6 +133,7 @@ export default function LocalizationGlossariesSettings({ tenantSlug }: Localizat
 
   const [submitting, setSubmitting] = useState(false);
   const [loadingEntries, setLoadingEntries] = useState(false);
+  const [localesLoading, setLocalesLoading] = useState(true);
 
   const [createName, setCreateName] = useState('');
   const [createSourceLocaleId, setCreateSourceLocaleId] = useState('');
@@ -154,25 +155,34 @@ export default function LocalizationGlossariesSettings({ tenantSlug }: Localizat
   }, [tenantSlug]);
 
   const fetchLocales = useCallback(async () => {
-    const response = await fetch(`/api/${tenantSlug}/locales`);
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.error || 'Failed to load locales');
+    setLocalesLoading(true);
+    try {
+      const response = await fetch(`/api/${tenantSlug}/locales`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to load locales');
+      }
+      const payload = await response.json().catch(() => []);
+      setLocales(Array.isArray(payload) ? payload.filter((locale) => locale?.is_active) : []);
+    } finally {
+      setLocalesLoading(false);
     }
-    const payload = await response.json().catch(() => []);
-    setLocales(Array.isArray(payload) ? payload.filter((locale) => locale?.is_active) : []);
   }, [tenantSlug]);
 
   const fetchInitialData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      await Promise.all([fetchGlossaries(), fetchLocales()]);
+      await fetchGlossaries();
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : 'Failed to load glossary data');
     } finally {
       setLoading(false);
     }
+
+    void fetchLocales().catch((localeError) => {
+      setError((current) => current || (localeError instanceof Error ? localeError.message : 'Failed to load locales'));
+    });
   }, [fetchGlossaries, fetchLocales]);
 
   useEffect(() => {
@@ -261,6 +271,11 @@ export default function LocalizationGlossariesSettings({ tenantSlug }: Localizat
     setSaveNotice(null);
     resetCreateForm();
     setViewMode('create');
+    if (!localesLoading && locales.length === 0) {
+      void fetchLocales().catch((localeError) => {
+        setError(localeError instanceof Error ? localeError.message : 'Failed to load locales');
+      });
+    }
   };
 
   const loadGlossaryDetail = useCallback(async (glossary: GlossarySummary) => {
@@ -445,7 +460,7 @@ export default function LocalizationGlossariesSettings({ tenantSlug }: Localizat
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading glossaries..." size="lg" />
+        <PageSkeleton text="Loading glossaries..." size="lg" />
       </div>
     );
   }
@@ -486,9 +501,6 @@ export default function LocalizationGlossariesSettings({ tenantSlug }: Localizat
 
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Glossaries</h2>
-          <p className="text-muted-foreground">
-            Manage approved terminology for translation and writing assistance.
-          </p>
         </div>
 
         {error ? (
@@ -570,8 +582,8 @@ export default function LocalizationGlossariesSettings({ tenantSlug }: Localizat
               <div className="space-y-2">
                 <div className="text-sm font-medium">Source Language</div>
                 <Select value={createSourceLocaleId || '__none__'} onValueChange={(value) => setCreateSourceLocaleId(value === '__none__' ? '' : value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select source language" />
+                  <SelectTrigger disabled={submitting || localesLoading}>
+                    <SelectValue placeholder={localesLoading ? 'Loading languages...' : 'Select source language'} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">Select...</SelectItem>
@@ -587,8 +599,8 @@ export default function LocalizationGlossariesSettings({ tenantSlug }: Localizat
               <div className="space-y-2">
                 <div className="text-sm font-medium">Target Language</div>
                 <Select value={createTargetLocaleId || '__none__'} onValueChange={(value) => setCreateTargetLocaleId(value === '__none__' ? '' : value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select target language" />
+                  <SelectTrigger disabled={submitting || localesLoading}>
+                    <SelectValue placeholder={localesLoading ? 'Loading languages...' : 'Select target language'} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">Select...</SelectItem>
@@ -790,3 +802,4 @@ export default function LocalizationGlossariesSettings({ tenantSlug }: Localizat
     </SettingsSecondLevelPage>
   );
 }
+

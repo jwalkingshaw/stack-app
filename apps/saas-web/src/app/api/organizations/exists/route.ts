@@ -2,12 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient } from "@tradetool/database";
 import { kindeAPI } from "@/lib/kinde-management";
+import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 
 const supabase = createServerClient();
 const db = new DatabaseQueries(supabase);
-
-// Simple cache for organization slugs (in-memory for development)
-const slugsCache: { [key: string]: { exists: boolean; expiry: number } } = {};
 
 // GET /api/organizations/exists?slug=example-org
 // Super fast boolean-only endpoint for real-time checking
@@ -21,23 +19,25 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const slug = searchParams.get('slug');
+    const slug = searchParams.get('slug')?.trim().toLowerCase();
 
     if (!slug) {
       return NextResponse.json({ error: "Slug parameter is required" }, { status: 400 });
     }
 
-    // Check cache first (5 minute cache for existence checks)
-    const cacheKey = `slug:${slug}`;
-    const cached = slugsCache[cacheKey];
-    if (cached && Date.now() < cached.expiry) {
-      return NextResponse.json({ exists: cached.exists });
+    // Check distributed/local fallback cache first (5 minute TTL).
+    const cacheKey = CacheKeys.organizationSlugExists(slug);
+    const cached = await redisCache.get<{ exists: boolean }>(cacheKey);
+    if (cached) {
+      return NextResponse.json(cached);
     }
 
     // Validate slug format quickly
     const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
     if (!slugRegex.test(slug) || slug.length < 3 || slug.length > 50) {
-      return NextResponse.json({ exists: true }); // Invalid format = "taken"
+      const payload = { exists: true }; // Invalid format = "taken"
+      await redisCache.set(cacheKey, payload, CacheTTL.ORG_EXISTS);
+      return NextResponse.json(payload);
     }
 
     // Reserved slugs
@@ -50,18 +50,18 @@ export async function GET(request: NextRequest) {
     ];
 
     if (reservedSlugs.includes(slug.toLowerCase())) {
-      slugsCache[cacheKey] = { exists: true, expiry: Date.now() + 300000 }; // 5 min cache
-      return NextResponse.json({ exists: true });
+      const payload = { exists: true };
+      await redisCache.set(cacheKey, payload, CacheTTL.ORG_EXISTS);
+      return NextResponse.json(payload);
     }
 
     // Check Kinde first (source of truth)
     try {
       const existingOrg = await kindeAPI.getOrganizationByCode(slug);
       const exists = !!existingOrg;
-      
-      // Cache the result
-      slugsCache[cacheKey] = { exists, expiry: Date.now() + 300000 }; // 5 min cache
-      return NextResponse.json({ exists });
+      const payload = { exists };
+      await redisCache.set(cacheKey, payload, CacheTTL.ORG_EXISTS);
+      return NextResponse.json(payload);
       
     } catch (kindeError) {
       console.warn('Kinde check failed in exists endpoint:', kindeError);
@@ -69,10 +69,9 @@ export async function GET(request: NextRequest) {
       // Fallback to Supabase
       const existingOrg = await db.getOrganizationBySlug(slug);
       const exists = !!existingOrg;
-      
-      // Cache the result (shorter cache for fallback)
-      slugsCache[cacheKey] = { exists, expiry: Date.now() + 60000 }; // 1 min cache
-      return NextResponse.json({ exists });
+      const payload = { exists };
+      await redisCache.set(cacheKey, payload, CacheTTL.SHORT);
+      return NextResponse.json(payload);
     }
 
   } catch (error) {

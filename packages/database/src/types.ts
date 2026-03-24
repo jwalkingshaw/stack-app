@@ -877,8 +877,19 @@ export type Database = {
       }
       dam_assets: {
         Row: {
+          alt_text: string | null
+          artist_names: string[] | null
           asset_scope: string | null
+          asset_status: string
           asset_type: string | null
+          athlete_names: string[]
+          artwork_type: string | null
+          brand_legal_approval: string | null
+          certifications: string[]
+          claims_approved_markets: string[]
+          claims_review_status: string | null
+          color_profile: string | null
+          compliance_status: string | null
           created_at: string | null
           created_by: string
           current_version_changed_at: string | null
@@ -889,26 +900,57 @@ export type Database = {
           current_version_number: number
           description: string | null
           detected_skus: Json | null
+          endorsement_type: string | null
+          expiration_date: string | null
           file_path: string | null
           file_size: number
           file_type: string
           filename: string
           folder_id: string | null
+          formula_version: string | null
+          ftc_disclosure_required: boolean | null
+          height: number | null
           id: string
+          label_version: string | null
+          license_ownership: string | null
           metadata: Json | null
           mime_type: string
           organization_id: string | null
           original_filename: string
+          print_vs_digital: string
           product_identifiers: string[] | null
+          regulatory_region: string[]
+          release_on_file: boolean | null
+          resolution_dpi: number | null
           s3_key: string
           s3_url: string
           tags: string[] | null
+          talent_contract_end: string | null
+          talent_present: boolean | null
           thumbnail_urls: Json | null
           updated_at: string | null
+          usage_end: string | null
+          usage_platforms: string[]
+          usage_platforms_note: string | null
+          usage_territory: string | null
+          visible_claims: string[]
+          wada_risk_level: string
+          width: number | null
         }
         Insert: {
+          alt_text?: string | null
+          artist_names?: string[] | null
           asset_scope?: string | null
+          asset_status?: string
           asset_type?: string | null
+          athlete_names?: string[]
+          artwork_type?: string | null
+          brand_legal_approval?: string | null
+          certifications?: string[]
+          claims_approved_markets?: string[]
+          claims_review_status?: string | null
+          color_profile?: string | null
+          compliance_status?: string | null
           created_at?: string | null
           created_by: string
           current_version_changed_at?: string | null
@@ -919,26 +961,57 @@ export type Database = {
           current_version_number?: number
           description?: string | null
           detected_skus?: Json | null
+          endorsement_type?: string | null
+          expiration_date?: string | null
           file_path?: string | null
           file_size: number
           file_type: string
           filename: string
           folder_id?: string | null
+          formula_version?: string | null
+          ftc_disclosure_required?: boolean | null
+          height?: number | null
           id?: string
+          label_version?: string | null
+          license_ownership?: string | null
           metadata?: Json | null
           mime_type: string
           organization_id?: string | null
           original_filename: string
+          print_vs_digital?: string
           product_identifiers?: string[] | null
+          regulatory_region?: string[]
+          release_on_file?: boolean | null
+          resolution_dpi?: number | null
           s3_key: string
           s3_url: string
           tags?: string[] | null
+          talent_contract_end?: string | null
+          talent_present?: boolean | null
           thumbnail_urls?: Json | null
           updated_at?: string | null
+          usage_end?: string | null
+          usage_platforms?: string[]
+          usage_platforms_note?: string | null
+          usage_territory?: string | null
+          visible_claims?: string[]
+          wada_risk_level?: string
+          width?: number | null
         }
         Update: {
+          alt_text?: string | null
+          artist_names?: string[] | null
           asset_scope?: string | null
+          asset_status?: string
           asset_type?: string | null
+          athlete_names?: string[]
+          artwork_type?: string | null
+          brand_legal_approval?: string | null
+          certifications?: string[]
+          claims_approved_markets?: string[]
+          claims_review_status?: string | null
+          color_profile?: string | null
+          compliance_status?: string | null
           created_at?: string | null
           created_by?: string
           current_version_changed_at?: string | null
@@ -949,22 +1022,42 @@ export type Database = {
           current_version_number?: number
           description?: string | null
           detected_skus?: Json | null
+          endorsement_type?: string | null
+          expiration_date?: string | null
           file_path?: string | null
           file_size?: number
           file_type?: string
           filename?: string
           folder_id?: string | null
+          formula_version?: string | null
+          ftc_disclosure_required?: boolean | null
+          height?: number | null
           id?: string
+          label_version?: string | null
+          license_ownership?: string | null
           metadata?: Json | null
           mime_type?: string
           organization_id?: string | null
           original_filename?: string
+          print_vs_digital?: string
           product_identifiers?: string[] | null
+          regulatory_region?: string[]
+          release_on_file?: boolean | null
+          resolution_dpi?: number | null
           s3_key?: string
           s3_url?: string
           tags?: string[] | null
+          talent_contract_end?: string | null
+          talent_present?: boolean | null
           thumbnail_urls?: Json | null
           updated_at?: string | null
+          usage_end?: string | null
+          usage_platforms?: string[]
+          usage_platforms_note?: string | null
+          usage_territory?: string | null
+          visible_claims?: string[]
+          wada_risk_level?: string
+          width?: number | null
         }
         Relationships: [
           {
@@ -1968,6 +2061,7 @@ export type Database = {
           permissions: Json | null
           role: string
           status: string
+          ui_locale_override: string | null
           updated_at: string | null
         }
         Insert: {
@@ -1986,6 +2080,7 @@ export type Database = {
           permissions?: Json | null
           role?: string
           status?: string
+          ui_locale_override?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -2004,6 +2099,7 @@ export type Database = {
           permissions?: Json | null
           role?: string
           status?: string
+          ui_locale_override?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -2278,6 +2374,7 @@ export type Database = {
           compliance_requirements: Json | null
           created_at: string | null
           data_residency_region: string | null
+          default_ui_locale: string
           description: string | null
           id: string
           industry: string | null
@@ -2298,6 +2395,7 @@ export type Database = {
           compliance_requirements?: Json | null
           created_at?: string | null
           data_residency_region?: string | null
+          default_ui_locale?: string
           description?: string | null
           id?: string
           industry?: string | null
@@ -2318,6 +2416,7 @@ export type Database = {
           compliance_requirements?: Json | null
           created_at?: string | null
           data_residency_region?: string | null
+          default_ui_locale?: string
           description?: string | null
           id?: string
           industry?: string | null
@@ -3090,6 +3189,7 @@ export type Database = {
           description: string | null
           family_type: string | null
           id: string
+          is_active: boolean
           name: string
           organization_id: string | null
           require_barcode_on_active: boolean | null
@@ -3103,6 +3203,7 @@ export type Database = {
           description?: string | null
           family_type?: string | null
           id?: string
+          is_active?: boolean
           name: string
           organization_id?: string | null
           require_barcode_on_active?: boolean | null
@@ -3116,6 +3217,7 @@ export type Database = {
           description?: string | null
           family_type?: string | null
           id?: string
+          is_active?: boolean
           name?: string
           organization_id?: string | null
           require_barcode_on_active?: boolean | null
@@ -4124,6 +4226,7 @@ export type Database = {
           channel_ids: string[]
           created_at: string
           created_by: string | null
+          destination_ids: string[]
           id: string
           include_descendants: boolean
           locale_ids: string[]
@@ -4139,6 +4242,7 @@ export type Database = {
           channel_ids?: string[]
           created_at?: string
           created_by?: string | null
+          destination_ids?: string[]
           id?: string
           include_descendants?: boolean
           locale_ids?: string[]
@@ -4154,6 +4258,7 @@ export type Database = {
           channel_ids?: string[]
           created_at?: string
           created_by?: string | null
+          destination_ids?: string[]
           id?: string
           include_descendants?: boolean
           locale_ids?: string[]

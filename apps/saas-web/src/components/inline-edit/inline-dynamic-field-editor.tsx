@@ -23,6 +23,9 @@ interface InlineDynamicFieldEditorProps {
   modeOverride?: InlineEditMode | null;
   readonlyReasonOverride?: string | null;
   rendererClassName?: string;
+  productName?: string;
+  ingredients?: string;
+  otherIngredients?: string;
   onCommit: (nextValue: unknown) => Promise<void> | void;
 }
 
@@ -55,6 +58,9 @@ export function InlineDynamicFieldEditor({
   modeOverride = null,
   readonlyReasonOverride = null,
   rendererClassName,
+  productName,
+  ingredients,
+  otherIngredients,
   onCommit,
 }: InlineDynamicFieldEditorProps) {
   const descriptor = useMemo(
@@ -119,6 +125,9 @@ export function InlineDynamicFieldEditor({
             tenantSlug={tenantSlug}
             disabled={!editor.canEdit}
             className={rendererClassName}
+            productName={productName}
+            ingredients={ingredients}
+            otherIngredients={otherIngredients}
           />
         </div>
       </InlineEditFieldFrame>

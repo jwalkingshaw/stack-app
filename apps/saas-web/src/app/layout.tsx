@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
 import "./globals.css";
 import ClientProviders from "@/components/ClientProviders";
 import PostLoginRedirect from "./PostLoginRedirect";
@@ -11,20 +13,25 @@ export const metadata: Metadata = {
   description: "Unified workspace for supplement brands and retailers. Manage your assets and stay updated with industry news.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
-    <html lang="en">
+    <html lang={locale}>
       <body className={inter.className}>
-        <ClientProviders>
-          <PostLoginRedirect />
-          <main className="min-h-screen">
-            {children}
-          </main>
-        </ClientProviders>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <ClientProviders>
+            <PostLoginRedirect />
+            <main className="min-h-screen">
+              {children}
+            </main>
+          </ClientProviders>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

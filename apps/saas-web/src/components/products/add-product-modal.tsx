@@ -4,12 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ActionButton } from "@/components/ui/action-button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Globe2, Package, X } from "lucide-react";
+import { Globe2 } from "lucide-react";
 import { generateProductUrl } from "@/lib/product-utils";
 import { useMarketContext } from "@/components/market-context";
+import { FullscreenFormModal } from "@/components/ui/modal-shells";
 import {
   AuthoringScopePicker,
   AuthoringScopeValue,
@@ -17,7 +17,6 @@ import {
   getAuthoringScopeSummary,
   normalizeAuthoringScope,
 } from "@/components/scope/authoring-scope-picker";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 
 interface ProductFamily {
   id: string;
@@ -139,8 +138,8 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     
     if (!validateForm()) {
       return;
@@ -266,34 +265,24 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
   if (!isOpen) return null;
 
   return (
-    <DialogPrimitive.Root open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-white" />
-        <DialogPrimitive.Content className="fixed inset-0 z-50 bg-white">
-          <div className="h-full flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <DialogPrimitive.Title className="text-lg font-semibold flex items-center gap-2">
-                <Package className="w-5 h-5" />
-                Add New Product
-              </DialogPrimitive.Title>
-              <button
-                onClick={handleClose}
-                disabled={isLoading}
-                className="p-1.5 hover:bg-muted rounded-md transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+    <FullscreenFormModal
+      open={isOpen}
+      title="Add New Product"
+      onOpenChange={(open) => !open && handleClose()}
+      onBack={handleClose}
+      headerContentClassName="max-w-2xl px-0 sm:px-0"
+      primaryActionLabel="Create Product"
+      onPrimaryAction={() => void handleSubmit()}
+      primaryActionDisabled={!isFormValid}
+      primaryActionLoading={isLoading}
+      primaryActionLoadingLabel="Creating..."
+      bodyClassName="mx-auto w-full max-w-2xl"
+    >
+      <p className="text-sm text-muted-foreground">
+        Select a product model to define the product template. You&apos;ll configure attributes on the product page.
+      </p>
 
-            {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto p-6">
-              <div className="max-w-2xl mx-auto space-y-6">
-                <p className="text-sm text-muted-foreground">
-                  Select a product model to define the product template. You&apos;ll configure attributes on the product page.
-                </p>
-
-                <form onSubmit={handleSubmit} className="space-y-4" id="add-product-form">
+      <form onSubmit={handleSubmit} className="space-y-4" id="add-product-form">
           <div className="space-y-2">
             <label htmlFor="sku" className="block text-sm font-medium text-gray-700">
               SKU (optional)
@@ -479,34 +468,6 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
                     </div>
                   )}
                 </form>
-              </div>
-            </div>
-
-            {/* Fixed footer */}
-            <div className="border-t border-border p-6">
-              <div className="max-w-2xl mx-auto flex justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleClose}
-                  disabled={isLoading}
-                >
-                  Cancel
-                </Button>
-                <ActionButton
-                  type="submit"
-                  form="add-product-form"
-                  loading={isLoading}
-                  disabled={!isFormValid}
-                  variant="accent-blue"
-                >
-                  {isLoading ? 'Creating' : 'Create Product'}
-                </ActionButton>
-              </div>
-            </div>
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+    </FullscreenFormModal>
   );
 }

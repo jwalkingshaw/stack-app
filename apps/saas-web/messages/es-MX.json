@@ -1,0 +1,141 @@
+{
+  "Onboarding": {
+    "slug": {
+      "checking": "Verificando disponibilidad...",
+      "available": "Disponible.",
+      "findingAlternatives": "Buscando alternativas...",
+      "suggestAlternatives": "Sugerir alternativas",
+      "alternatives": "Alternativas disponibles:"
+    },
+    "actions": {
+      "loading": "Cargando...",
+      "creatingWorkspace": "Creando espacio de trabajo...",
+      "continue": "Continuar",
+      "createOrganization": "Crear organización",
+      "backToEdit": "Volver a editar"
+    },
+    "fields": {
+      "organizationName": "Nombre de la organización",
+      "workspaceUrl": "URL del espacio de trabajo",
+      "primaryMarket": "Mercado principal",
+      "loadingMarkets": "Cargando mercados...",
+      "selectPrimaryMarket": "Selecciona mercado principal",
+      "primaryMarketHint": "Crearemos este mercado como predeterminado y agregaremos su idioma principal.",
+      "workspaceLanguage": "Idioma del espacio de trabajo",
+      "selectWorkspaceLanguage": "Selecciona idioma del espacio de trabajo",
+      "workspaceLanguageHint": "Esto controla el idioma predeterminado de la interfaz para los usuarios de este espacio."
+    },
+    "kitFlow": {
+      "title": "Configura tu espacio de trabajo",
+      "subtitle": "Solo necesitamos el nombre de tu organización. Puedes completar el resto después.",
+      "organizationPlaceholder": "ej. GNC o Acme Retail",
+      "createAndAccess": "Crear espacio y acceder al kit",
+      "freeHint": "Tu espacio es gratis para siempre. No se requiere tarjeta."
+    },
+    "confirm": {
+      "title": "¿Listo para crear {name}?",
+      "subtitle": "Configuraremos tu espacio de gestión de activos digitales.",
+      "workspaceUrl": "URL de tu espacio",
+      "organizationName": "Nombre de la organización",
+      "partnerBusinessType": "Tipo de negocio del partner",
+      "businessType": "Tipo de negocio",
+      "defaultMarket": "Mercado predeterminado",
+      "workspaceLanguage": "Idioma del espacio de trabajo"
+    }
+  },
+  "Shell": {
+    "Header": {
+      "back": "Volver"
+    },
+    "Sidebar": {
+      "dashboard": "Panel",
+      "catalog": "Catálogo",
+      "assets": "Activos",
+      "products": "Productos",
+      "updates": "Actualizaciones",
+      "expandSidebar": "Expandir barra lateral de navegación",
+      "collapseSidebar": "Contraer barra lateral de navegación",
+      "openAccountMenu": "Abrir menú de cuenta",
+      "workspace": "Espacio de trabajo",
+      "signedInAs": "Sesión iniciada como {user}",
+      "settings": "Configuración",
+      "inviteManageMembers": "Invitar y gestionar miembros",
+      "helpCenter": "Centro de ayuda",
+      "logOut": "Cerrar sesión"
+    },
+    "WorkspaceRail": {
+      "workspaceSwitcher": "Selector de espacios",
+      "viewAll": "Ver todo",
+      "home": "Inicio",
+      "newCount": "nuevo",
+      "createWorkspace": "Crear espacio",
+      "notifications": "Notificaciones"
+    }
+  },
+  "Settings": {
+    "Navigation": {
+      "backToApp": "Volver a la app",
+      "sections": {
+        "organization": "Organización",
+        "product-families": "Modelos de producto",
+        "field-groups": "Grupos de atributos",
+        "product-fields": "Atributos",
+        "markets": "Mercados",
+        "localization": "Localización",
+        "channels": "Canales",
+        "destinations": "Destinos",
+        "team": "Equipo",
+        "sets": "Sets",
+        "billing": "Facturación"
+      }
+    },
+    "Organization": {
+      "toasts": {
+        "loadError": "No se pudo cargar la configuración de la organización",
+        "saveSuccess": "Configuración guardada",
+        "saveError": "No se pudo guardar la configuración",
+        "logoTypeError": "Sube un archivo PNG o JPG",
+        "logoSizeError": "El logo debe ser de 2MB o menos",
+        "logoUploaded": "Logo subido",
+        "logoUploadError": "No se pudo subir el logo"
+      },
+      "cards": {
+        "organization": {
+          "title": "Detalles de la organización",
+          "description": "Administra la información y la marca de tu espacio"
+        },
+        "branding": {
+          "title": "Marca",
+          "description": "Sube el logo de tu organización y personaliza la marca",
+          "logoAlt": "Logo de {workspace}",
+          "workspaceFallback": "Espacio",
+          "uploading": "Subiendo...",
+          "upload": "Subir logo",
+          "hint": "PNG o JPG de hasta 2MB. Recomendado: 200x200px"
+        },
+        "language": {
+          "title": "Preferencias de idioma",
+          "description": "Configura el idioma predeterminado del espacio y tu preferencia personal.",
+          "workspaceDefault": "Idioma predeterminado del espacio",
+          "workspaceDefaultLocked": "Solo owners y admins pueden cambiar el idioma predeterminado del espacio.",
+          "userOverride": "Mi preferencia de idioma",
+          "useWorkspaceDefault": "Usar predeterminado del espacio",
+          "effectiveLabel": "Idioma efectivo: {locale}"
+        }
+      },
+      "fields": {
+        "name": "Nombre de la organización",
+        "website": "Sitio web",
+        "description": "Descripción",
+        "descriptionPlaceholder": "Descripción breve de tu organización..."
+      },
+      "footer": {
+        "hint": "Los cambios se aplican inmediatamente en este espacio."
+      },
+      "actions": {
+        "saving": "Guardando...",
+        "save": "Guardar cambios"
+      }
+    }
+  }
+}

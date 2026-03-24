@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import SetsSettings from '../components/SetsSettings';
 
 interface SetsPageProps {
@@ -11,9 +11,10 @@ export default async function SetsPage({ params }: SetsPageProps) {
 
   return (
     <Suspense
-      fallback={<PageLoader text="Loading sets..." size="lg" />}
+      fallback={<PageSkeleton text="Loading sets..." size="lg" />}
     >
       <SetsSettings tenantSlug={tenant} />
     </Suspense>
   );
 }
+

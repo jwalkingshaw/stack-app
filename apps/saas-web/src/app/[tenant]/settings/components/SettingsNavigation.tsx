@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
 import {
   Building2,
@@ -19,10 +20,8 @@ import { WorkspaceRail } from '@/components/WorkspaceRail';
 
 interface SettingsSection {
   id: string;
-  label: string;
   icon: string;
   href: string;
-  description: string;
 }
 
 interface SafeUser {
@@ -54,80 +53,58 @@ interface SettingsNavigationProps {
 const settingsSections: SettingsSection[] = [
   {
     id: "organization",
-    label: "Organization",
     icon: "Building2",
     href: "",
-    description: "Basic organization information and branding"
   },
   {
     id: "product-families",
-    label: "Product Models",
     icon: "Package",
     href: "/product-models",
-    description: "Define product models, groups, and variant axes"
   },
   {
     id: "field-groups",
-    label: "Attribute Groups",
     icon: "Layers",
     href: "/field-groups",
-    description: "Group related attributes for product models"
   },
   {
     id: "product-fields",
-    label: "Attributes",
     icon: "Grid3X3",
     href: "/product-fields",
-    description: "Define custom attributes for product data"
   },
   {
     id: "markets",
-    label: "Markets",
     icon: "Globe",
     href: "/markets",
-    description: "Define markets (countries) and languages"
   },
   {
     id: "localization",
-    label: "Localization",
     icon: "Languages",
     href: "/localization",
-    description: "Configure translation defaults and review localization jobs"
   },
   {
     id: "channels",
-    label: "Channels",
     icon: "Layers",
     href: "/channels",
-    description: "Define where product content is distributed"
   },
   {
     id: "destinations",
-    label: "Destinations",
     icon: "Globe",
     href: "/destinations",
-    description: "Define market and platform-specific publish endpoints"
   },
   {
     id: "team",
-    label: "Team",
     icon: "Users",
     href: "/team",
-    description: "Manage team members and permissions"
   },
   {
     id: "sets",
-    label: "Sets",
     icon: "Link2",
     href: "/sets",
-    description: "Manage reusable DAM/PIM sets"
   },
   {
     id: "billing",
-    label: "Billing",
     icon: "CreditCard",
     href: "/billing",
-    description: "Subscription and payment settings"
   }
 ];
 
@@ -148,6 +125,7 @@ export default function SettingsNavigation({
   organization,
   planId,
 }: SettingsNavigationProps) {
+  const t = useTranslations("Settings.Navigation");
   const pathname = usePathname();
 
   const getFullHref = (section: SettingsSection) => {
@@ -177,13 +155,14 @@ export default function SettingsNavigation({
           currentWorkspaceSlug={tenantSlug}
           currentWorkspaceName={organization?.name || tenantSlug}
           currentWorkspaceLogoUrl={organization?.logoUrl ?? null}
+          currentOrganizationType={organization?.type}
           currentPath={pathname}
         />
       ) : null}
 
       <div className="h-full flex flex-col w-48">
         <div className="px-2 py-3">
-          <BackLinkButton href={`/${tenantSlug}`} label="Back to app" fullWidth icon="chevron" />
+          <BackLinkButton href={`/${tenantSlug}`} label={t("backToApp")} fullWidth icon="chevron" />
         </div>
 
         {/* Navigation */}
@@ -205,7 +184,7 @@ export default function SettingsNavigation({
                   )}
                 >
                   <Icon className="h-4 w-4 flex-shrink-0" />
-                  <span className="flex-1">{section.label}</span>
+                  <span className="flex-1">{t(`sections.${section.id}`)}</span>
                 </Link>
               );
             })}

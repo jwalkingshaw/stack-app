@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   CreateMarketPayload,
   Country,
@@ -15,6 +15,8 @@ import type {
 
 interface MarketsSettingsDataState {
   loading: boolean;
+  referenceLoading: boolean;
+  referenceReady: boolean;
   saving: boolean;
   error: string | null;
   markets: Market[];
@@ -42,6 +44,8 @@ async function readJson<T>(response: Response, fallbackMessage: string): Promise
 export function useMarketsSettingsData(tenantSlug: string) {
   const [state, setState] = useState<MarketsSettingsDataState>({
     loading: true,
+    referenceLoading: false,
+    referenceReady: false,
     saving: false,
     error: null,
     markets: [],
@@ -53,51 +57,42 @@ export function useMarketsSettingsData(tenantSlug: string) {
     timezones: [],
     localeCatalog: [],
   });
+  const referenceReadyRef = useRef(false);
+  const referenceRequestRef = useRef<Promise<void> | null>(null);
 
   const setError = useCallback((message: string | null) => {
     setState((current) => ({ ...current, error: message }));
   }, []);
 
-  const fetchAll = useCallback(async () => {
+  const fetchCore = useCallback(async () => {
     try {
       setState((current) => ({ ...current, loading: true, error: null }));
 
-      const [marketsRes, localesRes, marketLocalesRes, marketCountriesRes, referenceRes] =
-        await Promise.all([
-          fetch(`/api/${tenantSlug}/markets`),
-          fetch(`/api/${tenantSlug}/locales`),
-          fetch(`/api/${tenantSlug}/market-locales`),
-          fetch(`/api/${tenantSlug}/market-countries`),
-          fetch(`/api/${tenantSlug}/settings/reference-data`),
-        ]);
+      const [contextRes, marketCountriesRes] = await Promise.all([
+        fetch(`/api/${tenantSlug}/market-context`),
+        fetch(`/api/${tenantSlug}/market-countries`),
+      ]);
 
-      const [marketsData, localesData, marketLocalesData, marketCountriesData, referenceData] =
-        await Promise.all([
-          readJson<Market[]>(marketsRes, 'Failed to load markets.'),
-          readJson<Locale[]>(localesRes, 'Failed to load locales.'),
-          readJson<MarketLocaleAssignment[]>(
-            marketLocalesRes,
-            'Failed to load market locales.'
-          ),
-          readJson<MarketCountryAssignment[]>(
-            marketCountriesRes,
-            'Failed to load market countries.'
-          ),
-          readJson<ReferenceDataResponse>(referenceRes, 'Failed to load reference data.'),
-        ]);
+      const [contextData, marketCountriesData] = await Promise.all([
+        readJson<{
+          markets?: Market[];
+          locales?: Locale[];
+          marketLocales?: MarketLocaleAssignment[];
+        }>(contextRes, 'Failed to load market context.'),
+        readJson<MarketCountryAssignment[]>(
+          marketCountriesRes,
+          'Failed to load market countries.'
+        ),
+      ]);
 
       setState((current) => ({
         ...current,
         loading: false,
         error: null,
-        markets: marketsData || [],
-        locales: localesData || [],
-        marketLocales: marketLocalesData || [],
+        markets: contextData?.markets || [],
+        locales: contextData?.locales || [],
+        marketLocales: contextData?.marketLocales || [],
         marketCountries: marketCountriesData || [],
-        countries: referenceData?.countries || [],
-        currencies: referenceData?.currencies || [],
-        timezones: referenceData?.timezones || [],
-        localeCatalog: referenceData?.locale_catalog || [],
       }));
     } catch (error) {
       setState((current) => ({
@@ -108,9 +103,65 @@ export function useMarketsSettingsData(tenantSlug: string) {
     }
   }, [tenantSlug]);
 
+  const ensureReferenceData = useCallback(async () => {
+    if (referenceReadyRef.current) return;
+    if (referenceRequestRef.current) {
+      await referenceRequestRef.current;
+      return;
+    }
+
+    const request = (async () => {
+      try {
+        setState((current) => ({ ...current, referenceLoading: true }));
+        const referenceRes = await fetch(`/api/${tenantSlug}/settings/reference-data`);
+        const referenceData = await readJson<ReferenceDataResponse>(
+          referenceRes,
+          'Failed to load reference data.'
+        );
+        setState((current) => ({
+          ...current,
+          referenceLoading: false,
+          referenceReady: true,
+          countries: referenceData?.countries || [],
+          currencies: referenceData?.currencies || [],
+          timezones: referenceData?.timezones || [],
+          localeCatalog: referenceData?.locale_catalog || [],
+        }));
+        referenceReadyRef.current = true;
+      } catch (error) {
+        setState((current) => ({
+          ...current,
+          referenceLoading: false,
+          error:
+            current.error ||
+            (error instanceof Error ? error.message : 'Failed to load reference data.'),
+        }));
+      }
+    })();
+
+    referenceRequestRef.current = request;
+    try {
+      await request;
+    } finally {
+      referenceRequestRef.current = null;
+    }
+  }, [tenantSlug]);
+
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    referenceReadyRef.current = false;
+    referenceRequestRef.current = null;
+    setState((current) => ({
+      ...current,
+      referenceLoading: false,
+      referenceReady: false,
+      countries: [],
+      currencies: [],
+      timezones: [],
+      localeCatalog: [],
+    }));
+    void fetchCore();
+    void ensureReferenceData();
+  }, [ensureReferenceData, fetchCore]);
 
   const patchMarket = useCallback(
     async (marketId: string, updates: Record<string, unknown>) => {
@@ -132,6 +183,18 @@ export function useMarketsSettingsData(tenantSlug: string) {
         body: JSON.stringify(payload),
       });
       await readJson<Market>(response, 'Failed to create market.');
+    },
+    [tenantSlug]
+  );
+
+  const deleteMarket = useCallback(
+    async (marketId: string) => {
+      const response = await fetch(`/api/${tenantSlug}/markets`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ market_id: marketId }),
+      });
+      await readJson<{ success: boolean }>(response, 'Failed to delete market.');
     },
     [tenantSlug]
   );
@@ -201,7 +264,8 @@ export function useMarketsSettingsData(tenantSlug: string) {
       try {
         setState((current) => ({ ...current, saving: true, error: null }));
         await task();
-        await fetchAll();
+        await fetchCore();
+        void ensureReferenceData();
       } catch (error) {
         setState((current) => ({
           ...current,
@@ -211,16 +275,18 @@ export function useMarketsSettingsData(tenantSlug: string) {
         setState((current) => ({ ...current, saving: false }));
       }
     },
-    [fetchAll]
+    [ensureReferenceData, fetchCore]
   );
 
   return {
     ...state,
     setError,
-    refresh: fetchAll,
+    refresh: fetchCore,
+    ensureReferenceData,
     runAction,
     patchMarket,
     createMarket,
+    deleteMarket,
     assignCountry,
     unassignCountry,
     assignLocale,

@@ -18,7 +18,8 @@
     "dev:public": "npm run dev --workspace=@tradetool/public-site",
     "dev:saas": "npm run dev --workspace=@tradetool/saas-web",
     "build:public": "npm run build --workspace=@tradetool/public-site",
-    "build:saas": "npm run build --workspace=@tradetool/saas-web"
+    "build:saas": "npm run build --workspace=@tradetool/saas-web",
+    "i18n:check": "node scripts/i18n/validate-messages.mjs"
   },
   "devDependencies": {
     "turbo": "^2.3.3",

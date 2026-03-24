@@ -88,6 +88,34 @@ export async function GET(
       metadata: Record<string, unknown> | null;
     }>;
 
+    const partnerOrganizationIds = Array.from(
+      new Set(
+        recipientRows
+          .map((row) => row.partner_organization_id)
+          .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      )
+    );
+    const partnerOrganizationNameById = new Map<string, string>();
+
+    if (partnerOrganizationIds.length > 0) {
+      const { data: partnerOrganizations, error: partnerOrganizationsError } = await supabaseServer
+        .from("organizations")
+        .select("id,name")
+        .in("id", partnerOrganizationIds);
+
+      if (partnerOrganizationsError) {
+        console.error("Failed to resolve partner organization names for analytics:", partnerOrganizationsError);
+      } else {
+        for (const row of (partnerOrganizations || []) as Array<{
+          id: string | null;
+          name: string | null;
+        }>) {
+          if (!row.id) continue;
+          partnerOrganizationNameById.set(row.id, row.name ? String(row.name) : "");
+        }
+      }
+    }
+
     const nowMs = Date.now();
     const publishedAt = updateRow.published_at ? String(updateRow.published_at) : null;
 
@@ -184,6 +212,9 @@ export async function GET(
         recipients: recipientRows.map((row) => ({
           id: row.id,
           partnerOrganizationId: row.partner_organization_id,
+          partnerOrganizationName: row.partner_organization_id
+            ? partnerOrganizationNameById.get(row.partner_organization_id) || null
+            : null,
           status: row.status || "queued",
           firstNotifiedAt: row.first_notified_at,
           openedAt: row.opened_at,

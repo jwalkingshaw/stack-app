@@ -21,7 +21,6 @@ import {
   Share2,
   Check,
   X,
-  Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
@@ -46,6 +45,7 @@ import {
 import { AssetViewPanel } from "@/components/dam/asset-view-panel";
 import { BulkActionToolbar } from "@/components/dam/bulk-action-toolbar";
 import { BulkEditorPanel } from "@/components/dam/bulk-editor-panel";
+import { UploadPanel } from "@/components/dam/upload-panel";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageContentContainer } from "@/components/ui/page-content-container";
 import type {
@@ -58,7 +58,6 @@ import type {
 } from "@tradetool/types";
 import { extractPartnerScopeFromPath, isReservedPartnerScope } from "@/lib/tenant-view-scope";
 import { useMarketContext } from "@/components/market-context";
-import { stageAssetUploadFiles } from "@/lib/asset-upload-staging";
 
 function getFileIcon(mimeType?: string) {
   if (!mimeType) return <FileText className="w-5 h-5 text-gray-500" />;
@@ -168,6 +167,37 @@ type ScopeConstraintOption = {
   label: string;
 };
 
+const FILE_TYPE_OPTIONS = [
+  { value: "all", label: "All types" },
+  { value: "image", label: "Images" },
+  { value: "video", label: "Videos" },
+  { value: "document", label: "Documents" },
+  { value: "other", label: "Other" },
+] as const;
+
+const ASSET_STATUS_OPTIONS = [
+  { value: "all", label: "Any status" },
+  { value: "active", label: "Active" },
+  { value: "draft", label: "Draft" },
+  { value: "archived", label: "Archived" },
+  { value: "retired", label: "Retired" },
+] as const;
+
+const APPROVAL_STATUS_OPTIONS = [
+  { value: "all", label: "Any approval" },
+  { value: "approved", label: "Approved" },
+  { value: "pending", label: "Pending review" },
+  { value: "rejected", label: "Rejected" },
+  { value: "not_required", label: "Not required" },
+] as const;
+
+const COMPLIANCE_STATUS_OPTIONS = [
+  { value: "all", label: "Any compliance" },
+  { value: "approved", label: "Compliant" },
+  { value: "pending", label: "Pending review" },
+  { value: "rejected", label: "Non-compliant" },
+] as const;
+
 const NEW_CONTENT_FILTER_OPTIONS = [
   { value: "all", label: "Any time" },
   { value: "1", label: "New in 24h" },
@@ -233,6 +263,24 @@ const mapAssetApiToClient = (asset: AssetApiRecord): Partial<AssetRecord> => ({
       : typeof asset?.tenantOwned === "boolean"
         ? asset.tenantOwned
         : undefined,
+  // Structured fields — returned camelCase from mapDamAsset
+  assetStatus: (asset as DamAsset)?.assetStatus ?? 'active',
+  complianceStatus: (asset as DamAsset)?.complianceStatus ?? null,
+  brandLegalApproval: (asset as DamAsset)?.brandLegalApproval ?? null,
+  artworkType: (asset as DamAsset)?.artworkType ?? null,
+  printVsDigital: (asset as DamAsset)?.printVsDigital ?? 'digital',
+  wadaRiskLevel: (asset as DamAsset)?.wadaRiskLevel ?? 'none',
+  certifications: (asset as DamAsset)?.certifications ?? [],
+  regulatoryRegion: (asset as DamAsset)?.regulatoryRegion ?? [],
+  athleteNames: (asset as DamAsset)?.athleteNames ?? [],
+  usagePlatforms: (asset as DamAsset)?.usagePlatforms ?? [],
+  visibleClaims: (asset as DamAsset)?.visibleClaims ?? [],
+  claimsApprovedMarkets: (asset as DamAsset)?.claimsApprovedMarkets ?? [],
+  talentPresent: (asset as DamAsset)?.talentPresent ?? null,
+  releaseOnFile: (asset as DamAsset)?.releaseOnFile ?? null,
+  usageEnd: (asset as DamAsset)?.usageEnd ?? null,
+  expirationDate: (asset as DamAsset)?.expirationDate ?? null,
+  altText: (asset as DamAsset)?.altText ?? null,
 });
 
 const normalizeAssetRecord = (asset: AssetApiRecord): AssetRecord => ({
@@ -340,9 +388,15 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState("grid"); // grid, list, visual
   const [isUploadDropActive, setIsUploadDropActive] = useState(false);
+  const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(false);
+  const [uploadPanelInitialFiles, setUploadPanelInitialFiles] = useState<File[]>([]);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
   const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
   const [filterTag, setFilterTag] = useState("");
+  const [filterFileType, setFilterFileType] = useState("all");
+  const [filterAssetStatus, setFilterAssetStatus] = useState("all");
+  const [filterApprovalStatus, setFilterApprovalStatus] = useState("all");
+  const [filterComplianceStatus, setFilterComplianceStatus] = useState("all");
   const [newContentFilter, setNewContentFilter] = useState<string>("all");
   const [updatedContentFilter, setUpdatedContentFilter] = useState<string>("all");
   const [sortBy, setSortBy] = useState("name"); // name, date, size, type
@@ -405,6 +459,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       queryParams.set("brand", selectedBrandSlug);
     }
 
+    if (selectedMarketId) {
+      queryParams.set("marketId", selectedMarketId);
+    }
+
     if (newContentFilter === "since_last_visit") {
       if (lastVisitedAt) {
         queryParams.set("createdAfter", lastVisitedAt);
@@ -431,6 +489,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     selectedFolderId,
     selectedProductIds,
     selectedBrandSlug,
+    selectedMarketId,
     newContentFilter,
     updatedContentFilter,
     lastVisitedAt,
@@ -549,7 +608,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         setAvailableCategories(Array.isArray(data?.categories) ? data.categories : []);
         setUserPermissions(data?.permissions ?? null);
       } catch (error) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
         console.error('Failed to fetch assets data:', error);
         setAssets([]);
         setFolders([]);
@@ -632,15 +691,13 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         const payload = await response.json();
         setProductOptions((payload?.data || []) as ProductOption[]);
       } catch (error) {
-        if ((error as Error)?.name === "AbortError") {
-          return;
-        }
+        if (controller.signal.aborted || (error as Error)?.name === "AbortError") return;
         console.warn("Product options unavailable for asset filter.");
         setProductOptions([]);
       }
     };
 
-    fetchProductOptions();
+    void fetchProductOptions();
     return () => controller.abort();
   }, [isPartnerAllView, tenantSlug, selectedBrandSlug]);
 
@@ -657,7 +714,34 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       const matchesFolder =
         !selectedFolderId ||
         (selectedFolderId === "unfiled" ? !asset.folderId : asset.folderId === selectedFolderId);
-      return matchesSearch && matchesFilter && matchesFolder;
+      const matchesFileType =
+        filterFileType === "all" ||
+        (asset as DamAsset).fileType === filterFileType ||
+        (filterFileType === "image" && (asset.mimeType?.startsWith("image/") ?? false)) ||
+        (filterFileType === "video" && (asset.mimeType?.startsWith("video/") ?? false)) ||
+        (filterFileType === "document" &&
+          (asset.mimeType?.includes("pdf") ||
+            asset.mimeType?.includes("word") ||
+            asset.mimeType?.includes("spreadsheet") ||
+            asset.mimeType?.includes("presentation") ||
+            (asset as DamAsset).fileType === "document"));
+      const matchesAssetStatus =
+        filterAssetStatus === "all" || (asset as DamAsset).assetStatus === filterAssetStatus;
+      const matchesApproval =
+        filterApprovalStatus === "all" ||
+        ((asset as DamAsset).brandLegalApproval ?? "pending") === filterApprovalStatus;
+      const matchesCompliance =
+        filterComplianceStatus === "all" ||
+        ((asset as DamAsset).complianceStatus ?? "pending") === filterComplianceStatus;
+      return (
+        matchesSearch &&
+        matchesFilter &&
+        matchesFolder &&
+        matchesFileType &&
+        matchesAssetStatus &&
+        matchesApproval &&
+        matchesCompliance
+      );
     })
     .sort((a, b) => {
       switch (sortBy) {
@@ -763,6 +847,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const activeQuickFilterCount =
     (selectedProductIds.length > 0 ? 1 : 0) +
     (filterTag ? 1 : 0) +
+    (filterFileType !== "all" ? 1 : 0) +
+    (filterAssetStatus !== "all" ? 1 : 0) +
+    (filterApprovalStatus !== "all" ? 1 : 0) +
+    (filterComplianceStatus !== "all" ? 1 : 0) +
     (newContentFilter !== "all" ? 1 : 0) +
     (updatedContentFilter !== "all" ? 1 : 0) +
     (sortBy !== "name" ? 1 : 0);
@@ -1054,8 +1142,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                     onClick={(event) => toggleFolderSelection(folder.id, event)}
                     className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border ${
                       isFolderChecked
-                        ? "border-blue-500 bg-blue-600 text-white"
-                        : "border-border bg-background hover:border-blue-400"
+                        ? "border-[var(--color-accent-blue)] bg-[var(--color-accent-blue)] text-white"
+                        : "border-border bg-background hover:border-[var(--color-accent-blue-hover)]"
                     }`}
                     aria-label={isFolderChecked ? "Deselect folder" : "Select folder"}
                   >
@@ -1146,20 +1234,11 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     });
   };
 
-  // Handle navigation to upload page
+  // Handle opening upload panel
   const handleNavigateToUpload = () => {
-    if (isSharedBrandView) {
-      return;
-    }
-    const uploadParams = new URLSearchParams();
-    if (selectedFolderId && selectedFolderId !== "unfiled") {
-      uploadParams.set("folderId", selectedFolderId);
-    } else if (selectedFolderId === "unfiled") {
-      uploadParams.set("folderId", "none");
-    }
-    router.push(
-      `/${tenantSlug}/assets/upload${uploadParams.toString() ? `?${uploadParams.toString()}` : ""}`
-    );
+    if (isSharedBrandView) return;
+    setUploadPanelInitialFiles([]);
+    setIsUploadPanelOpen(true);
   };
 
   const isFileDragEvent = (event: React.DragEvent) =>
@@ -1205,18 +1284,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     );
     if (files.length === 0) return;
 
-    const uploadToken = stageAssetUploadFiles(files);
-    if (!uploadToken) return;
-
-    const uploadParams = new URLSearchParams();
-    uploadParams.set("uploadToken", uploadToken);
-    if (selectedFolderId && selectedFolderId !== "unfiled") {
-      uploadParams.set("folderId", selectedFolderId);
-    } else {
-      uploadParams.set("folderId", "none");
-    }
-
-    router.push(`/${tenantSlug}/assets/upload?${uploadParams.toString()}`);
+    setUploadPanelInitialFiles(files);
+    setIsUploadPanelOpen(true);
   };
 
   const canEditAssets = !isSharedBrandView && Boolean(userPermissions?.can_edit_products);
@@ -1652,6 +1721,17 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     setIsBulkEditorOpen(true);
   };
 
+  const handleUploadPanelDone = useCallback(
+    async (uploadedAssetIds: string[], openBulkEditor?: boolean) => {
+      await refreshAssets();
+      if (openBulkEditor && uploadedAssetIds.length > 0) {
+        setSelectedAssetIds(new Set(uploadedAssetIds));
+        setIsBulkEditorOpen(true);
+      }
+    },
+    [refreshAssets]
+  );
+
   const handleBulkTag = () => {
     // Quick tag mode - open bulk editor with tags pre-selected
     setIsBulkEditorOpen(true);
@@ -1990,7 +2070,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     <div className="space-y-6">
       <PageHeader
         title="Assets"
-        description="Upload, organize, and share assets with scoped filters and partner-safe permissions."
       />
       <PageContentContainer mode="fluid" padding="page" className="space-y-4">
         {isSharedBrandView ? (
@@ -2007,29 +2086,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         <div className="flex gap-4">
         {/* Sidebar */}
         <aside className="w-56 shrink-0 space-y-5">
-          {/* Library Navigation */}
-          <div className="space-y-0.5">
-            <button
-              onClick={() => handleSelectFolder(null)}
-              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
-                !selectedFolderId ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-              }`}
-            >
-              <Home className="h-4 w-4 shrink-0" />
-              All Assets
-            </button>
-            <button
-              onClick={() => handleSelectFolder("unfiled")}
-              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
-                selectedFolderId === "unfiled" ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-              }`}
-            >
-              <Files className="h-4 w-4 shrink-0" />
-              Unfiled
-            </button>
-          </div>
-
-          <div className="border-t border-border" />
 
           {/* Folders */}
           <div className="space-y-2">
@@ -2047,6 +2103,15 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                 </Button>
               ) : null}
             </div>
+            <button
+              onClick={() => handleSelectFolder("unfiled")}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                selectedFolderId === "unfiled" ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+              }`}
+            >
+              <Files className="h-4 w-4 shrink-0" />
+              Unfiled
+            </button>
             <div className="space-y-1 max-h-[260px] overflow-y-auto pr-1">
               {folderTree.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border px-3 py-3 text-center">
@@ -2129,6 +2194,58 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                   </SelectContent>
                 </Select>
               </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">File type</label>
+                <Select value={filterFileType} onValueChange={setFilterFileType}>
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue placeholder="All types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FILE_TYPE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">Asset status</label>
+                <Select value={filterAssetStatus} onValueChange={setFilterAssetStatus}>
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue placeholder="Any status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ASSET_STATUS_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">Brand approval</label>
+                <Select value={filterApprovalStatus} onValueChange={setFilterApprovalStatus}>
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue placeholder="Any approval" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {APPROVAL_STATUS_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-muted-foreground">Compliance</label>
+                <Select value={filterComplianceStatus} onValueChange={setFilterComplianceStatus}>
+                  <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectValue placeholder="Any compliance" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COMPLIANCE_STATUS_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
         </aside>
@@ -2185,7 +2302,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                     <span className="font-medium">{selectionSummaryLabel} selected</span>
                   </button>
                   {selectedAssetCount > 0 ? (
-                    <button onClick={handleSelectAll} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                    <button onClick={handleSelectAll} className="text-sm text-[var(--color-accent-blue)] hover:text-[var(--color-accent-blue-hover)] font-medium">
                       {isAllSelected ? "Deselect all" : "Select all"}
                     </button>
                   ) : null}
@@ -2390,8 +2507,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                               onClick={(e) => handleAssetSelect(asset.id, e)}
                               className={`h-4 w-4 rounded border flex items-center justify-center transition-all ${
                                 isSelected
-                                  ? 'bg-blue-600 border-blue-600 text-white'
-                                  : 'border-input hover:border-blue-400'
+                                  ? 'bg-[var(--color-accent-blue)] border-[var(--color-accent-blue)] text-white'
+                                  : 'border-input hover:border-[var(--color-accent-blue-hover)]'
                               }`}
                             >
                               {isSelected && <Check className="h-2.5 w-2.5" />}
@@ -2451,8 +2568,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                               onClick={(e) => handleAssetSelect(asset.id, e)}
                               className={`h-4 w-4 rounded border flex items-center justify-center transition-all ${
                                 isSelected
-                                  ? "border-blue-600 bg-blue-600 text-white opacity-100"
-                                  : "border-input bg-white opacity-100 hover:border-blue-400"
+                                  ? "border-[var(--color-accent-blue)] bg-[var(--color-accent-blue)] text-white opacity-100"
+                                  : "border-input bg-white opacity-100 hover:border-[var(--color-accent-blue-hover)]"
                               }`}
                             >
                               {isSelected ? <Check className="h-2.5 w-2.5" /> : null}
@@ -2508,8 +2625,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                             onClick={(e) => handleAssetSelect(asset.id, e)}
                             className={`h-4 w-4 rounded border flex items-center justify-center transition-all ${
                               isSelected
-                                ? 'bg-blue-600 border-blue-600 text-white opacity-100'
-                                : 'bg-white border-input opacity-100 hover:border-blue-400'
+                                ? 'bg-[var(--color-accent-blue)] border-[var(--color-accent-blue)] text-white opacity-100'
+                                : 'bg-white border-input opacity-100 hover:border-[var(--color-accent-blue-hover)]'
                             }`}
                           >
                             {isSelected && <Check className="h-2.5 w-2.5" />}
@@ -2564,7 +2681,14 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                 <div className="w-24 h-24 mx-auto bg-muted/50 rounded-full flex items-center justify-center mb-8 shadow-soft">
                   <Files className="w-10 h-10 text-muted-foreground opacity-60" />
                 </div>
-                <h3 className="text-xl font-semibold text-foreground mb-3">No assets found</h3>
+                {userPermissions?.is_partner ? (
+                  <>
+                    <h3 className="text-xl font-semibold text-foreground mb-3">No assets shared with you yet</h3>
+                    <p className="text-sm text-muted-foreground max-w-sm mx-auto">The brand hasn&apos;t granted you access to any asset sets. Contact the brand to request access.</p>
+                  </>
+                ) : (
+                  <h3 className="text-xl font-semibold text-foreground mb-3">No assets found</h3>
+                )}
               </div>
             )}
           </div>
@@ -2771,12 +2895,24 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       {/* Bulk Action Toolbar */}
       <BulkActionToolbar
         selectedCount={isSharedBrandView ? 0 : selectedSelectableCount}
+        onAddToSet={handleBulkShare}
         onEdit={handleBulkEdit}
         onTag={handleBulkTag}
-        onMove={handleBulkMove}
         onDelete={handleBulkDelete}
-        onShare={handleBulkShare}
         onClear={handleClearSelection}
+      />
+
+      {/* Upload Panel */}
+      <UploadPanel
+        open={isUploadPanelOpen}
+        onOpenChange={setIsUploadPanelOpen}
+        tenantSlug={tenantSlug}
+        initialFiles={uploadPanelInitialFiles}
+        initialFolderId={
+          selectedFolderId && selectedFolderId !== "unfiled" ? selectedFolderId : null
+        }
+        folders={folders}
+        onDone={handleUploadPanelDone}
       />
 
       {/* Bulk Editor Panel */}
@@ -2786,6 +2922,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         onClose={() => setIsBulkEditorOpen(false)}
         onSave={handleBulkSave}
         availableTags={availableTags}
+        tenantSlug={tenantSlug}
       />
 
       {/* Keyboard shortcuts intentionally removed for now */}

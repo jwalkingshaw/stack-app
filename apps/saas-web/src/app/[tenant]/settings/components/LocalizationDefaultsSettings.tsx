@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SettingsContentBoundary, SettingsSecondLevelPage } from './settings-page-content';
 import { Switch } from '@/components/ui/switch';
@@ -59,6 +59,7 @@ const DEFAULT_SETTINGS_STATE: LocalizationSettingsData = {
 
 export default function LocalizationDefaultsSettings({ tenantSlug }: LocalizationDefaultsSettingsProps) {
   const [loading, setLoading] = useState(true);
+  const [glossariesLoading, setGlossariesLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
@@ -78,14 +79,19 @@ export default function LocalizationDefaultsSettings({ tenantSlug }: Localizatio
   }, [tenantSlug]);
 
   const fetchGlossaries = useCallback(async () => {
-    const response = await fetch(`/api/${tenantSlug}/localization/glossaries`);
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.error || 'Failed to load translation glossaries');
-    }
+    setGlossariesLoading(true);
+    try {
+      const response = await fetch(`/api/${tenantSlug}/localization/glossaries`);
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to load translation glossaries');
+      }
 
-    const payload = (await response.json()) as GlossariesResponse;
-    setGlossaries(payload.data.glossaries || []);
+      const payload = (await response.json()) as GlossariesResponse;
+      setGlossaries(payload.data.glossaries || []);
+    } finally {
+      setGlossariesLoading(false);
+    }
   }, [tenantSlug]);
 
   const refreshDefaults = useCallback(async () => {
@@ -93,13 +99,17 @@ export default function LocalizationDefaultsSettings({ tenantSlug }: Localizatio
       setLoading(true);
       setError(null);
       setSaveNotice(null);
-      await Promise.all([fetchSettings(), fetchGlossaries()]);
+      await fetchSettings();
     } catch (fetchError) {
       console.error('Failed to load localization defaults:', fetchError);
       setError(fetchError instanceof Error ? fetchError.message : 'Failed to load localization defaults');
     } finally {
       setLoading(false);
     }
+
+    void fetchGlossaries().catch((glossaryError) => {
+      setError((current) => current || (glossaryError instanceof Error ? glossaryError.message : 'Failed to load translation glossaries'));
+    });
   }, [fetchGlossaries, fetchSettings]);
 
   useEffect(() => {
@@ -143,7 +153,7 @@ export default function LocalizationDefaultsSettings({ tenantSlug }: Localizatio
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading localization defaults..." size="lg" />
+        <PageSkeleton text="Loading localization defaults..." size="lg" />
       </div>
     );
   }
@@ -164,9 +174,6 @@ export default function LocalizationDefaultsSettings({ tenantSlug }: Localizatio
       <SettingsContentBoundary size="md" className="space-y-6">
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Workspace Defaults</h2>
-          <p className="text-muted-foreground">
-            Configure translation defaults and writing assistance behavior.
-          </p>
         </div>
 
           {error ? (
@@ -260,8 +267,8 @@ export default function LocalizationDefaultsSettings({ tenantSlug }: Localizatio
                     }))
                   }
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="None" />
+                  <SelectTrigger disabled={glossariesLoading}>
+                    <SelectValue placeholder={glossariesLoading ? 'Loading glossaries...' : 'None'} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">None</SelectItem>
@@ -309,3 +316,4 @@ export default function LocalizationDefaultsSettings({ tenantSlug }: Localizatio
     </SettingsSecondLevelPage>
   );
 }
+

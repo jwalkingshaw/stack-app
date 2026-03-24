@@ -46,14 +46,12 @@ export function VariantNavigationHeader({
 }: VariantNavigationHeaderProps) {
   const router = useRouter();
   const {
-    channels,
     locales,
     markets,
     selectedChannel,
     selectedLocale,
     selectedMarketId,
     selectedDestination,
-    availableDestinations,
     isLoading: marketContextLoading,
   } = useMarketContext();
   const [variantAttributes, setVariantAttributes] = useState<VariantAttribute[]>([]);
@@ -67,20 +65,14 @@ export function VariantNavigationHeader({
   const isScopeReady = useMemo(() => {
     if (marketContextLoading) return false;
     if (markets.length > 0 && !selectedMarketId) return false;
-    if (channels.length > 0 && !selectedChannel?.code) return false;
     if (locales.length > 0 && !selectedLocale?.code) return false;
-    if (availableDestinations.length > 0 && !selectedDestination?.code) return false;
     return true;
   }, [
     marketContextLoading,
     markets.length,
     selectedMarketId,
-    channels.length,
-    selectedChannel?.code,
     locales.length,
     selectedLocale?.code,
-    availableDestinations.length,
-    selectedDestination?.code,
   ]);
   const buildScopeQuery = useCallback(() => {
     const query = new URLSearchParams();

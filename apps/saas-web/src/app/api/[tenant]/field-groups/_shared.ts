@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
+import { isLockedFieldGroupCode as isLockedFieldGroupCodeShared } from "@/lib/field-group-codes";
 
 export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,7 +10,6 @@ export const supabase = createClient(
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const LOCKED_GROUP_CODES = new Set(["basic_info", "documentation"]);
 export const CORE_SYSTEM_FIELD_CODES = new Set([
   "title",
   "scin",
@@ -141,7 +141,7 @@ export function isCrossTenantWrite(
 }
 
 export function isLockedFieldGroupCode(code: string | null | undefined): boolean {
-  return Boolean(code && LOCKED_GROUP_CODES.has(code));
+  return isLockedFieldGroupCodeShared(code);
 }
 
 export async function resolveTargetOrganization(

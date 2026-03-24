@@ -56,7 +56,7 @@ export default function TenantLayoutClient({
   // Product and variant detail pages should start focused, but still keep global nav reachable.
   const isProductDetailPage =
     pathname.match(/^\/[^\/]+(?:\/view\/[^\/]+)?\/products\/[^\/]+(?:\/variants\/[^\/]+)?$/) !== null
-  const sidebarDefaultOpen = organization?.type === 'partner' ? false : !isProductDetailPage
+  const sidebarDefaultOpen = !isProductDetailPage
 
   // Check if this is a settings page - settings has its own layout and sidebar
   const isSettingsPage = pathname.includes('/settings')

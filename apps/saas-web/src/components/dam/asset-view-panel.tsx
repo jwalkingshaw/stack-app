@@ -12,7 +12,6 @@ import {
   Folder,
   Image as ImageIcon,
   Link2,
-  Loader2,
   MoreVertical,
   Plus,
   Tag as TagIcon,
@@ -25,6 +24,7 @@ import {
   Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import {
   Dialog,
   DialogContent,
@@ -39,8 +39,31 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@tradetool/ui";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  ASSET_STATUS_OPTIONS,
+  ARTWORK_TYPE_OPTIONS,
+  COLOR_PROFILE_OPTIONS,
+  PRINT_VS_DIGITAL_OPTIONS,
+  CERTIFICATION_OPTIONS,
+  REGION_OPTIONS,
+  WADA_RISK_OPTIONS,
+  LICENSE_OWNERSHIP_OPTIONS,
+  ENDORSEMENT_TYPE_OPTIONS,
+  CHANNEL_OPTIONS,
+} from "@tradetool/ui";
 import { cn } from "@/lib/utils";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { TagInput } from "@/components/dam/tag-input";
+import {
+  ProductLinkDialog,
+  type ProductSelection,
+  type VariantSummary,
+  createEmptySelection,
+} from "@/components/dam/product-link-dialog";
 import { AddToKitDialog } from "@/components/updates/AddToKitDialog";
 import type {
   AssetCategory,
@@ -165,17 +188,6 @@ async function parseJsonSafely<T = unknown>(response: Response): Promise<T | nul
 const toRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 
-const readStringFromRecord = (record: Record<string, unknown> | null, keys: string[]): string | null => {
-  if (!record) return null;
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value;
-    }
-  }
-  return null;
-};
-
 const normalizeLinkedProduct = (value: unknown): LinkedProductRecord | null => {
   const row = toRecord(value);
   if (!row) return null;
@@ -238,22 +250,6 @@ const withCacheBuster = (url: string | undefined, token: string | undefined) => 
   return `${url}${separator}v=${encodeURIComponent(token)}`;
 };
 
-const formatMetadataValue = (value: unknown) => {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (Array.isArray(value)) {
-    return value.length > 0 ? value.join(", ") : "—";
-  }
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
-};
-
-const formatMetadataKey = (key: string) =>
-  key
-    .replace(/_/g, " ")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-
 const formatFolderBreadcrumb = (path?: string | null) => {
   if (!path) return "Unfiled";
   const parts = path.split("/").filter(Boolean);
@@ -309,7 +305,6 @@ export function AssetViewPanel({
   const [shareCopyLabel, setShareCopyLabel] = useState("Copy link");
   const [linkedProducts, setLinkedProducts] = useState<LinkedProductRecord[]>([]);
   const [isLoadingLinkedProducts, setIsLoadingLinkedProducts] = useState(false);
-  const [productToLinkId, setProductToLinkId] = useState<string>("none");
   const [isUpdatingLinks, setIsUpdatingLinks] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [activeTab, setActiveTab] = useState("info");
@@ -325,8 +320,51 @@ export function AssetViewPanel({
   const [versionChangeComment, setVersionChangeComment] = useState("");
   const [versionEffectiveFrom, setVersionEffectiveFrom] = useState("");
   const [versionEffectiveTo, setVersionEffectiveTo] = useState("");
+  const [detailsSaveState, setDetailsSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [details, setDetails] = useState<{
+    assetStatus: string;
+    complianceStatus: string;
+    brandLegalApproval: string;
+    claimsReviewStatus: string;
+    artworkType: string;
+    colorProfile: string;
+    printVsDigital: string;
+    resolutionDpi: string;
+    labelVersion: string;
+    formulaVersion: string;
+    altText: string;
+    licenseOwnership: string;
+    usageTerritory: string;
+    usagePlatforms: string[];
+    usageEnd: string;
+    talentPresent: boolean;
+    releaseOnFile: boolean;
+    athleteNames: string[];
+    endorsementType: string;
+    talentContractEnd: string;
+    ftcDisclosureRequired: boolean;
+    certifications: string[];
+    regulatoryRegion: string[];
+    wadaRiskLevel: string;
+    visibleClaims: string[];
+    claimsApprovedMarkets: string[];
+    expirationDate: string;
+  }>({
+    assetStatus: "", complianceStatus: "", brandLegalApproval: "", claimsReviewStatus: "",
+    artworkType: "", colorProfile: "", printVsDigital: "", resolutionDpi: "", labelVersion: "",
+    formulaVersion: "", altText: "", licenseOwnership: "", usageTerritory: "", usagePlatforms: [],
+    usageEnd: "", talentPresent: false, releaseOnFile: false, athleteNames: [], endorsementType: "",
+    talentContractEnd: "", ftcDisclosureRequired: false, certifications: [], regulatoryRegion: [],
+    wadaRiskLevel: "", visibleClaims: [], claimsApprovedMarkets: [], expirationDate: "",
+  });
+  const [isProductLinkDialogOpen, setIsProductLinkDialogOpen] = useState(false);
+  const [productLinkSelection, setProductLinkSelection] = useState<ProductSelection>(createEmptySelection());
+  const [variantsByProductId, setVariantsByProductId] = useState<Record<string, VariantSummary[]>>({});
+  const [variantsLoadingByProductId, setVariantsLoadingByProductId] = useState<Record<string, boolean>>({});
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>("");
+  const detailsAutoSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const detailsLastSavedRef = useRef<string>("");
   const viewerPaneRef = useRef<HTMLDivElement | null>(null);
   const versionFileInputRef = useRef<HTMLInputElement | null>(null);
   const canEditFields = canEdit && isEditMode;
@@ -409,6 +447,41 @@ export function AssetViewPanel({
     setVersionChangeComment("");
     setVersionEffectiveFrom("");
     setVersionEffectiveTo("");
+    setDetails({
+      assetStatus: asset.assetStatus || "",
+      complianceStatus: asset.complianceStatus || "",
+      brandLegalApproval: asset.brandLegalApproval || "",
+      claimsReviewStatus: asset.claimsReviewStatus || "",
+      artworkType: asset.artworkType || "",
+      colorProfile: asset.colorProfile || "",
+      printVsDigital: asset.printVsDigital || "",
+      resolutionDpi: asset.resolutionDpi != null ? String(asset.resolutionDpi) : "",
+      labelVersion: asset.labelVersion || "",
+      formulaVersion: asset.formulaVersion || "",
+      altText: asset.altText || "",
+      licenseOwnership: asset.licenseOwnership || "",
+      usageTerritory: asset.usageTerritory || "",
+      usagePlatforms: asset.usagePlatforms || [],
+      usageEnd: asset.usageEnd ? asset.usageEnd.slice(0, 10) : "",
+      talentPresent: asset.talentPresent ?? false,
+      releaseOnFile: asset.releaseOnFile ?? false,
+      athleteNames: asset.athleteNames || [],
+      endorsementType: asset.endorsementType || "",
+      talentContractEnd: asset.talentContractEnd ? asset.talentContractEnd.slice(0, 10) : "",
+      ftcDisclosureRequired: asset.ftcDisclosureRequired ?? false,
+      certifications: asset.certifications || [],
+      regulatoryRegion: asset.regulatoryRegion || [],
+      wadaRiskLevel: asset.wadaRiskLevel || "",
+      visibleClaims: asset.visibleClaims || [],
+      claimsApprovedMarkets: asset.claimsApprovedMarkets || [],
+      expirationDate: asset.expirationDate ? asset.expirationDate.slice(0, 10) : "",
+    });
+    setDetailsSaveState("idle");
+    setIsProductLinkDialogOpen(false);
+    setProductLinkSelection(createEmptySelection());
+    setVariantsByProductId({});
+    setVariantsLoadingByProductId({});
+    detailsLastSavedRef.current = "";
     lastSavedRef.current = JSON.stringify({
       filename: initialState.filename,
       description: initialState.description,
@@ -445,27 +518,11 @@ export function AssetViewPanel({
     return availableTags.filter((tag) => tag.name.toLowerCase().includes(query));
   }, [availableTags, tagFilter]);
 
-  const metadataEntries = useMemo(() => {
-    if (!asset?.metadata) return [];
-    const hiddenKeys = new Set(["name", "filename", "fileName", "originalFilename"]);
-    return Object.entries(asset.metadata).filter(([key]) => !hiddenKeys.has(key));
-  }, [asset]);
-
   const activeFolderPath = useMemo(() => {
     if (!selectedFolderId) return null;
     const folder = folders.find((item) => item.id === selectedFolderId);
     return folder?.path || folder?.name || null;
   }, [folders, selectedFolderId]);
-
-  const rightsSummary = useMemo(() => {
-    if (!asset?.metadata) return { usageRights: null as string | null, validTo: null as string | null };
-    const metadataRecord = toRecord(asset.metadata);
-    const usageRights =
-      readStringFromRecord(metadataRecord, ["usageRights", "usage_rights", "usageGroupId"]) || null;
-    const validTo =
-      readStringFromRecord(metadataRecord, ["validTo", "valid_to"]) || null;
-    return { usageRights, validTo };
-  }, [asset]);
 
   const currentVersionSummary = useMemo(() => {
     if (!asset) {
@@ -667,36 +724,6 @@ export function AssetViewPanel({
     [asset?.id, brandQuerySuffix, fetchVersionHistory, onVersionCreated, tenantSlug]
   );
 
-  const handleLinkProduct = useCallback(async () => {
-    if (!asset?.id || productToLinkId === "none") return;
-    setIsUpdatingLinks(true);
-    try {
-      const response = await fetch(`/api/${tenantSlug}/product-links${brandQuerySuffix}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product_id: productToLinkId,
-          asset_id: asset.id,
-          link_context: "asset_workspace",
-          link_type: "manual",
-          confidence: 1,
-          match_reason: "Linked from asset workspace",
-        }),
-      });
-
-      if (!response.ok && response.status !== 409) {
-        throw new Error(`Failed to link product (${response.status})`);
-      }
-
-      setProductToLinkId("none");
-      await fetchLinkedProducts();
-    } catch (error) {
-      console.error("Failed to link product:", error);
-    } finally {
-      setIsUpdatingLinks(false);
-    }
-  }, [asset?.id, productToLinkId, tenantSlug, fetchLinkedProducts, brandQuerySuffix]);
-
   const handleUnlinkProduct = useCallback(async (linkId: string) => {
     setIsUpdatingLinks(true);
     try {
@@ -743,6 +770,97 @@ export function AssetViewPanel({
       setIsUpdatingLinks(false);
     }
   }, [asset?.id, tenantSlug, fetchLinkedProducts, brandQuerySuffix]);
+
+  const handleDetailsSave = useCallback(async (payload: Record<string, unknown>) => {
+    if (!asset?.id) return;
+    setDetailsSaveState("saving");
+    try {
+      const response = await fetch(
+        `/api/${tenantSlug}/assets/${asset.id}${brandQuerySuffix}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+      if (!response.ok) throw new Error(`Save failed (${response.status})`);
+      setDetailsSaveState("saved");
+      setTimeout(() => setDetailsSaveState("idle"), 2000);
+    } catch (error) {
+      console.error("Failed to save asset details:", error);
+      setDetailsSaveState("idle");
+    }
+  }, [asset?.id, tenantSlug, brandQuerySuffix]);
+
+  const handleLoadVariants = useCallback(async (productId: string) => {
+    setVariantsLoadingByProductId((prev) => ({ ...prev, [productId]: true }));
+    try {
+      const suffix = brandQuerySuffix ? `&${brandQuerySuffix.slice(1)}` : "";
+      const response = await fetch(
+        `/api/${tenantSlug}/products?parentId=${encodeURIComponent(productId)}${suffix}`
+      );
+      if (!response.ok) throw new Error(`Failed to load variants (${response.status})`);
+      const payload = await response.json() as ApiResponsePayload<unknown[]>;
+      const rows = Array.isArray(payload?.data) ? payload.data : [];
+      const variants: VariantSummary[] = rows
+        .map((v) => {
+          const row = toRecord(v);
+          if (!row) return null;
+          const id = typeof row.id === "string" ? row.id : "";
+          if (!id) return null;
+          return {
+            id,
+            sku: typeof row.sku === "string" ? row.sku : undefined,
+            productName: typeof row.productName === "string"
+              ? row.productName
+              : typeof row.name === "string" ? row.name : "Variant",
+            parentId: productId,
+            imageUrl: typeof row.imageUrl === "string" ? row.imageUrl : null,
+          };
+        })
+        .filter((v) => v !== null) as VariantSummary[];
+      setVariantsByProductId((prev) => ({ ...prev, [productId]: variants }));
+    } catch (error) {
+      console.error("Failed to load variants:", error);
+      setVariantsByProductId((prev) => ({ ...prev, [productId]: [] }));
+    } finally {
+      setVariantsLoadingByProductId((prev) => ({ ...prev, [productId]: false }));
+    }
+  }, [tenantSlug, brandQuerySuffix]);
+
+  const handleApplyProductLinks = useCallback(async () => {
+    if (!asset?.id) return;
+    const { all, productIds, variantIdsByProduct } = productLinkSelection;
+    const requests: Array<{ productId: string }> = [];
+    if (all) {
+      availableProducts.forEach((p) => requests.push({ productId: p.id }));
+    } else {
+      productIds.forEach((id) => requests.push({ productId: id }));
+      Object.entries(variantIdsByProduct).forEach(([, variantIds]) =>
+        variantIds.forEach((id) => requests.push({ productId: id }))
+      );
+    }
+    for (const req of requests) {
+      try {
+        await fetch(`/api/${tenantSlug}/product-links${brandQuerySuffix}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            product_id: req.productId,
+            asset_id: asset.id,
+            link_context: "asset_workspace",
+            link_type: "manual",
+            confidence: 1,
+            match_reason: "Linked from asset workspace",
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to link product:", error);
+      }
+    }
+    setProductLinkSelection(createEmptySelection());
+    await fetchLinkedProducts();
+  }, [asset?.id, productLinkSelection, availableProducts, tenantSlug, brandQuerySuffix, fetchLinkedProducts]);
 
   const toggleTag = useCallback((tagId: string) => {
     setSelectedTagIds((prev) =>
@@ -863,6 +981,60 @@ export function AssetViewPanel({
     selectedFolderId,
     handleSave,
   ]);
+
+  useEffect(() => {
+    if (!canEdit || !asset) return;
+
+    if (detailsAutoSaveRef.current) clearTimeout(detailsAutoSaveRef.current);
+
+    const snapshot = JSON.stringify(details);
+    if (snapshot === detailsLastSavedRef.current) return;
+
+    const payload: Record<string, unknown> = {
+      talentPresent: details.talentPresent,
+      releaseOnFile: details.releaseOnFile,
+      ftcDisclosureRequired: details.ftcDisclosureRequired,
+      usagePlatforms: details.usagePlatforms,
+      athleteNames: details.athleteNames,
+      certifications: details.certifications,
+      regulatoryRegion: details.regulatoryRegion,
+      visibleClaims: details.visibleClaims,
+      claimsApprovedMarkets: details.claimsApprovedMarkets,
+      ...(details.assetStatus && { assetStatus: details.assetStatus }),
+      ...(details.complianceStatus && { complianceStatus: details.complianceStatus }),
+      ...(details.brandLegalApproval && { brandLegalApproval: details.brandLegalApproval }),
+      ...(details.claimsReviewStatus && { claimsReviewStatus: details.claimsReviewStatus }),
+      ...(details.artworkType && { artworkType: details.artworkType }),
+      ...(details.colorProfile && { colorProfile: details.colorProfile }),
+      ...(details.printVsDigital && { printVsDigital: details.printVsDigital }),
+      ...(details.labelVersion && { labelVersion: details.labelVersion }),
+      ...(details.formulaVersion && { formulaVersion: details.formulaVersion }),
+      ...(details.altText && { altText: details.altText }),
+      ...(details.licenseOwnership && { licenseOwnership: details.licenseOwnership }),
+      ...(details.usageTerritory && { usageTerritory: details.usageTerritory }),
+      ...(details.usageEnd && { usageEnd: details.usageEnd }),
+      ...(details.endorsementType && { endorsementType: details.endorsementType }),
+      ...(details.talentContractEnd && { talentContractEnd: details.talentContractEnd }),
+      ...(details.wadaRiskLevel && { wadaRiskLevel: details.wadaRiskLevel }),
+      ...(details.expirationDate && { expirationDate: details.expirationDate }),
+      ...(details.resolutionDpi && !isNaN(parseInt(details.resolutionDpi, 10)) && {
+        resolutionDpi: parseInt(details.resolutionDpi, 10),
+      }),
+    };
+
+    detailsAutoSaveRef.current = setTimeout(async () => {
+      try {
+        await handleDetailsSave(payload);
+        detailsLastSavedRef.current = snapshot;
+      } catch (error) {
+        console.error("Details auto-save failed:", error);
+      }
+    }, 800);
+
+    return () => {
+      if (detailsAutoSaveRef.current) clearTimeout(detailsAutoSaveRef.current);
+    };
+  }, [canEdit, asset, details, handleDetailsSave]);
 
   const cycleViewerBackground = useCallback(() => {
     setViewerBackground((prev) => {
@@ -1043,7 +1215,7 @@ export function AssetViewPanel({
               disabled={isDownloading}
             >
               {isDownloading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <LoadingSkeleton size="sm" />
               ) : (
                 <Download className="h-4 w-4" />
               )}
@@ -1200,7 +1372,7 @@ export function AssetViewPanel({
             <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="info">Info</TabsTrigger>
               <TabsTrigger value="products">Products</TabsTrigger>
-              <TabsTrigger value="metadata">Metadata</TabsTrigger>
+              <TabsTrigger value="details">Details</TabsTrigger>
               <TabsTrigger value="versions">Versions</TabsTrigger>
               <TabsTrigger value="comments">Comments</TabsTrigger>
             </TabsList>
@@ -1502,113 +1674,327 @@ export function AssetViewPanel({
               </div>
             )}
             {canEditFields && (
-              <div className="flex items-center gap-2 pt-1">
-                <Select value={productToLinkId} onValueChange={setProductToLinkId}>
-                  <SelectTrigger className="h-9">
-                    <SelectValue placeholder="Link a product" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Select product</SelectItem>
-                    {availableProducts.map((product) => (
-                      <SelectItem key={product.id} value={product.id}>
-                        {product.productName || product.sku || "Unnamed product"}
-                        {product.sku ? ` (${product.sku})` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {availableProducts.length === 0 && (
-                  <span className="text-xs text-muted-foreground">No products available</span>
-                )}
+              <div className="pt-1">
                 <Button
                   variant="secondary"
-                  className="h-9 px-3"
-                  disabled={productToLinkId === "none" || isUpdatingLinks}
-                  onClick={handleLinkProduct}
+                  className="h-8 px-3 text-sm"
+                  onClick={() => setIsProductLinkDialogOpen(true)}
                 >
                   <Link2 className="mr-1 h-3.5 w-3.5" />
-                  Link
+                  Add Product Link
                 </Button>
               </div>
             )}
           </div>
             </TabsContent>
 
-            <TabsContent value="metadata" className="space-y-6 mt-0">
+            <TabsContent value="details" className="mt-0">
+              {detailsSaveState === "saving" && (
+                <p className="mb-3 text-xs text-muted-foreground">Saving...</p>
+              )}
+              {detailsSaveState === "saved" && (
+                <p className="mb-3 text-xs text-emerald-600">Saved ✓</p>
+              )}
 
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-foreground">Rights</label>
-            <div className="rounded-lg bg-muted/20 px-3 py-2 text-sm text-muted-foreground space-y-1">
-              <div>
-                Usage rights: <span className="text-foreground">{rightsSummary.usageRights || "Not set"}</span>
-              </div>
-              <div>
-                Valid to:{" "}
-                <span className="text-foreground">
-                  {rightsSummary.validTo ? formatDate(rightsSummary.validTo) : "No expiry"}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-foreground">Version</label>
-            <div className="rounded-lg bg-muted/20 px-3 py-2 text-sm text-muted-foreground space-y-1">
-              <div>
-                Latest version:{" "}
-                <span className="text-foreground">v{currentVersionSummary.versionNumber}</span>
-              </div>
-              <div>
-                Updated:{" "}
-                <span className="text-foreground">
-                  {currentVersionSummary.changedAt
-                    ? formatDate(currentVersionSummary.changedAt)
-                    : "Unknown"}
-                </span>
-              </div>
-              {currentVersionSummary.comment ? (
-                <div>
-                  Note: <span className="text-foreground">{currentVersionSummary.comment}</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-foreground">Permissions</label>
-            <div className="rounded-lg bg-muted/20 px-3 py-2 text-sm text-muted-foreground space-y-1">
-              <div>
-                Access: <span className="text-foreground capitalize">{asset.assetScope || "internal"}</span>
-              </div>
-              <div>
-                Editing: <span className="text-foreground">{canEdit ? "Allowed" : "View only"}</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-medium text-foreground">Metadata</label>
-            {metadataEntries.length === 0 ? (
-              <div className="rounded-lg bg-muted/20 px-3 py-4 text-sm text-muted-foreground">
-                No metadata added yet.
-              </div>
-            ) : (
-              <div className="rounded-lg bg-card">
-                {metadataEntries.map(([key, value], index) => (
-                  <div
-                    key={key}
-                    className={cn(
-                      "grid grid-cols-1 gap-2 px-4 py-2 text-sm sm:grid-cols-[140px_1fr] sm:gap-4",
-                      index !== metadataEntries.length - 1 && "border-b border-border/40"
-                    )}
-                  >
-                    <span className="text-muted-foreground">{formatMetadataKey(key)}</span>
-                    <span className="text-foreground">{formatMetadataValue(value)}</span>
+              <div className="space-y-6">
+                {/* Section 1: Status & Approval */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status & Approval</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Asset Status</label>
+                      <Select value={details.assetStatus} onValueChange={(v) => setDetails((p) => ({ ...p, assetStatus: v }))} disabled={!canEdit}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>
+                          {ASSET_STATUS_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Compliance</label>
+                      <Select value={details.complianceStatus} onValueChange={(v) => setDetails((p) => ({ ...p, complianceStatus: v }))} disabled={!canEdit}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Pending">Pending Review</SelectItem>
+                          <SelectItem value="Approved">Approved</SelectItem>
+                          <SelectItem value="Rejected">Rejected</SelectItem>
+                          <SelectItem value="Under Review">Under Review</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Brand / Legal</label>
+                      <Select value={details.brandLegalApproval} onValueChange={(v) => setDetails((p) => ({ ...p, brandLegalApproval: v }))} disabled={!canEdit}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Pending">Pending</SelectItem>
+                          <SelectItem value="Approved">Approved</SelectItem>
+                          <SelectItem value="Rejected">Rejected</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Claims Review</label>
+                      <Select value={details.claimsReviewStatus} onValueChange={(v) => setDetails((p) => ({ ...p, claimsReviewStatus: v }))} disabled={!canEdit}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending">Pending</SelectItem>
+                          <SelectItem value="approved">Approved</SelectItem>
+                          <SelectItem value="challenged">Challenged</SelectItem>
+                          <SelectItem value="expired">Expired</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                ))}
+                </div>
+
+                {/* Section 2: Classification */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Classification</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2 space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Artwork Type</label>
+                      <Select value={details.artworkType} onValueChange={(v) => setDetails((p) => ({ ...p, artworkType: v }))} disabled={!canEdit}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>
+                          {ARTWORK_TYPE_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Colour Profile</label>
+                      <Select value={details.colorProfile} onValueChange={(v) => setDetails((p) => ({ ...p, colorProfile: v }))} disabled={!canEdit}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>
+                          {COLOR_PROFILE_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Use</label>
+                      <Select value={details.printVsDigital} onValueChange={(v) => setDetails((p) => ({ ...p, printVsDigital: v }))} disabled={!canEdit}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>
+                          {PRINT_VS_DIGITAL_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Resolution (DPI)</label>
+                      <Input
+                        type="number"
+                        value={details.resolutionDpi}
+                        onChange={(e) => setDetails((p) => ({ ...p, resolutionDpi: e.target.value }))}
+                        placeholder="e.g. 300"
+                        disabled={!canEdit}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Label Version</label>
+                      <Input
+                        value={details.labelVersion}
+                        onChange={(e) => setDetails((p) => ({ ...p, labelVersion: e.target.value }))}
+                        placeholder="e.g. v3.2"
+                        disabled={!canEdit}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Formula Version</label>
+                      <Input
+                        value={details.formulaVersion}
+                        onChange={(e) => setDetails((p) => ({ ...p, formulaVersion: e.target.value }))}
+                        placeholder="e.g. F-2024-03"
+                        disabled={!canEdit}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Alt Text</label>
+                      <Input
+                        value={details.altText}
+                        onChange={(e) => setDetails((p) => ({ ...p, altText: e.target.value }))}
+                        placeholder="Describe the image for screen readers"
+                        disabled={!canEdit}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3: Rights & Talent */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rights & Talent</h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">License / Ownership</label>
+                      <Select value={details.licenseOwnership} onValueChange={(v) => setDetails((p) => ({ ...p, licenseOwnership: v }))} disabled={!canEdit}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>
+                          {LICENSE_OWNERSHIP_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Usage Territory</label>
+                      <Select value={details.usageTerritory} onValueChange={(v) => setDetails((p) => ({ ...p, usageTerritory: v }))} disabled={!canEdit}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>
+                          {REGION_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Approved Platforms</label>
+                      <MultiSelect
+                        options={CHANNEL_OPTIONS}
+                        value={details.usagePlatforms}
+                        onChange={(v) => setDetails((p) => ({ ...p, usagePlatforms: v }))}
+                        disabled={!canEdit}
+                        placeholder="Select platforms"
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Rights Expiry</label>
+                      <Input
+                        type="date"
+                        value={details.usageEnd}
+                        onChange={(e) => setDetails((p) => ({ ...p, usageEnd: e.target.value }))}
+                        disabled={!canEdit}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                    <div className="col-span-2 flex items-center justify-between rounded-md border border-border px-3 py-2">
+                      <label className="text-xs font-medium text-foreground">Talent Present</label>
+                      <Switch
+                        checked={details.talentPresent}
+                        onCheckedChange={(v) => setDetails((p) => ({ ...p, talentPresent: v }))}
+                        disabled={!canEdit}
+                      />
+                    </div>
+                    {details.talentPresent && (
+                      <>
+                        <div className="col-span-2 flex items-center justify-between rounded-md border border-border px-3 py-2">
+                          <label className="text-xs font-medium text-foreground">Release on File</label>
+                          <Switch
+                            checked={details.releaseOnFile}
+                            onCheckedChange={(v) => setDetails((p) => ({ ...p, releaseOnFile: v }))}
+                            disabled={!canEdit}
+                          />
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <label className="block text-xs font-medium text-foreground">Athlete / Talent Names</label>
+                          <TagInput
+                            value={details.athleteNames}
+                            onChange={(v) => setDetails((p) => ({ ...p, athleteNames: v }))}
+                            placeholder="Enter name, press Enter"
+                            disabled={!canEdit}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-foreground">Endorsement Type</label>
+                          <Select value={details.endorsementType} onValueChange={(v) => setDetails((p) => ({ ...p, endorsementType: v }))} disabled={!canEdit}>
+                            <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                            <SelectContent>
+                              {ENDORSEMENT_TYPE_OPTIONS.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-foreground">Contract End</label>
+                          <Input
+                            type="date"
+                            value={details.talentContractEnd}
+                            onChange={(e) => setDetails((p) => ({ ...p, talentContractEnd: e.target.value }))}
+                            disabled={!canEdit}
+                            className="h-8 text-xs"
+                          />
+                        </div>
+                      </>
+                    )}
+                    <div className="col-span-2 flex items-center justify-between rounded-md border border-border px-3 py-2">
+                      <label className="text-xs font-medium text-foreground">FTC Disclosure Required</label>
+                      <Switch
+                        checked={details.ftcDisclosureRequired}
+                        onCheckedChange={(v) => setDetails((p) => ({ ...p, ftcDisclosureRequired: v }))}
+                        disabled={!canEdit}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 4: Regulatory & Certifications */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Regulatory & Certifications</h3>
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Certifications</label>
+                      <MultiSelect
+                        options={CERTIFICATION_OPTIONS}
+                        value={details.certifications}
+                        onChange={(v) => setDetails((p) => ({ ...p, certifications: v }))}
+                        disabled={!canEdit}
+                        placeholder="Select certifications"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Regulatory Regions</label>
+                      <MultiSelect
+                        options={REGION_OPTIONS}
+                        value={details.regulatoryRegion}
+                        onChange={(v) => setDetails((p) => ({ ...p, regulatoryRegion: v }))}
+                        disabled={!canEdit}
+                        placeholder="Select regions"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">WADA Risk</label>
+                      <Select value={details.wadaRiskLevel} onValueChange={(v) => setDetails((p) => ({ ...p, wadaRiskLevel: v }))} disabled={!canEdit}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
+                        <SelectContent>
+                          {WADA_RISK_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Visible Claims</label>
+                      <TagInput
+                        value={details.visibleClaims}
+                        onChange={(v) => setDetails((p) => ({ ...p, visibleClaims: v }))}
+                        placeholder='e.g. "30g Protein", press Enter'
+                        disabled={!canEdit}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">Claims Approved For</label>
+                      <MultiSelect
+                        options={REGION_OPTIONS}
+                        value={details.claimsApprovedMarkets}
+                        onChange={(v) => setDetails((p) => ({ ...p, claimsApprovedMarkets: v }))}
+                        disabled={!canEdit}
+                        placeholder="Select markets"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
             </TabsContent>
 
             <TabsContent value="versions" className="mt-0 space-y-4">
@@ -1887,6 +2273,25 @@ export function AssetViewPanel({
         </DialogContent>
       </Dialog>
 
+      <ProductLinkDialog
+        open={isProductLinkDialogOpen}
+        onOpenChange={setIsProductLinkDialogOpen}
+        title="Link Products"
+        description="Select products or variants to link to this asset."
+        actionLabel="Apply"
+        products={availableProducts.map((p) => ({
+          id: p.id,
+          sku: p.sku,
+          productName: p.productName ?? "",
+          brand: p.brand,
+        }))}
+        variantsByProductId={variantsByProductId}
+        variantsLoadingByProductId={variantsLoadingByProductId}
+        selection={productLinkSelection}
+        onChange={setProductLinkSelection}
+        onLoadVariants={(productId) => void handleLoadVariants(productId)}
+        onApply={() => void handleApplyProductLinks()}
+      />
       <AddToKitDialog
         tenantSlug={tenantSlug}
         open={isAddToKitDialogOpen}
@@ -1896,3 +2301,4 @@ export function AssetViewPanel({
     </>
   );
 }
+

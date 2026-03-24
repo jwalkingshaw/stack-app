@@ -138,14 +138,25 @@ async function validateReferencedResources(params: {
   if (assetIds.length > 0) {
     const { data, error } = await supabaseServer
       .from("dam_assets")
-      .select("id")
+      .select("id,asset_scope")
       .eq("organization_id", params.organizationId)
       .in("id", assetIds);
     if (error) {
       return { ok: false as const, status: 500, error: "Failed to validate asset references" };
     }
-    if ((data || []).length !== assetIds.length) {
+    const rows = (data || []) as Array<{ id: string; asset_scope: string | null }>;
+    if (rows.length !== assetIds.length) {
       return { ok: false as const, status: 400, error: "One or more assetIds are invalid for this workspace" };
+    }
+    const internalAsset = rows.find(
+      (row) => !row.asset_scope || row.asset_scope.toLowerCase() === "internal"
+    );
+    if (internalAsset) {
+      return {
+        ok: false as const,
+        status: 400,
+        error: "Internal assets cannot be added to a kit. Change the asset visibility to Shared first.",
+      };
     }
   }
 

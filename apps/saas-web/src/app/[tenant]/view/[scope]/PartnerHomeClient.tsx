@@ -80,10 +80,17 @@ function isBrandScope(scope: string, tenantSlug: string): boolean {
   return normalizedScope !== normalizedTenant;
 }
 
+type AssignedMarket = {
+  id: string;
+  name: string;
+  code: string;
+};
+
 export function PartnerHomeClient({ tenantSlug, scope }: PartnerHomeClientProps) {
   const [loading, setLoading] = useState(true);
   const [updates, setUpdates] = useState<PartnerUpdateRow[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [assignedMarkets, setAssignedMarkets] = useState<AssignedMarket[]>([]);
 
   const normalizedScope = (scope || "").trim().toLowerCase();
   const brandScoped = isBrandScope(scope, tenantSlug);
@@ -99,9 +106,12 @@ export function PartnerHomeClient({ tenantSlug, scope }: PartnerHomeClientProps)
         notificationQuery.set("workspaceSlug", normalizedScope);
       }
 
-      const [updatesRes, notificationsRes] = await Promise.all([
+      const [updatesRes, notificationsRes, marketsRes] = await Promise.all([
         fetch(`/api/${tenantSlug}/view/${scope}/updates?pageSize=200`, { cache: "no-store" }),
         fetch(`/api/me/notifications?${notificationQuery.toString()}`, { cache: "no-store" }),
+        brandScoped
+          ? fetch(`/api/${tenantSlug}/view/${scope}/markets`, { cache: "no-store" })
+          : Promise.resolve(null),
       ]);
 
       if (updatesRes.ok) {
@@ -116,6 +126,11 @@ export function PartnerHomeClient({ tenantSlug, scope }: PartnerHomeClientProps)
         setNotifications(Array.isArray(payload?.notifications) ? payload.notifications : []);
       } else {
         setNotifications([]);
+      }
+
+      if (marketsRes?.ok) {
+        const payload = await marketsRes.json().catch(() => ({}));
+        setAssignedMarkets(Array.isArray(payload?.data?.markets) ? payload.data.markets : []);
       }
     } finally {
       if (!silent) setLoading(false);
@@ -222,10 +237,30 @@ export function PartnerHomeClient({ tenantSlug, scope }: PartnerHomeClientProps)
   return (
     <PageContentContainer mode="form" padding="page" className="space-y-4">
       <PageHeader title="Home" sticky={false} />
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Viewing <span className="font-medium text-foreground">{scopeLabel}</span>.
         </p>
+        {assignedMarkets.length >= 2 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Market:</span>
+            {assignedMarkets.map((market) => (
+              <Link
+                key={market.id}
+                href={`/${tenantSlug}/view/${scope}/products?market=${encodeURIComponent(market.code)}`}
+                className="inline-flex items-center rounded border border-border/60 px-2 py-0.5 text-xs hover:bg-muted"
+              >
+                {market.name}
+              </Link>
+            ))}
+            <Link
+              href={`/${tenantSlug}/view/${scope}/products`}
+              className="inline-flex items-center rounded border border-border/60 px-2 py-0.5 text-xs text-muted-foreground hover:bg-muted"
+            >
+              All markets
+            </Link>
+          </div>
+        ) : null}
       </div>
 
       {loading ? (

@@ -23,22 +23,101 @@ type LinkReadConstraints = {
   restrictToSharedAssetScope: boolean;
 };
 
+type DamAssetLinkRecord = {
+  asset_scope?: string | null;
+  s3_key?: string | null;
+  s3_url?: string | null;
+  thumbnail_urls?: Record<string, unknown> | null;
+  [key: string]: unknown;
+};
+
 type ProductLinkRow = {
   dam_assets:
-    | {
-        asset_scope?: string | null;
-      }
-    | Array<{
-        asset_scope?: string | null;
-      }>
+    | DamAssetLinkRecord
+    | Array<DamAssetLinkRecord>
     | null;
   [key: string]: unknown;
 };
+
+function normalizeCloudFrontDomain(value: string | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+  return normalized.length > 0 ? normalized : null;
+}
+
+const configuredCloudFrontDomain = normalizeCloudFrontDomain(process.env.AWS_CLOUDFRONT_DOMAIN);
 
 function normalizeOptionalText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+function parseRequestedProductIds(searchParams: URLSearchParams): string[] {
+  const rawValues = searchParams.getAll("product_ids");
+  if (rawValues.length === 0) return [];
+
+  const deduped = new Set<string>();
+  for (const rawValue of rawValues) {
+    const parts = String(rawValue || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    for (const value of parts) {
+      deduped.add(value);
+      if (deduped.size >= 250) {
+        return Array.from(deduped);
+      }
+    }
+  }
+
+  return Array.from(deduped);
+}
+
+function rewriteStorageUrlToCloudFront(url: string): string {
+  if (!configuredCloudFrontDomain) return url;
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.toLowerCase().endsWith("amazonaws.com")) {
+      return url;
+    }
+    const path = parsed.pathname.replace(/^\/+/, "");
+    return `https://${configuredCloudFrontDomain}/${path}`;
+  } catch {
+    return url;
+  }
+}
+
+function buildCloudFrontUrlFromKey(s3Key: string | null): string | null {
+  if (!configuredCloudFrontDomain || !s3Key) return null;
+  const path = s3Key.replace(/^\/+/, "");
+  if (!path) return null;
+  return `https://${configuredCloudFrontDomain}/${path}`;
+}
+
+function rewriteThumbnailUrls(
+  value: Record<string, unknown> | null | undefined
+): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return value ?? null;
+  const rewritten: Record<string, unknown> = {};
+  for (const [key, current] of Object.entries(value)) {
+    rewritten[key] =
+      typeof current === "string" ? rewriteStorageUrlToCloudFront(current) : current;
+  }
+  return rewritten;
+}
+
+function normalizeDamAssetUrls(asset: DamAssetLinkRecord): DamAssetLinkRecord {
+  const normalizedS3Url = normalizeOptionalText(asset.s3_url);
+  const resolvedS3Url =
+    buildCloudFrontUrlFromKey(normalizeOptionalText(asset.s3_key)) ||
+    (normalizedS3Url ? rewriteStorageUrlToCloudFront(normalizedS3Url) : null);
+
+  return {
+    ...asset,
+    s3_url: resolvedS3Url,
+    thumbnail_urls: rewriteThumbnailUrls(asset.thumbnail_urls),
+  };
 }
 
 function isCrossTenantWrite(params: { tenantSlug: string; selectedBrandSlug: string | null }): boolean {
@@ -206,6 +285,10 @@ export async function POST(
       destination_id,
       locale_id,
       document_slot_code,
+      variant_id,
+      document_lot_number,
+      document_version,
+      sort_order,
       is_primary,
       document_expiry_date,
       replace_existing_slot = true,
@@ -249,6 +332,10 @@ export async function POST(
     const cleanDestinationId = normalizeOptionalText(destination_id);
     const cleanLocaleId = normalizeOptionalText(locale_id);
     const cleanDocumentExpiryDate = normalizeOptionalText(document_expiry_date);
+    const cleanVariantId = normalizeOptionalText(variant_id);
+    const cleanDocumentLotNumber = normalizeOptionalText(document_lot_number);
+    const cleanDocumentVersion = normalizeOptionalText(document_version);
+    const cleanSortOrder = typeof sort_order === "number" && Number.isFinite(sort_order) ? Math.floor(sort_order) : null;
 
     if (cleanDocumentSlotCode && replace_existing_slot) {
       let replaceQuery = supabase
@@ -282,6 +369,11 @@ export async function POST(
       } else {
         replaceQuery = replaceQuery.is("locale_id", null);
       }
+      if (cleanVariantId) {
+        replaceQuery = replaceQuery.eq("variant_id", cleanVariantId);
+      } else {
+        replaceQuery = replaceQuery.is("variant_id", null);
+      }
 
       const { error: replaceError } = await replaceQuery;
       if (replaceError) {
@@ -309,6 +401,10 @@ export async function POST(
         destination_id: cleanDestinationId,
         locale_id: cleanLocaleId,
         document_slot_code: cleanDocumentSlotCode,
+        variant_id: cleanVariantId,
+        document_lot_number: cleanDocumentLotNumber,
+        document_version: cleanDocumentVersion,
+        sort_order: cleanSortOrder,
         is_primary: Boolean(is_primary),
         document_expiry_date: cleanDocumentExpiryDate,
         is_active: true,
@@ -399,9 +495,18 @@ export async function GET(
     const { context } = contextResult;
     const targetOrganizationId = context.targetOrganization.id;
     const productId = requestUrl.searchParams.get("product_id");
+    let requestedProductIds = parseRequestedProductIds(requestUrl.searchParams);
     const assetId = requestUrl.searchParams.get("asset_id");
     const linkContext = requestUrl.searchParams.get("link_context");
     const documentSlotCode = requestUrl.searchParams.get("document_slot_code");
+    const variantIdFilter = requestUrl.searchParams.get("variant_id");
+
+    if (productId) {
+      if (requestedProductIds.length > 0 && !requestedProductIds.includes(productId)) {
+        return emptyLinksResponse();
+      }
+      requestedProductIds = [productId];
+    }
 
     let constraints: LinkReadConstraints = {
       allowedProductIds: null,
@@ -424,6 +529,16 @@ export async function GET(
       }
     }
 
+    if (constraints.allowedProductIds && requestedProductIds.length > 0) {
+      const allowedProductIds = constraints.allowedProductIds;
+      requestedProductIds = requestedProductIds.filter((id) =>
+        allowedProductIds.has(id)
+      );
+      if (requestedProductIds.length === 0) {
+        return emptyLinksResponse();
+      }
+    }
+
     let query = supabase
       .from("product_asset_links")
       .select(
@@ -442,6 +557,11 @@ export async function GET(
           destination_id,
           locale_id,
           document_slot_code,
+          variant_id,
+          document_lot_number,
+          document_version,
+          approved_for_market_ids,
+          sort_order,
           is_primary,
           document_expiry_date,
           is_active,
@@ -454,6 +574,7 @@ export async function GET(
             file_type,
             mime_type,
             thumbnail_urls,
+            s3_key,
             s3_url,
             file_path,
             asset_scope,
@@ -466,8 +587,8 @@ export async function GET(
       .eq("organization_id", targetOrganizationId)
       .eq("is_active", true);
 
-    if (productId) {
-      query = query.eq("product_id", productId);
+    if (requestedProductIds.length > 0) {
+      query = query.in("product_id", requestedProductIds);
     }
     if (assetId) {
       query = query.eq("asset_id", assetId);
@@ -477,6 +598,9 @@ export async function GET(
     }
     if (documentSlotCode) {
       query = query.eq("document_slot_code", documentSlotCode);
+    }
+    if (variantIdFilter) {
+      query = query.eq("variant_id", variantIdFilter);
     }
     if (constraints.allowedProductIds) {
       query = query.in("product_id", Array.from(constraints.allowedProductIds));
@@ -503,9 +627,28 @@ export async function GET(
         })
       : linkRows;
 
+    const normalizedLinks = filteredLinks.map((row) => {
+      const assetRow = row.dam_assets;
+      if (!assetRow || typeof assetRow !== "object") {
+        return row;
+      }
+
+      if (Array.isArray(assetRow)) {
+        return {
+          ...row,
+          dam_assets: assetRow.map((asset) => normalizeDamAssetUrls(asset)),
+        };
+      }
+
+      return {
+        ...row,
+        dam_assets: normalizeDamAssetUrls(assetRow),
+      };
+    });
+
     return NextResponse.json({
       success: true,
-      data: filteredLinks,
+      data: normalizedLinks,
       view: {
         mode: context.mode,
         selectedBrandSlug: context.selectedBrandSlug,

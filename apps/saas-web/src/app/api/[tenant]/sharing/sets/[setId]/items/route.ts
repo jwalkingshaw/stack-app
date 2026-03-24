@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Database, Json } from "@tradetool/database";
 import { supabaseServer } from "@/lib/supabase";
+import { logSecurityEvent } from "@/lib/security-audit";
 import {
   isMissingTableError,
   normalizeUuidArray,
@@ -22,6 +23,7 @@ type ShareSetItemInput = {
   marketIds?: string[];
   channelIds?: string[];
   localeIds?: string[];
+  destinationIds?: string[];
   metadata?: Record<string, unknown>;
 };
 
@@ -29,6 +31,7 @@ type ScopeConstraintSummary = {
   marketIds: string[];
   channelIds: string[];
   localeIds: string[];
+  destinationIds: string[];
 };
 
 function parsePositiveInt(
@@ -76,6 +79,7 @@ function normalizeItems(value: unknown): ShareSetItemInput[] {
       marketIds: normalizeUuidArray(item.marketIds),
       channelIds: normalizeUuidArray(item.channelIds),
       localeIds: normalizeUuidArray(item.localeIds),
+      destinationIds: normalizeUuidArray(item.destinationIds ?? item.destination_ids),
       metadata:
         item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
           ? (item.metadata as Record<string, unknown>)
@@ -90,17 +94,20 @@ function collectConstraintIds(items: ShareSetItemInput[]): ScopeConstraintSummar
   const marketIds = new Set<string>();
   const channelIds = new Set<string>();
   const localeIds = new Set<string>();
+  const destinationIds = new Set<string>();
 
   for (const item of items) {
     for (const id of item.marketIds || []) marketIds.add(id);
     for (const id of item.channelIds || []) channelIds.add(id);
     for (const id of item.localeIds || []) localeIds.add(id);
+    for (const id of item.destinationIds || []) destinationIds.add(id);
   }
 
   return {
     marketIds: Array.from(marketIds),
     channelIds: Array.from(channelIds),
     localeIds: Array.from(localeIds),
+    destinationIds: Array.from(destinationIds),
   };
 }
 
@@ -113,12 +120,13 @@ async function validateScopedContainerIds(params: {
 
   const checks: Array<{
     key: keyof ScopeConstraintSummary;
-    table: "markets" | "channels" | "locales";
+    table: "markets" | "channels" | "locales" | "channel_destinations";
     label: string;
   }> = [
     { key: "marketIds", table: "markets", label: "marketIds" },
     { key: "channelIds", table: "channels", label: "channelIds" },
     { key: "localeIds", table: "locales", label: "localeIds" },
+    { key: "destinationIds", table: "channel_destinations", label: "destinationIds" },
   ];
 
   for (const check of checks) {
@@ -229,14 +237,25 @@ async function validateItemOwnership(params: {
     if (assetIds.length > 0) {
       const { data, error } = await supabaseServer
         .from("dam_assets")
-        .select("id")
+        .select("id,asset_scope")
         .eq("organization_id", organizationId)
         .in("id", assetIds);
       if (error) {
         return { ok: false, status: 500, error: "Failed to validate asset selection" };
       }
-      if ((data || []).length !== assetIds.length) {
+      const rows = (data || []) as Array<{ id: string; asset_scope: string | null }>;
+      if (rows.length !== assetIds.length) {
         return { ok: false, status: 400, error: "One or more assets are invalid" };
+      }
+      const internalAsset = rows.find(
+        (row) => !row.asset_scope || row.asset_scope.toLowerCase() === "internal"
+      );
+      if (internalAsset) {
+        return {
+          ok: false,
+          status: 400,
+          error: "Internal assets cannot be added to a share set. Change the asset visibility to Shared first.",
+        };
       }
     }
 
@@ -338,11 +357,12 @@ export async function GET(
 
     const url = new URL(request.url);
     const limit = parsePositiveInt(url.searchParams.get("limit"), 200, 1000);
+    const skipResolve = url.searchParams.get("resolve") === "false";
 
     const { data, error } = await supabaseServer
       .from("share_set_items")
       .select(
-        "id,resource_type,resource_id,include_descendants,market_ids,channel_ids,locale_ids,metadata,created_at,updated_at"
+        "id,resource_type,resource_id,include_descendants,market_ids,channel_ids,locale_ids,destination_ids,metadata,created_at,updated_at"
       )
       .eq("organization_id", organization.id)
       .eq("share_set_id", shareSet.data.id)
@@ -353,12 +373,46 @@ export async function GET(
       return NextResponse.json({ error: "Failed to load share set items" }, { status: 500 });
     }
 
+    const items = data || [];
+
+    // Resolve names for display — map of resource_id → { name, sku?, parent_id?, thumbnail_url? }
+    type ResolvedEntry = { name: string; sku?: string | null; parent_id?: string | null; thumbnail_url?: string | null };
+    const resolved: Record<string, ResolvedEntry> = {};
+
+    const resourceIds = items.map((i) => (i as { resource_id: string }).resource_id).filter(Boolean);
+
+    if (!skipResolve && resourceIds.length > 0) {
+      if (shareSet.data.module_key === "products") {
+        const { data: productRows } = await supabaseServer
+          .from("products")
+          .select("id,product_name,sku,parent_id")
+          .eq("organization_id", organization.id)
+          .in("id", resourceIds);
+        for (const row of (productRows || []) as Array<{ id: string; product_name: string | null; sku: string | null; parent_id: string | null }>) {
+          resolved[row.id] = { name: row.product_name || row.id, sku: row.sku, parent_id: row.parent_id };
+        }
+      } else {
+        const { data: assetRows } = await supabaseServer
+          .from("dam_assets")
+          .select("id,filename,original_filename,thumbnail_urls")
+          .eq("organization_id", organization.id)
+          .in("id", resourceIds);
+        for (const row of (assetRows || []) as Array<{ id: string; filename: string | null; original_filename: string | null; thumbnail_urls: { small?: string; medium?: string; large?: string } | null }>) {
+          resolved[row.id] = {
+            name: row.original_filename || row.filename || row.id,
+            thumbnail_url: row.thumbnail_urls?.small || row.thumbnail_urls?.medium || null,
+          };
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: {
         set_id: shareSet.data.id,
         module_key: shareSet.data.module_key,
-        items: data || [],
+        items,
+        resolved,
       },
       meta: {
         limit,
@@ -427,6 +481,7 @@ export async function POST(
       market_ids: item.marketIds || [],
       channel_ids: item.channelIds || [],
       locale_ids: item.localeIds || [],
+      destination_ids: item.destinationIds || [],
       metadata: (item.metadata || {}) as Json,
       created_by: userId,
     }));
@@ -436,11 +491,24 @@ export async function POST(
       .upsert(records, {
         onConflict: "share_set_id,resource_type,resource_id",
       })
-      .select("id,resource_type,resource_id,include_descendants,updated_at");
+      .select("id,resource_type,resource_id,include_descendants,destination_ids,updated_at");
 
     if (error) {
       return NextResponse.json({ error: "Failed to upsert share set items" }, { status: 500 });
     }
+
+    await logSecurityEvent(supabaseServer, {
+      organizationId: organization.id,
+      actorUserId: userId,
+      action: "sharing.set.items.upserted",
+      resourceType: "share_set",
+      resourceId: shareSet.data.id,
+      userAgent: request.headers.get("user-agent"),
+      metadata: {
+        module_key: shareSet.data.module_key,
+        item_count: items.length,
+      },
+    });
 
     return NextResponse.json(
       {
@@ -465,7 +533,7 @@ export async function DELETE(
     const access = await requireSharingManagerContext(request, resolvedParams.tenant);
     if (!access.ok) return access.response;
 
-    const { organization } = access.context;
+    const { organization, userId } = access.context;
     const shareSet = await getShareSet({
       organizationId: organization.id,
       setId: resolvedParams.setId,
@@ -503,6 +571,19 @@ export async function DELETE(
     if (failed?.error) {
       return NextResponse.json({ error: "Failed to remove share set items" }, { status: 500 });
     }
+
+    await logSecurityEvent(supabaseServer, {
+      organizationId: organization.id,
+      actorUserId: userId,
+      action: "sharing.set.items.removed",
+      resourceType: "share_set",
+      resourceId: shareSet.data.id,
+      userAgent: request.headers.get("user-agent"),
+      metadata: {
+        module_key: shareSet.data.module_key,
+        item_count: items.length,
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

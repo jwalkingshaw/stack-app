@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Json } from "@tradetool/database";
 import { supabaseServer } from "@/lib/supabase";
+import { logSecurityEvent } from "@/lib/security-audit";
 import {
   isMissingColumnError,
   isMissingTableError,
@@ -24,6 +25,7 @@ type ShareSetItemRow = {
   market_ids?: string[] | null;
   channel_ids?: string[] | null;
   locale_ids?: string[] | null;
+  destination_ids?: string[] | null;
 };
 
 type PartnerShareSetGrantRow = {
@@ -59,6 +61,7 @@ type AssetSetSummary = {
   market_count: number;
   channel_count: number;
   locale_count: number;
+  destination_count: number;
   shared_with_member_count: number;
   grant_count: number;
   created_at: string | null;
@@ -77,6 +80,7 @@ type ProductSetSummary = {
   market_count: number;
   channel_count: number;
   locale_count: number;
+  destination_count: number;
   shared_with_member_count: number;
   grant_count: number;
   created_at: string | null;
@@ -122,6 +126,46 @@ function isMissingShareSetFoundationError(error: unknown): boolean {
     message.includes("share_set_items") ||
     message.includes("partner_share_set_grants")
   );
+}
+
+type ShareSetItemsSelectResult = {
+  data: ShareSetItemRow[] | null;
+  error: { code?: string; message?: string } | null;
+};
+
+async function queryShareSetItemsIncludingDestinations(params: {
+  organizationId: string;
+  setIds: string[];
+}): Promise<ShareSetItemsSelectResult> {
+  const dynamicSupabase = supabaseServer as unknown as {
+    from: (table: string) => {
+      select: (columns: string) => {
+        eq: (
+          column: string,
+          value: unknown
+        ) => {
+          in: (
+            column: string,
+            values: string[]
+          ) => Promise<{
+            data: unknown[] | null;
+            error: { code?: string; message?: string } | null;
+          }>;
+        };
+      };
+    };
+  };
+
+  const result = await dynamicSupabase
+    .from("share_set_items")
+    .select("share_set_id,resource_type,market_ids,channel_ids,locale_ids,destination_ids")
+    .eq("organization_id", params.organizationId)
+    .in("share_set_id", params.setIds);
+
+  return {
+    data: (result.data as ShareSetItemRow[] | null) || null,
+    error: result.error,
+  };
 }
 
 async function queryAssetSets(params: {
@@ -220,12 +264,11 @@ async function queryShareSetSummaries(params: {
 
   const setIds = setRows.map((row) => row.id);
 
-  const [itemResult, grantResult] = await Promise.all([
-    supabaseServer
-      .from("share_set_items")
-      .select("share_set_id,resource_type,market_ids,channel_ids,locale_ids")
-      .eq("organization_id", organizationId)
-      .in("share_set_id", setIds),
+  const [itemResultWithDestination, grantResult] = await Promise.all([
+    queryShareSetItemsIncludingDestinations({
+      organizationId,
+      setIds,
+    }),
     supabaseServer
       .from("partner_share_set_grants")
       .select("share_set_id,partner_organization_id,status")
@@ -233,6 +276,24 @@ async function queryShareSetSummaries(params: {
       .eq("status", "active")
       .in("share_set_id", setIds),
   ]);
+
+  let itemResult = itemResultWithDestination;
+  if (itemResult.error && isMissingColumnError(itemResult.error)) {
+    const legacyItemResult = await supabaseServer
+      .from("share_set_items")
+      .select("share_set_id,resource_type,market_ids,channel_ids,locale_ids")
+      .eq("organization_id", organizationId)
+      .in("share_set_id", setIds);
+    itemResult = {
+      data: (legacyItemResult.data as unknown as ShareSetItemRow[] | null) || null,
+      error: legacyItemResult.error
+        ? {
+            code: legacyItemResult.error.code,
+            message: legacyItemResult.error.message,
+          }
+        : null,
+    };
+  }
 
   if (itemResult.error) {
     return { data: null, error: itemResult.error };
@@ -244,7 +305,7 @@ async function queryShareSetSummaries(params: {
   return {
     data: {
       rows: setRows,
-      itemRows: (itemResult.data || []) as ShareSetItemRow[],
+      itemRows: ((itemResult.data || []) as unknown) as ShareSetItemRow[],
       grantRows: (grantResult.data || []) as PartnerShareSetGrantRow[],
       total: setsResult.count || 0,
     },
@@ -319,6 +380,7 @@ function summarizeShareSets(params: {
       marketIds: Set<string>;
       channelIds: Set<string>;
       localeIds: Set<string>;
+      destinationIds: Set<string>;
     }
   >();
 
@@ -334,23 +396,31 @@ function summarizeShareSets(params: {
         marketIds: new Set<string>(),
         channelIds: new Set<string>(),
         localeIds: new Set<string>(),
+        destinationIds: new Set<string>(),
       };
 
     const marketIds = dedupeStringArray(row.market_ids);
     const channelIds = dedupeStringArray(row.channel_ids);
     const localeIds = dedupeStringArray(row.locale_ids);
+    const destinationIds = dedupeStringArray(row.destination_ids);
 
     if (row.resource_type === "asset") current.asset += 1;
     if (row.resource_type === "folder") current.folder += 1;
     if (row.resource_type === "product") current.product += 1;
     if (row.resource_type === "variant") current.variant += 1;
     current.total += 1;
-    if (marketIds.length > 0 || channelIds.length > 0 || localeIds.length > 0) {
+    if (
+      marketIds.length > 0 ||
+      channelIds.length > 0 ||
+      localeIds.length > 0 ||
+      destinationIds.length > 0
+    ) {
       current.scoped += 1;
     }
     for (const id of marketIds) current.marketIds.add(id);
     for (const id of channelIds) current.channelIds.add(id);
     for (const id of localeIds) current.localeIds.add(id);
+    for (const id of destinationIds) current.destinationIds.add(id);
     itemCounts.set(row.share_set_id, current);
   }
 
@@ -382,6 +452,7 @@ function summarizeShareSets(params: {
       marketIds: new Set<string>(),
       channelIds: new Set<string>(),
       localeIds: new Set<string>(),
+      destinationIds: new Set<string>(),
     };
     const grants = grantCounts.get(row.id);
     const base = {
@@ -392,6 +463,7 @@ function summarizeShareSets(params: {
       market_count: counts.marketIds.size,
       channel_count: counts.channelIds.size,
       locale_count: counts.localeIds.size,
+      destination_count: counts.destinationIds.size,
       shared_with_member_count: grants?.partnerIds.size || 0,
       grant_count: grants?.total || 0,
       created_at: row.created_at || null,
@@ -488,6 +560,7 @@ async function buildLegacyAssetSetSummaries(params: {
       market_count: 0,
       channel_count: 0,
       locale_count: 0,
+      destination_count: 0,
       shared_with_member_count: grants?.memberIds.size || 0,
       grant_count: grants?.permissionCount || 0,
       created_at: row.created_at || null,
@@ -725,6 +798,20 @@ export async function POST(
           );
         }
 
+        await logSecurityEvent(supabaseServer, {
+          organizationId: organization.id,
+          actorUserId: userId,
+          action: "sharing.set.created",
+          resourceType: "share_set",
+          resourceId: legacyInsert.data.id,
+          userAgent: request.headers.get("user-agent"),
+          metadata: {
+            module_key: "assets",
+            legacy_collection_fallback: true,
+            name,
+          },
+        });
+
         return NextResponse.json(
           {
             success: true,
@@ -753,6 +840,19 @@ export async function POST(
 
       return NextResponse.json({ error: "Failed to create share set" }, { status: 500 });
     }
+
+    await logSecurityEvent(supabaseServer, {
+      organizationId: organization.id,
+      actorUserId: userId,
+      action: "sharing.set.created",
+      resourceType: "share_set",
+      resourceId: insertResult.data.id,
+      userAgent: request.headers.get("user-agent"),
+      metadata: {
+        module_key: moduleValue,
+        name,
+      },
+    });
 
     return NextResponse.json(
       {

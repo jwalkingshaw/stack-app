@@ -14,7 +14,7 @@ import {
   Plus,
   Trash2
 } from 'lucide-react';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { SettingsSecondLevelPage } from '../../components/settings-page-content';
 
 interface FieldGroup {
@@ -70,6 +70,7 @@ interface ProductFamily {
   id: string;
   name: string;
   description?: string | null;
+  is_active: boolean;
 }
 
 interface FamilyFieldGroupAssignmentResponse {
@@ -113,7 +114,11 @@ export default function ProductFamilyDetailPage({
 
   const [family, setFamily] = useState<ProductFamily | null>(null);
   const [assignedGroups, setAssignedGroups] = useState<FamilyFieldGroup[]>([]);
+  const [loadedGroupFieldIds, setLoadedGroupFieldIds] = useState<Set<string>>(new Set());
   const [allFieldGroups, setAllFieldGroups] = useState<FieldGroup[]>([]);
+  const [groupsLoading, setGroupsLoading] = useState(true);
+  const [groupFieldsLoading, setGroupFieldsLoading] = useState(false);
+  const [loadingAllFieldGroups, setLoadingAllFieldGroups] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,6 +128,8 @@ export default function ProductFamilyDetailPage({
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [activeDraft, setActiveDraft] = useState(true);
+  const [activeSaving, setActiveSaving] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, string[]>>(new Map());
   const [, setSaveStatus] = useState<'saved' | 'saving' | 'pending'>('saved');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -130,9 +137,11 @@ export default function ProductFamilyDetailPage({
   // Variant attributes state
   const [variantAttributes, setVariantAttributes] = useState<VariantAttribute[]>([]);
   const [allProductFields, setAllProductFields] = useState<ProductField[]>([]);
+  const [loadingAllProductFields, setLoadingAllProductFields] = useState(false);
   const [showAddVariantAttributesDialog, setShowAddVariantAttributesDialog] = useState(false);
   const [selectedFieldsToAdd, setSelectedFieldsToAdd] = useState<string[]>([]);
   const [familyAttributes, setFamilyAttributes] = useState<FamilyAttribute[]>([]);
+  const groupFieldsRequestIdRef = useRef(0);
 
   // Debounced save function
   const debouncedSave = useCallback(async () => {
@@ -221,67 +230,134 @@ export default function ProductFamilyDetailPage({
     };
   }, [pendingChanges, tenant, family?.id, debouncedSave]);
 
-  const fetchFamily = useCallback(async () => {
+  const hydrateGroupFields = useCallback(async (
+    assignments: FamilyFieldGroupAssignmentResponse[],
+    requestId: number
+  ) => {
+    if (assignments.length === 0) {
+      if (requestId === groupFieldsRequestIdRef.current) {
+        setLoadedGroupFieldIds(new Set());
+        setGroupFieldsLoading(false);
+      }
+      return;
+    }
+
+    setGroupFieldsLoading(true);
+
+    const fieldsByAssignment = new Map<string, ProductField[]>();
+    const loadedIds = new Set<string>();
+
+    await Promise.all(
+      assignments.map(async (item) => {
+        try {
+          const fieldsResponse = await fetch(`/api/${tenant}/field-groups/${item.field_group_id}/fields`);
+          if (!fieldsResponse.ok) {
+            console.warn('Failed to fetch fields for field group:', item.field_group_id);
+            loadedIds.add(item.id);
+            fieldsByAssignment.set(item.id, []);
+            return;
+          }
+
+          const fieldsData =
+            (await parseJsonSafely<FieldGroupFieldsResponse[]>(fieldsResponse)) || [];
+          const fields = fieldsData
+            .map((field) => field.product_fields)
+            .filter((field): field is ProductField => Boolean(field));
+
+          loadedIds.add(item.id);
+          fieldsByAssignment.set(item.id, fields);
+        } catch (err) {
+          console.error('Error hydrating fields for group:', item.field_group_id, err);
+          loadedIds.add(item.id);
+          fieldsByAssignment.set(item.id, []);
+        }
+      })
+    );
+
+    if (requestId !== groupFieldsRequestIdRef.current) return;
+
+    setAssignedGroups((prev) =>
+      prev.map((group) =>
+        fieldsByAssignment.has(group.id)
+          ? { ...group, fields: fieldsByAssignment.get(group.id) || [] }
+          : group
+      )
+    );
+    setLoadedGroupFieldIds(loadedIds);
+    setGroupFieldsLoading(false);
+  }, [tenant]);
+
+  const fetchAssignedGroups = useCallback(async (familyId: string) => {
+    try {
+      setGroupsLoading(true);
+      const groupsResponse = await fetch(`/api/${tenant}/product-families/${familyId}/field-groups`);
+      if (!groupsResponse.ok) {
+        console.warn('Failed to fetch field groups, but continuing with empty array');
+        setAssignedGroups([]);
+        setLoadedGroupFieldIds(new Set());
+        return;
+      }
+
+      const groupsData =
+        (await parseJsonSafely<FamilyFieldGroupAssignmentResponse[]>(groupsResponse)) || [];
+
+      const transformed = groupsData.map((item) => ({
+        id: item.id,
+        field_group_id: item.field_group_id,
+        field_group: item.field_groups,
+        hidden_fields: item.hidden_fields || [],
+        sort_order: item.sort_order,
+        fields: [] as ProductField[]
+      }));
+
+      setAssignedGroups(transformed || []);
+      setLoadedGroupFieldIds(new Set());
+
+      const requestId = ++groupFieldsRequestIdRef.current;
+      void hydrateGroupFields(groupsData, requestId);
+    } catch (err) {
+      console.error('Error fetching assigned groups:', err);
+      setAssignedGroups([]);
+      setLoadedGroupFieldIds(new Set());
+    } finally {
+      setGroupsLoading(false);
+    }
+  }, [hydrateGroupFields, tenant]);
+
+  const fetchFamily = useCallback(async (): Promise<ProductFamily | null> => {
     try {
       setLoading(true);
+      setError(null);
       const response = await fetch(`/api/${tenant}/product-families/${familyCode}`);
       const result = await parseJsonSafely<DataResponse<ProductFamily>>(response);
 
-      if (response.ok) {
-        if (!result?.data?.id) {
-          throw new Error('Failed to fetch family');
-        }
-        setFamily(result.data);
-
-        const groupsResponse = await fetch(`/api/${tenant}/product-families/${result.data.id}/field-groups`);
-        if (groupsResponse.ok) {
-          const groupsData =
-            (await parseJsonSafely<FamilyFieldGroupAssignmentResponse[]>(groupsResponse)) || [];
-
-          const transformedWithFields = await Promise.all(
-            groupsData.map(async (item) => {
-              const fieldsResponse = await fetch(`/api/${tenant}/field-groups/${item.field_group_id}/fields`);
-              let fields: ProductField[] = [];
-
-              if (fieldsResponse.ok) {
-                const fieldsData =
-                  (await parseJsonSafely<FieldGroupFieldsResponse[]>(fieldsResponse)) || [];
-                fields = fieldsData
-                  .map((field) => field.product_fields)
-                  .filter((field): field is ProductField => Boolean(field));
-              } else {
-                console.warn('Failed to fetch fields for field group:', item.field_group_id);
-              }
-
-              return {
-                id: item.id,
-                field_group_id: item.field_group_id,
-                field_group: item.field_groups,
-                hidden_fields: item.hidden_fields || [],
-                sort_order: item.sort_order,
-                fields
-              };
-            })
-          );
-
-          setAssignedGroups(transformedWithFields || []);
-        } else {
-          console.warn('Failed to fetch field groups, but continuing with empty array');
-          setAssignedGroups([]);
-        }
-      } else {
+      if (!response.ok || !result?.data?.id) {
         setError(result?.error || 'Failed to fetch family');
+        setFamily(null);
+        return null;
       }
-    } catch (error) {
-      console.error('Error fetching family:', error);
+
+      const normalizedFamily = {
+        ...result.data,
+        is_active: result.data.is_active !== false,
+      };
+      setFamily(normalizedFamily);
+      setActiveDraft(normalizedFamily.is_active);
+      return normalizedFamily;
+    } catch (err) {
+      console.error('Error fetching family:', err);
       setError('Failed to fetch family');
+      setFamily(null);
+      return null;
     } finally {
       setLoading(false);
     }
   }, [tenant, familyCode]);
 
   const fetchAllFieldGroups = useCallback(async () => {
+    if (allFieldGroups.length > 0) return;
     try {
+      setLoadingAllFieldGroups(true);
       const response = await fetch(`/api/${tenant}/field-groups`);
       if (response.ok) {
         const data = await parseJsonSafely<FieldGroup[]>(response);
@@ -293,8 +369,10 @@ export default function ProductFamilyDetailPage({
     } catch (error) {
       console.error('Error fetching field groups:', error);
       setAllFieldGroups([]);
+    } finally {
+      setLoadingAllFieldGroups(false);
     }
-  }, [tenant]);
+  }, [allFieldGroups.length, tenant]);
 
   const fetchVariantAttributes = useCallback(async () => {
     if (!family?.id) return;
@@ -333,7 +411,9 @@ export default function ProductFamilyDetailPage({
   }, [family?.id, tenant]);
 
   const fetchAllProductFields = useCallback(async () => {
+    if (allProductFields.length > 0) return;
     try {
+      setLoadingAllProductFields(true);
       const response = await fetch(`/api/${tenant}/product-fields`);
       if (response.ok) {
         const data = await parseJsonSafely<ProductField[]>(response);
@@ -345,14 +425,26 @@ export default function ProductFamilyDetailPage({
     } catch (error) {
       console.error('Error fetching attributes:', error);
       setAllProductFields([]);
+    } finally {
+      setLoadingAllProductFields(false);
     }
-  }, [tenant]);
+  }, [allProductFields.length, tenant]);
 
   useEffect(() => {
-    void fetchFamily();
-    void fetchAllFieldGroups();
-    void fetchAllProductFields();
-  }, [fetchFamily, fetchAllFieldGroups, fetchAllProductFields]);
+    let isActive = true;
+
+    const load = async () => {
+      const loadedFamily = await fetchFamily();
+      if (!isActive || !loadedFamily?.id) return;
+      void fetchAssignedGroups(loadedFamily.id);
+    };
+
+    void load();
+
+    return () => {
+      isActive = false;
+    };
+  }, [fetchAssignedGroups, fetchFamily]);
 
   // Fetch variant attributes when family is loaded
   useEffect(() => {
@@ -388,7 +480,7 @@ export default function ProductFamilyDetailPage({
         }
       }
 
-      await fetchFamily();
+      await fetchAssignedGroups(family.id);
       await Promise.all([fetchFamilyAttributes(), fetchVariantAttributes()]);
       setSelectedGroupsToAdd([]);
       setShowAddGroupsDialog(false);
@@ -411,7 +503,7 @@ export default function ProductFamilyDetailPage({
         throw new Error(result?.error || 'Failed to remove field group');
       }
 
-      await fetchFamily();
+      await fetchAssignedGroups(family.id);
       await Promise.all([fetchFamilyAttributes(), fetchVariantAttributes()]);
     } catch (error) {
       console.error('Error removing group:', error);
@@ -526,6 +618,7 @@ export default function ProductFamilyDetailPage({
   const handleVariantAxesDialogOpenChange = (open: boolean) => {
     setShowAddVariantAttributesDialog(open);
     if (open) {
+      void fetchAllProductFields();
       void fetchFamilyAttributes();
       void fetchVariantAttributes();
     } else {
@@ -571,10 +664,44 @@ export default function ProductFamilyDetailPage({
     }
   };
 
+  const handleSaveFamilyStatus = async () => {
+    if (!family?.id) return;
+    try {
+      setActiveSaving(true);
+      setError(null);
+
+      const response = await fetch(`/api/${tenant}/product-families/${family.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: activeDraft })
+      });
+      const result = await parseJsonSafely<DataResponse<ProductFamily>>(response);
+
+      if (!response.ok || !result?.data) {
+        throw new Error(result?.error || 'Failed to update model status');
+      }
+
+      const nextFamily = {
+        ...result.data,
+        is_active: result.data.is_active !== false,
+      };
+      setFamily(nextFamily);
+      setActiveDraft(nextFamily.is_active);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('market-context:refresh'));
+      }
+    } catch (statusError) {
+      console.error('Error updating product model status:', statusError);
+      setError(statusError instanceof Error ? statusError.message : 'Failed to update model status');
+    } finally {
+      setActiveSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading family..." size="lg" />
+        <PageSkeleton text="Loading family..." size="lg" />
       </div>
     );
   }
@@ -597,6 +724,7 @@ export default function ProductFamilyDetailPage({
   }
 
   const hasFamilyAttributes = familyAttributes.length > 0;
+  const isStatusDirty = activeDraft !== (family.is_active !== false);
 
   return (
     <>
@@ -615,24 +743,38 @@ export default function ProductFamilyDetailPage({
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-2xl font-semibold text-foreground">{family.name}</h2>
-            <p className="text-muted-foreground">
-              {assignedGroups.length} groups | {variantAttributes.length} variant axes
-            </p>
             {family.description ? (
               <p className="mt-1 text-sm text-muted-foreground">{family.description}</p>
             ) : null}
           </div>
-          <Button
-            variant="outline"
-            className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
-            onClick={() => {
-              setDeleteError(null);
-              setDeleteConfirmation('');
-              setShowDeleteDialog(true);
-            }}
-          >
-            Delete model
-          </Button>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2">
+              <span className="text-sm text-muted-foreground">Active</span>
+              <Switch
+                checked={activeDraft}
+                onCheckedChange={(checked) => setActiveDraft(Boolean(checked))}
+                disabled={activeSaving}
+              />
+            </div>
+            <Button
+              variant="outline"
+              disabled={!isStatusDirty || activeSaving}
+              onClick={() => void handleSaveFamilyStatus()}
+            >
+              {activeSaving ? 'Saving...' : 'Save'}
+            </Button>
+            <Button
+              variant="outline"
+              className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+              onClick={() => {
+                setDeleteError(null);
+                setDeleteConfirmation('');
+                setShowDeleteDialog(true);
+              }}
+            >
+              Delete model
+            </Button>
+          </div>
         </div>
         <section id="groups-section" className="space-y-3">
           <div>
@@ -649,7 +791,10 @@ export default function ProductFamilyDetailPage({
               </span>
               <button
                 type="button"
-                onClick={() => setShowAddGroupsDialog(true)}
+                onClick={() => {
+                  void fetchAllFieldGroups();
+                  setShowAddGroupsDialog(true);
+                }}
                 className="inline-flex items-center gap-2 text-sm font-medium text-foreground transition-colors hover:text-foreground/80"
                 aria-label="Add attribute groups"
               >
@@ -658,7 +803,11 @@ export default function ProductFamilyDetailPage({
               </button>
             </div>
 
-            {assignedGroups.length === 0 ? (
+            {groupsLoading ? (
+              <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+                Loading groups...
+              </div>
+            ) : assignedGroups.length === 0 ? (
               <div className="px-4 py-12 text-center text-sm text-muted-foreground">
                 No groups assigned yet. Add groups to define this model.
               </div>
@@ -683,7 +832,11 @@ export default function ProductFamilyDetailPage({
                       </button>
                     </div>
 
-                    {(assignment.fields || []).length === 0 ? (
+                    {!loadedGroupFieldIds.has(assignment.id) ? (
+                      <div className="py-2 text-sm text-muted-foreground">
+                        Loading attributes...
+                      </div>
+                    ) : (assignment.fields || []).length === 0 ? (
                       <div className="py-2 text-sm text-muted-foreground">
                         No attributes in this group.
                       </div>
@@ -722,6 +875,11 @@ export default function ProductFamilyDetailPage({
                 ))}
               </div>
             )}
+            {groupFieldsLoading ? (
+              <div className="border-t border-gray-200 px-4 py-2 text-xs text-muted-foreground">
+                Syncing attribute visibility data...
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -822,7 +980,9 @@ export default function ProductFamilyDetailPage({
             <DialogTitle>Add Groups to {family.name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {getAvailableGroups().length === 0 ? (
+            {loadingAllFieldGroups ? (
+              <p className="text-sm text-muted-foreground">Loading available groups...</p>
+            ) : getAvailableGroups().length === 0 ? (
               <p className="text-sm text-muted-foreground">All groups are already assigned to this product model.</p>
             ) : (
               <div className="max-h-96 overflow-y-auto">
@@ -881,7 +1041,9 @@ export default function ProductFamilyDetailPage({
               Select attributes to use as variant axes. These will define how variants can be created for products in this product model.
             </p>
 
-            {getAvailableProductFields().length === 0 ? (
+            {loadingAllProductFields ? (
+              <p className="text-sm text-muted-foreground">Loading available attributes...</p>
+            ) : getAvailableProductFields().length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 {familyAttributes.length === 0
                   ? 'Assign groups with attributes to this product model before selecting variant axes.'

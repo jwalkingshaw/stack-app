@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { isPublicRoute, isProtectedRoute, isTenantRoute } from "./lib/routes";
 
 const RESERVED_SUBDOMAINS = new Set(["app", "www", "localhost", "dev"]);
+const NON_TENANT_ROOT_SEGMENTS = new Set([
+  "api",
+  "_next",
+  "login",
+  "logout",
+  "register",
+  "onboarding",
+  "welcome",
+  "unauthorized",
+  "invitations",
+  "notifications",
+  "u",
+  "home",
+  "all-brands",
+  "test",
+  "dev",
+]);
 
 function getTenantFromHost(
   host: string | null,
@@ -22,6 +39,23 @@ function getTenantFromHost(
   return tenant;
 }
 
+function getTenantFromPathname(pathname: string): string | null {
+  const firstSegment = pathname.split("/").filter(Boolean)[0] || "";
+  const candidate = firstSegment.trim().toLowerCase();
+  if (!candidate || NON_TENANT_ROOT_SEGMENTS.has(candidate)) return null;
+  return candidate;
+}
+
+function buildRequestHeaders(request: NextRequest, tenantSlug: string | null): Headers {
+  const headers = new Headers(request.headers);
+  if (tenantSlug) {
+    headers.set("x-tenant-slug", tenantSlug);
+  } else {
+    headers.delete("x-tenant-slug");
+  }
+  return headers;
+}
+
 /**
  * Lightweight middleware for URL-based routing only
  * No session access (Edge runtime limitation) - auth happens in server components/route handlers
@@ -33,6 +67,9 @@ export async function middleware(request: NextRequest) {
   const appHost = appUrl ? new URL(appUrl).host : null;
   const host = request.headers.get("host") || request.nextUrl.host;
   const tenantFromHost = getTenantFromHost(host, baseDomain, appHost);
+  const tenantFromPath = getTenantFromPathname(pathname);
+  const tenantSlug = tenantFromHost || tenantFromPath;
+  const requestHeaders = buildRequestHeaders(request, tenantSlug);
 
   if (tenantFromHost) {
     const isAuthPath =
@@ -51,27 +88,29 @@ export async function middleware(request: NextRequest) {
     if (!pathname.startsWith(`/${tenantFromHost}`)) {
       const url = request.nextUrl.clone();
       url.pathname = `/${tenantFromHost}${pathname}`;
-      return NextResponse.rewrite(url);
+      return NextResponse.rewrite(url, {
+        request: { headers: requestHeaders },
+      });
     }
   }
   
   // Always allow public routes
   if (isPublicRoute(pathname)) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // For protected routes, let server components handle auth
   if (isProtectedRoute(pathname)) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // For tenant routes, let server components handle tenant verification
   if (isTenantRoute(pathname)) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Default: allow through (auth verification happens server-side)
-  return NextResponse.next();
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {

@@ -10,16 +10,19 @@ import { buildCanonicalProductIdentifier, parseProductIdentifier } from "@/lib/p
 import { VariantNavigationHeader } from "@/components/products/VariantNavigationHeader";
 import { InlineDynamicFieldEditor } from "@/components/inline-edit";
 import type { ProductField } from "@/components/field-types/DynamicFieldRenderer";
-import { PageLoader } from "@/components/ui/loading-spinner";
+import { PageSkeleton } from "@/components/ui/loading-skeleton";
 import { PageContentContainer } from "@/components/ui/page-content-container";
 import { ItemList } from "@/components/ui/item-list";
 import { ScopeToolbar } from "@/components/scope-toolbar";
 import { cn } from "@/lib/utils";
 import { useMarketContext } from "@/components/market-context";
+import { hasLiveScopeControls } from "@/lib/scope-visibility";
 import { useRouter, useSearchParams } from "next/navigation";
 import { buildTenantPathForScope } from "@/lib/tenant-view-scope";
+import { isBasicInformationFieldGroupCode } from "@/lib/field-group-codes";
 import { TranslationPanel } from "@/components/products/TranslationPanel";
 import { fetchJsonWithDedupe } from "@/lib/client-request-cache";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -125,6 +128,193 @@ type ProductPayload = {
   error?: string;
 };
 
+// ── Variant asset slot definitions ───────────────────────────────────────────
+
+const VARIANT_IMAGE_SLOTS = [
+  { code: "image_front", label: "Front Panel", hint: "Variant-specific front-of-pack view (e.g. flavor-colored label)." },
+  { code: "label_print_ready", label: "Label (Print-Ready)", hint: "CMYK ≥300dpi with bleeds — for printers." },
+  { code: "label_digital", label: "Label (Digital)", hint: "sRGB version for Amazon, website, and digital channels." },
+  { code: "label_regulatory", label: "Label (Regulatory)", hint: "FDA/EU-approved PDF for regulatory submissions." },
+  { code: "supplement_facts_panel", label: "Supplement Facts Panel", hint: "Extracted Supplement/Nutrition Facts panel for this variant." },
+  { code: "image_lifestyle", label: "Lifestyle", hint: "Variant-specific lifestyle or flavour shot." },
+] as const;
+
+type VariantSlotLink = {
+  id: string;
+  document_slot_code: string | null;
+  dam_assets: {
+    id: string;
+    filename: string;
+    original_filename: string;
+    file_type: string;
+    mime_type: string;
+    thumbnail_urls: Record<string, string> | null;
+    s3_url: string | null;
+  } | null;
+};
+
+function VariantAssetSlots({
+  tenantSlug,
+  productId,
+  variantId,
+}: {
+  tenantSlug: string;
+  productId: string;
+  variantId: string;
+}) {
+  const [links, setLinks] = React.useState<VariantSlotLink[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [removing, setRemoving] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch(
+      `/api/${tenantSlug}/product-links?product_ids=${productId}&variant_id=${variantId}`
+    )
+      .then((r) => r.json())
+      .then((json) => {
+        if (!cancelled) {
+          setLinks(Array.isArray(json?.data) ? (json.data as VariantSlotLink[]) : []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLinks([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantSlug, productId, variantId]);
+
+  const slotMap = React.useMemo(() => {
+    const map: Record<string, VariantSlotLink> = {};
+    for (const link of links) {
+      if (link.document_slot_code) {
+        map[link.document_slot_code] = link;
+      }
+    }
+    return map;
+  }, [links]);
+
+  const handleRemove = async (linkId: string) => {
+    setRemoving(linkId);
+    try {
+      await fetch(`/api/${tenantSlug}/product-links/${linkId}`, { method: "DELETE" });
+      setLinks((prev) => prev.filter((l) => l.id !== linkId));
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="mx-auto w-full max-w-4xl space-y-4 animate-pulse">
+        {VARIANT_IMAGE_SLOTS.map((slot) => (
+          <div key={slot.code} className="h-20 rounded-lg bg-muted" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-4xl space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-semibold text-foreground">Variant Assets</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Assets attached here apply to this variant only and override the product-level slot.
+          </p>
+        </div>
+        <span className="text-xs text-muted-foreground">
+          {Object.keys(slotMap).length}/{VARIANT_IMAGE_SLOTS.length} assigned
+        </span>
+      </div>
+
+      <div className="rounded-lg border border-border overflow-hidden divide-y divide-border">
+        {VARIANT_IMAGE_SLOTS.map((slot) => {
+          const link = slotMap[slot.code];
+          const asset = link?.dam_assets ?? null;
+          const thumbUrl =
+            asset?.thumbnail_urls?.small ||
+            asset?.thumbnail_urls?.medium ||
+            asset?.s3_url ||
+            null;
+
+          return (
+            <div key={slot.code} className="flex items-center gap-3 p-3 bg-background hover:bg-muted/30 transition-colors">
+              {/* Thumbnail or placeholder */}
+              <div className="w-14 h-14 shrink-0 rounded-md overflow-hidden bg-muted flex items-center justify-center border border-border/60">
+                {thumbUrl ? (
+                  <img
+                    src={thumbUrl}
+                    alt={asset?.original_filename || asset?.filename || ""}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <ImageIcon className="w-5 h-5 text-muted-foreground/40" />
+                )}
+              </div>
+
+              {/* Slot info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">{slot.label}</span>
+                  {link ? (
+                    <span className="rounded-full bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:text-green-400">
+                      Assigned
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      Empty
+                    </span>
+                  )}
+                </div>
+                {link && asset ? (
+                  <p className="mt-0.5 text-xs text-muted-foreground truncate">
+                    {asset.original_filename || asset.filename}
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-xs text-muted-foreground">{slot.hint}</p>
+                )}
+              </div>
+
+              {/* Actions */}
+              {link ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-xs text-muted-foreground hover:text-destructive"
+                  disabled={removing === link.id}
+                  onClick={() => handleRemove(link.id)}
+                >
+                  Remove
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 text-xs"
+                  onClick={() =>
+                    window.open(
+                      `/${tenantSlug}/assets?assignSlot=${slot.code}&productId=${productId}&variantId=${variantId}`,
+                      "_blank"
+                    )
+                  }
+                >
+                  Assign
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
@@ -172,6 +362,7 @@ const MUTABLE_PRODUCT_COLUMNS = new Set([
   "inheritance",
   "is_inherited",
   "marketplace_content",
+  "catalog_visibility",
 ]);
 const PRODUCT_STATUS_OPTIONS = [
   "Draft",
@@ -182,8 +373,6 @@ const PRODUCT_STATUS_OPTIONS = [
   "Archived",
 ] as const;
 type ProductStatusOption = (typeof PRODUCT_STATUS_OPTIONS)[number];
-const BASIC_INFORMATION_GROUP_CODE = "basic_information";
-
 async function parseJsonSafely(response: Response): Promise<unknown | null> {
   const text = await response.text();
   if (!text) return null;
@@ -228,6 +417,7 @@ export function VariantDetailClient({
     selectedBrandSlug.length > 0 && selectedBrandSlug !== tenantSlug.toLowerCase();
   const {
     channels,
+    destinations,
     locales,
     markets,
     selectedChannelId,
@@ -296,21 +486,22 @@ export function VariantDetailClient({
   const isScopeReady = React.useMemo(() => {
     if (marketContextLoading) return false;
     if (markets.length > 0 && !selectedMarketId) return false;
-    if (channels.length > 0 && !selectedChannel?.code) return false;
     if (locales.length > 0 && !selectedLocale?.code) return false;
-    if (availableDestinations.length > 0 && !selectedDestination?.code) return false;
     return true;
   }, [
     marketContextLoading,
     markets.length,
     selectedMarketId,
-    channels.length,
-    selectedChannel?.code,
     locales.length,
     selectedLocale?.code,
-    availableDestinations.length,
-    selectedDestination?.code,
   ]);
+
+  const showScopeToolbarSection = React.useMemo(
+    () =>
+      !marketContextLoading &&
+      hasLiveScopeControls({ channels, destinations }),
+    [channels, destinations, marketContextLoading]
+  );
 
   const canEditVariantFields = !isSharedBrandView && isScopeReady;
 
@@ -497,8 +688,8 @@ export function VariantDetailClient({
     return [...fieldGroups].sort((a, b) => {
       const aCode = String(a?.field_group?.code || "").trim().toLowerCase();
       const bCode = String(b?.field_group?.code || "").trim().toLowerCase();
-      const aIsBasic = aCode === BASIC_INFORMATION_GROUP_CODE;
-      const bIsBasic = bCode === BASIC_INFORMATION_GROUP_CODE;
+      const aIsBasic = isBasicInformationFieldGroupCode(aCode);
+      const bIsBasic = isBasicInformationFieldGroupCode(bCode);
       if (aIsBasic && !bIsBasic) return -1;
       if (!aIsBasic && bIsBasic) return 1;
 
@@ -554,7 +745,7 @@ export function VariantDetailClient({
       fieldGroupSections.find((section) => {
         const code = String(section.fieldGroup?.field_group?.code || '').trim().toLowerCase();
         const name = String(section.label || '').trim().toLowerCase();
-        return code === BASIC_INFORMATION_GROUP_CODE || name === 'basic information';
+        return isBasicInformationFieldGroupCode(code) || name === 'basic information';
       })?.id ?? fieldGroupSections[0]?.id;
 
     if (preferredSectionId) {
@@ -743,7 +934,7 @@ export function VariantDetailClient({
     if (shouldPersist) {
       clearOverrideValue(fieldCode);
     }
-  };
+  };
 
   const isAutoEditableByParentDefault = useCallback(
     (params: {
@@ -770,9 +961,14 @@ export function VariantDetailClient({
         console.log('ðŸ” Fetching variant:', variantId, 'of parent:', productId);
 
         // Dedicated variant endpoints are not available; resolve variants via product endpoint.
-        const variantResult = await fetchJsonWithDedupe<ProductPayload>(buildProductUrl(variantId), {
-          ttlMs: 3000,
-        });
+        const [variantResult, initialParentResult] = await Promise.all([
+          fetchJsonWithDedupe<ProductPayload>(buildProductUrl(variantId), {
+            ttlMs: 3000,
+          }),
+          fetchJsonWithDedupe<ProductPayload>(buildProductUrl(productId), {
+            ttlMs: 3000,
+          }),
+        ]);
         const variantPayload = variantResult.data;
         if (!variantResult.ok) {
           throw new Error(variantPayload?.error || 'Failed to fetch variant');
@@ -788,9 +984,12 @@ export function VariantDetailClient({
         setVariant(variantData);
 
         const parentIdentifier = variantData.parent_id || productId;
-        const parentResult = await fetchJsonWithDedupe<ProductPayload>(buildProductUrl(parentIdentifier), {
-          ttlMs: 3000,
-        });
+        const parentResult =
+          parentIdentifier === productId
+            ? initialParentResult
+            : await fetchJsonWithDedupe<ProductPayload>(buildProductUrl(parentIdentifier), {
+                ttlMs: 3000,
+              });
         const parentPayload = parentResult.data;
         const parentData =
           parentResult.ok && parentPayload?.success && parentPayload?.data
@@ -1108,6 +1307,20 @@ export function VariantDetailClient({
     }
   };
 
+  const handleCatalogVisibilityChange = async (nextVisibility: string) => {
+    if (!variant?.id || !canEditVariantFields || isSharedBrandView) return;
+    const prev = String(variant.catalog_visibility || "standard");
+    if (nextVisibility === prev) return;
+    setVariant((prevV: VariantRecord | null) => (prevV ? { ...prevV, catalog_visibility: nextVisibility } : prevV));
+    try {
+      await saveFieldValues({ catalog_visibility: nextVisibility });
+    } catch (error) {
+      setVariant((prevV: VariantRecord | null) => (prevV ? { ...prevV, catalog_visibility: prev } : prevV));
+      console.error("Failed to update catalog visibility:", error);
+      toast.error("Failed to update catalog visibility.");
+    }
+  };
+
   const handleDeleteVariant = useCallback(async () => {
     if (!variant?.id || isSharedBrandView || isDeletingVariant) return;
 
@@ -1156,7 +1369,7 @@ export function VariantDetailClient({
 
   // Show loading state
   if (loading) {
-    return <PageLoader />;
+    return <PageSkeleton />;
   }
 
   // Show error state
@@ -1278,6 +1491,24 @@ export function VariantDetailClient({
                         </Select>
                       ) : null}
                       {!isSharedBrandView ? (
+                        <Select
+                          value={String(variant.catalog_visibility || "standard")}
+                          onValueChange={(nextValue) => {
+                            void handleCatalogVisibilityChange(nextValue);
+                          }}
+                          disabled={saving || !canEditVariantFields}
+                        >
+                          <SelectTrigger className="h-8 w-[160px] rounded-full border border-border/60 bg-background px-3 text-xs">
+                            <SelectValue placeholder="Visibility" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="standard">Standard</SelectItem>
+                            <SelectItem value="partner_exclusive">Partner Exclusive</SelectItem>
+                            <SelectItem value="restricted">Internal Only</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      ) : null}
+                      {!isSharedBrandView ? (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -1319,9 +1550,11 @@ export function VariantDetailClient({
                   </div>
                 </div>
 
-                <div className="border-t border-border/50 pt-2">
-                  <ScopeToolbar showCycleControls />
-                </div>
+                {showScopeToolbarSection ? (
+                  <div className="border-t border-border/50 pt-2">
+                    <ScopeToolbar showCycleControls />
+                  </div>
+                ) : null}
 
               </div>
             </PageContentContainer>
@@ -1397,29 +1630,22 @@ export function VariantDetailClient({
 
                   return (
                     <div className="mx-auto w-full max-w-4xl space-y-4">
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          variant={activeSection === 'attributes-all' ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => setActiveSection('attributes-all')}
+                      <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value)}>
+                        <TabsList
+                          aria-label="Attribute group filters"
+                          className="flex-wrap justify-start"
                         >
-                          All groups ({fieldGroupStats.length})
-                        </Button>
-                        <Button
-                          variant={activeSection === 'attributes-required' ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => setActiveSection('attributes-required')}
-                        >
-                          Required ({requiredFieldGroupStats.length})
-                        </Button>
-                        <Button
-                          variant={activeSection === 'attributes-missing' ? 'default' : 'outline'}
-                          size="sm"
-                          onClick={() => setActiveSection('attributes-missing')}
-                        >
-                          Missing ({missingFieldGroupStats.length})
-                        </Button>
-                      </div>
+                          <TabsTrigger value="attributes-all">
+                            All groups ({fieldGroupStats.length})
+                          </TabsTrigger>
+                          <TabsTrigger value="attributes-required">
+                            Required ({requiredFieldGroupStats.length})
+                          </TabsTrigger>
+                          <TabsTrigger value="attributes-missing">
+                            Missing ({missingFieldGroupStats.length})
+                          </TabsTrigger>
+                        </TabsList>
+                      </Tabs>
 
                       <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
                         <p className="text-sm text-muted-foreground">{description}</p>
@@ -1459,15 +1685,11 @@ export function VariantDetailClient({
                 })()}
 
                 {activeSection === 'assets' && (
-                  <div className="text-center py-12">
-                    <div className="text-muted-foreground mb-4">
-                      <div className="w-12 h-12 mx-auto bg-muted rounded-md flex items-center justify-center">
-                        <ImageIcon className="w-6 h-6" />
-                      </div>
-                    </div>
-                    <h3 className="text-lg font-medium text-foreground mb-2">Assets</h3>
-                    <p className="text-muted-foreground">Asset management coming soon</p>
-                  </div>
+                  <VariantAssetSlots
+                    tenantSlug={tenantSlug}
+                    productId={productId}
+                    variantId={variantId}
+                  />
                 )}
 
                 {/* Field Group Sections with Parent Inheritance */}
@@ -1784,7 +2006,5 @@ export function VariantDetailClient({
     </div>
   );
 }
-
-
 
 

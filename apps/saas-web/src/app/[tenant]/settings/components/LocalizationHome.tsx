@@ -55,9 +55,6 @@ export default function LocalizationHome({ tenantSlug }: LocalizationHomeProps) 
     <SettingsPageContent page="localization" modeOverride="form">
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Localization</h2>
-        <p className="text-muted-foreground">
-          Choose an area to manage translations and writing assistance.
-        </p>
       </div>
 
       <ItemList

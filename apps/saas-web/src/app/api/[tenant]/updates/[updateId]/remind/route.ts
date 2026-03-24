@@ -11,6 +11,7 @@ import {
   normalizeDeliveryChannels,
   resolvePartnerEmailTargets,
   sendUpdateEmails,
+  validateRecipientKitAccess,
 } from "../../_delivery";
 
 // POST /api/[tenant]/updates/[updateId]/remind
@@ -57,6 +58,18 @@ export async function POST(
       return NextResponse.json(
         { error: "No recipients found for this reminder request" },
         { status: 404 }
+      );
+    }
+
+    const kitAccessValidation = await validateRecipientKitAccess({
+      organizationId: access.context.organizationId,
+      updateId: resolvedParams.updateId,
+      partnerOrganizationIds: existingRecipients.map((recipient) => recipient.partnerOrganizationId),
+    });
+    if (!kitAccessValidation.ok) {
+      return NextResponse.json(
+        { error: kitAccessValidation.error, blockedRecipients: kitAccessValidation.blockedRecipients },
+        { status: kitAccessValidation.status }
       );
     }
 

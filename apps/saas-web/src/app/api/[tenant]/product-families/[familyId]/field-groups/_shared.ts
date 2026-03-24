@@ -95,6 +95,11 @@ export async function resolveFamilyContext(params: {
     organizationId,
     selectedBrandSlug,
     familyId,
+    mode: contextResult.context.mode,
+    partnerOrganizationId:
+      contextResult.context.tenantOrganization.organizationType === "partner"
+        ? contextResult.context.tenantOrganization.id
+        : null,
   };
 }
 

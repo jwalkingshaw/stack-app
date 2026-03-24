@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { resolvePartnerProductVisibilityPolicy } from "@/lib/partner-brand-view";
 import {
   getFamilyFieldGroupsCache,
   invalidateFamilyFieldGroupsCache,
@@ -130,6 +131,10 @@ function parseHiddenFields(input: unknown): string[] {
     .filter((value) => value.length > 0);
 }
 
+function normalizeVisibilityCode(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
 function normalizeFamilyFieldGroups(data: unknown[] | null): Record<string, unknown>[] {
   return (data || []).map((entry) => {
     const group = asRecord(entry);
@@ -191,6 +196,67 @@ async function fetchFamilyFieldGroups(
   };
 }
 
+function applyPartnerVisibilityPolicyToFamilyFieldGroups(params: {
+  groups: Record<string, unknown>[];
+  allowAllGroups: boolean;
+  allowedGroupCodes: string[];
+  allowedFieldCodes: string[];
+}): Record<string, unknown>[] {
+  if (params.allowAllGroups) return params.groups;
+
+  const allowedGroupCodes = new Set(
+    params.allowedGroupCodes.map((code) => normalizeVisibilityCode(code)).filter(Boolean)
+  );
+  const allowedFieldCodes = new Set(
+    params.allowedFieldCodes.map((code) => normalizeVisibilityCode(code)).filter(Boolean)
+  );
+
+  const filteredGroups: Record<string, unknown>[] = [];
+
+  for (const group of params.groups) {
+    const fieldGroup = asRecord(group.field_groups);
+    const groupCode = normalizeVisibilityCode(fieldGroup.code);
+    const groupAllowed = groupCode.length > 0 && allowedGroupCodes.has(groupCode);
+
+    const assignmentsRaw = Array.isArray(fieldGroup.product_field_group_assignments)
+      ? fieldGroup.product_field_group_assignments
+      : [];
+
+    const assignments = assignmentsRaw
+      .map((entry) => asRecord(entry))
+      .filter((assignment) => {
+        if (groupAllowed) return true;
+        const field = asRecord(assignment.product_fields);
+        const fieldCode = normalizeVisibilityCode(field.code);
+        return fieldCode.length > 0 && allowedFieldCodes.has(fieldCode);
+      });
+
+    if (!groupAllowed && assignments.length === 0) {
+      continue;
+    }
+
+    const visibleFieldIds = new Set(
+      assignments
+        .map((assignment) => normalizeVisibilityCode(assignment.product_field_id))
+        .filter(Boolean)
+    );
+    const hiddenFields = parseHiddenFields(group.hidden_fields).filter((fieldId) =>
+      visibleFieldIds.has(normalizeVisibilityCode(fieldId))
+    );
+
+    filteredGroups.push({
+      ...group,
+      hidden_fields: hiddenFields,
+      field_groups: {
+        ...fieldGroup,
+        product_field_group_assignments: assignments,
+      },
+    });
+  }
+
+  return filteredGroups;
+}
+
 // GET /api/[tenant]/product-families/[familyId]/field-groups
 export async function GET(
   request: NextRequest,
@@ -207,12 +273,15 @@ export async function GET(
       return familyContext.response;
     }
 
-    const cached = getFamilyFieldGroupsCache({
-      organizationId: familyContext.organizationId,
-      familyId: familyContext.familyId,
-    });
-    if (cached) {
-      return NextResponse.json(cached);
+    const shouldUseSharedCache = familyContext.mode !== "partner_brand";
+    if (shouldUseSharedCache) {
+      const cached = getFamilyFieldGroupsCache({
+        organizationId: familyContext.organizationId,
+        familyId: familyContext.familyId,
+      });
+      if (cached) {
+        return NextResponse.json(cached);
+      }
     }
 
     const { data, error } = await fetchFamilyFieldGroups(familyContext.familyId);
@@ -221,12 +290,36 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch family field groups" }, { status: 500 });
     }
 
-    const normalized = normalizeFamilyFieldGroups(data);
-    setFamilyFieldGroupsCache({
-      organizationId: familyContext.organizationId,
-      familyId: familyContext.familyId,
-      data: normalized,
-    });
+    let normalized = normalizeFamilyFieldGroups(data);
+
+    if (familyContext.mode === "partner_brand" && familyContext.partnerOrganizationId) {
+      const policy = await resolvePartnerProductVisibilityPolicy({
+        brandOrganizationId: familyContext.organizationId,
+        partnerOrganizationId: familyContext.partnerOrganizationId,
+      });
+
+      if (!policy.foundationAvailable) {
+        return NextResponse.json(
+          { error: "Share Set visibility foundation is unavailable. Apply database migrations first." },
+          { status: 503 }
+        );
+      }
+
+      normalized = applyPartnerVisibilityPolicyToFamilyFieldGroups({
+        groups: normalized,
+        allowAllGroups: policy.allowAllGroups,
+        allowedGroupCodes: policy.allowedGroupCodes,
+        allowedFieldCodes: policy.allowedFieldCodes,
+      });
+    }
+
+    if (shouldUseSharedCache) {
+      setFamilyFieldGroupsCache({
+        organizationId: familyContext.organizationId,
+        familyId: familyContext.familyId,
+        data: normalized,
+      });
+    }
 
     return NextResponse.json(normalized);
   } catch (error) {

@@ -9,6 +9,7 @@ export interface ItemListProps<T> {
   getKey: (item: T) => string
   renderTitle: (item: T) => ReactNode
   renderSubtitle?: (item: T) => ReactNode
+  getStatus?: (item: T) => 'active' | 'inactive' | null
   /** Slot to the left of the chevron/lock — badge, toggle, dropdown, count, anything */
   renderRight?: (item: T) => ReactNode
   /** Makes the row clickable and shows a chevron on the right */
@@ -43,6 +44,7 @@ export function ItemList<T>({
   getKey,
   renderTitle,
   renderSubtitle,
+  getStatus,
   renderRight,
   onClickItem,
   isLocked,
@@ -111,6 +113,7 @@ export function ItemList<T>({
             const locked = isLocked?.(item) ?? false
             const clickable = !!onClickItem && !locked
             const subtitle = renderSubtitle?.(item)
+            const status = getStatus?.(item) ?? null
 
             return (
               <div
@@ -146,6 +149,19 @@ export function ItemList<T>({
                 )}
 
                 {/* Fixed indicator slot — lock or chevron */}
+                {status ? (
+                  <div className="flex shrink-0 items-center">
+                    <span
+                      className={cn(
+                        'inline-block h-2.5 w-2.5 rounded-full',
+                        status === 'active' ? 'bg-emerald-500' : 'bg-muted-foreground/35'
+                      )}
+                      aria-hidden="true"
+                    />
+                    <span className="sr-only">{status === 'active' ? 'Active' : 'Inactive'}</span>
+                  </div>
+                ) : null}
+
                 {showIndicator ? (
                   <div className="flex w-5 shrink-0 items-center justify-end">
                     {locked ? (

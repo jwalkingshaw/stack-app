@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { PageLoader } from "@/components/ui/loading-spinner";
+import { PageSkeleton } from "@/components/ui/loading-skeleton";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 // Types
@@ -153,7 +153,7 @@ export function DataTable<T extends Record<string, unknown>>({
       <div className={cn("bg-white border border-muted/30 rounded-lg", wrapperClassName)}>
         {loading ? (
           <div className="p-8">
-            <PageLoader text="Loading..." size="lg" />
+            <PageSkeleton text="Loading..." size="lg" />
           </div>
         ) : sortedData.length === 0 ? (
           <div className="p-12 text-center">
@@ -303,3 +303,4 @@ export const createTableActions = {
     className: 'text-destructive hover:text-destructive'
   })
 };
+

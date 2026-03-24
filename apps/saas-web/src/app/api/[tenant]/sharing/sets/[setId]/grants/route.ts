@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
+import { logSecurityEvent } from "@/lib/security-audit";
 import { isMissingColumnError, requireSharingManagerContext } from "../../../_shared";
 
 type ShareSetModule = "assets" | "products";
@@ -378,6 +379,21 @@ export async function POST(
       );
     }
 
+    await logSecurityEvent(supabaseServer, {
+      organizationId: organization.id,
+      actorUserId: userId,
+      action: "sharing.set.grant.upserted",
+      resourceType: "partner_share_set_grant",
+      resourceId: writeResult.data.id,
+      userAgent: request.headers.get("user-agent"),
+      metadata: {
+        share_set_id: shareSet.data.id,
+        partner_organization_id: partnerOrganizationId,
+        access_level: accessLevel,
+        expires_at: expiresAt ? expiresAt.toISOString() : null,
+      },
+    });
+
     return NextResponse.json(
       {
         success: true,
@@ -401,7 +417,7 @@ export async function DELETE(
     const access = await requireSharingManagerContext(request, resolvedParams.tenant);
     if (!access.ok) return access.response;
 
-    const { organization } = access.context;
+    const { organization, userId } = access.context;
     const shareSet = await getShareSet({
       organizationId: organization.id,
       setId: resolvedParams.setId,
@@ -444,6 +460,18 @@ export async function DELETE(
         { status: 500 }
       );
     }
+
+    await logSecurityEvent(supabaseServer, {
+      organizationId: organization.id,
+      actorUserId: userId,
+      action: "sharing.set.grant.revoked",
+      resourceType: "partner_share_set_grant",
+      resourceId: grantId,
+      userAgent: request.headers.get("user-agent"),
+      metadata: {
+        share_set_id: shareSet.data.id,
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import LocalizationDefaultsSettings from '../../components/LocalizationDefaultsSettings';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 
 interface LocalizationDefaultsPageProps {
   params: Promise<{ tenant: string }>;
@@ -10,8 +10,9 @@ export default async function LocalizationDefaultsPage({ params }: LocalizationD
   const { tenant } = await params;
 
   return (
-    <Suspense fallback={<PageLoader text="Loading localization defaults..." size="lg" />}>
+    <Suspense fallback={<PageSkeleton text="Loading localization defaults..." size="lg" />}>
       <LocalizationDefaultsSettings tenantSlug={tenant} />
     </Suspense>
   );
 }
+

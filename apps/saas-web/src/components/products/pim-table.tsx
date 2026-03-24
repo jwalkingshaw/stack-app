@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils";
 import { BulkActionToolbar } from "@/components/dam/bulk-action-toolbar";
 import { AddToKitDialog } from "@/components/updates/AddToKitDialog";
 import { TranslationPanel } from "@/components/products/TranslationPanel";
+import { fetchJsonWithDedupe } from "@/lib/client-request-cache";
 import {
   AuthoringScopePicker,
   type AuthoringScopeValue,
@@ -168,6 +169,12 @@ type ProductLinkRecord = {
   dam_assets?: {
     id?: string | null;
     filename?: string | null;
+    s3_url?: string | null;
+    thumbnail_urls?: {
+      small?: string | null;
+      medium?: string | null;
+      large?: string | null;
+    } | null;
   } | null;
 };
 
@@ -175,6 +182,7 @@ type ProductFrontImage = {
   slot: CoreAssetSlot;
   assetId: string;
   previewUrl: string;
+  fallbackPreviewUrl: string;
   filename: string | null;
 };
 
@@ -186,6 +194,13 @@ const CORE_ASSET_SLOT_CODES: Record<CoreAssetSlot, string> = {
   back: "image_back",
   left: "image_left",
   right: "image_right",
+};
+const MAX_CORE_ASSET_FETCH_PRODUCTS = 160;
+
+const extractNonEmptyUrl = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 };
 
 const cloneAuthoringScope = (scope: AuthoringScopeValue): AuthoringScopeValue => ({
@@ -261,6 +276,7 @@ export function PIMTable({
     [isPartnerAllView, isSharedBrandView, normalizedTenantSlug]
   );
   const [products, setProducts] = useState<PIMProduct[]>([]);
+  const [liveContentScoresByProductId, setLiveContentScoresByProductId] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
@@ -281,6 +297,10 @@ export function PIMTable({
   const [shareMarketIds, setShareMarketIds] = useState<string[]>([]);
   const [shareChannelIds, setShareChannelIds] = useState<string[]>([]);
   const [shareLocaleIds, setShareLocaleIds] = useState<string[]>([]);
+  const [filterSetId, setFilterSetId] = useState<string>("");
+  const [setFilterItemIds, setSetFilterItemIds] = useState<Set<string>>(new Set());
+  const [setFilterLoading, setSetFilterLoading] = useState(false);
+  const [isRemovingFromSet, setIsRemovingFromSet] = useState(false);
   const [scopeFilterMode, setScopeFilterMode] = useState<ScopeFilterMode>("all");
   const [bulkScopeDialogOpen, setBulkScopeDialogOpen] = useState(false);
   const [bulkScopeMode, setBulkScopeMode] = useState<ProductBulkScopeMode>("set");
@@ -314,6 +334,7 @@ export function PIMTable({
   const tableColumnCount = primaryColumnCount + 1; // + actions
 
   const [coreAssetImagesByProductId, setCoreAssetImagesByProductId] = useState<Record<string, ProductFrontImage[]>>({});
+  const [fallbackCoreAssetImageIds, setFallbackCoreAssetImageIds] = useState<Set<string>>(new Set());
   const [failedCoreAssetImageIds, setFailedCoreAssetImageIds] = useState<Set<string>>(new Set());
   
   // Hierarchy state
@@ -322,6 +343,7 @@ export function PIMTable({
 
   const buildScopedProductsUrl = useCallback(() => {
     const query = new URLSearchParams();
+    query.set("listMode", "table");
     if (isPartnerAllView) query.set("view", "all");
     if (selectedMarketId) query.set("marketId", selectedMarketId);
     if (selectedChannelId) query.set("channelId", selectedChannelId);
@@ -337,6 +359,32 @@ export function PIMTable({
       : `/api/${tenantSlug}/products`;
   }, [
     isPartnerAllView,
+    normalizedSelectedBrand,
+    selectedChannelId,
+    selectedChannel?.code,
+    selectedDestinationId,
+    selectedDestination?.code,
+    selectedLocaleId,
+    selectedLocale?.code,
+    selectedMarketId,
+    tenantSlug,
+  ]);
+
+  const buildScopedCompletenessBatchUrl = useCallback(() => {
+    const query = new URLSearchParams();
+    if (selectedMarketId) query.set("marketId", selectedMarketId);
+    if (selectedChannelId) query.set("channelId", selectedChannelId);
+    if (selectedLocaleId) query.set("localeId", selectedLocaleId);
+    if (selectedDestinationId) query.set("destinationId", selectedDestinationId);
+    if (selectedLocale?.code) query.set("locale", selectedLocale.code);
+    if (selectedChannel?.code) query.set("channel", selectedChannel.code);
+    if (selectedDestination?.code) query.set("destination", selectedDestination.code);
+    if (normalizedSelectedBrand) query.set("brand", normalizedSelectedBrand);
+
+    return query.toString()
+      ? `/api/${tenantSlug}/products/completeness/batch?${query.toString()}`
+      : `/api/${tenantSlug}/products/completeness/batch`;
+  }, [
     normalizedSelectedBrand,
     selectedChannelId,
     selectedChannel?.code,
@@ -377,6 +425,23 @@ export function PIMTable({
         : `/api/${tenantSlug}/assets/${assetId}/preview`;
     },
     [isPartnerAllView, normalizedSelectedBrand, tenantSlug]
+  );
+
+  const resolveCoreAssetImagePreviewUrl = useCallback(
+    (link: ProductLinkRecord, assetId: string) => {
+      const fallbackPreviewUrl = buildAssetPreviewPath(assetId);
+      const thumbnailUrls = link.dam_assets?.thumbnail_urls;
+      const directPreviewUrl =
+        extractNonEmptyUrl(thumbnailUrls?.small) ||
+        extractNonEmptyUrl(thumbnailUrls?.medium) ||
+        extractNonEmptyUrl(thumbnailUrls?.large) ||
+        extractNonEmptyUrl(link.dam_assets?.s3_url);
+      return {
+        previewUrl: directPreviewUrl || fallbackPreviewUrl,
+        fallbackPreviewUrl,
+      };
+    },
+    [buildAssetPreviewPath]
   );
 
   const doesScopedLinkMatch = useCallback(
@@ -444,13 +509,15 @@ export function PIMTable({
   
   // Get filtered products with hierarchy (memoized for performance)
   const getFilteredProductsWithHierarchy = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+
     const filtered = products.filter(product => {
-      const matchesSearch = searchQuery === "" || 
-        product.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (product.sku || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (product.scin || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (product.upc || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.brandLine?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesSearch = normalizedSearch === "" ||
+        product.productName.toLowerCase().includes(normalizedSearch) ||
+        (product.sku || '').toLowerCase().includes(normalizedSearch) ||
+        (product.scin || '').toLowerCase().includes(normalizedSearch) ||
+        (product.upc || '').toLowerCase().includes(normalizedSearch) ||
+        product.brandLine?.toLowerCase().includes(normalizedSearch);
       
       const matchesStatus = filterStatus === "All" || product.status === filterStatus;
       const modelValue = (product.family || "").trim().toLowerCase();
@@ -465,12 +532,23 @@ export function PIMTable({
         (scopeFilterMode === "in_scope" && isInCurrentScope) ||
         (scopeFilterMode === "out_of_scope" && !isInCurrentScope);
 
-      return matchesSearch && matchesStatus && matchesProductModel && matchesScope;
+      const matchesSet = !filterSetId || setFilterItemIds.has(product.id);
+
+      return matchesSearch && matchesStatus && matchesProductModel && matchesScope && matchesSet;
     });
 
     if (!showVariantHierarchy) {
       return filtered;
     }
+
+    const filteredIdSet = new Set(filtered.map((row) => row.id));
+    const variantsByParentId = new Map<string, PIMProduct[]>();
+    filtered.forEach((row) => {
+      if (!isVariantProduct(row) || !row.parentId) return;
+      const existing = variantsByParentId.get(row.parentId) || [];
+      existing.push(row);
+      variantsByParentId.set(row.parentId, existing);
+    });
 
     const result: PIMProduct[] = [];
     const processedIds = new Set<string>();
@@ -483,7 +561,7 @@ export function PIMTable({
         processedIds.add(product.id);
 
         if (expandedParents.has(product.id)) {
-          const variants = filtered.filter(p => p.parentId === product.id);
+          const variants = variantsByParentId.get(product.id) || [];
           
           // Show first N variants inline.
           const visibleVariants = variants.slice(0, MAX_INLINE_VARIANTS);
@@ -509,7 +587,7 @@ export function PIMTable({
           }
         }
       } else if (isVariantProduct(product)) {
-        const hasParentInResults = filtered.some(p => p.id === product.parentId);
+        const hasParentInResults = Boolean(product.parentId && filteredIdSet.has(product.parentId));
         if (!hasParentInResults) {
           result.push(product);
           processedIds.add(product.id);
@@ -530,7 +608,34 @@ export function PIMTable({
     isProductInCurrentScope,
     showVariantHierarchy,
     expandedParents,
+    filterSetId,
+    setFilterItemIds,
   ]);
+
+  // Load set options on mount (for set filter dropdown)
+  useEffect(() => {
+    void fetchShareSetOptions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantSlug]);
+
+  // Fetch set item IDs when set filter changes
+  useEffect(() => {
+    if (!filterSetId) {
+      setSetFilterItemIds(new Set());
+      return;
+    }
+    setSetFilterLoading(true);
+    fetch(`/api/${tenantSlug}/sharing/sets/${filterSetId}/items?limit=1000&resolve=false`)
+      .then((r) => r.json())
+      .then((payload: { data?: { items?: Array<{ resource_id: string }> } }) => {
+        const ids = new Set<string>(
+          (payload.data?.items || []).map((i) => i.resource_id)
+        );
+        setSetFilterItemIds(ids);
+      })
+      .catch(() => setSetFilterItemIds(new Set()))
+      .finally(() => setSetFilterLoading(false));
+  }, [filterSetId, tenantSlug]);
 
   // Load products
   useEffect(() => {
@@ -540,8 +645,10 @@ export function PIMTable({
     const loadProducts = async () => {
       try {
         setLoading(true);
-        const response = await fetch(buildScopedProductsUrl(), {
-          signal: controller.signal,
+        const requestUrl = buildScopedProductsUrl();
+        const response = await fetchJsonWithDedupe<{ success?: boolean; data?: ProductApiRow[] }>(requestUrl, {
+          ttlMs: 1500,
+          requestInit: { signal: controller.signal },
         });
         if (isCancelled) return;
 
@@ -552,11 +659,17 @@ export function PIMTable({
           }
           throw new Error(`Failed to fetch products: ${response.status}`);
         }
-        const data = await response.json();
-        if (isCancelled) return;
         
-        if (data.success && data.data) {
-          const rawProducts = Array.isArray(data.data) ? (data.data as ProductApiRow[]) : [];
+        if (response.data?.success && response.data?.data) {
+          const rawProducts = Array.isArray(response.data.data)
+            ? (response.data.data as ProductApiRow[])
+            : [];
+          const parentSkuById = new Map<string, string | null>();
+          rawProducts.forEach((row) => {
+            if (!row.id) return;
+            parentSkuById.set(row.id, row.sku ?? null);
+          });
+
           // Transform Supabase data to PIMProduct format
           const transformedProducts = rawProducts.map((product) => ({
             id: product.id || "",
@@ -600,7 +713,7 @@ export function PIMTable({
             lastModified: product.updated_at || product.created_at || new Date().toISOString(),
             // Add parent SKU for variants by finding the parent product
             parent_sku: product.type === 'variant' && product.parent_id
-              ? rawProducts.find((p) => p.id === product.parent_id)?.sku
+              ? parentSkuById.get(product.parent_id)
               : undefined,
           }));
           
@@ -638,6 +751,86 @@ export function PIMTable({
     };
   }, [buildScopedProductsUrl]);
 
+  // Load live completeness (required-field based, scoped to current market/channel/locale/destination).
+  useEffect(() => {
+    const controller = new AbortController();
+    let isCancelled = false;
+
+    const loadLiveCompleteness = async () => {
+      if (isPartnerAllView) {
+        setLiveContentScoresByProductId({});
+        return;
+      }
+
+      const productIds = Array.from(
+        new Set(
+          products
+            .map((product) => String(product.id || "").trim())
+            .filter((id) => id.length > 0)
+        )
+      );
+      if (productIds.length === 0) {
+        setLiveContentScoresByProductId({});
+        return;
+      }
+
+      const batchUrl = buildScopedCompletenessBatchUrl();
+      const chunkSize = 120;
+      const nextScores: Record<string, number> = {};
+
+      for (let index = 0; index < productIds.length; index += chunkSize) {
+        const chunk = productIds.slice(index, index + chunkSize);
+        const response = await fetch(batchUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productIds: chunk }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch completeness batch (${response.status})`);
+        }
+
+        const payload = (await response.json().catch(() => null)) as
+          | { data?: { scores?: Record<string, unknown> } }
+          | null;
+        const rawScores = payload?.data?.scores;
+        if (!rawScores || typeof rawScores !== "object") {
+          continue;
+        }
+
+        Object.entries(rawScores).forEach(([productId, value]) => {
+          const numericValue =
+            typeof value === "number"
+              ? value
+              : typeof value === "string"
+              ? Number.parseFloat(value)
+              : Number.NaN;
+          if (!Number.isFinite(numericValue)) return;
+          nextScores[productId] = Math.min(100, Math.max(0, Math.round(numericValue)));
+        });
+      }
+
+      if (isCancelled || controller.signal.aborted) return;
+      setLiveContentScoresByProductId(nextScores);
+    };
+
+    void loadLiveCompleteness().catch((error) => {
+      if (isCancelled || controller.signal.aborted) {
+        return;
+      }
+      console.error("Failed to load live product completeness:", error);
+      setLiveContentScoresByProductId({});
+    });
+
+    return () => {
+      isCancelled = true;
+      if (!controller.signal.aborted) {
+        controller.abort();
+      }
+    };
+  }, [buildScopedCompletenessBatchUrl, isPartnerAllView, products]);
+
   // Check translation eligibility once on mount (not for shared brand views)
   useEffect(() => {
     if (isSharedBrandView) return;
@@ -668,7 +861,15 @@ export function PIMTable({
     let isCancelled = false;
 
     const loadCoreAssetImages = async () => {
-      if (products.length === 0) {
+      const productIdsForPreview = Array.from(
+        new Set(
+          products
+            .map((product) => String(product.id || "").trim())
+            .filter((id) => id.length > 0)
+        )
+      ).slice(0, MAX_CORE_ASSET_FETCH_PRODUCTS);
+
+      if (productIdsForPreview.length === 0) {
         setCoreAssetImagesByProductId({});
         return;
       }
@@ -684,6 +885,7 @@ export function PIMTable({
           if (normalizedSelectedBrand) {
             query.set("brand", normalizedSelectedBrand);
           }
+          query.set("product_ids", productIdsForPreview.join(","));
 
           const response = await fetch(`/api/${tenantSlug}/product-links?${query.toString()}`);
           if (!response.ok) {
@@ -699,7 +901,7 @@ export function PIMTable({
         const slotLinkResults = await Promise.all(slotRequests);
         if (isCancelled) return;
 
-        const productIds = new Set(products.map((product) => product.id));
+        const productIds = new Set(productIdsForPreview);
         const bestByProductAndSlot = new Map<
           string,
           { rank: number; createdAt: number; image: ProductFrontImage }
@@ -731,7 +933,7 @@ export function PIMTable({
                 image: {
                   slot: result.slot,
                   assetId,
-                  previewUrl: buildAssetPreviewPath(assetId),
+                  ...resolveCoreAssetImagePreviewUrl(link, assetId),
                   filename: link.dam_assets?.filename || null,
                 },
               });
@@ -755,6 +957,7 @@ export function PIMTable({
         });
 
         setCoreAssetImagesByProductId(nextMap);
+        setFallbackCoreAssetImageIds(new Set());
         setFailedCoreAssetImageIds(new Set());
       } catch (error) {
         if (isCancelled) return;
@@ -768,7 +971,7 @@ export function PIMTable({
       isCancelled = true;
     };
   }, [
-    buildAssetPreviewPath,
+    resolveCoreAssetImagePreviewUrl,
     doesScopedLinkMatch,
     getScopedLinkRank,
     isPartnerAllView,
@@ -868,11 +1071,30 @@ export function PIMTable({
       console.error('❌ Tenant slug:', tenantSlug);
     }
   };
+
+  const getEffectiveContentScore = useCallback(
+    (product: PIMProduct): number => {
+      const liveValue = liveContentScoresByProductId[product.id];
+      if (Number.isFinite(liveValue)) {
+        return liveValue;
+      }
+      return typeof product.contentScore === "number" ? product.contentScore : 0;
+    },
+    [liveContentScoresByProductId]
+  );
+
   // Get filtered products with hierarchy, then sort (memoized for performance)
   const filteredAndSortedProducts = useMemo(() => {
     const rows = [...getFilteredProductsWithHierarchy];
 
     const compareBySortField = (a: PIMProduct, b: PIMProduct) => {
+      if (sortField === "contentScore") {
+        const aScore = getEffectiveContentScore(a);
+        const bScore = getEffectiveContentScore(b);
+        const comparison = aScore - bScore;
+        return sortDirection === "asc" ? comparison : -comparison;
+      }
+
       const aValue = a[sortField];
       const bValue = b[sortField];
       
@@ -924,7 +1146,7 @@ export function PIMTable({
 
       return compareBySortField(a, b);
     });
-  }, [getFilteredProductsWithHierarchy, showVariantHierarchy, sortField, sortDirection]);
+  }, [getEffectiveContentScore, getFilteredProductsWithHierarchy, showVariantHierarchy, sortField, sortDirection]);
 
   const realProductIds = useMemo(() => {
     return new Set(products.map((product) => product.id));
@@ -985,6 +1207,20 @@ export function PIMTable({
     () => products.reduce((count, product) => (isProductInCurrentScope(product) ? count : count + 1), 0),
     [isProductInCurrentScope, products]
   );
+
+  const statusFilterLabel = filterStatus === "All" ? "Status" : filterStatus;
+  const modelFilterLabel =
+    filterProductModel === PRODUCT_MODEL_FILTER_ALL
+      ? "Model"
+      : filterProductModel === PRODUCT_MODEL_FILTER_UNASSIGNED
+        ? "Unassigned"
+        : productModelOptions.find((model) => model.value === filterProductModel)?.label || "Model";
+  const scopeFilterLabel =
+    scopeFilterMode === "all"
+      ? "Scope"
+      : scopeFilterMode === "in_scope"
+        ? "In Current Scope"
+        : "Missing In Scope";
 
   const applyCurrentScopeToShareSelection = useCallback(() => {
     setShareMarketIds(selectedMarketId ? [selectedMarketId] : []);
@@ -1515,6 +1751,39 @@ export function PIMTable({
     void openShareDialog();
   };
 
+  const handleRemoveFromSet = useCallback(async () => {
+    if (!filterSetId || selectedShareableProducts.length === 0 || isRemovingFromSet) return;
+    setIsRemovingFromSet(true);
+    setShareStatusMessage(null);
+    try {
+      const items = selectedShareableProducts.map((p) => ({
+        resourceType: p.type === "variant" ? "variant" : "product",
+        resourceId: p.id,
+      }));
+      const response = await fetch(`/api/${tenantSlug}/sharing/sets/${filterSetId}/items`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "Failed to remove from set");
+      // Remove the IDs from local set filter so the rows disappear immediately
+      setSetFilterItemIds((prev) => {
+        const next = new Set(prev);
+        for (const p of selectedShareableProducts) next.delete(p.id);
+        return next;
+      });
+      setSelectedProductIds(new Set());
+      setShareStatusMessage(
+        `Removed ${selectedShareableProducts.length} item${selectedShareableProducts.length === 1 ? "" : "s"} from set.`
+      );
+    } catch (err) {
+      setShareDialogError(err instanceof Error ? err.message : "Failed to remove from set.");
+    } finally {
+      setIsRemovingFromSet(false);
+    }
+  }, [filterSetId, isRemovingFromSet, selectedShareableProducts, tenantSlug]);
+
   const handleBulkAddToKit = () => {
     if (isSharedBrandView || selectedShareableProducts.length === 0) return;
     setIsAddToKitDialogOpen(true);
@@ -1584,24 +1853,23 @@ export function PIMTable({
     }
   }, [sortField, sortDirection]);
 
-  // Content score color coding
-  const normalizeContentScore = (score: number) => {
-    if (!Number.isFinite(score)) return 0;
-    return Math.min(100, Math.max(0, Math.round(score)));
-  };
-
-  const getContentScoreTextColor = (score: number) => {
-    if (score >= 90) return "text-emerald-600";
-    if (score >= 70) return "text-yellow-600";
-    if (score >= 50) return "text-orange-500";
-    return "text-red-600";
+  // Completion score formatting and color coding
+  const normalizeContentScore = (score: unknown) => {
+    const numericScore =
+      typeof score === "number"
+        ? score
+        : typeof score === "string"
+        ? Number.parseFloat(score)
+        : Number.NaN;
+    if (!Number.isFinite(numericScore)) return 0;
+    return Math.min(100, Math.max(0, Math.round(numericScore)));
   };
 
   const getContentScoreBarColor = (score: number) => {
-    if (score >= 90) return "bg-emerald-500";
-    if (score >= 70) return "bg-yellow-500";
-    if (score >= 50) return "bg-orange-500";
-    return "bg-red-500";
+    if (score >= 90) return "#00d66b";
+    if (score >= 70) return "#f4cb16";
+    if (score >= 50) return "#ff9f0a";
+    return "#ff3b5c";
   };
 
   // Hierarchy handling functions
@@ -1694,10 +1962,10 @@ export function PIMTable({
 
             {/* Status Filter */}
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="h-8 w-[140px] shrink-0">
-                <SelectValue placeholder="Status" />
+              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                <span className="truncate">{statusFilterLabel}</span>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="!w-auto min-w-[200px]">
                 <SelectItem value="All">All Status</SelectItem>
                 <SelectItem value="Draft">Draft</SelectItem>
                 <SelectItem value="Enrichment">Enrichment</SelectItem>
@@ -1710,10 +1978,10 @@ export function PIMTable({
 
             {/* Product Model Filter */}
             <Select value={filterProductModel} onValueChange={setFilterProductModel}>
-              <SelectTrigger className="h-8 w-[190px] shrink-0">
-                <SelectValue placeholder="Product Model" />
+              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                <span className="truncate">{modelFilterLabel}</span>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="!w-auto min-w-[240px]">
                 <SelectItem value={PRODUCT_MODEL_FILTER_ALL}>All Models</SelectItem>
                 <SelectItem value={PRODUCT_MODEL_FILTER_UNASSIGNED}>Unassigned</SelectItem>
                 {productModelOptions.map((model) => (
@@ -1725,15 +1993,36 @@ export function PIMTable({
             </Select>
 
             <Select value={scopeFilterMode} onValueChange={(value) => setScopeFilterMode(value as ScopeFilterMode)}>
-              <SelectTrigger className="h-8 w-[190px] shrink-0">
-                <SelectValue placeholder="Scope Filter" />
+              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                <span className="truncate">{scopeFilterLabel}</span>
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="!w-auto min-w-[240px]">
                 <SelectItem value="all">All Scopes</SelectItem>
                 <SelectItem value="in_scope">In Current Scope</SelectItem>
                 <SelectItem value="out_of_scope">Missing In Scope</SelectItem>
               </SelectContent>
             </Select>
+
+            {/* Set filter */}
+            {shareSetOptions.length > 0 && (
+              <Select value={filterSetId || "__all__"} onValueChange={(v) => setFilterSetId(v === "__all__" ? "" : v)}>
+                <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                  <span className="truncate">
+                    {filterSetId
+                      ? (shareSetOptions.find((s) => s.id === filterSetId)?.name ?? "Set")
+                      : "Set"}
+                  </span>
+                </SelectTrigger>
+                <SelectContent className="!w-auto min-w-[200px]">
+                  <SelectItem value="__all__">All Sets</SelectItem>
+                  {shareSetOptions.map((set) => (
+                    <SelectItem key={set.id} value={set.id}>
+                      {set.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
 
             {outOfScopeCount > 0 ? (
               <Badge variant="outline" className="px-2 py-0.5 text-xs">
@@ -1755,27 +2044,6 @@ export function PIMTable({
         </>
         )}
 
-        {/* Selection Info */}
-        {!creationMode && selectedShareableProducts.length > 0 && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-lg border border-muted/30">
-            <span className="text-sm font-medium">
-              {selectedShareableProducts.length} selected
-            </span>
-            {!isSharedBrandView ? (
-              <Button size="sm" variant="outline" className="h-8 px-3 text-sm" onClick={handleBulkShare}>
-                Share selected
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={handleClearSelection}
-              className="h-8 w-8 p-0 hover:bg-blue-100"
-            >
-              <X className="w-4 h-4" />
-            </Button>
-          </div>
-        )}
         {shareStatusMessage ? (
           <p className="text-sm text-emerald-700">{shareStatusMessage}</p>
         ) : null}
@@ -1823,7 +2091,7 @@ export function PIMTable({
                           selectableProductIds.every((id) => selectedProductIds.has(id))
                         }
                         onChange={handleSelectAll}
-                        className="w-3 h-3 text-blue-600 border-input rounded focus:ring-blue-500"
+                        className="w-3 h-3 text-[var(--color-accent-blue)] border-input rounded focus:ring-[var(--color-accent-blue-hover)]"
                         onClick={(event) => event.stopPropagation()}
                       />
                       <span>Status</span>
@@ -1911,7 +2179,7 @@ export function PIMTable({
                     onClick={() => handleSort("contentScore")}
                   >
                     <div className="flex items-center gap-1">
-                      Completeness
+                      Complete
                       <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
@@ -2050,7 +2318,9 @@ export function PIMTable({
                 const isSharedProductRow = isSharedRow(product);
                 const isInCurrentScope = isProductInCurrentScope(product);
                 const isViewAllLink = isViewAllVariantsRow(product);
-                const normalizedContentScore = normalizeContentScore(product.contentScore);
+                const normalizedContentScore = normalizeContentScore(
+                  getEffectiveContentScore(product)
+                );
                 
                 // Determine if this row is part of an expanded variant group
                 const isInExpandedGroup = (isVariantProduct(product) || isViewAllLink) && 
@@ -2161,7 +2431,7 @@ export function PIMTable({
                           onChange={(e) => handleProductSelect(product.id, e)}
                           onClick={(e) => e.stopPropagation()}
                           disabled={isSharedProductRow}
-                          className="w-3 h-3 text-blue-600 border-input rounded focus:ring-blue-500"
+                          className="w-3 h-3 text-[var(--color-accent-blue)] border-input rounded focus:ring-[var(--color-accent-blue-hover)]"
                         />
 
                         {isParentProduct(product) ? (
@@ -2250,6 +2520,8 @@ export function PIMTable({
                             <div className="flex items-center gap-3">
                               {visibleImages.map((image) => {
                                 const failed = failedCoreAssetImageIds.has(image.assetId);
+                                const usingFallback = fallbackCoreAssetImageIds.has(image.assetId);
+                                const imageSrc = usingFallback ? image.fallbackPreviewUrl : image.previewUrl;
                                 return (
                                   <div
                                     key={`${product.id}-${image.slot}-${image.assetId}`}
@@ -2262,7 +2534,7 @@ export function PIMTable({
                                       </div>
                                     ) : (
                                       <NextImage
-                                        src={image.previewUrl}
+                                        src={imageSrc}
                                         alt={image.filename || `${product.productName} ${image.slot}`}
                                         className="h-full w-full object-cover"
                                         loading="lazy"
@@ -2270,6 +2542,17 @@ export function PIMTable({
                                         height={56}
                                         unoptimized
                                         onError={() => {
+                                          if (!usingFallback && image.previewUrl !== image.fallbackPreviewUrl) {
+                                            setFallbackCoreAssetImageIds((previous) => {
+                                              if (previous.has(image.assetId)) {
+                                                return previous;
+                                              }
+                                              const next = new Set(previous);
+                                              next.add(image.assetId);
+                                              return next;
+                                            });
+                                            return;
+                                          }
                                           setFailedCoreAssetImageIds((previous) => {
                                             if (previous.has(image.assetId)) {
                                               return previous;
@@ -2329,21 +2612,28 @@ export function PIMTable({
                     {/* Completeness */}
                     {visibleColumns.contentScore && (
                       <td className="px-6 py-4 text-sm">
-                        <div className="flex items-center gap-3">
-                          <div className="h-2 w-28 overflow-hidden rounded-full bg-muted">
+                        <div className="flex items-center gap-2.5">
+                          <div
+                            className="h-[6px] w-[74px] overflow-hidden rounded-full"
+                            style={{ backgroundColor: "rgba(31, 41, 55, 0.2)" }}
+                            role="progressbar"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={normalizedContentScore}
+                            aria-label={`Product completion ${normalizedContentScore}%`}
+                          >
                             <div
-                              className={cn(
-                                "h-full rounded-full transition-[width] duration-200 ease-out",
-                                getContentScoreBarColor(normalizedContentScore)
-                              )}
-                              style={{ width: `${normalizedContentScore}%` }}
+                              className="h-full rounded-full transition-[width] duration-200 ease-out"
+                              style={{
+                                width: `${normalizedContentScore}%`,
+                                backgroundColor: getContentScoreBarColor(normalizedContentScore),
+                                minWidth: normalizedContentScore > 0 ? "0.375rem" : "0",
+                              }}
                             />
                           </div>
                           <span
-                            className={cn(
-                              "text-sm font-medium tabular-nums",
-                              getContentScoreTextColor(normalizedContentScore)
-                            )}
+                            className="text-sm font-medium tabular-nums"
+                            style={{ color: "#6b7280" }}
                           >
                             {normalizedContentScore}%
                           </span>
@@ -2776,11 +3066,12 @@ export function PIMTable({
       {/* Bulk Action Toolbar */}
       <BulkActionToolbar
         selectedCount={isSharedBrandView ? 0 : selectedShareableProducts.length}
+        onAddToSet={handleBulkShare}
+        onRemoveFromSet={filterSetId && !isSharedBrandView ? handleRemoveFromSet : undefined}
+        activeSetName={filterSetId ? (shareSetOptions.find((s) => s.id === filterSetId)?.name ?? undefined) : undefined}
         onEdit={handleBulkEdit}
         onTag={handleBulkStatusUpdate}
-        onMove={handleBulkMove}
         onDelete={handleBulkDelete}
-        onShare={handleBulkShare}
         onAddToKit={!isSharedBrandView ? handleBulkAddToKit : undefined}
         onTranslate={canTranslate && !isSharedBrandView ? handleBulkTranslate : undefined}
         onClear={handleClearSelection}

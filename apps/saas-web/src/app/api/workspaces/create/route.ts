@@ -4,6 +4,11 @@ import { DatabaseQueries, createServerClient } from "@tradetool/database";
 import { kindeAPI } from "@/lib/kinde-management";
 import { syncKindeBillingRoleForMember } from "@/lib/kinde-billing-role-sync";
 import { ensureCoreBasicInformationFields } from "@/lib/pim-bootstrap";
+import {
+  DEFAULT_UI_LOCALE,
+  UI_LOCALE_COOKIE_NAME,
+  normalizeUiLocale,
+} from "@/lib/ui-locales";
 
 const supabase = createServerClient();
 const db = new DatabaseQueries(supabase);
@@ -209,6 +214,7 @@ export async function POST(request: NextRequest) {
       organization_type = 'brand',
       partner_category = null,
       default_market_country_code,
+      default_ui_locale,
     } = body;
 
     if (!name || !slug) {
@@ -229,6 +235,15 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const normalizedDefaultUiLocaleCandidate = normalizeUiLocale(default_ui_locale);
+    if (default_ui_locale !== undefined && default_ui_locale !== null && !normalizedDefaultUiLocaleCandidate) {
+      return NextResponse.json(
+        { error: "default_ui_locale must be one of the supported UI locales." },
+        { status: 400 }
+      );
+    }
+    const normalizedDefaultUiLocale = normalizedDefaultUiLocaleCandidate ?? DEFAULT_UI_LOCALE;
 
     // Validate organization_type
     if (!['brand', 'partner'].includes(organization_type)) {
@@ -289,6 +304,7 @@ export async function POST(request: NextRequest) {
         kindeOrgId,
         industry,
         teamSize,
+        defaultUiLocale: normalizedDefaultUiLocale,
         organizationType: organization_type,
         partnerCategory:
           organization_type === "partner"
@@ -399,7 +415,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Return success response
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       data: {
         organization: {
@@ -409,10 +425,19 @@ export async function POST(request: NextRequest) {
           type: organization.type,
           organization_type: organization.organizationType || organization.type,
           partner_category: organization.partnerCategory ?? null,
+          default_ui_locale: organization.defaultUiLocale || normalizedDefaultUiLocale,
         }
       },
       message: "Workspace created successfully"
     });
+
+    response.cookies.set(UI_LOCALE_COOKIE_NAME, normalizedDefaultUiLocale, {
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+
+    return response;
 
   } catch (error) {
     console.error("Workspace creation error:", error);

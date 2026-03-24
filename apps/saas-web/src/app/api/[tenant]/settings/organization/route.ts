@@ -7,6 +7,7 @@ import {
   applyOrganizationProfileUpdate,
   readOrganizationProfile,
 } from "@/lib/organization-profile";
+import { DEFAULT_UI_LOCALE, normalizeUiLocale } from "@/lib/ui-locales";
 
 const MAX_NAME_LENGTH = 120;
 const MAX_DESCRIPTION_LENGTH = 500;
@@ -84,6 +85,9 @@ export async function GET(
         website: profile.website,
         description: profile.description,
         logoUrl: profile.logoUrl,
+        defaultUiLocale:
+          normalizeUiLocale((organizationRow as Record<string, unknown>).default_ui_locale) ??
+          DEFAULT_UI_LOCALE,
       },
     });
   } catch (error) {
@@ -161,6 +165,16 @@ export async function PATCH(
     const normalizedLogoUrl = logoUrlProvided
       ? normalizeLogoUrl(body.logoUrl)
       : undefined;
+    const defaultUiLocaleProvided = body?.defaultUiLocale !== undefined;
+    const normalizedDefaultUiLocale = defaultUiLocaleProvided
+      ? normalizeUiLocale(body.defaultUiLocale)
+      : undefined;
+    if (defaultUiLocaleProvided && !normalizedDefaultUiLocale) {
+      return NextResponse.json(
+        { error: "defaultUiLocale must be one of the supported UI locales." },
+        { status: 400 }
+      );
+    }
 
     const { data: existingRow, error: existingError } = await supabaseServer
       .from("organizations")
@@ -196,6 +210,9 @@ export async function PATCH(
     if (nextName !== existingRow.name) {
       updatePayload.name = nextName;
     }
+    if (normalizedDefaultUiLocale) {
+      updatePayload.default_ui_locale = normalizedDefaultUiLocale;
+    }
 
     if (Object.keys(updatePayload).length === 0) {
       const profile = readOrganizationProfile(existingRow as Record<string, unknown>);
@@ -207,6 +224,9 @@ export async function PATCH(
           website: profile.website,
           description: profile.description,
           logoUrl: profile.logoUrl,
+          defaultUiLocale:
+            normalizeUiLocale((existingRow as Record<string, unknown>).default_ui_locale) ??
+            DEFAULT_UI_LOCALE,
         },
       });
     }
@@ -235,6 +255,9 @@ export async function PATCH(
         website: updatedProfile.website,
         description: updatedProfile.description,
         logoUrl: updatedProfile.logoUrl,
+        defaultUiLocale:
+          normalizeUiLocale((updatedRow as Record<string, unknown>).default_ui_locale) ??
+          DEFAULT_UI_LOCALE,
       },
     });
   } catch (error) {

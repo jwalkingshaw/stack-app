@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FileUpload, AssetMetadataTable, AssetMetadata, validateAssetMetadata, ProductLinkSuggestions } from "@tradetool/ui";
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
 
 // Upload workflow steps
 type UploadStep = 'select' | 'metadata' | 'uploading' | 'complete';
@@ -480,7 +480,7 @@ export default function UploadPage() {
             <div className="max-w-2xl mx-auto">
               <div className="text-center mb-8">
                 <div className="w-16 h-16 mx-auto mb-4 bg-primary/10 rounded-full flex items-center justify-center">
-                  <LoadingSpinner size="lg" color="primary" />
+                  <LoadingSkeleton size="lg" color="primary" />
                 </div>
                 <h2 className="text-xl font-semibold mb-2">Processing Uploads</h2>
                 <p className="text-muted-foreground">
@@ -569,3 +569,4 @@ export default function UploadPage() {
       </div>
   );
 }
+

@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { AlertTriangle, Loader2, Ruler } from 'lucide-react';
+import { AlertTriangle, Ruler } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
 import { fetchJsonWithDedupe } from '@/lib/client-request-cache';
 
 interface MeasurementUnit {
@@ -504,7 +505,7 @@ export default function MeasurementField({ value, onChange, tenantSlug }: Measur
       <div className="rounded-lg border border-border/60 bg-muted/20 px-5 py-6 space-y-4">
         {renderHeading()}
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <LoadingSkeleton size="sm" />
           <span>Loading measurement families...</span>
         </div>
       </div>
@@ -703,3 +704,4 @@ export default function MeasurementField({ value, onChange, tenantSlug }: Measur
     </div>
   );
 }
+

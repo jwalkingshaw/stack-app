@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { connectRedis } from "./redis";
+import { connectRedis, REDIS_KEY_PREFIX_SAAS } from "./redis";
 
 type RateLimitCheck = {
   key: string;
@@ -97,6 +97,7 @@ export async function enforceRateLimit(
 ): Promise<RateLimitResult> {
   const ip = getClientIp(request);
   const keyParts = [
+    REDIS_KEY_PREFIX_SAAS,
     "rl",
     config.action,
     config.tenant || "global",

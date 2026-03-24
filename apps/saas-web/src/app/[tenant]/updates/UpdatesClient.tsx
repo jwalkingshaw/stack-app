@@ -216,7 +216,6 @@ export function UpdatesClient({ tenantSlug }: UpdatesClientProps) {
     <div className="space-y-6">
       <PageHeader
         title="Partner Updates"
-        description="Draft, schedule, and publish kit updates for partner recipients."
       />
 
       <PageContentContainer mode="form" padding="page">

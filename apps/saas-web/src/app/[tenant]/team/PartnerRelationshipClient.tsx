@@ -2,12 +2,36 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
 import { BackLinkButton } from "@/components/ui/back-link-button";
 import { SettingsPageContent } from "../settings/components/settings-page-content";
+
+type AssignedMarket = {
+  assignment_id?: string;
+  market_id: string;
+  name: string;
+  code: string;
+  valid_from: string | null;
+  assigned_at?: string;
+};
+
+type AvailableMarket = {
+  id: string;
+  name: string;
+  code: string;
+};
+
+type PartnerMarketsResponse = {
+  error?: string;
+  data?: {
+    assigned_markets: AssignedMarket[];
+    available_markets: AvailableMarket[];
+  };
+};
 
 type ShareSet = {
   id: string;
@@ -72,6 +96,13 @@ export default function PartnerRelationshipClient({
   const [assigning, setAssigning] = useState(false);
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
 
+  const [marketsLoading, setMarketsLoading] = useState(true);
+  const [marketsError, setMarketsError] = useState<string | null>(null);
+  const [marketActionLoading, setMarketActionLoading] = useState(false);
+  const [assignedMarkets, setAssignedMarkets] = useState<AssignedMarket[]>([]);
+  const [availableMarkets, setAvailableMarkets] = useState<AvailableMarket[]>([]);
+  const [addMarketId, setAddMarketId] = useState("");
+
   const fetchDetails = useCallback(async () => {
     try {
       setLoading(true);
@@ -93,9 +124,75 @@ export default function PartnerRelationshipClient({
     }
   }, [tenantSlug, partnerOrganizationId]);
 
+  const fetchMarkets = useCallback(async () => {
+    try {
+      setMarketsLoading(true);
+      setMarketsError(null);
+      const response = await fetch(
+        `/api/${tenantSlug}/team/partners/${partnerOrganizationId}/markets`
+      );
+      const payload = (await response.json().catch(() => ({}))) as PartnerMarketsResponse;
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to load market assignments");
+      }
+      setAssignedMarkets(payload.data?.assigned_markets || []);
+      setAvailableMarkets(payload.data?.available_markets || []);
+    } catch (err) {
+      setMarketsError(err instanceof Error ? err.message : "Failed to load market assignments");
+    } finally {
+      setMarketsLoading(false);
+    }
+  }, [tenantSlug, partnerOrganizationId]);
+
+  const addMarketAssignment = useCallback(async (marketId: string) => {
+    try {
+      setMarketActionLoading(true);
+      setMarketsError(null);
+      const response = await fetch(`/api/${tenantSlug}/markets/${marketId}/partners`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partnerOrganizationId }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to assign market");
+      }
+      await fetchMarkets();
+    } catch (err) {
+      setMarketsError(err instanceof Error ? err.message : "Failed to assign market");
+    } finally {
+      setMarketActionLoading(false);
+    }
+  }, [fetchMarkets, partnerOrganizationId, tenantSlug]);
+
+  const removeMarketAssignment = useCallback(async (marketId: string) => {
+    try {
+      setMarketActionLoading(true);
+      setMarketsError(null);
+      const query = new URLSearchParams({ partnerOrganizationId });
+      const response = await fetch(
+        `/api/${tenantSlug}/markets/${marketId}/partners?${query.toString()}`,
+        { method: "DELETE" }
+      );
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to remove market assignment");
+      }
+      await fetchMarkets();
+    } catch (err) {
+      setMarketsError(err instanceof Error ? err.message : "Failed to remove market assignment");
+    } finally {
+      setMarketActionLoading(false);
+    }
+  }, [fetchMarkets, partnerOrganizationId, tenantSlug]);
+
   useEffect(() => {
     fetchDetails();
   }, [fetchDetails]);
+
+  useEffect(() => {
+    void fetchMarkets();
+  }, [fetchMarkets]);
 
   const setOptions = useMemo(() => data?.available_sets || [], [data?.available_sets]);
   const activeGrantBySetId = useMemo(
@@ -268,7 +365,7 @@ export default function PartnerRelationshipClient({
             onClick={() => updateRelationship({ accessLevel: selectedAccessLevel })}
             disabled={!data.can_manage || saving}
           >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Access Level"}
+            {saving ? <><LoadingSkeleton size="sm" className="mr-2" />Saving...</> : "Save Access Level"}
           </Button>
         </div>
 
@@ -303,8 +400,92 @@ export default function PartnerRelationshipClient({
       </div>
 
       <div className="rounded-lg border border-border bg-background p-4 space-y-4">
+        <div>
+          <p className="text-sm font-semibold text-foreground">Markets</p>
+          <p className="text-xs text-muted-foreground">
+            Partners assigned to a market automatically inherit its full catalog.
+          </p>
+        </div>
+        {marketsError ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {marketsError}
+          </div>
+        ) : null}
+        {marketsLoading ? (
+          <p className="text-sm text-muted-foreground">Loading markets...</p>
+        ) : (
+          <>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="w-full sm:max-w-xs">
+                <Select
+                  value={addMarketId}
+                  onValueChange={setAddMarketId}
+                  disabled={marketActionLoading || availableMarkets.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Add to market" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableMarkets.map((market) => (
+                      <SelectItem key={market.id} value={market.id}>
+                        {market.name} ({market.code})
+                      </SelectItem>
+                    ))}
+                    {availableMarkets.length === 0 ? (
+                      <div className="px-2 py-3 text-sm text-muted-foreground">
+                        All markets already assigned.
+                      </div>
+                    ) : null}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                size="default"
+                disabled={!addMarketId || marketActionLoading || !data?.can_manage}
+                onClick={() => {
+                  if (!addMarketId) return;
+                  void addMarketAssignment(addMarketId);
+                  setAddMarketId("");
+                }}
+              >
+                Add to Market
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {assignedMarkets.map((market) => (
+                <div
+                  key={market.market_id}
+                  className="inline-flex items-center gap-2 rounded border border-border/60 px-2 py-1 text-xs"
+                >
+                  <span>{market.name}</span>
+                  <span className="text-muted-foreground">({market.code})</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-1 text-xs"
+                    disabled={marketActionLoading || !data?.can_manage}
+                    onClick={() => void removeMarketAssignment(market.market_id)}
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+              {assignedMarkets.length === 0 ? (
+                <span className="text-sm text-muted-foreground">No markets assigned.</span>
+              ) : null}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-border bg-background p-4 space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-foreground">Set Access</p>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Exclusive Set Access</p>
+            <p className="text-xs text-muted-foreground">
+              Use direct grants for exclusive products, launch content, or partner-specific lines. Partners inherit their market catalogs above.
+            </p>
+          </div>
           <Link href={`/${tenantSlug}/settings/sets`}>
             <Button variant="outline" size="sm">
               Open Sets
@@ -368,7 +549,7 @@ export default function PartnerRelationshipClient({
                 disabled={!data.can_manage || assigning || !selectedSetId}
               >
                 {assigning ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <><LoadingSkeleton size="sm" className="mr-2" />Saving...</>
                 ) : selectedSetIsAssigned ? (
                   "Save Set Access"
                 ) : (
@@ -441,3 +622,4 @@ export default function PartnerRelationshipClient({
     </div>
   );
 }
+

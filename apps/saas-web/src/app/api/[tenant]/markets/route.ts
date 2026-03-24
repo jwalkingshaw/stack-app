@@ -5,6 +5,11 @@ import {
   isSupportedMarketCurrency,
   isSupportedMarketTimezone,
 } from "@/lib/market-reference-data";
+import {
+  ensureDefaultGlobalCatalogSets,
+  replaceMarketCatalogAssignments,
+  resolveMarketCatalogAssignments,
+} from "@/lib/market-catalog";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -319,7 +324,96 @@ export async function POST(
       return NextResponse.json({ error: "Failed to assign languages to market." }, { status: 500 });
     }
 
-    return NextResponse.json(market, { status: 201 });
+    const catalogPayload =
+      body?.catalog && typeof body.catalog === "object" && !Array.isArray(body.catalog)
+        ? (body.catalog as Record<string, unknown>)
+        : null;
+    const catalogProductSetIds = normalizeUuidArray(
+      catalogPayload?.productSetIds ?? catalogPayload?.product_set_ids
+    );
+    const catalogAssetSetIds = normalizeUuidArray(
+      catalogPayload?.assetSetIds ?? catalogPayload?.asset_set_ids
+    );
+    const shouldApplyCatalogAssignments =
+      catalogPayload !== null ||
+      Array.isArray(body?.productSetIds) ||
+      Array.isArray(body?.assetSetIds) ||
+      Array.isArray(body?.product_set_ids) ||
+      Array.isArray(body?.asset_set_ids);
+
+    if (shouldApplyCatalogAssignments) {
+      const catalogResult = await replaceMarketCatalogAssignments({
+        organizationId: targetOrganizationId,
+        marketId: market.id,
+        userId: contextResult.context.userId,
+        productSetIds: catalogProductSetIds.length > 0
+          ? catalogProductSetIds
+          : normalizeUuidArray(body?.productSetIds ?? body?.product_set_ids),
+        assetSetIds: catalogAssetSetIds.length > 0
+          ? catalogAssetSetIds
+          : normalizeUuidArray(body?.assetSetIds ?? body?.asset_set_ids),
+      });
+
+      if (!catalogResult.ok) {
+        await supabase
+          .from("markets")
+          .delete()
+          .eq("organization_id", targetOrganizationId)
+          .eq("id", market.id);
+        return NextResponse.json({ error: catalogResult.error }, { status: catalogResult.status });
+      }
+    } else {
+      const defaults = await ensureDefaultGlobalCatalogSets({
+        organizationId: targetOrganizationId,
+        userId: contextResult.context.userId,
+      });
+
+      if (defaults.foundationAvailable) {
+        const defaultProductSetIds = defaults.productSetId ? [defaults.productSetId] : [];
+        const defaultAssetSetIds = defaults.assetSetId ? [defaults.assetSetId] : [];
+        if (defaultProductSetIds.length > 0 || defaultAssetSetIds.length > 0) {
+          const defaultCatalogResult = await replaceMarketCatalogAssignments({
+            organizationId: targetOrganizationId,
+            marketId: market.id,
+            userId: contextResult.context.userId,
+            productSetIds: defaultProductSetIds,
+            assetSetIds: defaultAssetSetIds,
+          });
+
+          if (!defaultCatalogResult.ok) {
+            await supabase
+              .from("markets")
+              .delete()
+              .eq("organization_id", targetOrganizationId)
+              .eq("id", market.id);
+            return NextResponse.json(
+              { error: defaultCatalogResult.error },
+              { status: defaultCatalogResult.status }
+            );
+          }
+        }
+      }
+    }
+
+    const catalogAssignments = await resolveMarketCatalogAssignments({
+      organizationId: targetOrganizationId,
+      marketId: market.id,
+    });
+
+    return NextResponse.json(
+      {
+        ...market,
+        catalog: catalogAssignments.foundationAvailable
+          ? {
+              productSetIds: catalogAssignments.productSetIds,
+              assetSetIds: catalogAssignments.assetSetIds,
+              productSets: catalogAssignments.productSets,
+              assetSets: catalogAssignments.assetSets,
+            }
+          : null,
+      },
+      { status: 201 }
+    );
   } catch (error) {
     console.error("Error in markets POST:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -505,6 +599,150 @@ export async function PATCH(
     return NextResponse.json(data);
   } catch (error) {
     console.error("Error in markets PATCH:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ tenant: string }> }
+) {
+  try {
+    const { tenant } = await params;
+    const url = new URL(request.url);
+    const selectedBrandSlug = url.searchParams.get("brand");
+
+    if (isCrossTenantWrite(tenant, selectedBrandSlug)) {
+      return NextResponse.json(
+        { error: "Cross-tenant writes are blocked in shared brand view." },
+        { status: 403 }
+      );
+    }
+
+    const contextResult = await resolveTenantBrandViewContext({
+      request,
+      tenantSlug: tenant,
+      selectedBrandSlug,
+    });
+    if (!contextResult.ok) {
+      return contextResult.response;
+    }
+
+    const targetOrganizationId = contextResult.context.targetOrganization.id;
+    const body = await request.json().catch(() => ({}));
+    const marketId = normalizeToken(
+      body?.market_id ??
+        body?.marketId ??
+        url.searchParams.get("market_id") ??
+        url.searchParams.get("marketId")
+    );
+
+    if (!marketId) {
+      return NextResponse.json({ error: "market_id is required." }, { status: 400 });
+    }
+
+    const { data: market, error: marketError } = await supabase
+      .from("markets")
+      .select("id,is_default,name,is_active")
+      .eq("organization_id", targetOrganizationId)
+      .eq("id", marketId)
+      .maybeSingle();
+
+    if (marketError) {
+      console.error("Error loading market for delete:", marketError);
+      return NextResponse.json({ error: "Failed to delete market." }, { status: 500 });
+    }
+
+    if (!market) {
+      return NextResponse.json({ error: "Market not found." }, { status: 404 });
+    }
+
+    const { count: marketCount, error: marketCountError } = await supabase
+      .from("markets")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", targetOrganizationId);
+
+    if (marketCountError) {
+      console.error("Error counting markets for delete:", marketCountError);
+      return NextResponse.json({ error: "Failed to delete market." }, { status: 500 });
+    }
+
+    if ((marketCount || 0) <= 1) {
+      return NextResponse.json(
+        { error: "At least one market must remain in the workspace." },
+        { status: 400 }
+      );
+    }
+
+    if (market.is_default) {
+      const { data: replacementMarket, error: replacementError } = await supabase
+        .from("markets")
+        .select("id")
+        .eq("organization_id", targetOrganizationId)
+        .neq("id", marketId)
+        .order("is_active", { ascending: false })
+        .order("name", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (replacementError || !replacementMarket?.id) {
+        console.error("Error selecting replacement default market:", replacementError);
+        return NextResponse.json(
+          { error: "Failed to reassign default market before delete." },
+          { status: 500 }
+        );
+      }
+
+      const { error: clearDefaultError } = await supabase
+        .from("markets")
+        .update({ is_default: false })
+        .eq("organization_id", targetOrganizationId);
+
+      if (clearDefaultError) {
+        console.error("Error clearing default market before delete:", clearDefaultError);
+        return NextResponse.json({ error: "Failed to delete market." }, { status: 500 });
+      }
+
+      const { error: setDefaultError } = await supabase
+        .from("markets")
+        .update({ is_default: true })
+        .eq("organization_id", targetOrganizationId)
+        .eq("id", replacementMarket.id);
+
+      if (setDefaultError) {
+        console.error("Error setting replacement default market:", setDefaultError);
+        return NextResponse.json({ error: "Failed to delete market." }, { status: 500 });
+      }
+    }
+
+    const { error: deleteError } = await supabase
+      .from("markets")
+      .delete()
+      .eq("organization_id", targetOrganizationId)
+      .eq("id", marketId);
+
+    if (deleteError) {
+      if (deleteError.code === "23503") {
+        return NextResponse.json(
+          {
+            error:
+              "This market is still referenced by other records. Disable it instead, or remove dependent records first.",
+          },
+          { status: 409 }
+        );
+      }
+      console.error("Error deleting market:", deleteError);
+      return NextResponse.json({ error: "Failed to delete market." }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        id: marketId,
+      },
+    });
+  } catch (error) {
+    console.error("Error in markets DELETE:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

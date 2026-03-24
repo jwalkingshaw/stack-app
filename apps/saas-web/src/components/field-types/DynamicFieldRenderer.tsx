@@ -34,6 +34,9 @@ interface DynamicFieldRendererProps {
   tenantSlug?: string;
   disabled?: boolean;
   className?: string;
+  productName?: string;
+  ingredients?: string;
+  otherIngredients?: string;
 }
 
 export function DynamicFieldRenderer({
@@ -42,7 +45,10 @@ export function DynamicFieldRenderer({
   onChange,
   tenantSlug,
   disabled = false,
-  className = ''
+  className = '',
+  productName,
+  ingredients,
+  otherIngredients,
 }: DynamicFieldRendererProps) {
   const handleChange = (newValue: unknown) => {
     if (onChange) {
@@ -211,6 +217,9 @@ export function DynamicFieldRenderer({
           tenantSlug={tenantSlug}
           disabled={disabled}
           className={className}
+          productName={productName}
+          ingredients={ingredients}
+          otherIngredients={otherIngredients}
         />
       );
 

@@ -86,7 +86,6 @@ export function PartnerUpdatesClient({ tenantSlug, scope }: PartnerUpdatesClient
     <div className="space-y-6">
       <PageHeader
         title="Updates"
-        description="Monitor update status and acknowledgements from shared brand feeds."
       />
       <PageContentContainer mode="form" padding="page">
         <div className="rounded-lg border border-border bg-white p-4">

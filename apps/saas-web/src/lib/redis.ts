@@ -1,5 +1,11 @@
 import { createClient } from 'redis'
 
+export const REDIS_KEY_PREFIX_SAAS = process.env.REDIS_KEY_PREFIX_SAAS || 'saas'
+
+function withPrefix(key: string): string {
+  return `${REDIS_KEY_PREFIX_SAAS}:${key}`
+}
+
 // Create Redis client with fallback handling for SAAS caching
 const redis = process.env.REDIS_URL_SAAS ? createClient({
   url: process.env.REDIS_URL_SAAS,
@@ -136,19 +142,21 @@ export const cache = new CacheService()
 
 // Cache key generators for consistency
 export const CacheKeys = {
-  user: (userId: string) => `user:${userId}`,
-  userSession: (userId: string) => `session:${userId}`,
-  organization: (orgId: string) => `org:${orgId}`,
-  organizationBySlug: (slug: string) => `org:slug:${slug}`,
-  organizationByKindeId: (kindeId: string) => `org:kinde:${kindeId}`,
-  organizationMembers: (orgId: string) => `org:${orgId}:members`,
-  products: (orgId: string, page = 1, limit = 50) => `products:${orgId}:${page}:${limit}`,
-  productFamilies: (orgId: string) => `families:${orgId}`,
-  productById: (productId: string) => `product:${productId}`,
-  assets: (orgId: string, folderId?: string) => `assets:${orgId}${folderId ? `:${folderId}` : ''}`,
-  assetById: (assetId: string) => `asset:${assetId}`,
-  apiResponse: (route: string, params: string) => `api:${route}:${params}`,
-  userOrgAccess: (userId: string, orgId: string) => `access:${userId}:${orgId}`,
+  user: (userId: string) => withPrefix(`user:${userId}`),
+  userSession: (userId: string) => withPrefix(`session:${userId}`),
+  organization: (orgId: string) => withPrefix(`org:${orgId}`),
+  organizationBySlug: (slug: string) => withPrefix(`org:slug:${slug}`),
+  organizationByKindeId: (kindeId: string) => withPrefix(`org:kinde:${kindeId}`),
+  organizationMembers: (orgId: string) => withPrefix(`org:${orgId}:members`),
+  organizationSlugExists: (slug: string) => withPrefix(`org:slug-exists:${slug}`),
+  userWorkspaces: (userId: string) => withPrefix(`user:${userId}:workspaces`),
+  products: (orgId: string, page = 1, limit = 50) => withPrefix(`products:${orgId}:${page}:${limit}`),
+  productFamilies: (orgId: string) => withPrefix(`families:${orgId}`),
+  productById: (productId: string) => withPrefix(`product:${productId}`),
+  assets: (orgId: string, folderId?: string) => withPrefix(`assets:${orgId}${folderId ? `:${folderId}` : ''}`),
+  assetById: (assetId: string) => withPrefix(`asset:${assetId}`),
+  apiResponse: (route: string, params: string) => withPrefix(`api:${route}:${params}`),
+  userOrgAccess: (userId: string, orgId: string) => withPrefix(`access:${userId}:${orgId}`),
 }
 
 // TTL constants (in seconds)
@@ -162,6 +170,8 @@ export const CacheTTL = {
   ASSET_SINGLE: 30 * 60,        // 30 minutes - single asset details
   API_RESPONSE: 5 * 60,         // 5 minutes - general API responses
   USER_ACCESS: 60 * 60,         // 1 hour - organization access permissions
+  WORKSPACES: 20,               // 20 seconds - high traffic user nav data
+  ORG_EXISTS: 5 * 60,           // 5 minutes - org slug availability checks
   SHORT: 2 * 60,                // 2 minutes - temporary cache
   LONG: 4 * 60 * 60,           // 4 hours - very stable data
 }

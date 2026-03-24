@@ -1,0 +1,141 @@
+{
+  "Onboarding": {
+    "slug": {
+      "checking": "Checking availability...",
+      "available": "Available.",
+      "findingAlternatives": "Finding alternatives...",
+      "suggestAlternatives": "Suggest alternatives",
+      "alternatives": "Available alternatives:"
+    },
+    "actions": {
+      "loading": "Loading...",
+      "creatingWorkspace": "Creating workspace...",
+      "continue": "Continue",
+      "createOrganization": "Create Organization",
+      "backToEdit": "Back to edit"
+    },
+    "fields": {
+      "organizationName": "Organization name",
+      "workspaceUrl": "Workspace URL",
+      "primaryMarket": "Primary Market",
+      "loadingMarkets": "Loading markets...",
+      "selectPrimaryMarket": "Select primary market",
+      "primaryMarketHint": "We will create this as your default market and seed its primary language.",
+      "workspaceLanguage": "Workspace language",
+      "selectWorkspaceLanguage": "Select workspace language",
+      "workspaceLanguageHint": "This controls the default UI language for users in this workspace."
+    },
+    "kitFlow": {
+      "title": "Set up your workspace",
+      "subtitle": "Just your organization name. You can fill in details later.",
+      "organizationPlaceholder": "e.g. GNC or Acme Retail",
+      "createAndAccess": "Create workspace and access kit",
+      "freeHint": "Your workspace is free forever. No credit card required."
+    },
+    "confirm": {
+      "title": "Ready to create {name}?",
+      "subtitle": "We'll set up your digital asset management workspace.",
+      "workspaceUrl": "Your workspace URL",
+      "organizationName": "Organization name",
+      "partnerBusinessType": "Partner business type",
+      "businessType": "Business type",
+      "defaultMarket": "Default market",
+      "workspaceLanguage": "Workspace language"
+    }
+  },
+  "Shell": {
+    "Header": {
+      "back": "Back"
+    },
+    "Sidebar": {
+      "dashboard": "Dashboard",
+      "catalog": "Catalog",
+      "assets": "Assets",
+      "products": "Products",
+      "updates": "Updates",
+      "expandSidebar": "Expand navigation sidebar",
+      "collapseSidebar": "Collapse navigation sidebar",
+      "openAccountMenu": "Open account menu",
+      "workspace": "Workspace",
+      "signedInAs": "Signed in as {user}",
+      "settings": "Settings",
+      "inviteManageMembers": "Invite and manage members",
+      "helpCenter": "Help center",
+      "logOut": "Log out"
+    },
+    "WorkspaceRail": {
+      "workspaceSwitcher": "Workspace switcher",
+      "viewAll": "View all",
+      "home": "Home",
+      "newCount": "new",
+      "createWorkspace": "Create workspace",
+      "notifications": "Notifications"
+    }
+  },
+  "Settings": {
+    "Navigation": {
+      "backToApp": "Back to app",
+      "sections": {
+        "organization": "Organization",
+        "product-families": "Product Models",
+        "field-groups": "Attribute Groups",
+        "product-fields": "Attributes",
+        "markets": "Markets",
+        "localization": "Localization",
+        "channels": "Channels",
+        "destinations": "Destinations",
+        "team": "Team",
+        "sets": "Sets",
+        "billing": "Billing"
+      }
+    },
+    "Organization": {
+      "toasts": {
+        "loadError": "Failed to load organization settings",
+        "saveSuccess": "Organization settings saved",
+        "saveError": "Failed to save organization settings",
+        "logoTypeError": "Please upload a PNG or JPG file",
+        "logoSizeError": "Logo must be 2MB or smaller",
+        "logoUploaded": "Logo uploaded",
+        "logoUploadError": "Failed to upload logo"
+      },
+      "cards": {
+        "organization": {
+          "title": "Organization Details",
+          "description": "Manage your workspace information and branding"
+        },
+        "branding": {
+          "title": "Branding",
+          "description": "Upload your organization logo and customize branding",
+          "logoAlt": "{workspace} logo",
+          "workspaceFallback": "Workspace",
+          "uploading": "Uploading...",
+          "upload": "Upload Logo",
+          "hint": "PNG, JPG up to 2MB. Recommended: 200x200px"
+        },
+        "language": {
+          "title": "Language Preferences",
+          "description": "Configure workspace default language and your personal override.",
+          "workspaceDefault": "Workspace default language",
+          "workspaceDefaultLocked": "Only owners and admins can update the workspace default language.",
+          "userOverride": "My language preference",
+          "useWorkspaceDefault": "Use workspace default",
+          "effectiveLabel": "Effective language: {locale}"
+        }
+      },
+      "fields": {
+        "name": "Organization Name",
+        "website": "Website",
+        "description": "Description",
+        "descriptionPlaceholder": "Brief description of your organization..."
+      },
+      "footer": {
+        "hint": "Changes are applied immediately for this workspace."
+      },
+      "actions": {
+        "saving": "Saving...",
+        "save": "Save Changes"
+      }
+    }
+  }
+}

@@ -2,7 +2,7 @@
 
 import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, X, FileIcon, Loader2 } from 'lucide-react';
+import { Upload, X, FileIcon } from 'lucide-react';
 import { Button } from './button';
 import { formatFileSize } from '../lib/utils';
 import type { FileUploadProgress } from '@tradetool/types';
@@ -99,7 +99,7 @@ export function FileUpload({
             <div key={index} className="flex items-center space-x-3 p-3 bg-card rounded-lg border shadow-soft">
               <div className="flex-shrink-0">
                 {file.status === 'uploading' || file.status === 'processing' ? (
-                  <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                  <span className="block h-5 w-5 rounded-full bg-primary/30 animate-pulse" />
                 ) : file.status === 'completed' ? (
                   <div className="w-5 h-5 bg-primary rounded-full flex items-center justify-center">
                     <span className="text-primary-foreground text-xs">✓</span>

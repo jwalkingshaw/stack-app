@@ -9,10 +9,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { ItemList } from '@/components/ui/item-list';
 import { ChevronLeft, Lock, Plus, Search, Trash2 } from 'lucide-react';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
+import { isLockedFieldGroupCode } from '@/lib/field-group-codes';
 import { SettingsSecondLevelPage } from '../../components/settings-page-content';
 
-const LOCKED_GROUP_CODES = new Set(['basic_info', 'documentation']);
 const LOCKED_CORE_FIELD_CODES = new Set([
   'title',
   'scin',
@@ -113,7 +113,7 @@ export default function FieldGroupDetailPage({
     setHasLoadedAvailableFields(false);
   }, [tenant, groupCode]);
 
-  const isLockedGroup = LOCKED_GROUP_CODES.has((fieldGroup?.code || groupCode).toLowerCase());
+  const isLockedGroup = isLockedFieldGroupCode(fieldGroup?.code || groupCode);
 
   const sortedAssignedFields = useMemo(
     () => [...assignedFields].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
@@ -208,12 +208,6 @@ export default function FieldGroupDetailPage({
   useEffect(() => {
     void fetchFieldGroup();
   }, [fetchFieldGroup]);
-
-  useEffect(() => {
-    if (!loading && fieldGroup && !hasLoadedAvailableFields) {
-      void fetchAvailableFields();
-    }
-  }, [loading, fieldGroup, hasLoadedAvailableFields, fetchAvailableFields]);
 
   useEffect(() => {
     if (showAddFieldsDialog) {
@@ -371,7 +365,7 @@ export default function FieldGroupDetailPage({
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading attribute group..." size="lg" />
+        <PageSkeleton text="Loading attribute group..." size="lg" />
       </div>
     );
   }
@@ -408,9 +402,6 @@ export default function FieldGroupDetailPage({
             {isLockedGroup ? (
               <>
                 <h2 className="text-2xl font-semibold text-foreground">{fieldGroup.name}</h2>
-                <p className="text-muted-foreground">
-                  {sortedAssignedFields.length} attributes | System group
-                </p>
                 {fieldGroup.description ? (
                   <p className="mt-1 text-sm text-muted-foreground">{fieldGroup.description}</p>
                 ) : null}
@@ -698,3 +689,4 @@ export default function FieldGroupDetailPage({
     </>
   );
 }
+

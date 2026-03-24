@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { AuthLayoutShell } from "@tradetool/ui";
 import { useAuth } from "@/hooks/useAuth";
-import { Loader2 } from "lucide-react";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 
 export default function LoginPage() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -47,13 +47,13 @@ export default function LoginPage() {
         contentClassName="pt-0"
       >
         <div className="flex items-center justify-center px-4 py-12 min-h-screen">
-          <div className="w-full max-w-[420px] rounded-2xl border border-muted/30 bg-white px-6 py-8 shadow-sm sm:px-8">
+          <div className="w-full max-w-[420px] rounded-2xl bg-white px-6 py-8 sm:px-8">
             <div className="space-y-6 text-left">
               <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">
                 STACKCESS
               </span>
               <div className="flex items-center gap-3">
-                <Loader2 className="h-5 w-5 animate-spin text-foreground" />
+                <LoadingSkeleton size="md" />
                 <p className="text-[var(--font-size-sm)] text-muted-foreground">
                   {authLoading ? 'Redirecting to authentication...' : 'Preparing your workspace...'}
                 </p>
@@ -73,7 +73,7 @@ export default function LoginPage() {
       contentClassName="pt-0"
     >
       <div className="flex items-center justify-center px-4 py-12 min-h-screen">
-        <div className="w-full max-w-[420px] rounded-2xl border border-muted/30 bg-white px-6 py-8 shadow-sm sm:px-8">
+        <div className="w-full max-w-[420px] rounded-2xl bg-white px-6 py-8 sm:px-8">
           <div className="space-y-8 text-left">
             <div className="space-y-2">
               <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">
@@ -132,3 +132,4 @@ export default function LoginPage() {
     </AuthLayoutShell>
   );
 }
+

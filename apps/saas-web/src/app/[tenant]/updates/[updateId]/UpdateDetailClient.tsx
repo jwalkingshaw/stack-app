@@ -31,7 +31,6 @@ import { PageContentContainer } from "@/components/ui/page-content-container";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
-import { LinkTabsList, LinkTabsTrigger } from "@/components/ui/link-tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -40,7 +39,6 @@ import {
   SIMPLE_RICH_TEXT_CONTENT_CLASS,
   SimpleRichTextEditor,
 } from "@/components/ui/simple-rich-text-editor";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -84,6 +82,7 @@ type KitItem = {
 type AnalyticsRecipient = {
   id: string;
   partnerOrganizationId: string | null;
+  partnerOrganizationName?: string | null;
   status: string;
   openedAt: string | null;
   acknowledgedAt: string | null;
@@ -159,6 +158,13 @@ type PendingPartnerInvite = {
   id: string;
   email: string;
   expiresAt: string | null;
+};
+
+type ShareSetOption = {
+  id: string;
+  moduleKey: "assets" | "products";
+  name: string;
+  itemCount: number;
 };
 
 interface UpdateDetailClientProps {
@@ -329,6 +335,12 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
   const [shareSuccessMessage, setShareSuccessMessage] = useState<string | null>(null);
   const [shareCopyLabel, setShareCopyLabel] = useState("Copy link");
   const [shareAvailable, setShareAvailable] = useState(true);
+  const [onboardingShareSetIds, setOnboardingShareSetIds] = useState<string[]>([]);
+  const [onboardingShareSetOptions, setOnboardingShareSetOptions] = useState<ShareSetOption[]>([]);
+  const [onboardingShareSetLoading, setOnboardingShareSetLoading] = useState(false);
+  const [onboardingShareSetError, setOnboardingShareSetError] = useState<string | null>(null);
+  const [showRegenerateConfirm, setShowRegenerateConfirm] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
   const [activeStep, setActiveStep] = useState<UpdateComposerStep>("compose");
   const [publishMode, setPublishMode] = useState<"now" | "schedule">("now");
   const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>("partners");
@@ -632,6 +644,56 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
   }, [partnerRecipientsLoaded, partnerRecipientsLoading, tenantSlug]);
 
 
+  const loadOnboardingShareSetOptions = useCallback(async () => {
+    setOnboardingShareSetLoading(true);
+    setOnboardingShareSetError(null);
+    try {
+      const query = new URLSearchParams({
+        module: "all",
+        page: "1",
+        pageSize: "200",
+      });
+      const response = await fetch(`/api/${tenantSlug}/sharing/sets?${query.toString()}`, {
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setOnboardingShareSetError(payload?.error || "Failed to load share sets.");
+        setOnboardingShareSetOptions([]);
+        return;
+      }
+
+      const data = payload?.data && typeof payload.data === "object" ? payload.data : {};
+      const productSets = Array.isArray((data as Record<string, unknown>).product_sets)
+        ? ((data as Record<string, unknown>).product_sets as Array<Record<string, unknown>>)
+        : [];
+      const assetSets = Array.isArray((data as Record<string, unknown>).asset_sets)
+        ? ((data as Record<string, unknown>).asset_sets as Array<Record<string, unknown>>)
+        : [];
+
+      const options: ShareSetOption[] = [...productSets, ...assetSets]
+        .map((row) => {
+          const id = String(row.id || "").trim();
+          const moduleKey = String(row.module_key || "").trim().toLowerCase();
+          const name = String(row.name || "").trim();
+          if (!id || !name) return null;
+          if (moduleKey !== "assets" && moduleKey !== "products") return null;
+          return {
+            id,
+            moduleKey: moduleKey as "assets" | "products",
+            name,
+            itemCount: Number.isFinite(Number(row.item_count)) ? Number(row.item_count) : 0,
+          } satisfies ShareSetOption;
+        })
+        .filter((option): option is ShareSetOption => Boolean(option))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      setOnboardingShareSetOptions(options);
+    } finally {
+      setOnboardingShareSetLoading(false);
+    }
+  }, [tenantSlug]);
+
   const loadShareSettings = useCallback(async () => {
     setShareLoading(true);
     setShareErrorMessage(null);
@@ -653,6 +715,14 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
       setSharePublicEnabled(Boolean(payload?.publicEnabled));
       setShareExpiresAt(toLocalDateTimeInput(typeof payload?.expiresAt === "string" ? payload.expiresAt : null));
       setShareUrl(typeof payload?.shareUrl === "string" ? payload.shareUrl : "");
+      setOnboardingShareSetIds(
+        Array.isArray(payload?.onboardingShareSetIds)
+          ? payload.onboardingShareSetIds
+              .filter((value: unknown): value is string => typeof value === "string")
+              .map((value: string) => value.trim())
+              .filter((value: string) => value.length > 0)
+          : []
+      );
     } finally {
       setShareLoading(false);
     }
@@ -756,6 +826,10 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
   useEffect(() => {
     void loadShareSettings();
   }, [loadShareSettings]);
+
+  useEffect(() => {
+    void loadOnboardingShareSetOptions();
+  }, [loadOnboardingShareSetOptions]);
 
   useEffect(() => {
     if (!update?.scheduled_for) return;
@@ -1390,6 +1464,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
   const updateShareSettings = async (params: {
     publicEnabled?: boolean;
     expiresAt?: string | null;
+    onboardingShareSetIds?: string[];
     regenerateToken?: boolean;
     successMessage?: string;
   }) => {
@@ -1399,6 +1474,9 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
       const body: Record<string, unknown> = {};
       if (typeof params.publicEnabled === "boolean") body.publicEnabled = params.publicEnabled;
       if (typeof params.expiresAt === "string") body.expiresAt = params.expiresAt;
+      if (Array.isArray(params.onboardingShareSetIds)) {
+        body.onboardingShareSetIds = params.onboardingShareSetIds;
+      }
       if (params.regenerateToken) body.regenerateToken = true;
       const response = await fetch(`/api/${tenantSlug}/updates/${updateId}/share`, {
         method: "PATCH",
@@ -1413,9 +1491,36 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
       setSharePublicEnabled(Boolean(payload?.publicEnabled));
       setShareExpiresAt(toLocalDateTimeInput(typeof payload?.expiresAt === "string" ? payload.expiresAt : null));
       setShareUrl(typeof payload?.shareUrl === "string" ? payload.shareUrl : "");
+      setOnboardingShareSetIds(
+        Array.isArray(payload?.onboardingShareSetIds)
+          ? payload.onboardingShareSetIds
+              .filter((value: unknown): value is string => typeof value === "string")
+              .map((value: string) => value.trim())
+              .filter((value: string) => value.length > 0)
+          : Array.isArray(params.onboardingShareSetIds)
+            ? params.onboardingShareSetIds
+            : []
+      );
       setShareSuccessMessage(params.successMessage || "Share settings saved.");
     } finally {
       setShareSaving(false);
+    }
+  };
+
+  const handleDuplicate = async () => {
+    setDuplicating(true);
+    try {
+      const resp = await fetch(`/api/${tenantSlug}/updates/${updateId}/duplicate`, { method: "POST" });
+      const json = (await resp.json()) as { success?: boolean; data?: { id: string }; error?: string };
+      if (!resp.ok || !json.data?.id) {
+        alert(json.error || "Failed to duplicate kit. Please try again.");
+        return;
+      }
+      window.location.href = `/${tenantSlug}/updates/${json.data.id}`;
+    } catch {
+      alert("Failed to duplicate kit. Please try again.");
+    } finally {
+      setDuplicating(false);
     }
   };
 
@@ -1429,6 +1534,14 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
       setShareCopyLabel("Copy failed");
       setTimeout(() => setShareCopyLabel("Copy link"), 1500);
     }
+  };
+
+  const toggleOnboardingShareSet = (shareSetId: string) => {
+    setOnboardingShareSetIds((current) =>
+      current.includes(shareSetId)
+        ? current.filter((id) => id !== shareSetId)
+        : [...current, shareSetId]
+    );
   };
 
   const togglePartnerRecipientSelection = (partnerOrganizationId: string) => {
@@ -1744,6 +1857,15 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
         backHref={`/${tenantSlug}/updates`}
         backLabel="Back to Updates"
         sticky={false}
+        actions={[
+          {
+            label: duplicating ? "Duplicating..." : "Duplicate Kit",
+            icon: Files,
+            onClick: () => void handleDuplicate(),
+            variant: "outline",
+            disabled: duplicating || loading || !isPublished,
+          },
+        ]}
       />
 
       {loading ? (
@@ -3241,7 +3363,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                               ? `Notified ${partnerRecipientIdsForDelivery.length} partner${partnerRecipientIdsForDelivery.length !== 1 ? "s" : ""}. Share link is ready to copy.`
                               : "Your share link is active and ready to distribute."}
                           </p>
-                          {sharePublicEnabled && shareUrl ? (
+                          {shareUrl ? (
                             <div className="mt-3 flex flex-wrap items-center gap-2">
                               <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-3 py-1.5">
                                 <span className="truncate text-xs text-muted-foreground">{shareUrl}</span>
@@ -3306,10 +3428,10 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                       value={publishMode}
                       onValueChange={(value) => setPublishMode(value as "now" | "schedule")}
                     >
-                      <LinkTabsList aria-label="Publish options tabs">
-                        <LinkTabsTrigger value="now">Publish now</LinkTabsTrigger>
-                        <LinkTabsTrigger value="schedule">Schedule</LinkTabsTrigger>
-                      </LinkTabsList>
+                      <TabsList aria-label="Publish options tabs">
+                        <TabsTrigger value="now">Publish now</TabsTrigger>
+                        <TabsTrigger value="schedule">Schedule</TabsTrigger>
+                      </TabsList>
 
                       <TabsContent value="now" className="mt-4">
                         <p className="text-xs text-muted-foreground">
@@ -3411,70 +3533,117 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
 
                       {shareAvailable ? (
                         <div className="rounded-md border border-border p-3">
-                          <div className="flex items-center justify-between gap-2">
-                            <div>
-                              <p className="text-sm font-medium text-foreground">Share link</p>
-                              <p className="text-xs text-muted-foreground">
-                                Copy and distribute this link through your own channels.
-                              </p>
-                            </div>
-                            <span className="rounded-full border border-border bg-muted/30 px-2 py-0.5 text-xs text-foreground">
-                              {sharePublicEnabled ? "Public link" : "Private link"}
-                            </span>
+                          <div>
+                            <p className="text-sm font-medium text-foreground">Share link</p>
+                            <p className="text-xs text-muted-foreground">
+                              Copy and distribute this link through your own channels. Recipients will be prompted to sign up or log in.
+                            </p>
                           </div>
 
-                          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                            <div className="rounded-md border border-border p-2.5">
-                              <div className="flex items-center justify-between gap-2">
-                                <div>
-                                  <p className="text-xs font-medium text-foreground">Link access</p>
-                                  <p className="text-xs text-muted-foreground">Enable public access</p>
-                                </div>
-                                <Switch
-                                  checked={sharePublicEnabled}
-                                  onCheckedChange={(checked) => setSharePublicEnabled(checked)}
-                                  disabled={shareSaving || shareLoading}
-                                />
+                          <div className="mt-3">
+                            <label className="mb-1 block text-xs font-medium text-muted-foreground">Link expiry</label>
+                            <Input
+                              type="datetime-local"
+                              value={shareExpiresAt}
+                              onChange={(event) => setShareExpiresAt(event.target.value)}
+                              disabled={shareSaving || shareLoading}
+                            />
+                          </div>
+
+                          <div className="mt-3 rounded-md border border-border p-3">
+                            <p className="text-xs font-medium text-foreground">Onboarding Share Sets</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Applied only to new partners created via this link.
+                            </p>
+
+                            {onboardingShareSetLoading ? (
+                              <p className="mt-2 text-xs text-muted-foreground">Loading Share Sets...</p>
+                            ) : onboardingShareSetOptions.length === 0 ? (
+                              <p className="mt-2 text-xs text-muted-foreground">
+                                No Share Sets available. Create sets in Sharing Settings first.
+                              </p>
+                            ) : (
+                              <div className="mt-2 max-h-40 space-y-1 overflow-y-auto pr-1">
+                                {onboardingShareSetOptions.map((option) => {
+                                  const checked = onboardingShareSetIds.includes(option.id);
+                                  return (
+                                    <label
+                                      key={option.id}
+                                      className="flex items-center justify-between gap-2 rounded border border-border/70 px-2 py-1.5 text-xs"
+                                    >
+                                      <span className="flex min-w-0 items-center gap-2">
+                                        <input
+                                          type="checkbox"
+                                          checked={checked}
+                                          onChange={() => toggleOnboardingShareSet(option.id)}
+                                          disabled={shareSaving || shareLoading}
+                                        />
+                                        <span className="truncate text-foreground">{option.name}</span>
+                                      </span>
+                                      <span className="shrink-0 text-muted-foreground">
+                                        {option.moduleKey === "products" ? "Products" : "Assets"}
+                                      </span>
+                                    </label>
+                                  );
+                                })}
                               </div>
-                            </div>
-                            <div>
-                              <label className="mb-1 block text-xs font-medium text-muted-foreground">Link expiry</label>
-                              <Input
-                                type="datetime-local"
-                                value={shareExpiresAt}
-                                onChange={(event) => setShareExpiresAt(event.target.value)}
-                                disabled={shareSaving || shareLoading}
-                              />
-                            </div>
+                            )}
+                            {onboardingShareSetError ? (
+                              <p className="mt-2 text-xs text-destructive">{onboardingShareSetError}</p>
+                            ) : null}
                           </div>
 
                           <div className="mt-3 flex flex-wrap gap-2">
                             <Button
                               onClick={() =>
                                 void updateShareSettings({
-                                  publicEnabled: sharePublicEnabled,
                                   expiresAt: shareExpiresAt ? new Date(shareExpiresAt).toISOString() : null,
+                                  onboardingShareSetIds,
                                   successMessage: "Share settings saved.",
-                                })
-                              }
-                              disabled={shareSaving || shareLoading || !shareExpiresAt}
-                            >
-                              {shareSaving ? "Saving..." : "Save Share Settings"}
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              className="gap-2"
-                              onClick={() =>
-                                void updateShareSettings({
-                                  regenerateToken: true,
-                                  successMessage: "Share link regenerated.",
                                 })
                               }
                               disabled={shareSaving || shareLoading}
                             >
-                              <RotateCcw className="h-4 w-4" />
-                              Regenerate Link
+                              {shareSaving ? "Saving..." : "Save Share Settings"}
                             </Button>
+                            {showRegenerateConfirm ? (
+                              <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5">
+                                <p className="text-xs text-amber-800">This will break any existing shared links. Continue?</p>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  className="h-7 text-xs"
+                                  onClick={() => {
+                                    setShowRegenerateConfirm(false);
+                                    void updateShareSettings({
+                                      regenerateToken: true,
+                                      successMessage: "Share link regenerated.",
+                                    });
+                                  }}
+                                  disabled={shareSaving}
+                                >
+                                  Regenerate
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-xs"
+                                  onClick={() => setShowRegenerateConfirm(false)}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
+                            ) : (
+                              <Button
+                                variant="secondary"
+                                className="gap-2"
+                                onClick={() => setShowRegenerateConfirm(true)}
+                                disabled={shareSaving || shareLoading}
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                                Regenerate Link
+                              </Button>
+                            )}
                           </div>
 
                           {shareErrorMessage ? (
@@ -3507,70 +3676,88 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
             ) : null}
 
             {activeStep === "analytics" ? (
-              <div className="rounded-lg border border-border bg-white p-5">
-                <h2 className="text-base font-semibold text-foreground">Recipient Analytics</h2>
-                {metrics ? (
-                  <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-7">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Recipients</p>
-                      <p className="font-semibold">{metrics.recipientCount}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Open rate</p>
-                      <p className="font-semibold">{Math.round(metrics.openRate * 100)}%</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Acknowledge rate</p>
-                      <p className="font-semibold">{Math.round(metrics.acknowledgeRate * 100)}%</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Activation rate</p>
-                      <p className="font-semibold">{Math.round(metrics.activationRate * 100)}%</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Overdue</p>
-                      <p className="font-semibold">{metrics.overdueRecipientCount}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Public share opens</p>
-                      <p className="font-semibold">{metrics.publicShareOpenCount || 0}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Unique public viewers</p>
-                      <p className="font-semibold">{metrics.uniquePublicViewerCount || 0}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-muted-foreground">Analytics not available.</p>
-                )}
+              <div className="rounded-lg border border-border bg-white overflow-hidden">
+                {/* Header */}
+                <div className="border-b border-border px-5 py-4">
+                  <h2 className="text-base font-semibold text-foreground">Analytics</h2>
+                </div>
 
-                {analyticsRecipients.length > 0 ? (
-                  <div className="mt-4 overflow-x-auto">
-                    <table className="w-full min-w-[680px] text-sm">
+                {/* Summary metrics table */}
+                {metrics ? (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full border-collapse">
                       <thead className="bg-muted/50">
-                        <tr className="border-b border-border">
-                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Partner Org</th>
-                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</th>
-                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Opened</th>
-                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Acknowledged</th>
-                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Activated</th>
-                          <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Due</th>
+                        <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Recipients</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Open rate</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Acknowledge rate</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Activation rate</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Overdue</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Share opens</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Unique viewers</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {analyticsRecipients.slice(0, 50).map((recipient) => (
-                          <tr key={recipient.id} className="border-b border-border/60">
-                            <td className="px-2 py-2">{recipient.partnerOrganizationId || "-"}</td>
-                            <td className="px-2 py-2">{recipient.status}</td>
-                            <td className="px-2 py-2">{formatDate(recipient.openedAt)}</td>
-                            <td className="px-2 py-2">{formatDate(recipient.acknowledgedAt)}</td>
-                            <td className="px-2 py-2">{formatDate(recipient.activatedAt)}</td>
-                            <td className="px-2 py-2">{formatDate(recipient.dueAt)}</td>
-                          </tr>
-                        ))}
+                        <tr>
+                          <td className="px-4 py-3 text-sm font-semibold text-foreground">{metrics.recipientCount}</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-foreground">{Math.round(metrics.openRate * 100)}%</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-foreground">{Math.round(metrics.acknowledgeRate * 100)}%</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-foreground">{Math.round(metrics.activationRate * 100)}%</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-foreground">{metrics.overdueRecipientCount}</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-foreground">{metrics.publicShareOpenCount || 0}</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-foreground">{metrics.uniquePublicViewerCount || 0}</td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>
+                ) : (
+                  <p className="px-5 py-4 text-sm text-muted-foreground">Analytics not available.</p>
+                )}
+
+                {/* Per-recipient breakdown */}
+                {analyticsRecipients.length > 0 ? (
+                  <>
+                    <div className="border-t border-border bg-muted/30 px-5 py-2">
+                      <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Per-recipient breakdown</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full border-collapse">
+                        <thead className="bg-muted/50">
+                          <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Partner</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Status</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Opened</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Acknowledged</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Activated</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">Due</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {analyticsRecipients.slice(0, 50).map((recipient) => (
+                            <tr key={recipient.id} style={{ borderBottom: "1px solid #f3f4f6" }} className="hover:bg-muted/20 transition-colors">
+                              <td className="px-4 py-3 text-sm text-foreground" title={recipient.partnerOrganizationId || undefined}>
+                                {recipient.partnerOrganizationName?.trim() || recipient.partnerOrganizationId || "-"}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                  recipient.status === "activated" ? "bg-emerald-50 text-emerald-700" :
+                                  recipient.status === "acknowledged" ? "bg-blue-50 text-blue-700" :
+                                  recipient.status === "opened" ? "bg-sky-50 text-sky-700" :
+                                  "bg-muted/50 text-muted-foreground"
+                                }`}>
+                                  {recipient.status}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(recipient.openedAt)}</td>
+                              <td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(recipient.acknowledgedAt)}</td>
+                              <td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(recipient.activatedAt)}</td>
+                              <td className="px-4 py-3 text-sm text-muted-foreground">{formatDate(recipient.dueAt)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 ) : null}
               </div>
             ) : null}
@@ -3580,7 +3767,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
       {kitDrawerOpen ? (
         <button
           type="button"
-          className="fixed bottom-6 right-6 z-50 flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-accent-blue)] text-white shadow-xl transition-all hover:opacity-90 active:scale-95"
+          className="fixed bottom-6 right-6 z-50 flex h-11 w-11 items-center justify-center rounded-full bg-[var(--color-accent-blue)] text-white shadow-xl transition-all hover:bg-[var(--color-accent-blue-hover)] active:scale-95 active:bg-[var(--color-accent-blue-active)]"
           onClick={() => setKitDrawerOpen(false)}
         >
           <X className="h-5 w-5" />
@@ -3588,7 +3775,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
       ) : (
         <button
           type="button"
-          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-[var(--color-accent-blue)] px-4 py-2.5 text-sm font-medium text-white shadow-xl transition-all hover:opacity-90 active:scale-95"
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-[var(--color-accent-blue)] px-4 py-2.5 text-sm font-medium text-white shadow-xl transition-all hover:bg-[var(--color-accent-blue-hover)] active:scale-95 active:bg-[var(--color-accent-blue-active)]"
           onClick={() => setKitDrawerOpen(true)}
         >
           <Files className="h-4 w-4" />

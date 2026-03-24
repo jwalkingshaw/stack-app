@@ -30,6 +30,7 @@ const selectTriggerClass =
   'h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground shadow-none'
 const stepperClass =
   'inline-flex h-7 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+const GLOBAL_SELECT_VALUE = '__global__'
 
 export function ScopeToolbar({ showCycleControls = true }: { showCycleControls?: boolean }) {
   const {
@@ -56,6 +57,7 @@ export function ScopeToolbar({ showCycleControls = true }: { showCycleControls?:
   const canCycleMarkets = showCycleControls && markets.length >= 3
   const canCycleChannels = showCycleControls && channels.length >= 3
   const canCycleDestinations = showCycleControls && availableDestinations.length >= 3
+  const shouldShowChannelControl = channels.length > 0
   const shouldShowLanguageControl = visibleLocales.length !== 1
 
   return (
@@ -105,48 +107,49 @@ export function ScopeToolbar({ showCycleControls = true }: { showCycleControls?:
       </div>
 
       {/* Channel */}
-      <div className={groupClass}>
-        <span className={labelClass}>Channel</span>
-        {canCycleChannels && (
-          <button
-            type="button"
-            onClick={() => setSelectedChannelId(getNextSelectionId(channels, selectedChannelId, 'prev'))}
-            className={stepperClass}
-            aria-label="Previous channel"
+      {shouldShowChannelControl && (
+        <div className={groupClass}>
+          <span className={labelClass}>Channel</span>
+          {canCycleChannels && (
+            <button
+              type="button"
+              onClick={() => setSelectedChannelId(getNextSelectionId(channels, selectedChannelId, 'prev'))}
+              className={stepperClass}
+              aria-label="Previous channel"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <Select
+            value={selectedChannelId || GLOBAL_SELECT_VALUE}
+            onValueChange={(value) =>
+              setSelectedChannelId(value === GLOBAL_SELECT_VALUE ? null : value || null)
+            }
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
-        )}
-        <Select
-          value={selectedChannelId || undefined}
-          onValueChange={(value) => setSelectedChannelId(value || null)}
-          disabled={channels.length === 0}
-        >
-          <SelectTrigger
-            className={`${selectTriggerClass} w-[132px] sm:w-[142px]`}
-            disabled={channels.length === 0}
-          >
-            <SelectValue placeholder="No channels" />
-          </SelectTrigger>
-          {channels.length > 0 ? (
+            <SelectTrigger
+              className={`${selectTriggerClass} w-[132px] sm:w-[142px]`}
+            >
+              <SelectValue />
+            </SelectTrigger>
             <SelectContent>
+              <SelectItem value={GLOBAL_SELECT_VALUE}>Global</SelectItem>
               {channels.map((c) => (
                 <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
               ))}
             </SelectContent>
-          ) : null}
-        </Select>
-        {canCycleChannels && (
-          <button
-            type="button"
-            onClick={() => setSelectedChannelId(getNextSelectionId(channels, selectedChannelId, 'next'))}
-            className={stepperClass}
-            aria-label="Next channel"
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
+          </Select>
+          {canCycleChannels && (
+            <button
+              type="button"
+              onClick={() => setSelectedChannelId(getNextSelectionId(channels, selectedChannelId, 'next'))}
+              className={stepperClass}
+              aria-label="Next channel"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Destination */}
       {availableDestinations.length > 0 && (
@@ -163,13 +166,16 @@ export function ScopeToolbar({ showCycleControls = true }: { showCycleControls?:
           </button>
         )}
           <Select
-            value={selectedDestinationId || undefined}
-            onValueChange={(value) => setSelectedDestinationId(value || null)}
+            value={selectedDestinationId || GLOBAL_SELECT_VALUE}
+            onValueChange={(value) =>
+              setSelectedDestinationId(value === GLOBAL_SELECT_VALUE ? null : value || null)
+            }
           >
             <SelectTrigger className={`${selectTriggerClass} w-[132px] sm:w-[142px]`}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value={GLOBAL_SELECT_VALUE}>Global</SelectItem>
               {availableDestinations.map((d) => (
                 <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
               ))}

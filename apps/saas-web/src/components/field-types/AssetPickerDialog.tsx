@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
-import { Search, FileText, Loader2 } from 'lucide-react';
+import { Search, FileText } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
 
 export interface AssetSummary {
   id: string;
@@ -239,8 +240,8 @@ export function AssetPickerDialog({
 
           {loading ? (
             <div className="flex items-center justify-center py-12 text-muted-foreground">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              Loading assetsÃ¢â‚¬Â¦
+              <LoadingSkeleton size="md" className="mr-2" />
+              Loading assets...
             </div>
           ) : filteredAssets.length === 0 ? (
             <div className="flex items-center justify-center py-16 text-center text-sm text-muted-foreground">
@@ -333,3 +334,5 @@ export function AssetPickerDialog({
     </Dialog>
   );
 }
+
+

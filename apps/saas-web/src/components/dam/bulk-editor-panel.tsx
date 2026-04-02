@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { X, Save, Tag, FileText, AlertCircle, Shield, Palette, Link2 } from "lucide-react";
+import { Save, Tag, FileText, AlertCircle, Shield, Palette, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { MultiSelect } from "@/components/ui/multi-select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetFooter,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import type { AssetTag } from "@tradetool/types";
 import {
@@ -57,15 +64,12 @@ interface BulkUpdateData {
   updateFields: {
     tags?: { mode: "replace" | "add" | "remove"; tagIds: string[] };
     description?: { mode: "replace" | "append"; value: string };
-    // Group 1: Status & Approval
     assetStatus?: string;
     complianceStatus?: string;
     brandLegalApproval?: string;
     claimsReviewStatus?: string;
-    // Group 2: Classification
     artworkType?: string;
     printVsDigital?: string;
-    // Group 3: Regulatory
     certifications?: { mode: "add" | "remove"; values: string[] };
     regulatoryRegion?: { mode: "add" | "remove"; values: string[] };
     wadaRiskLevel?: string;
@@ -92,15 +96,12 @@ const INITIAL_FIELD_STATES: Record<string, FieldState> = {
 const INITIAL_FORM_DATA = {
   tagIds: [] as string[],
   description: "",
-  // Group 1
   assetStatus: "",
   complianceStatus: "",
   brandLegalApproval: "",
   claimsReviewStatus: "",
-  // Group 2
   artworkType: "",
   printVsDigital: "",
-  // Group 3
   certificationValues: [] as string[],
   certificationMode: "add" as "add" | "remove",
   regulatoryRegionValues: [] as string[],
@@ -127,7 +128,6 @@ export function BulkEditorPanel({
     errors: Array<{ assetId: string; error: string }>;
   } | null>(null);
 
-  // Product links group state
   const [isProductLinkDialogOpen, setIsProductLinkDialogOpen] = useState(false);
   const [productLinkSelection, setProductLinkSelection] = useState<ProductSelection>(createEmptySelection());
   const [variantsByProductId, setVariantsByProductId] = useState<Record<string, VariantSummary[]>>({});
@@ -253,7 +253,10 @@ export function BulkEditorPanel({
     const updateFields: BulkUpdateData["updateFields"] = {};
 
     if (fieldStates.tags.enabled) {
-      updateFields.tags = { mode: fieldStates.tags.mode as TagMode, tagIds: formData.tagIds };
+      // replace with empty = clear all tags (intentional); add/remove with empty = no-op, skip
+      if (fieldStates.tags.mode === "replace" || formData.tagIds.length > 0) {
+        updateFields.tags = { mode: fieldStates.tags.mode as TagMode, tagIds: formData.tagIds };
+      }
     }
     if (fieldStates.description.enabled && formData.description.trim()) {
       updateFields.description = {
@@ -294,452 +297,438 @@ export function BulkEditorPanel({
     }
   }, [fieldStates, formData, assets.length, onSave]);
 
-  const hasChangesToApply = Object.entries(fieldStates).some(([field, state]) => {
-    if (!state.enabled) return false;
-    if (field === "tags") {
-      if (state.mode === "replace") return true;
-      return formData.tagIds.length > 0;
-    }
-    if (field === "description") return formData.description.trim().length > 0;
-    if (field === "statusApproval") {
-      return !!(formData.assetStatus || formData.complianceStatus || formData.brandLegalApproval || formData.claimsReviewStatus);
-    }
-    if (field === "classification") return !!(formData.artworkType || formData.printVsDigital);
-    if (field === "regulatory") {
-      return !!(formData.certificationValues.length || formData.regulatoryRegionValues.length || formData.wadaRiskLevel);
-    }
-    return false;
-  });
-
-  if (!isOpen) return null;
+  const hasChangesToApply = Object.values(fieldStates).some((s) => s.enabled);
 
   return (
     <>
-      <div
-        className="fixed inset-0 bg-black/30 backdrop-blur-sm transition-opacity z-40"
-        onClick={onClose}
-      />
-
-      <div className="fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl transition-transform duration-300 ease-out z-50 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b bg-gray-50">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">Bulk Edit Assets</h2>
-            <p className="text-sm text-gray-600 mt-1">{assets.length} assets selected</p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onClose} className="text-gray-600 hover:text-gray-800">
-            <X className="w-5 h-5" />
-          </Button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto">
-          {saveProgress && (
-            <div className="p-6 border-b bg-blue-50">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-blue-900">Updating assets...</span>
-                <span className="text-sm text-blue-700">{saveProgress.completed}/{saveProgress.total}</span>
+      <Sheet open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+        <SheetContent side="right" className="flex flex-col w-full max-w-md p-0">
+          <SheetHeader className="px-6 py-5 border-b bg-gray-50 shrink-0">
+            <div className="flex items-center justify-between">
+              <div>
+                <SheetTitle>Bulk Edit Assets</SheetTitle>
+                <p className="text-sm text-muted-foreground mt-0.5">{assets.length} assets selected</p>
               </div>
-              <div className="w-full bg-blue-200 rounded-full h-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${(saveProgress.completed / saveProgress.total) * 100}%` }}
-                />
-              </div>
-              {saveProgress.errors.length > 0 && (
-                <div className="mt-3 text-sm text-red-600">{saveProgress.errors.length} errors occurred</div>
-              )}
             </div>
-          )}
+          </SheetHeader>
 
-          <div className="p-6 space-y-6">
-            {/* Tags */}
-            <div>
-              <div className="flex items-center gap-3 mb-3">
-                <input
-                  type="checkbox"
-                  id="enable-tags"
-                  checked={fieldStates.tags.enabled}
-                  onChange={() => handleFieldToggle("tags")}
-                  className="w-4 h-4 rounded border-input"
-                />
-                <label htmlFor="enable-tags" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <Tag className="w-4 h-4" />
-                  Tags
-                </label>
-              </div>
-              {fieldStates.tags.enabled && (
-                <div className="ml-7 space-y-3">
-                  <Select
-                    value={fieldStates.tags.mode}
-                    onValueChange={(value) => handleModeChange("tags", value as FieldState["mode"])}
-                  >
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="add">Add to existing tags</SelectItem>
-                      <SelectItem value="replace">Replace all tags</SelectItem>
-                      <SelectItem value="remove">Remove these tags</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    value={tagFilter}
-                    onChange={(e) => setTagFilter(e.target.value)}
-                    placeholder="Search tags..."
-                    className="text-sm"
+          <div className="flex-1 overflow-y-auto">
+            {saveProgress && (
+              <div className="px-6 py-4 border-b bg-blue-50">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-blue-900">Updating assets...</span>
+                  <span className="text-sm text-blue-700">{saveProgress.completed}/{saveProgress.total}</span>
+                </div>
+                <div className="w-full bg-blue-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${(saveProgress.completed / saveProgress.total) * 100}%` }}
                   />
-                  <div className="flex flex-wrap gap-2">
-                    {filteredTags.length === 0 && (
-                      <span className="text-xs text-gray-500">No tags found</span>
+                </div>
+                {saveProgress.errors.length > 0 && (
+                  <div className="mt-3 text-sm text-red-600">{saveProgress.errors.length} errors occurred</div>
+                )}
+              </div>
+            )}
+
+            <div className="p-6 space-y-6">
+              {/* Tags */}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <input
+                    type="checkbox"
+                    id="enable-tags"
+                    checked={fieldStates.tags.enabled}
+                    onChange={() => handleFieldToggle("tags")}
+                    className="w-4 h-4 rounded border-input"
+                  />
+                  <label htmlFor="enable-tags" className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <Tag className="w-4 h-4" />
+                    Tags
+                  </label>
+                </div>
+                {fieldStates.tags.enabled && (
+                  <div className="ml-7 space-y-3">
+                    <Select
+                      value={fieldStates.tags.mode}
+                      onValueChange={(value) => handleModeChange("tags", value as FieldState["mode"])}
+                    >
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="add">Add to existing tags</SelectItem>
+                        <SelectItem value="replace">Replace all tags</SelectItem>
+                        <SelectItem value="remove">Remove these tags</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      value={tagFilter}
+                      onChange={(e) => setTagFilter(e.target.value)}
+                      placeholder="Search tags..."
+                      className="text-sm"
+                    />
+                    {fieldStates.tags.mode === "replace" && formData.tagIds.length === 0 && (
+                      <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                        No tags selected — applying will remove all tags from {assets.length} assets.
+                      </p>
                     )}
-                    {filteredTags.map((tag) => {
-                      const isSelected = formData.tagIds.includes(tag.id);
-                      return (
-                        <Badge
-                          key={tag.id}
-                          variant={isSelected ? "default" : "secondary"}
-                          className={cn(
-                            "text-xs px-2 py-1 cursor-pointer transition-colors",
-                            isSelected ? "bg-primary text-primary-foreground" : ""
-                          )}
-                          onClick={() => toggleTag(tag.id)}
-                        >
-                          {tag.name}
-                        </Badge>
-                      );
-                    })}
+                    <div className="flex flex-wrap gap-2">
+                      {filteredTags.length === 0 && (
+                        <span className="text-xs text-gray-500">No tags found</span>
+                      )}
+                      {filteredTags.map((tag) => {
+                        const isSelected = formData.tagIds.includes(tag.id);
+                        return (
+                          <Badge
+                            key={tag.id}
+                            variant={isSelected ? "default" : "secondary"}
+                            className={cn(
+                              "text-xs px-2 py-1 cursor-pointer transition-colors",
+                              isSelected ? "bg-primary text-primary-foreground" : ""
+                            )}
+                            onClick={() => toggleTag(tag.id)}
+                          >
+                            {tag.name}
+                          </Badge>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-
-            {/* Description */}
-            <div>
-              <div className="flex items-center gap-3 mb-3">
-                <input
-                  type="checkbox"
-                  id="enable-description"
-                  checked={fieldStates.description.enabled}
-                  onChange={() => handleFieldToggle("description")}
-                  className="w-4 h-4 rounded border-input"
-                />
-                <label htmlFor="enable-description" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  Description
-                </label>
+                )}
               </div>
-              {fieldStates.description.enabled && (
-                <div className="ml-7 space-y-3">
-                  <Select
-                    value={fieldStates.description.mode}
-                    onValueChange={(value) => handleModeChange("description", value as FieldState["mode"])}
-                  >
-                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="replace">Replace description</SelectItem>
-                      <SelectItem value="append">Append to description</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                    placeholder="Enter description..."
-                    rows={3}
-                    className="w-full resize-none text-sm"
+
+              {/* Description */}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <input
+                    type="checkbox"
+                    id="enable-description"
+                    checked={fieldStates.description.enabled}
+                    onChange={() => handleFieldToggle("description")}
+                    className="w-4 h-4 rounded border-input"
                   />
+                  <label htmlFor="enable-description" className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    Description
+                  </label>
                 </div>
-              )}
-            </div>
-
-            {/* Group 1: Status & Approval */}
-            <div>
-              <div className="flex items-center gap-3 mb-3">
-                <input
-                  type="checkbox"
-                  id="enable-status-approval"
-                  checked={fieldStates.statusApproval.enabled}
-                  onChange={() => handleFieldToggle("statusApproval")}
-                  className="w-4 h-4 rounded border-input"
-                />
-                <label htmlFor="enable-status-approval" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <Shield className="w-4 h-4" />
-                  Status & Approval
-                </label>
+                {fieldStates.description.enabled && (
+                  <div className="ml-7 space-y-3">
+                    <Select
+                      value={fieldStates.description.mode}
+                      onValueChange={(value) => handleModeChange("description", value as FieldState["mode"])}
+                    >
+                      <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="replace">Replace description</SelectItem>
+                        <SelectItem value="append">Append to description</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                      placeholder="Enter description..."
+                      rows={3}
+                      className="w-full resize-none text-sm"
+                    />
+                    {fieldStates.description.mode === "replace" && !formData.description.trim() && (
+                      <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                        Empty value — applying will clear the description on {assets.length} assets.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
-              {fieldStates.statusApproval.enabled && (
-                <div className="ml-7 space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
+
+              {/* Status & Approval */}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <input
+                    type="checkbox"
+                    id="enable-status-approval"
+                    checked={fieldStates.statusApproval.enabled}
+                    onChange={() => handleFieldToggle("statusApproval")}
+                    className="w-4 h-4 rounded border-input"
+                  />
+                  <label htmlFor="enable-status-approval" className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <Shield className="w-4 h-4" />
+                    Status & Approval
+                  </label>
+                </div>
+                {fieldStates.statusApproval.enabled && (
+                  <div className="ml-7 space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <label className="block text-xs text-muted-foreground">Asset Status</label>
+                        <Select value={formData.assetStatus} onValueChange={(v) => setFormData((p) => ({ ...p, assetStatus: v }))}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
+                          <SelectContent>
+                            {ASSET_STATUS_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs text-muted-foreground">Compliance</label>
+                        <Select value={formData.complianceStatus} onValueChange={(v) => setFormData((p) => ({ ...p, complianceStatus: v }))}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Pending">Pending Review</SelectItem>
+                            <SelectItem value="Approved">Approved</SelectItem>
+                            <SelectItem value="Rejected">Rejected</SelectItem>
+                            <SelectItem value="Under Review">Under Review</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs text-muted-foreground">Brand / Legal</label>
+                        <Select value={formData.brandLegalApproval} onValueChange={(v) => setFormData((p) => ({ ...p, brandLegalApproval: v }))}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Pending">Pending</SelectItem>
+                            <SelectItem value="Approved">Approved</SelectItem>
+                            <SelectItem value="Rejected">Rejected</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs text-muted-foreground">Claims Review</label>
+                        <Select value={formData.claimsReviewStatus} onValueChange={(v) => setFormData((p) => ({ ...p, claimsReviewStatus: v }))}>
+                          <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pending">Pending</SelectItem>
+                            <SelectItem value="approved">Approved</SelectItem>
+                            <SelectItem value="challenged">Challenged</SelectItem>
+                            <SelectItem value="expired">Expired</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Classification */}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <input
+                    type="checkbox"
+                    id="enable-classification"
+                    checked={fieldStates.classification.enabled}
+                    onChange={() => handleFieldToggle("classification")}
+                    className="w-4 h-4 rounded border-input"
+                  />
+                  <label htmlFor="enable-classification" className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <Palette className="w-4 h-4" />
+                    Classification
+                  </label>
+                </div>
+                {fieldStates.classification.enabled && (
+                  <div className="ml-7 space-y-3">
                     <div className="space-y-1">
-                      <label className="block text-xs text-muted-foreground">Asset Status</label>
-                      <Select value={formData.assetStatus} onValueChange={(v) => setFormData((p) => ({ ...p, assetStatus: v }))}>
+                      <label className="block text-xs text-muted-foreground">Artwork Type</label>
+                      <Select value={formData.artworkType} onValueChange={(v) => setFormData((p) => ({ ...p, artworkType: v }))}>
                         <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
                         <SelectContent>
-                          {ASSET_STATUS_OPTIONS.map((opt) => (
+                          {ARTWORK_TYPE_OPTIONS.map((opt) => (
                             <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <label className="block text-xs text-muted-foreground">Compliance</label>
-                      <Select value={formData.complianceStatus} onValueChange={(v) => setFormData((p) => ({ ...p, complianceStatus: v }))}>
+                      <label className="block text-xs text-muted-foreground">Print vs Digital</label>
+                      <Select value={formData.printVsDigital} onValueChange={(v) => setFormData((p) => ({ ...p, printVsDigital: v }))}>
                         <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Pending">Pending Review</SelectItem>
-                          <SelectItem value="Approved">Approved</SelectItem>
-                          <SelectItem value="Rejected">Rejected</SelectItem>
-                          <SelectItem value="Under Review">Under Review</SelectItem>
+                          {PRINT_VS_DIGITAL_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs text-muted-foreground">Brand / Legal</label>
-                      <Select value={formData.brandLegalApproval} onValueChange={(v) => setFormData((p) => ({ ...p, brandLegalApproval: v }))}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Pending">Pending</SelectItem>
-                          <SelectItem value="Approved">Approved</SelectItem>
-                          <SelectItem value="Rejected">Rejected</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-xs text-muted-foreground">Claims Review</label>
-                      <Select value={formData.claimsReviewStatus} onValueChange={(v) => setFormData((p) => ({ ...p, claimsReviewStatus: v }))}>
-                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="approved">Approved</SelectItem>
-                          <SelectItem value="challenged">Challenged</SelectItem>
-                          <SelectItem value="expired">Expired</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Group 2: Classification */}
-            <div>
-              <div className="flex items-center gap-3 mb-3">
-                <input
-                  type="checkbox"
-                  id="enable-classification"
-                  checked={fieldStates.classification.enabled}
-                  onChange={() => handleFieldToggle("classification")}
-                  className="w-4 h-4 rounded border-input"
-                />
-                <label htmlFor="enable-classification" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <Palette className="w-4 h-4" />
-                  Classification
-                </label>
-              </div>
-              {fieldStates.classification.enabled && (
-                <div className="ml-7 space-y-3">
-                  <div className="space-y-1">
-                    <label className="block text-xs text-muted-foreground">Artwork Type</label>
-                    <Select value={formData.artworkType} onValueChange={(v) => setFormData((p) => ({ ...p, artworkType: v }))}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
-                      <SelectContent>
-                        {ARTWORK_TYPE_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-xs text-muted-foreground">Print vs Digital</label>
-                    <Select value={formData.printVsDigital} onValueChange={(v) => setFormData((p) => ({ ...p, printVsDigital: v }))}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
-                      <SelectContent>
-                        {PRINT_VS_DIGITAL_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Group 3: Regulatory */}
-            <div>
-              <div className="flex items-center gap-3 mb-3">
-                <input
-                  type="checkbox"
-                  id="enable-regulatory"
-                  checked={fieldStates.regulatory.enabled}
-                  onChange={() => handleFieldToggle("regulatory")}
-                  className="w-4 h-4 rounded border-input"
-                />
-                <label htmlFor="enable-regulatory" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4" />
-                  Regulatory
-                </label>
-              </div>
-              {fieldStates.regulatory.enabled && (
-                <div className="ml-7 space-y-4">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-xs font-medium text-foreground">Certifications</label>
-                      <div className="flex gap-1">
-                        {(["add", "remove"] as const).map((mode) => (
-                          <button
-                            key={mode}
-                            type="button"
-                            onClick={() => setFormData((p) => ({ ...p, certificationMode: mode }))}
-                            className={cn(
-                              "rounded px-2 py-0.5 text-xs border",
-                              formData.certificationMode === mode
-                                ? "border-primary bg-primary/10 text-primary"
-                                : "border-border hover:border-primary/40"
-                            )}
-                          >
-                            {mode === "add" ? "Add" : "Remove"}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <MultiSelect
-                      options={CERTIFICATION_OPTIONS}
-                      value={formData.certificationValues}
-                      onChange={(v) => setFormData((p) => ({ ...p, certificationValues: v }))}
-                      placeholder="Select certifications"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-xs font-medium text-foreground">Regulatory Regions</label>
-                      <div className="flex gap-1">
-                        {(["add", "remove"] as const).map((mode) => (
-                          <button
-                            key={mode}
-                            type="button"
-                            onClick={() => setFormData((p) => ({ ...p, regulatoryRegionMode: mode }))}
-                            className={cn(
-                              "rounded px-2 py-0.5 text-xs border",
-                              formData.regulatoryRegionMode === mode
-                                ? "border-primary bg-primary/10 text-primary"
-                                : "border-border hover:border-primary/40"
-                            )}
-                          >
-                            {mode === "add" ? "Add" : "Remove"}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <MultiSelect
-                      options={REGION_OPTIONS}
-                      value={formData.regulatoryRegionValues}
-                      onChange={(v) => setFormData((p) => ({ ...p, regulatoryRegionValues: v }))}
-                      placeholder="Select regions"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-xs font-medium text-foreground">WADA Risk Level</label>
-                    <Select value={formData.wadaRiskLevel} onValueChange={(v) => setFormData((p) => ({ ...p, wadaRiskLevel: v }))}>
-                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
-                      <SelectContent>
-                        {WADA_RISK_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Group 4: Product Linking */}
-            {tenantSlug && (
-              <div>
-                <div className="flex items-center gap-3 mb-3">
-                  <input
-                    type="checkbox"
-                    id="enable-product-links"
-                    checked={fieldStates.productLinks.enabled}
-                    onChange={() => handleFieldToggle("productLinks")}
-                    className="w-4 h-4 rounded border-input"
-                  />
-                  <label htmlFor="enable-product-links" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                    <Link2 className="w-4 h-4" />
-                    Product Linking
-                  </label>
-                </div>
-                {fieldStates.productLinks.enabled && (
-                  <div className="ml-7 space-y-3">
-                    <p className="text-xs text-muted-foreground">
-                      Link all {assets.length} selected assets to the chosen products. Always additive — existing links are preserved.
-                    </p>
-                    {hasProductSelection(productLinkSelection) ? (
-                      <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-foreground">
-                        {productLinkSelection.all
-                          ? "All products selected"
-                          : `${productLinkSelection.productIds.length} product(s) + ${
-                              Object.values(productLinkSelection.variantIdsByProduct).flat().length
-                            } variant(s) selected`}
-                      </div>
-                    ) : null}
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        className="h-8 px-3 text-sm"
-                        onClick={() => setIsProductLinkDialogOpen(true)}
-                      >
-                        <Link2 className="mr-1 h-3.5 w-3.5" />
-                        {hasProductSelection(productLinkSelection) ? "Change Selection" : "Select Products"}
-                      </Button>
-                      {hasProductSelection(productLinkSelection) && (
-                        <Button
-                          variant="accent-blue"
-                          className="h-8 px-3 text-sm"
-                          disabled={isApplyingProductLinks}
-                          onClick={() => void handleApplyProductLinks()}
-                        >
-                          {isApplyingProductLinks ? (
-                            <>
-                              <LoadingSkeleton size="sm" className="mr-2" />
-                              Linking...
-                            </>
-                          ) : (
-                            `Link to ${assets.length} assets`
-                          )}
-                        </Button>
-                      )}
                     </div>
                   </div>
                 )}
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Footer */}
-        <div className="border-t bg-gray-50 p-6">
-          <div className="flex gap-3">
-            <Button variant="outline" onClick={onClose} className="flex-1" disabled={isSaving}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => void handleSave()}
-              disabled={!hasChangesToApply || isSaving}
-              className="flex-1"
-            >
-              {isSaving ? (
-                <>
-                  <LoadingSkeleton size="sm" className="mr-2" />
-                  Applying...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  Apply to {assets.length}
-                </>
+              {/* Regulatory */}
+              <div>
+                <div className="flex items-center gap-3 mb-3">
+                  <input
+                    type="checkbox"
+                    id="enable-regulatory"
+                    checked={fieldStates.regulatory.enabled}
+                    onChange={() => handleFieldToggle("regulatory")}
+                    className="w-4 h-4 rounded border-input"
+                  />
+                  <label htmlFor="enable-regulatory" className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" />
+                    Regulatory
+                  </label>
+                </div>
+                {fieldStates.regulatory.enabled && (
+                  <div className="ml-7 space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-medium text-foreground">Certifications</label>
+                        <div className="flex gap-1">
+                          {(["add", "remove"] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setFormData((p) => ({ ...p, certificationMode: mode }))}
+                              className={cn(
+                                "rounded px-2 py-0.5 text-xs border",
+                                formData.certificationMode === mode
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border hover:border-primary/40"
+                              )}
+                            >
+                              {mode === "add" ? "Add" : "Remove"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <MultiSelect
+                        options={CERTIFICATION_OPTIONS}
+                        value={formData.certificationValues}
+                        onChange={(v) => setFormData((p) => ({ ...p, certificationValues: v }))}
+                        placeholder="Select certifications"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-medium text-foreground">Regulatory Regions</label>
+                        <div className="flex gap-1">
+                          {(["add", "remove"] as const).map((mode) => (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => setFormData((p) => ({ ...p, regulatoryRegionMode: mode }))}
+                              className={cn(
+                                "rounded px-2 py-0.5 text-xs border",
+                                formData.regulatoryRegionMode === mode
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border hover:border-primary/40"
+                              )}
+                            >
+                              {mode === "add" ? "Add" : "Remove"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <MultiSelect
+                        options={REGION_OPTIONS}
+                        value={formData.regulatoryRegionValues}
+                        onChange={(v) => setFormData((p) => ({ ...p, regulatoryRegionValues: v }))}
+                        placeholder="Select regions"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-xs font-medium text-foreground">WADA Risk Level</label>
+                      <Select value={formData.wadaRiskLevel} onValueChange={(v) => setFormData((p) => ({ ...p, wadaRiskLevel: v }))}>
+                        <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
+                        <SelectContent>
+                          {WADA_RISK_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Product Linking */}
+              {tenantSlug && (
+                <div>
+                  <div className="flex items-center gap-3 mb-3">
+                    <input
+                      type="checkbox"
+                      id="enable-product-links"
+                      checked={fieldStates.productLinks.enabled}
+                      onChange={() => handleFieldToggle("productLinks")}
+                      className="w-4 h-4 rounded border-input"
+                    />
+                    <label htmlFor="enable-product-links" className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                      <Link2 className="w-4 h-4" />
+                      Product Linking
+                    </label>
+                  </div>
+                  {fieldStates.productLinks.enabled && (
+                    <div className="ml-7 space-y-3">
+                      <p className="text-xs text-muted-foreground">
+                        Link all {assets.length} selected assets to the chosen products. Always additive — existing links are preserved.
+                      </p>
+                      {hasProductSelection(productLinkSelection) ? (
+                        <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-foreground">
+                          {productLinkSelection.all
+                            ? "All products selected"
+                            : `${productLinkSelection.productIds.length} product(s) + ${
+                                Object.values(productLinkSelection.variantIdsByProduct).flat().length
+                              } variant(s) selected`}
+                        </div>
+                      ) : null}
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="h-8 px-3 text-sm"
+                          onClick={() => setIsProductLinkDialogOpen(true)}
+                        >
+                          <Link2 className="mr-1 h-3.5 w-3.5" />
+                          {hasProductSelection(productLinkSelection) ? "Change Selection" : "Select Products"}
+                        </Button>
+                        {hasProductSelection(productLinkSelection) && (
+                          <Button
+                            variant="accent-blue"
+                            className="h-8 px-3 text-sm"
+                            disabled={isApplyingProductLinks}
+                            onClick={() => void handleApplyProductLinks()}
+                          >
+                            {isApplyingProductLinks ? (
+                              <>
+                                <LoadingSkeleton size="sm" className="mr-2" />
+                                Linking...
+                              </>
+                            ) : (
+                              `Link to ${assets.length} assets`
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
-            </Button>
+            </div>
           </div>
-        </div>
-      </div>
+
+          <SheetFooter className="border-t bg-gray-50 px-6 py-4 shrink-0">
+            <div className="flex gap-3 w-full">
+              <Button variant="outline" onClick={onClose} className="flex-1" disabled={isSaving}>
+                Cancel
+              </Button>
+              <Button
+                onClick={() => void handleSave()}
+                disabled={!hasChangesToApply || isSaving}
+                className="flex-1"
+              >
+                {isSaving ? (
+                  <>
+                    <LoadingSkeleton size="sm" className="mr-2" />
+                    Applying...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 mr-2" />
+                    Apply to {assets.length}
+                  </>
+                )}
+              </Button>
+            </div>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       <ProductLinkDialog
         open={isProductLinkDialogOpen}

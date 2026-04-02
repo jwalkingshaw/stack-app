@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -1375,7 +1375,7 @@ export function InlineVariantTable({
                     <div className="mt-4 max-h-64 overflow-y-auto rounded-md border border-border/60">
                       <table className="min-w-full text-xs">
                         <thead className="bg-muted/50">
-                          <tr className="border-b border-border">
+                          <tr className="border-b border-gray-200">
                             <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">SCIN</th>
                             <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Variant</th>
                             <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">SKU</th>
@@ -1389,7 +1389,7 @@ export function InlineVariantTable({
                             const defaultName = `${productName} ${values.join(' ')}`.trim();
                             const edit = matrixEdits[index] || {};
                             return (
-                              <tr key={index} className="border-t border-border/60">
+                              <tr key={index} className="border-t border-gray-200">
                                 <td className="px-3 py-2 text-muted-foreground">{row.scin}</td>
                                 <td className="px-3 py-2">
                                   <Input
@@ -1469,7 +1469,7 @@ export function InlineVariantTable({
 
                 {matrixPreview.length > 0 && (
                   <div className="max-h-56 overflow-y-auto rounded-md border border-border/60 bg-muted/10">
-                    <div className="divide-y divide-border/60">
+                    <div className="divide-y divide-gray-200">
                       {matrixPreview.slice(0, 50).map((row, index) => (
                         <div key={index} className="px-3 py-2 text-xs text-muted-foreground">
                           <span className="text-foreground font-medium">#{index + 1}</span>{' '}

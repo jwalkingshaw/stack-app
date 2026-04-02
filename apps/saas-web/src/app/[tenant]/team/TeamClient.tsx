@@ -13,8 +13,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PageHeader } from "@/components/ui/page-header";
+import { DeleteConfirmDialog } from "@/components/ui/modal-shells";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ItemList } from "@/components/ui/item-list";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -723,10 +722,10 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
 
   return (
     <SettingsPageContent page="team">
-      <PageHeader
-        title={headerTitle}
-        description={headerDescription}
-      />
+      <div className="space-y-1">
+        <h2 className="text-2xl font-semibold text-foreground">{headerTitle}</h2>
+        <p className="text-sm text-muted-foreground">{headerDescription}</p>
+      </div>
 
       <div className="bg-background rounded-lg border border-border shadow-soft p-3">
         <Tabs value={activeTeamTab}>
@@ -778,13 +777,13 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       {/* Pending Invitations */}
       {showInternal && canManageInvites && pendingTeamInvitations.length > 0 && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
+          <div className="p-4 border-b border-gray-200">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
               <Clock className="h-4 w-4" />
               Pending Internal Invitations ({pendingTeamInvitations.length})
             </h3>
           </div>
-          <div className="divide-y divide-border">
+          <div className="divide-y divide-gray-200">
             {pendingTeamInvitations.map((invitation) => (
               <div
                 key={invitation.id}
@@ -875,13 +874,13 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
 
       {showPartners && canManagePartnerInvites && pendingPartnerInvitations.length > 0 && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
+          <div className="p-4 border-b border-gray-200">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
               <Clock className="h-4 w-4" />
               Pending Partner Invitations ({pendingPartnerInvitations.length})
             </h3>
           </div>
-          <div className="divide-y divide-border">
+          <div className="divide-y divide-gray-200">
             {pendingPartnerInvitations.map((invitation) => (
               <div
                 key={invitation.id}
@@ -950,7 +949,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
 
       {showPermissions && sharingAvailable !== false && canManageBrandSharing && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
+          <div className="p-4 border-b border-gray-200">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
               <Shield className="h-4 w-4" />
               Member Permissions
@@ -959,7 +958,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
               1) Invite user with baseline role. 2) Select member + market (global). 3) Configure Products + Assets actions together.
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Markets are a global scope for both DAM and PIM access. Use Shared Asset Sets for additional file/folder-level DAM sharing.
+              Markets are a global scope for both DAM and PIM access. Use Brand Libraries for additional file/folder-level DAM sharing.
             </p>
           </div>
           <div className="p-4 space-y-4">
@@ -1075,7 +1074,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                 <div className="h-10 bg-muted rounded animate-pulse" />
               </div>
             ) : (
-              <div className="divide-y divide-border border border-border rounded-lg">
+              <div className="divide-y divide-gray-200 border border-border rounded-lg">
                 {shareGrants
                   .filter(
                     (grant) =>
@@ -1136,15 +1135,15 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
 
       {showAssetSets && sharingAvailable !== false && canManageBrandSharing && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
-            <h3 className="text-sm font-medium text-foreground">Shared Asset Sets</h3>
+          <div className="p-4 border-b border-gray-200">
+            <h3 className="text-sm font-medium text-foreground">Brand Libraries</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Create named sets of folders/files for selective DAM sharing. Content outside sets remains private.
+              Create brand libraries of folders/files for selective DAM sharing. Content outside libraries remains private.
             </p>
           </div>
           <div className="p-4 space-y-4">
             <div className="rounded border border-border p-3 space-y-3">
-              <p className="text-sm font-medium text-foreground">Set Access to a Shared Asset Set</p>
+              <p className="text-sm font-medium text-foreground">Brand Library Access</p>
               <p className="text-xs text-muted-foreground">
                 Use this when you want folder/file-level sharing beyond market permissions.
               </p>
@@ -1213,7 +1212,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
               </div>
             </div>
 
-            <div className="divide-y divide-border border border-border rounded-lg">
+            <div className="divide-y divide-gray-200 border border-border rounded-lg">
               {shareGrants
                 .filter(
                   (grant) =>
@@ -1327,44 +1326,17 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Invitation</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete the invitation for{" "}
-              <span className="font-medium text-foreground">
-                {invitationToDelete?.email}
-              </span>
-              ?
-            </p>
-            <p className="text-sm text-muted-foreground">
-              This action cannot be undone. The user will no longer be able to accept this invitation.
-            </p>
-            <div className="flex gap-3 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1"
-                onClick={() => setDeleteConfirmOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                className="flex-1"
-                onClick={handleDeleteInvitation}
-              >
-                Delete
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={(open) => {
+          setDeleteConfirmOpen(open);
+          if (!open) setInvitationToDelete(null);
+        }}
+        title="Delete Invitation"
+        description={`Delete the invitation for ${invitationToDelete?.email || "this user"}? This action cannot be undone.`}
+        onConfirm={handleDeleteInvitation}
+        confirmLabel="Delete"
+      />
 
     </SettingsPageContent>
   );

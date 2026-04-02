@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { DeleteConfirmDialog } from '@/components/ui/modal-shells';
 import { Input } from '@/components/ui/input';
 import { ItemList } from '@/components/ui/item-list';
 import { ChevronLeft, Lock, Plus, Search, Trash2 } from 'lucide-react';
@@ -92,7 +93,6 @@ export default function FieldGroupDetailPage({
   const [selectedFieldsToAdd, setSelectedFieldsToAdd] = useState<string[]>([]);
   const [showAddFieldsDialog, setShowAddFieldsDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [detailsName, setDetailsName] = useState('');
@@ -280,7 +280,7 @@ export default function FieldGroupDetailPage({
   };
 
   const handleDeleteGroup = async () => {
-    if (isLockedGroup || deleteConfirmation.trim().toLowerCase() !== 'delete') return;
+    if (isLockedGroup) return;
 
     try {
       setDeleteLoading(true);
@@ -456,7 +456,6 @@ export default function FieldGroupDetailPage({
                   disabled={detailsSaving}
                   onClick={() => {
                     setDeleteError(null);
-                    setDeleteConfirmation('');
                     setShowDeleteDialog(true);
                   }}
                 >
@@ -639,53 +638,28 @@ export default function FieldGroupDetailPage({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <DeleteConfirmDialog
         open={showDeleteDialog}
         onOpenChange={(open) => {
           setShowDeleteDialog(open);
           if (!open) {
-            setDeleteConfirmation('');
             setDeleteError(null);
           }
         }}
+        title="Delete Attribute Group"
+        description={`Delete "${fieldGroup.name}" permanently. This action cannot be undone.`}
+        onConfirm={handleDeleteGroup}
+        confirmLabel="Delete group"
+        confirmLoading={deleteLoading}
+        safetyMode="typed"
+        confirmPhrase="delete"
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Attribute Group</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Delete &quot;{fieldGroup.name}&quot; permanently. This action cannot be undone.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Type <span className="font-mono bg-muted px-1 rounded">delete</span> to confirm:
-            </p>
-            <Input
-              value={deleteConfirmation}
-              onChange={(e) => setDeleteConfirmation(e.target.value)}
-              placeholder="Type 'delete' to confirm"
-            />
-            {deleteError ? (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
-                {deleteError}
-              </div>
-            ) : null}
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" onClick={() => setShowDeleteDialog(false)} className="flex-1">
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleDeleteGroup}
-                disabled={deleteLoading || deleteConfirmation.trim().toLowerCase() !== 'delete'}
-                className="flex-1"
-              >
-                {deleteLoading ? 'Deleting...' : 'Delete group'}
-              </Button>
-            </div>
+        {deleteError ? (
+          <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
+            {deleteError}
           </div>
-        </DialogContent>
-      </Dialog>
+        ) : null}
+      </DeleteConfirmDialog>
     </>
   );
 }

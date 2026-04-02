@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, Plus, Search } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -13,12 +12,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ItemList } from '@/components/ui/item-list';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@tradetool/ui';
 import { SettingsPageContent } from './settings-page-content';
 
 interface SetsSettingsProps {
@@ -53,8 +46,6 @@ interface ProductSetSummary {
   grant_count: number;
 }
 
-type SetSummary = AssetSetSummary | ProductSetSummary;
-
 interface SetsPayload {
   success: boolean;
   data: {
@@ -71,17 +62,29 @@ function getErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function setSubtitle(set: SetSummary): string {
+function assetSetSubtitle(set: AssetSetSummary): string {
   const parts: string[] = [];
-  if (set.module_key === 'assets') {
-    const count = set.asset_count + set.folder_count;
-    parts.push(count > 0 ? `${set.asset_count} assets · ${set.folder_count} folders` : '0 items');
-  } else {
-    const count = set.product_count + set.variant_count;
-    parts.push(count > 0 ? `${set.product_count} products · ${set.variant_count} variants` : '0 items');
-  }
+  const count = set.asset_count + set.folder_count;
+  parts.push(count > 0 ? `${set.asset_count} assets - ${set.folder_count} folders` : '0 items');
   if (set.market_count > 0) parts.push(`${set.market_count} markets`);
-  return parts.join(' · ');
+  return parts.join(' - ');
+}
+
+function productSetSubtitle(set: ProductSetSummary): string {
+  const parts: string[] = [];
+  const count = set.product_count + set.variant_count;
+  parts.push(count > 0 ? `${set.product_count} products - ${set.variant_count} variants` : '0 items');
+  if (set.market_count > 0) parts.push(`${set.market_count} markets`);
+  return parts.join(' - ');
+}
+
+function sharedBadge(grantCount: number) {
+  if (grantCount <= 0) return null;
+  return (
+    <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground">
+      {grantCount} shared
+    </span>
+  );
 }
 
 export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
@@ -124,15 +127,17 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
     void fetchSets();
   }, [fetchSets]);
 
-  const allSets = useMemo<SetSummary[]>(() => {
-    return [...assetSets, ...productSets].sort((a, b) => a.name.localeCompare(b.name));
-  }, [assetSets, productSets]);
-
-  const filteredSets = useMemo(() => {
+  const filteredAssetSets = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return allSets;
-    return allSets.filter((s) => s.name.toLowerCase().includes(q));
-  }, [allSets, search]);
+    if (!q) return assetSets;
+    return assetSets.filter((s) => s.name.toLowerCase().includes(q));
+  }, [assetSets, search]);
+
+  const filteredProductSets = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return productSets;
+    return productSets.filter((s) => s.name.toLowerCase().includes(q));
+  }, [productSets, search]);
 
   const openCreateDialog = useCallback((module: ShareSetModule) => {
     setCreateModule(module);
@@ -156,7 +161,7 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         id?: string;
         data?: { id?: string };
       };
-      if (!response.ok) throw new Error(payload.error || 'Failed to create set');
+      if (!response.ok) throw new Error(payload.error || 'Failed to create');
       const createdSetId = payload.data?.id || payload.id;
       setShowCreateDialog(false);
       setCreateName('');
@@ -166,7 +171,7 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         await fetchSets();
       }
     } catch (err) {
-      setCreateError(getErrorMessage(err, 'Failed to create set'));
+      setCreateError(getErrorMessage(err, 'Failed to create'));
     } finally {
       setCreating(false);
     }
@@ -176,7 +181,10 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
     <>
       <SettingsPageContent page="sets">
         <div>
-          <h2 className="text-2xl font-semibold text-foreground">Sets</h2>
+          <h2 className="text-2xl font-semibold text-foreground">Sharing</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Manage the product catalogs and brand libraries you share with partners.
+          </p>
         </div>
 
         {error ? (
@@ -188,58 +196,62 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search sets..."
+            placeholder="Search..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
 
-        <ItemList
-          items={filteredSets}
-          getKey={(s) => s.id}
-          renderTitle={(s) => s.name}
-          renderSubtitle={(s) => setSubtitle(s)}
-          renderRight={(s) => (
-            <div className="flex items-center gap-2">
-              <Badge variant={s.module_key === 'assets' ? 'info' : 'purple'}>
-                {s.module_key === 'assets' ? 'Assets' : 'Products'}
-              </Badge>
-              {s.grant_count > 0 ? (
-                <Badge variant="secondary">{s.grant_count} shared</Badge>
-              ) : null}
+        {/* Product Catalogs section */}
+        {productSetsEnabled ? (
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Product Catalogs</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Share curated product lists with partners. Product images and documents are included automatically.
+              </p>
             </div>
-          )}
-          onClickItem={(s) => router.push(`/${tenantSlug}/settings/sets/${s.id}`)}
-          loading={loading}
-          loadingRows={6}
-          emptyMessage={search.trim() ? 'No sets match your search.' : 'No sets yet. Create one to get started.'}
-          headerLabel="sets"
-          headerAction={
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add set
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onSelect={() => openCreateDialog('assets')}>
-                  Asset set
-                </DropdownMenuItem>
-                {productSetsEnabled ? (
-                  <DropdownMenuItem onSelect={() => openCreateDialog('products')}>
-                    Product set
-                  </DropdownMenuItem>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          }
-        />
+            <ItemList
+              items={filteredProductSets}
+              getKey={(s) => s.id}
+              renderTitle={(s) => s.name}
+              renderSubtitle={(s) => productSetSubtitle(s)}
+              renderRight={(s) => sharedBadge(s.grant_count)}
+              onClickItem={(s) => router.push(`/${tenantSlug}/settings/sets/${s.id}`)}
+              loading={loading}
+              loadingRows={3}
+              emptyMessage={search.trim() ? 'No catalogs match your search.' : 'No product catalogs yet.'}
+              headerLabel="product catalogs"
+              onCreate={() => openCreateDialog('products')}
+              createLabel="Add product catalog"
+            />
+          </div>
+        ) : null}
+
+        {/* Brand Libraries section */}
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-foreground">Brand Libraries</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Share standing brand files with partners - guidelines, compliance certificates, facility documents, and brand materials.
+            </p>
+          </div>
+          <ItemList
+            items={filteredAssetSets}
+            getKey={(s) => s.id}
+            renderTitle={(s) => s.name}
+            renderSubtitle={(s) => assetSetSubtitle(s)}
+            renderRight={(s) => sharedBadge(s.grant_count)}
+            onClickItem={(s) => router.push(`/${tenantSlug}/settings/sets/${s.id}`)}
+            loading={loading}
+            loadingRows={3}
+            emptyMessage={search.trim() ? 'No libraries match your search.' : 'No brand libraries yet.'}
+            headerLabel="brand libraries"
+            onCreate={() => openCreateDialog('assets')}
+            createLabel="Add brand library"
+          />
+        </div>
       </SettingsPageContent>
 
       <Dialog
@@ -253,16 +265,16 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              Create {createModule === 'assets' ? 'Asset' : 'Product'} Set
+              {createModule === 'assets' ? 'Create Brand Library' : 'Create Product Catalog'}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <label className="mb-2 block text-sm font-medium text-foreground">
-                Set name *
+                Name *
               </label>
               <Input
-                placeholder="e.g. Partner Catalog, Hero Images"
+                placeholder={createModule === 'assets' ? 'e.g. Brand Guidelines, Compliance Docs' : 'e.g. Partner Catalog, Summer Range'}
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void handleCreate(); }}
@@ -284,7 +296,7 @@ export default function SetsSettings({ tenantSlug }: SetsSettingsProps) {
                 disabled={creating || !createName.trim()}
                 className="flex-1"
               >
-                {creating ? 'Creating...' : 'Create set'}
+                {creating ? 'Creating...' : createModule === 'assets' ? 'Create library' : 'Create catalog'}
               </Button>
             </div>
           </div>

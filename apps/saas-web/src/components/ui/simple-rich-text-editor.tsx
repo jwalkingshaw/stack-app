@@ -460,7 +460,7 @@ function ToolbarPlugin({ disabled }: { disabled: boolean }) {
   }, [editor]);
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/20 p-2">
+    <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 bg-muted/20 p-2">
       <Button
         type="button"
         size="sm"

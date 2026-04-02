@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { S3Service } from "@tradetool/storage";
 import { supabaseServer } from "@/lib/supabase";
+import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 import {
   ASSET_VIEW_PERMISSION_KEYS,
   getScopedPermissionSummary,
@@ -20,16 +21,53 @@ type AssetRow = {
   thumbnail_urls: Record<string, unknown> | null;
 };
 
+const configuredCloudFrontDomain = (process.env.AWS_CLOUDFRONT_DOMAIN || "")
+  .trim()
+  .replace(/^https?:\/\//i, "")
+  .replace(/\/+$/, "")
+  .toLowerCase();
+
 function extractUrl(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function redirectNoStore(url: string) {
+function rewriteStorageUrlToCloudFront(url: string | null): string | null {
+  const raw = extractUrl(url);
+  if (!raw || !configuredCloudFrontDomain) return raw;
+  try {
+    const parsed = new URL(raw);
+    if (!parsed.hostname.toLowerCase().endsWith("amazonaws.com")) {
+      return raw;
+    }
+    const path = parsed.pathname.replace(/^\/+/, "");
+    return path ? `https://${configuredCloudFrontDomain}/${path}` : raw;
+  } catch {
+    return raw;
+  }
+}
+
+function resolvePreferredPreviewUrl(asset: AssetRow): string | null {
+  const thumbnailUrls =
+    asset.thumbnail_urls && typeof asset.thumbnail_urls === "object"
+      ? asset.thumbnail_urls
+      : null;
+
+  return (
+    rewriteStorageUrlToCloudFront(extractUrl(thumbnailUrls?.medium)) ||
+    rewriteStorageUrlToCloudFront(extractUrl(thumbnailUrls?.small)) ||
+    rewriteStorageUrlToCloudFront(extractUrl(asset.s3_url))
+  );
+}
+
+function redirectWithShortCache(url: string, maxAgeSeconds = 45) {
   const response = NextResponse.redirect(url, 307);
-  response.headers.set("Cache-Control", "no-store, max-age=0");
-  response.headers.set("Pragma", "no-cache");
+  response.headers.set(
+    "Cache-Control",
+    `private, max-age=${maxAgeSeconds}, stale-while-revalidate=120`
+  );
+  response.headers.set("Vary", "Cookie, Authorization");
   return response;
 }
 
@@ -61,6 +99,7 @@ export async function GET(
     const requestedViewScope = (requestUrl.searchParams.get("view") || "")
       .trim()
       .toLowerCase();
+    const forceSigned = requestUrl.searchParams.get("signed") === "1";
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -184,20 +223,37 @@ export async function GET(
       }
     }
 
-    const thumbnailUrls =
-      asset.thumbnail_urls && typeof asset.thumbnail_urls === "object"
-        ? asset.thumbnail_urls
-        : null;
-    const fallbackUrl =
-      extractUrl(thumbnailUrls?.medium) ||
-      extractUrl(thumbnailUrls?.small) ||
-      extractUrl(asset.s3_url);
+    const previewScopeDescriptor = [
+      `tenant=${tenant}`,
+      `asset=${asset.id}`,
+      `tenantOrg=${context.tenantOrganization.id}`,
+      `targetOrg=${context.targetOrganization.id}`,
+      `mode=${context.mode}`,
+      `brand=${context.selectedBrandSlug || "-"}`,
+      `view=${requestedViewScope || "-"}`,
+      `forceSigned=${forceSigned ? "1" : "0"}`,
+    ].join("|");
+    const previewScopeKey = Buffer.from(previewScopeDescriptor).toString("base64url");
+    const previewCacheKey = CacheKeys.assetPreview(asset.id, previewScopeKey);
+
+    const cachedRedirect = await redisCache.get<string>(previewCacheKey);
+    if (cachedRedirect) {
+      return redirectWithShortCache(cachedRedirect, 30);
+    }
+
+    const fallbackUrl = resolvePreferredPreviewUrl(asset);
 
     if (!asset.s3_key) {
       if (fallbackUrl) {
-        return redirectNoStore(fallbackUrl);
+        await redisCache.set(previewCacheKey, fallbackUrl, CacheTTL.ASSET_PREVIEW_FALLBACK);
+        return redirectWithShortCache(fallbackUrl, 60);
       }
       return NextResponse.json({ error: "Preview unavailable" }, { status: 404 });
+    }
+
+    if (!forceSigned && fallbackUrl) {
+      await redisCache.set(previewCacheKey, fallbackUrl, CacheTTL.ASSET_PREVIEW_FALLBACK);
+      return redirectWithShortCache(fallbackUrl, 60);
     }
 
     try {
@@ -206,10 +262,12 @@ export async function GET(
         contentType: asset.mime_type || undefined,
         forceDownload: false,
       });
-      return redirectNoStore(signedPreviewUrl);
+      await redisCache.set(previewCacheKey, signedPreviewUrl, CacheTTL.ASSET_PREVIEW_SIGNED);
+      return redirectWithShortCache(signedPreviewUrl, 30);
     } catch (error) {
       if (fallbackUrl) {
-        return redirectNoStore(fallbackUrl);
+        await redisCache.set(previewCacheKey, fallbackUrl, CacheTTL.ASSET_PREVIEW_FALLBACK);
+        return redirectWithShortCache(fallbackUrl, 60);
       }
       console.error("Failed to resolve signed preview URL:", error);
       return NextResponse.json({ error: "Preview unavailable" }, { status: 500 });

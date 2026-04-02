@@ -632,7 +632,7 @@ export default function InvitationAcceptClient() {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 pt-2 border-t border-border">
+                <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
                   <Clock className="h-4 w-4 text-muted-foreground" />
                   <span className="text-xs text-muted-foreground">
                     Expires {new Date(invitation.expiresAt).toLocaleDateString()}

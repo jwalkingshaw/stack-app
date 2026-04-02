@@ -163,108 +163,104 @@ export default function TeamMemberClient({
   const role = member.role;
 
   return (
-    <div className="space-y-6">
+    <SettingsPageContent page="team-member-detail">
       <PageHeader
         title={member.email}
         description="Manage role and workspace access for this member."
         backHref={`/${tenantSlug}/settings/team`}
         backLabel="Back to Team"
       />
-
-      <SettingsPageContent page="team-member-detail">
-        <div className="rounded-lg border border-border bg-background p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-sm text-muted-foreground">Current role</p>
-              <p className="text-sm font-medium text-foreground">{ROLE_LABELS[role]}</p>
-              <p className="text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[role]}</p>
-            </div>
-            <Badge variant={role === "owner" ? "purple" : role === "admin" ? "info" : role === "editor" ? "success" : "neutral"}>
-              {ROLE_LABELS[role]}
-            </Badge>
+      <div className="rounded-lg border border-border bg-background p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground">Current role</p>
+            <p className="text-sm font-medium text-foreground">{ROLE_LABELS[role]}</p>
+            <p className="text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[role]}</p>
           </div>
+          <Badge variant={role === "owner" ? "purple" : role === "admin" ? "info" : role === "editor" ? "success" : "neutral"}>
+            {ROLE_LABELS[role]}
+          </Badge>
         </div>
+      </div>
 
-        <div className="rounded-lg border border-border bg-background p-4 space-y-4">
-          <p className="text-sm font-semibold text-foreground">Role Management</p>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="w-full sm:w-[220px]">
-              <Select
-                value={selectedRole || "__none__"}
-                onValueChange={(value) =>
-                  setSelectedRole(value === "__none__" ? "" : (value as EditableRole))
-                }
-                disabled={!data.capabilities.can_change_role || savingRole}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {data.capabilities.role_options.map((roleOption) => (
-                    <SelectItem key={roleOption} value={roleOption}>
-                      {ROLE_LABELS[roleOption]}
-                    </SelectItem>
-                  ))}
-                  {data.capabilities.role_options.length === 0 && (
-                    <SelectItem value="__none__" disabled>
-                      No editable roles
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              size="sm"
-              onClick={() => void handleSaveRole()}
-              disabled={
-                savingRole ||
-                !data.capabilities.can_change_role ||
-                !selectedRole ||
-                !roleHasChanged
+      <div className="rounded-lg border border-border bg-background p-4 space-y-4">
+        <p className="text-sm font-semibold text-foreground">Role Management</p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="w-full sm:w-[220px]">
+            <Select
+              value={selectedRole || "__none__"}
+              onValueChange={(value) =>
+                setSelectedRole(value === "__none__" ? "" : (value as EditableRole))
               }
+              disabled={!data.capabilities.can_change_role || savingRole}
             >
-              {savingRole ? "Saving..." : "Save Role"}
-            </Button>
-          </div>
-          {!data.capabilities.can_change_role && (
-            <div className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              This member&apos;s role cannot be changed with your current permissions.
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 text-red-600" />
-            <div>
-              <p className="text-sm font-medium text-red-700">Remove Team Member</p>
-              <p className="text-xs text-red-700/80">
-                Removing a member revokes workspace access immediately.
-              </p>
-            </div>
+              <SelectTrigger>
+                <SelectValue placeholder="Select role" />
+              </SelectTrigger>
+              <SelectContent>
+                {data.capabilities.role_options.map((roleOption) => (
+                  <SelectItem key={roleOption} value={roleOption}>
+                    {ROLE_LABELS[roleOption]}
+                  </SelectItem>
+                ))}
+                {data.capabilities.role_options.length === 0 && (
+                  <SelectItem value="__none__" disabled>
+                    No editable roles
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
           </div>
           <Button
-            variant="destructive"
             size="sm"
-            onClick={() => void handleRemoveMember()}
-            disabled={!data.capabilities.can_remove || removing}
+            onClick={() => void handleSaveRole()}
+            disabled={
+              savingRole ||
+              !data.capabilities.can_change_role ||
+              !selectedRole ||
+              !roleHasChanged
+            }
           >
-            {removing ? "Removing..." : "Remove Member"}
+            {savingRole ? "Saving..." : "Save Role"}
           </Button>
-          {!data.capabilities.can_remove && (
-            <p className="text-xs text-red-700/80">
-              You cannot remove this member with your current permissions.
-            </p>
-          )}
         </div>
-
-        {error && (
-          <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {error}
+        {!data.capabilities.can_change_role && (
+          <div className="rounded border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            This member&apos;s role cannot be changed with your current permissions.
           </div>
         )}
-      </SettingsPageContent>
-    </div>
+      </div>
+
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 text-red-600" />
+          <div>
+            <p className="text-sm font-medium text-red-700">Remove Team Member</p>
+            <p className="text-xs text-red-700/80">
+              Removing a member revokes workspace access immediately.
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="destructive"
+          size="sm"
+          onClick={() => void handleRemoveMember()}
+          disabled={!data.capabilities.can_remove || removing}
+        >
+          {removing ? "Removing..." : "Remove Member"}
+        </Button>
+        {!data.capabilities.can_remove && (
+          <p className="text-xs text-red-700/80">
+            You cannot remove this member with your current permissions.
+          </p>
+        )}
+      </div>
+
+      {error && (
+        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+    </SettingsPageContent>
   );
 }
-

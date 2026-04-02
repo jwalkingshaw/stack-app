@@ -28,6 +28,10 @@ type CompletenessScope = {
   destinationId?: string | null;
 };
 
+type CompletenessEvaluationOptions = {
+  syncFamilyAttributes?: boolean;
+};
+
 type FieldValueRow = {
   product_field_id: string;
   value_text: string | null;
@@ -466,7 +470,8 @@ export async function evaluateProductCompleteness(
   productId: string,
   familyId?: string | null,
   overrides: Record<string, unknown> = {},
-  scope: CompletenessScope = {}
+  scope: CompletenessScope = {},
+  options: CompletenessEvaluationOptions = {}
 ): Promise<FamilyAttributeCompletion> {
   if (!familyId) {
     return {
@@ -477,7 +482,9 @@ export async function evaluateProductCompleteness(
     };
   }
 
-  await ensureFamilyAttributesFromFieldGroups(familyId);
+  if (options.syncFamilyAttributes !== false) {
+    await ensureFamilyAttributesFromFieldGroups(familyId);
+  }
 
   const { data: requiredAttributesRaw, error: requiredError } = await supabaseServer
     .from('family_attributes')

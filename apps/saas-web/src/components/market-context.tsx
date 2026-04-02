@@ -84,6 +84,7 @@ interface MarketContextValue {
   availableLocaleIdsForMarket: Set<string>
   shouldFilterLocalesByMarket: boolean
   isLoading: boolean
+  isReady: boolean
   setSelectedChannelId: (id: string | null) => void
   setSelectedMarketId: (id: string | null) => void
   setSelectedLocaleId: (id: string | null) => void
@@ -135,6 +136,7 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
   const [selectedLocaleId, setSelectedLocaleIdState] = useState<string | null>(null)
   const [selectedDestinationId, setSelectedDestinationIdState] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [hasInitialized, setHasInitialized] = useState(false)
   const [hasHydratedSelection, setHasHydratedSelection] = useState(false)
   const [selectionMode, setSelectionMode] = useState<{
     channel: ScopeSelectionMode
@@ -321,6 +323,7 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
       console.warn('Failed to load markets settings', error)
     } finally {
       setIsLoading(false)
+      setHasInitialized(true)
     }
   }, [tenantSlug, scopeQuery])
 
@@ -572,6 +575,7 @@ export function MarketContextProvider({ tenantSlug, children }: MarketContextPro
     availableLocaleIdsForMarket,
     shouldFilterLocalesByMarket,
     isLoading,
+    isReady: hasInitialized,
     setSelectedChannelId,
     setSelectedMarketId,
     setSelectedLocaleId,

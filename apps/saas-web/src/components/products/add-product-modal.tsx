@@ -4,19 +4,10 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Globe2 } from "lucide-react";
 import { generateProductUrl } from "@/lib/product-utils";
 import { useMarketContext } from "@/components/market-context";
 import { FullscreenFormModal } from "@/components/ui/modal-shells";
-import {
-  AuthoringScopePicker,
-  AuthoringScopeValue,
-  createGlobalAuthoringScope,
-  getAuthoringScopeSummary,
-  normalizeAuthoringScope,
-} from "@/components/scope/authoring-scope-picker";
 
 interface ProductFamily {
   id: string;
@@ -50,13 +41,8 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
   const router = useRouter();
   const {
     selectedMarketId,
-    selectedMarket,
-    selectedChannelId,
-    selectedChannel,
     selectedLocaleId,
     selectedLocale,
-    selectedDestinationId,
-    selectedDestination,
   } = useMarketContext();
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -66,8 +52,6 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
     status: 'Draft'
   });
   const [errors, setErrors] = useState<{[key: string]: string}>({});
-  const [showInitialScope, setShowInitialScope] = useState(false);
-  const [initialScope, setInitialScope] = useState<AuthoringScopeValue>(createGlobalAuthoringScope());
 
   // Product models data from API
   const [families, setFamilies] = useState<ProductFamily[]>([]);
@@ -77,12 +61,11 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
     const query = new URLSearchParams();
     if (selectedMarketId) query.set("marketId", selectedMarketId);
     if (selectedLocale?.code) query.set("locale", selectedLocale.code);
-    if (selectedChannel?.code) query.set("channel", selectedChannel.code);
 
     return query.toString()
       ? `${basePath}?${query.toString()}`
       : basePath;
-  }, [selectedMarketId, selectedLocale?.code, selectedChannel?.code]);
+  }, [selectedMarketId, selectedLocale?.code]);
 
   // Fetch families when modal opens
   const fetchFamilies = useCallback(async () => {
@@ -131,7 +114,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
     }
 
     if (!formData.family_id.trim()) {
-      newErrors.family_id = 'Product model is required';
+      newErrors.family_id = 'Family is required';
     }
 
     setErrors(newErrors);
@@ -156,7 +139,6 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
         body: JSON.stringify({
           ...formData,
           type: 'standalone', // Default to standalone product
-          initialScope: normalizeAuthoringScope(initialScope),
         }),
       });
 
@@ -224,43 +206,12 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
   const handleClose = () => {
     if (!isLoading) {
       setFormData({ sku: '', product_name: '', family_id: '', status: 'Draft' });
-      setShowInitialScope(false);
-      setInitialScope(createGlobalAuthoringScope());
       setErrors({});
       onClose();
     }
   };
 
   const isFormValid = formData.product_name.trim() && formData.family_id.trim();
-  const isScopedInitialScope = initialScope.mode === "scoped";
-  const hasScopedDimensions =
-    initialScope.marketIds.length > 0 ||
-    initialScope.channelIds.length > 0 ||
-    initialScope.localeIds.length > 0 ||
-    initialScope.destinationIds.length > 0;
-  const currentContextSummary = `${selectedMarket?.name || "Market"} / ${
-    selectedChannel?.name || "Channel"
-  } / ${selectedLocale?.code || "Language"} / ${
-    selectedDestination?.name || "All destinations"
-  }`;
-
-  const applyGlobalInitialScope = () => {
-    setInitialScope(createGlobalAuthoringScope());
-    setShowInitialScope(false);
-  };
-
-  const applyCurrentContextInitialScope = () => {
-    setInitialScope(
-      normalizeAuthoringScope({
-        mode: "scoped",
-        marketIds: selectedMarketId ? [selectedMarketId] : [],
-        channelIds: selectedChannelId ? [selectedChannelId] : [],
-        localeIds: selectedLocaleId ? [selectedLocaleId] : [],
-        destinationIds: selectedDestinationId ? [selectedDestinationId] : [],
-      })
-    );
-    setShowInitialScope(false);
-  };
 
   if (!isOpen) return null;
 
@@ -279,7 +230,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
       bodyClassName="mx-auto w-full max-w-2xl"
     >
       <p className="text-sm text-muted-foreground">
-        Select a product model to define the product template. You&apos;ll configure attributes on the product page.
+        Select a family to define the product&apos;s schema. You&apos;ll fill in attributes on the product page.
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4" id="add-product-form">
@@ -319,7 +270,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
 
           <div className="space-y-2">
             <label htmlFor="family_id" className="block text-sm font-medium text-gray-700">
-              Product Model *
+              Family *
             </label>
             <Select
               value={formData.family_id || ""}
@@ -332,10 +283,10 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
                 <SelectValue
                   placeholder={
                     familiesLoading
-                      ? "Loading product models..."
+                      ? "Loading families..."
                       : families.length === 0
-                      ? "No product models available - Create one in Settings"
-                      : "Select a product model..."
+                      ? "No families available — create one in Settings"
+                      : "Select a family..."
                   }
                 />
               </SelectTrigger>
@@ -375,81 +326,6 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
             </Select>
           </div>
 
-          <div className="rounded-xl border border-border bg-white p-4 shadow-soft space-y-3">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-foreground">Initial Authoring Scope</p>
-                  <Badge variant={isScopedInitialScope ? "info" : "neutral"}>
-                    {isScopedInitialScope ? "Scoped" : "Global"}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">(optional)</span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Viewing context is not written automatically unless you apply it here.
-                </p>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setShowInitialScope((prev) => !prev)}
-              >
-                {showInitialScope ? "Hide options" : "Edit scope"}
-              </Button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={!isScopedInitialScope ? "default" : "outline"}
-                className="h-8"
-                onClick={applyGlobalInitialScope}
-              >
-                <Globe2 className="mr-1.5 h-3.5 w-3.5" />
-                Use global
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8"
-                onClick={applyCurrentContextInitialScope}
-              >
-                Use current context
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={showInitialScope ? "default" : "outline"}
-                className="h-8"
-                onClick={() => setShowInitialScope((prev) => !prev)}
-              >
-                Custom
-              </Button>
-            </div>
-
-            <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2 text-xs">
-              <p className="font-medium text-foreground">Current: {getAuthoringScopeSummary(initialScope)}</p>
-              <p className="mt-1 text-muted-foreground">View context: {currentContextSummary}</p>
-              {isScopedInitialScope && !hasScopedDimensions ? (
-                <p className="mt-1 text-amber-700">
-                  Select at least one scope dimension or switch back to global.
-                </p>
-              ) : null}
-            </div>
-
-            {showInitialScope ? (
-              <div className="rounded-lg border border-border/70 bg-background p-3">
-                <AuthoringScopePicker
-                  showHeader={false}
-                  value={initialScope}
-                  onChange={(next) => setInitialScope(normalizeAuthoringScope(next))}
-                />
-              </div>
-            ) : null}
-          </div>
 
                   {/* Display all validation errors */}
                   {Object.entries(errors).length > 0 && (

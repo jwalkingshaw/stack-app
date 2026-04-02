@@ -51,6 +51,7 @@
       "dashboard": "Panel",
       "catalog": "Catálogo",
       "assets": "Activos",
+      "brandLibrary": "Biblioteca de Marca",
       "products": "Productos",
       "updates": "Actualizaciones",
       "expandSidebar": "Expandir barra lateral de navegación",
@@ -82,10 +83,9 @@
         "product-fields": "Atributos",
         "markets": "Mercados",
         "localization": "Localización",
-        "channels": "Canales",
-        "destinations": "Destinos",
+        "output-profiles": "Canales",
         "team": "Equipo",
-        "sets": "Sets",
+        "sets": "Compartir",
         "billing": "Facturación"
       }
     },
@@ -130,7 +130,13 @@
         "descriptionPlaceholder": "Descripción breve de tu organización..."
       },
       "footer": {
-        "hint": "Los cambios se aplican inmediatamente en este espacio."
+        "hint": "Los cambios se guardan automaticamente en este espacio.",
+        "status": {
+          "saving": "Guardando...",
+          "saved": "Guardado",
+          "unsaved": "Cambios sin guardar",
+          "error": "Fallo el guardado automatico"
+        }
       },
       "actions": {
         "saving": "Guardando...",

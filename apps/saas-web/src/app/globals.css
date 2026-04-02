@@ -114,6 +114,13 @@
   box-sizing: border-box;
 }
 
+/* Default all borders to the app's light border tone.
+   Directional utilities like border-t/b without an explicit color
+   should not fall back to dark/currentColor. */
+*, *::before, *::after {
+  border-color: hsl(220 13% 91% / var(--tw-border-opacity, 1));
+}
+
 /* Force reload - modern borders */
 
 /* Override UI package borders with higher specificity */

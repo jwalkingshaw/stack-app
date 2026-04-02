@@ -1,9 +1,10 @@
-import type { ReactNode } from "react";
+import { Children, isValidElement, type ReactNode } from "react";
 import {
   PageContentContainer,
   type PageContentMode,
   type PageContentPadding,
 } from "@/components/ui/page-content-container";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 import { getSettingsWidthConfig, type SettingsPageKey } from "./settings-width-map";
 
@@ -15,6 +16,20 @@ interface SettingsPageContentProps {
   modeOverride?: PageContentMode;
 }
 
+function hasHeadingLikeContent(node: ReactNode, depth = 0): boolean {
+  if (!isValidElement(node) || depth > 3) return false;
+
+  if (node.type === PageHeader) return true;
+  if (typeof node.type === "string" && ["h1", "h2", "h3", "header"].includes(node.type)) {
+    return true;
+  }
+
+  const nestedChildren = Children.toArray(
+    (node.props as { children?: ReactNode } | undefined)?.children
+  );
+  return nestedChildren.some((child) => hasHeadingLikeContent(child, depth + 1));
+}
+
 export function SettingsPageContent({
   page,
   children,
@@ -23,13 +38,33 @@ export function SettingsPageContent({
   modeOverride,
 }: SettingsPageContentProps) {
   const config = getSettingsWidthConfig(page);
+  const childrenArray = Children.toArray(children);
+  const firstChild = childrenArray[0];
+  const remainingChildren = childrenArray.slice(1);
+  const introAfterFirstChild = hasHeadingLikeContent(firstChild);
+
   return (
     <PageContentContainer
       mode={modeOverride ?? config.mode}
       padding={padding}
       className={cn(config.defaultClassName, className)}
     >
-      {children}
+      {introAfterFirstChild ? (
+        <div className="space-y-2">
+          {firstChild}
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            {config.helperIntro}
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            {config.helperIntro}
+          </p>
+          {firstChild ?? null}
+        </>
+      )}
+      {remainingChildren}
     </PageContentContainer>
   );
 }
@@ -71,22 +106,12 @@ export function SettingsSecondLevelPage({
   children,
   className,
 }: SettingsSecondLevelPageProps) {
-  const config = getSettingsWidthConfig(page);
-  const contentWidthClass =
-    config.mode === "form"
-      ? "mx-auto w-full max-w-4xl"
-      : config.mode === "content"
-      ? "mx-auto w-full max-w-5xl"
-      : config.mode === "narrow"
-      ? "mx-auto w-full max-w-3xl"
-      : "w-full";
-
   return (
-    <PageContentContainer mode="fluid" padding="page" className="space-y-5">
-      {backLink ? <div>{backLink}</div> : null}
-      <div className={cn(contentWidthClass, config.defaultClassName, className)}>
+    <SettingsPageContent page={page} padding="page">
+      <div className={cn("space-y-5", className)}>
+        {backLink ? <div>{backLink}</div> : null}
         {children}
       </div>
-    </PageContentContainer>
+    </SettingsPageContent>
   );
 }

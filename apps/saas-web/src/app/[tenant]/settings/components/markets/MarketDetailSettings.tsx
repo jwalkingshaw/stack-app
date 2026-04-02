@@ -6,14 +6,7 @@ import { useRouter } from 'next/navigation';
 import { ChevronLeft, Save } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { DeleteConfirmDialog } from '@/components/ui/modal-shells';
 import { Input } from '@/components/ui/input';
 import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -99,7 +92,6 @@ export default function MarketDetailSettings({ tenantSlug, marketId }: MarketDet
   const [customLocaleCode, setCustomLocaleCode] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -537,7 +529,6 @@ export default function MarketDetailSettings({ tenantSlug, marketId }: MarketDet
                   disabled: !canDeleteMarket || deleteSubmitting,
                   onSelect: () => {
                     setDeleteError(null);
-                    setDeleteConfirmation('');
                     setDeleteDialogOpen(true);
                   },
                 },
@@ -980,65 +971,31 @@ export default function MarketDetailSettings({ tenantSlug, marketId }: MarketDet
         ) : null}
       </div>
 
-      <Dialog
+      <DeleteConfirmDialog
         open={deleteDialogOpen}
         onOpenChange={(open) => {
           if (deleteSubmitting) return;
           setDeleteDialogOpen(open);
           if (!open) {
-            setDeleteConfirmation('');
             setDeleteError(null);
           }
         }}
+        title="Delete Market"
+        description={`Delete "${market.name}" permanently. This action cannot be undone.`}
+        onConfirm={() => void handleDeleteMarket()}
+        confirmLabel="Delete market"
+        confirmLoading={deleteSubmitting}
+        confirmDisabled={deleteSubmitting || !canDeleteMarket}
+        safetyMode={canDeleteMarket ? 'typed' : 'standard'}
+        confirmPhrase="DELETE"
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Market</DialogTitle>
-            <DialogDescription>
-              Delete &quot;{market.name}&quot; permanently. This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          {!canDeleteMarket ? (
-            <p className="text-sm text-muted-foreground">
-              You must keep at least one market in the workspace.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Type <span className="font-medium text-foreground">DELETE</span> to confirm.
-              </p>
-              <Input
-                value={deleteConfirmation}
-                onChange={(event) => setDeleteConfirmation(event.target.value)}
-                placeholder="Type DELETE"
-              />
-            </div>
-          )}
-          {deleteError ? (
-            <p className="text-sm text-destructive">{deleteError}</p>
-          ) : null}
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setDeleteDialogOpen(false)}
-              disabled={deleteSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => void handleDeleteMarket()}
-              disabled={
-                deleteSubmitting ||
-                !canDeleteMarket ||
-                deleteConfirmation.trim().toUpperCase() !== 'DELETE'
-              }
-            >
-              {deleteSubmitting ? 'Deleting...' : 'Delete market'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        {!canDeleteMarket ? (
+          <p className="text-sm text-muted-foreground">
+            You must keep at least one market in the workspace.
+          </p>
+        ) : null}
+        {deleteError ? <p className="text-sm text-destructive">{deleteError}</p> : null}
+      </DeleteConfirmDialog>
     </SettingsSecondLevelPage>
   );
 }

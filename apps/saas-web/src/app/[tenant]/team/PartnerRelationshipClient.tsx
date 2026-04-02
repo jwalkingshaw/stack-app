@@ -10,6 +10,13 @@ import { PageHeader } from "@/components/ui/page-header";
 import { BackLinkButton } from "@/components/ui/back-link-button";
 import { SettingsPageContent } from "../settings/components/settings-page-content";
 
+type OutputChannel = {
+  id: string;
+  name: string;
+  code: string;
+  profile_type: string;
+};
+
 type AssignedMarket = {
   assignment_id?: string;
   market_id: string;
@@ -17,6 +24,8 @@ type AssignedMarket = {
   code: string;
   valid_from: string | null;
   assigned_at?: string;
+  output_profile_id: string | null;
+  channel: OutputChannel | null;
 };
 
 type AvailableMarket = {
@@ -102,6 +111,8 @@ export default function PartnerRelationshipClient({
   const [assignedMarkets, setAssignedMarkets] = useState<AssignedMarket[]>([]);
   const [availableMarkets, setAvailableMarkets] = useState<AvailableMarket[]>([]);
   const [addMarketId, setAddMarketId] = useState("");
+  const [channels, setChannels] = useState<OutputChannel[]>([]);
+  const [updatingChannelForMarket, setUpdatingChannelForMarket] = useState<string | null>(null);
 
   const fetchDetails = useCallback(async () => {
     try {
@@ -165,6 +176,42 @@ export default function PartnerRelationshipClient({
     }
   }, [fetchMarkets, partnerOrganizationId, tenantSlug]);
 
+  const fetchChannels = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/${tenantSlug}/output-profiles`);
+      const payload = await res.json().catch(() => ({}));
+      if (res.ok && payload.data) {
+        setChannels((payload.data as OutputChannel[]).filter((c: OutputChannel & { is_active?: boolean }) => c.is_active !== false));
+      }
+    } catch {
+      // channels are optional — silent fail
+    }
+  }, [tenantSlug]);
+
+  const updateMarketChannel = useCallback(async (marketId: string, outputProfileId: string | null) => {
+    try {
+      setUpdatingChannelForMarket(marketId);
+      const res = await fetch(`/api/${tenantSlug}/markets/${marketId}/partners`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partnerOrganizationId, output_profile_id: outputProfileId }),
+      });
+      if (!res.ok) return;
+      // Optimistic update in local state
+      setAssignedMarkets((prev) =>
+        prev.map((m) => {
+          if (m.market_id !== marketId) return m;
+          const ch = outputProfileId ? channels.find((c) => c.id === outputProfileId) ?? null : null;
+          return { ...m, output_profile_id: outputProfileId, channel: ch };
+        })
+      );
+    } catch {
+      // silent
+    } finally {
+      setUpdatingChannelForMarket(null);
+    }
+  }, [tenantSlug, partnerOrganizationId, channels]);
+
   const removeMarketAssignment = useCallback(async (marketId: string) => {
     try {
       setMarketActionLoading(true);
@@ -193,6 +240,10 @@ export default function PartnerRelationshipClient({
   useEffect(() => {
     void fetchMarkets();
   }, [fetchMarkets]);
+
+  useEffect(() => {
+    void fetchChannels();
+  }, [fetchChannels]);
 
   const setOptions = useMemo(() => data?.available_sets || [], [data?.available_sets]);
   const activeGrantBySetId = useMemo(
@@ -320,16 +371,14 @@ export default function PartnerRelationshipClient({
       : "border-border bg-muted/30 text-foreground/80";
 
   return (
-    <div className="space-y-6">
+    <SettingsPageContent page="team-partner-detail">
       <PageHeader
         title={partner.name}
         description={partner.slug ? `/${partner.slug}` : undefined}
         backHref={`/${tenantSlug}/settings/team/partners`}
         backLabel="Back to Partners"
       />
-
-      <SettingsPageContent page="team-partner-detail">
-        <div className="rounded-lg border border-border bg-background p-4">
+      <div className="rounded-lg border border-border bg-background p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-sm text-muted-foreground">
@@ -451,29 +500,65 @@ export default function PartnerRelationshipClient({
                 Add to Market
               </Button>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {assignedMarkets.map((market) => (
-                <div
-                  key={market.market_id}
-                  className="inline-flex items-center gap-2 rounded border border-border/60 px-2 py-1 text-xs"
-                >
-                  <span>{market.name}</span>
-                  <span className="text-muted-foreground">({market.code})</span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-1 text-xs"
-                    disabled={marketActionLoading || !data?.can_manage}
-                    onClick={() => void removeMarketAssignment(market.market_id)}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              {assignedMarkets.length === 0 ? (
-                <span className="text-sm text-muted-foreground">No markets assigned.</span>
-              ) : null}
-            </div>
+            {assignedMarkets.length === 0 ? (
+              <span className="text-sm text-muted-foreground">No markets assigned.</span>
+            ) : (
+              <div className="rounded-lg border border-border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-muted/30">
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Market</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Channel</th>
+                      <th className="px-3 py-2 w-16" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {assignedMarkets.map((market) => (
+                      <tr key={market.market_id}>
+                        <td className="px-3 py-2">
+                          <span className="font-medium">{market.name}</span>
+                          <span className="ml-1.5 text-xs text-muted-foreground">({market.code})</span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Select
+                            value={market.output_profile_id ?? "none"}
+                            onValueChange={(val) => {
+                              void updateMarketChannel(market.market_id, val === "none" ? null : val);
+                            }}
+                            disabled={!data?.can_manage || updatingChannelForMarket === market.market_id}
+                          >
+                            <SelectTrigger className="h-7 text-xs w-[180px]">
+                              <SelectValue placeholder="No channel" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">
+                                <span className="text-muted-foreground">No channel</span>
+                              </SelectItem>
+                              {channels.map((ch) => (
+                                <SelectItem key={ch.id} value={ch.id}>
+                                  {ch.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
+                            disabled={marketActionLoading || !data?.can_manage}
+                            onClick={() => void removeMarketAssignment(market.market_id)}
+                          >
+                            Remove
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -564,13 +649,13 @@ export default function PartnerRelationshipClient({
             ) : null}
 
             <div className="rounded-lg border border-border">
-              <div className="border-b border-border px-3 py-2 text-sm font-semibold text-foreground">
+              <div className="border-b border-gray-200 px-3 py-2 text-sm font-semibold text-foreground">
                 Active Assignments
               </div>
               {data.grants.length === 0 ? (
                 <div className="p-4 text-sm text-foreground/70">No set assignments yet.</div>
               ) : (
-                <div className="divide-y divide-border">
+                <div className="divide-y divide-gray-200">
                   {data.grants.map((grant) => (
                     <div
                       key={grant.id}
@@ -618,8 +703,7 @@ export default function PartnerRelationshipClient({
           {error}
         </div>
       ) : null}
-      </SettingsPageContent>
-    </div>
+    </SettingsPageContent>
   );
 }
 

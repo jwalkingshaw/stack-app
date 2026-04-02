@@ -51,6 +51,7 @@
       "dashboard": "Dashboard",
       "catalog": "Catalog",
       "assets": "Assets",
+      "brandLibrary": "Brand Library",
       "products": "Products",
       "updates": "Updates",
       "expandSidebar": "Expand navigation sidebar",
@@ -82,10 +83,9 @@
         "product-fields": "Attributes",
         "markets": "Markets",
         "localization": "Localization",
-        "channels": "Channels",
-        "destinations": "Destinations",
+        "output-profiles": "Channels",
         "team": "Team",
-        "sets": "Sets",
+        "sets": "Sharing",
         "billing": "Billing"
       }
     },
@@ -130,7 +130,13 @@
         "descriptionPlaceholder": "Brief description of your organization..."
       },
       "footer": {
-        "hint": "Changes are applied immediately for this workspace."
+        "hint": "Changes are saved automatically for this workspace.",
+        "status": {
+          "saving": "Saving...",
+          "saved": "Saved",
+          "unsaved": "Unsaved changes",
+          "error": "Autosave failed"
+        }
       },
       "actions": {
         "saving": "Saving...",

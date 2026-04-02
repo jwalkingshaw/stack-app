@@ -155,6 +155,12 @@ export const CacheKeys = {
   productById: (productId: string) => withPrefix(`product:${productId}`),
   assets: (orgId: string, folderId?: string) => withPrefix(`assets:${orgId}${folderId ? `:${folderId}` : ''}`),
   assetById: (assetId: string) => withPrefix(`asset:${assetId}`),
+  assetPreview: (assetId: string, scopeKey: string) =>
+    withPrefix(`asset-preview:${assetId}:${scopeKey}`),
+  assetsList: (scopeKey: string) => withPrefix(`assets:list:${scopeKey}`),
+  productsList: (scopeKey: string) => withPrefix(`products:list:${scopeKey}`),
+  workspaceUnreadCounts: (userId: string, workspaceScope: string) =>
+    withPrefix(`workspace-unread:${userId}:${workspaceScope}`),
   apiResponse: (route: string, params: string) => withPrefix(`api:${route}:${params}`),
   userOrgAccess: (userId: string, orgId: string) => withPrefix(`access:${userId}:${orgId}`),
 }
@@ -168,9 +174,12 @@ export const CacheTTL = {
   PRODUCT_SINGLE: 10 * 60,      // 10 minutes - single product details
   ASSETS: 10 * 60,              // 10 minutes - asset listings
   ASSET_SINGLE: 30 * 60,        // 30 minutes - single asset details
+  ASSET_PREVIEW_SIGNED: 2 * 60, // 2 minutes - short lived signed URL indirection
+  ASSET_PREVIEW_FALLBACK: 10 * 60, // 10 minutes - stable CDN/S3 fallback URL
   API_RESPONSE: 5 * 60,         // 5 minutes - general API responses
   USER_ACCESS: 60 * 60,         // 1 hour - organization access permissions
   WORKSPACES: 20,               // 20 seconds - high traffic user nav data
+  WORKSPACE_UNREAD: 60,         // 1 minute - workspace rail badge counts
   ORG_EXISTS: 5 * 60,           // 5 minutes - org slug availability checks
   SHORT: 2 * 60,                // 2 minutes - temporary cache
   LONG: 4 * 60 * 60,           // 4 hours - very stable data

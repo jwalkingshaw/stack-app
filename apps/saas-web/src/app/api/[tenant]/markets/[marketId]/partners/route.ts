@@ -53,7 +53,7 @@ export async function GET(
     // Load assigned partners for this market
     const { data: assignments, error: assignmentsError } = await supabaseServer
       .from("partner_market_assignments" as never)
-      .select("id,partner_organization_id,valid_from,assigned_by,created_at")
+      .select("id,partner_organization_id,valid_from,assigned_by,created_at,output_profile_id")
       .eq("organization_id", organizationId)
       .eq("market_id", marketId)
       .eq("is_active", true);
@@ -73,6 +73,7 @@ export async function GET(
       valid_from: string | null;
       assigned_by: string | null;
       created_at: string;
+      output_profile_id: string | null;
     }>;
 
     const assignedPartnerIds = new Set(assignedRows.map((r) => r.partner_organization_id));
@@ -101,6 +102,7 @@ export async function GET(
         partner_category: org?.partner_category || null,
         valid_from: row.valid_from,
         assigned_at: row.created_at,
+        output_profile_id: row.output_profile_id ?? null,
       };
     });
 
@@ -224,6 +226,72 @@ export async function POST(
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {
     console.error("Error in market partners POST:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+// PATCH /api/[tenant]/markets/[marketId]/partners
+// Updates an existing assignment — specifically output_profile_id (channel)
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ tenant: string; marketId: string }> }
+) {
+  try {
+    const { tenant, marketId: marketIdParam } = await params;
+    const selectedBrandSlug = new URL(request.url).searchParams.get("brand");
+    const marketId = normalizeToken(marketIdParam);
+
+    if (!marketId) {
+      return NextResponse.json({ error: "marketId is required." }, { status: 400 });
+    }
+
+    const contextResult = await resolveTenantBrandViewContext({
+      request,
+      tenantSlug: tenant,
+      selectedBrandSlug,
+    });
+    if (!contextResult.ok) return contextResult.response;
+
+    const { context } = contextResult;
+    const { data: memberRow } = await supabaseServer
+      .from("organization_members")
+      .select("role")
+      .eq("organization_id", context.tenantOrganization.id)
+      .eq("kinde_user_id", context.userId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (!memberRow || !["owner", "admin"].includes(String(memberRow.role || ""))) {
+      return NextResponse.json({ error: "Insufficient permissions." }, { status: 403 });
+    }
+
+    const organizationId = context.targetOrganization.id;
+    const body = await request.json().catch(() => ({}));
+    const partnerOrganizationId = normalizeToken(body?.partnerOrganizationId ?? body?.partner_organization_id);
+
+    if (!partnerOrganizationId) {
+      return NextResponse.json({ error: "partnerOrganizationId is required." }, { status: 400 });
+    }
+
+    // output_profile_id can be null (clear the channel) or a UUID string
+    const outputProfileId: string | null =
+      body?.output_profile_id === null ? null : normalizeToken(body?.output_profile_id);
+
+    const { error: updateError } = await supabaseServer
+      .from("partner_market_assignments" as never)
+      .update({ output_profile_id: outputProfileId } as never)
+      .eq("organization_id", organizationId)
+      .eq("market_id", marketId)
+      .eq("partner_organization_id", partnerOrganizationId)
+      .eq("is_active", true);
+
+    if (updateError) {
+      console.error("Failed to update partner market assignment:", updateError);
+      return NextResponse.json({ error: "Failed to update assignment." }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error in market partners PATCH:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

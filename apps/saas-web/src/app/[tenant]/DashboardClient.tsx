@@ -223,7 +223,7 @@ export default function DashboardClient({ tenantSlug }: DashboardClientProps) {
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[760px] text-sm">
                       <thead className="bg-muted/50">
-                        <tr className="border-b border-border">
+                        <tr className="border-b border-gray-200">
                           <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Title</th>
                           <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Status</th>
                           <th className="px-2 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">Kit</th>
@@ -234,7 +234,7 @@ export default function DashboardClient({ tenantSlug }: DashboardClientProps) {
                       </thead>
                       <tbody>
                         {summary.recent.map((update) => (
-                          <tr key={update.id} className="border-b border-border/60">
+                          <tr key={update.id} className="border-b border-gray-200">
                             <td className="px-2 py-2">
                               <Link
                                 href={`/${tenantSlug}/updates/${update.id}`}

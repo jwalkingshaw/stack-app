@@ -17,7 +17,7 @@ import {
   Tag as TagIcon,
   Trash,
   X,
-  Edit3,
+
   Expand,
   Palette,
   PackagePlus,
@@ -29,7 +29,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -37,6 +36,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { DeleteConfirmDialog } from "@/components/ui/modal-shells";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -308,7 +308,7 @@ export function AssetViewPanel({
   const [isUpdatingLinks, setIsUpdatingLinks] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [activeTab, setActiveTab] = useState("info");
-  const [isEditMode, setIsEditMode] = useState(false);
+
   const [viewerBackground, setViewerBackground] = useState<"dark" | "light" | "checker">("dark");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [versionHistory, setVersionHistory] = useState<AssetVersionRecord[]>([]);
@@ -367,7 +367,7 @@ export function AssetViewPanel({
   const detailsLastSavedRef = useRef<string>("");
   const viewerPaneRef = useRef<HTMLDivElement | null>(null);
   const versionFileInputRef = useRef<HTMLInputElement | null>(null);
-  const canEditFields = canEdit && isEditMode;
+  const canEditFields = canEdit;
   const brandQuerySuffix = useMemo(() => {
     const brand = (selectedBrandSlug || "").trim().toLowerCase();
     if (!brand) return "";
@@ -437,7 +437,6 @@ export function AssetViewPanel({
     setShareCopyLabel("Copy link");
     setIsDownloading(false);
     setActiveTab("info");
-    setIsEditMode(false);
     setVersionHistory([]);
     setIsLoadingVersionHistory(false);
     setVersionHistoryError(null);
@@ -1180,7 +1179,7 @@ export function AssetViewPanel({
           isOpen ? "translate-x-0" : "translate-x-full"
         )}
       >
-        <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-white">
+        <div className="border-b border-gray-200 px-6 py-4 flex items-center justify-between bg-white">
           <div>
             <h2 className="text-xl font-semibold text-foreground">{asset.originalFilename}</h2>
           </div>
@@ -1282,19 +1281,7 @@ export function AssetViewPanel({
           >
             <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-2xl bg-black/70 p-1.5 backdrop-blur">
               <div className="flex items-center gap-1.5">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={isEditMode ? "secondary" : "ghost"}
-                  className="h-9 w-9 p-0 text-white hover:bg-white/20 hover:text-white"
-                  disabled={!canEdit}
-                  onClick={() => setIsEditMode((prev) => !prev)}
-                  title={isEditMode ? "Stop edit mode" : "Start edit mode"}
-                  aria-label={isEditMode ? "Stop edit mode" : "Start edit mode"}
-                >
-                  <Edit3 className="h-4 w-4" />
-                </Button>
-                <Button
+<Button
                   type="button"
                   size="sm"
                   variant="ghost"
@@ -1368,7 +1355,7 @@ export function AssetViewPanel({
 
           <div className="flex h-full w-full max-w-[440px] flex-col border-l border-border bg-white">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col">
-          <div className="border-b border-border px-6 py-4">
+          <div className="border-b border-gray-200 px-6 py-4">
             <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="info">Info</TabsTrigger>
               <TabsTrigger value="products">Products</TabsTrigger>
@@ -1380,11 +1367,7 @@ export function AssetViewPanel({
 
           <div className="flex-1 overflow-y-auto p-6">
             <TabsContent value="info" className="space-y-6 mt-0">
-              {canEditFields && (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
-                  Edit mode is on. Changes auto-save in this panel.
-                </div>
-              )}
+
 
           <div className="space-y-2">
             <label className="block text-sm font-medium text-foreground">Location</label>
@@ -2101,7 +2084,7 @@ export function AssetViewPanel({
                             key={version.id}
                             className={cn(
                               "space-y-1 px-3 py-3 text-sm",
-                              index !== versionHistory.length - 1 && "border-b border-border/60"
+                              index !== versionHistory.length - 1 && "border-b border-gray-200"
                             )}
                           >
                             <div className="flex items-center justify-between gap-2">
@@ -2183,34 +2166,14 @@ export function AssetViewPanel({
           </div>
         </div>
       </div>
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete asset?</DialogTitle>
-            <DialogDescription>
-              This action cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsDeleteDialogOpen(false)}
-              disabled={isDeleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => void handleDelete()}
-              disabled={isDeleting}
-            >
-              {isDeleting ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+        title="Delete asset?"
+        description="This action cannot be undone."
+        onConfirm={() => void handleDelete()}
+        confirmLoading={isDeleting}
+      />
       <Dialog open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader className="space-y-2">

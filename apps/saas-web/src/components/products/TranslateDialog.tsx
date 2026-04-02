@@ -472,7 +472,7 @@ export function TranslateDialog({
                   )}
                 </button>
                 {showGlossaries && (
-                  <div className="border-t border-border/60 px-4 py-4 space-y-4">
+                  <div className="border-t border-gray-200 px-4 py-4 space-y-4">
                     {targetLocaleIds.map((targetLocaleId) => {
                       const options = pairGlossariesByTargetLocaleId.get(targetLocaleId);
                       if (!options || options.length === 0) return null;

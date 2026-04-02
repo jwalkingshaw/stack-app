@@ -8,6 +8,7 @@ import {
   replaceAssetScopeAssignments,
   validateAuthoringScope,
 } from "@/lib/authoring-scope";
+import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -335,6 +336,17 @@ async function refreshAssetProductIdentifiers(params: {
   if (updateError) {
     throw new Error("Failed to refresh asset product identifiers");
   }
+}
+
+async function invalidateAssetCaches(params: {
+  organizationId: string;
+  assetId: string;
+}): Promise<void> {
+  await Promise.all([
+    redisCache.invalidatePattern(`${CacheKeys.assetsList(`${params.organizationId}:`)}*`),
+    redisCache.invalidatePattern(`${CacheKeys.apiResponse("assets", `${params.organizationId}:`)}*`),
+    redisCache.invalidatePattern(`${CacheKeys.assetPreview(params.assetId, "")}*`),
+  ]);
 }
 
 // PATCH /api/[tenant]/assets/[assetId]
@@ -801,6 +813,15 @@ export async function PATCH(
       }
     }
 
+    try {
+      await invalidateAssetCaches({
+        organizationId: organization.id,
+        assetId,
+      });
+    } catch (cacheError) {
+      console.warn("PATCH /assets/[assetId] cache invalidation failed:", cacheError);
+    }
+
     return NextResponse.json({
       data: updatedAsset,
       message: "Asset updated successfully",
@@ -871,6 +892,15 @@ export async function DELETE(
     if (deleteError) {
       console.error("DELETE /assets/[assetId] DB delete failed:", deleteError);
       return NextResponse.json({ error: "Failed to delete asset" }, { status: 500 });
+    }
+
+    try {
+      await invalidateAssetCaches({
+        organizationId: organization.id,
+        assetId,
+      });
+    } catch (cacheError) {
+      console.warn("DELETE /assets/[assetId] cache invalidation failed:", cacheError);
     }
 
     return NextResponse.json({

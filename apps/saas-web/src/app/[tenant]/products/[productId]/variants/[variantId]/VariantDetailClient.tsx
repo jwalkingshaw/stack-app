@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Package, FileText, ImageIcon, Languages, MoreHorizontal } from "lucide-react";
+import { Package, FileText, ImageIcon, Languages, MoreHorizontal, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,15 +13,14 @@ import type { ProductField } from "@/components/field-types/DynamicFieldRenderer
 import { PageSkeleton } from "@/components/ui/loading-skeleton";
 import { PageContentContainer } from "@/components/ui/page-content-container";
 import { ItemList } from "@/components/ui/item-list";
-import { ScopeToolbar } from "@/components/scope-toolbar";
 import { cn } from "@/lib/utils";
 import { useMarketContext } from "@/components/market-context";
-import { hasLiveScopeControls } from "@/lib/scope-visibility";
 import { useRouter, useSearchParams } from "next/navigation";
 import { buildTenantPathForScope } from "@/lib/tenant-view-scope";
 import { isBasicInformationFieldGroupCode } from "@/lib/field-group-codes";
 import { TranslationPanel } from "@/components/products/TranslationPanel";
 import { fetchJsonWithDedupe } from "@/lib/client-request-cache";
+import { DeleteConfirmDialog } from "@/components/ui/modal-shells";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
@@ -233,7 +232,7 @@ function VariantAssetSlots({
         </span>
       </div>
 
-      <div className="rounded-lg border border-border overflow-hidden divide-y divide-border">
+      <div className="rounded-lg border border-border overflow-hidden divide-y divide-gray-200">
         {VARIANT_IMAGE_SLOTS.map((slot) => {
           const link = slotMap[slot.code];
           const asset = link?.dam_assets ?? null;
@@ -416,18 +415,11 @@ export function VariantDetailClient({
   const isSharedBrandView =
     selectedBrandSlug.length > 0 && selectedBrandSlug !== tenantSlug.toLowerCase();
   const {
-    channels,
-    destinations,
     locales,
     markets,
-    selectedChannelId,
     selectedLocaleId,
-    selectedChannel,
     selectedLocale,
     selectedMarketId,
-    selectedDestinationId,
-    selectedDestination,
-    availableDestinations,
     isLoading: marketContextLoading,
   } = useMarketContext();
   const [activeSection, setActiveSection] = useState('attributes-all');
@@ -439,13 +431,14 @@ export function VariantDetailClient({
   const [saving, setSaving] = useState(false);
   const [fieldGroups, setFieldGroups] = useState<FieldGroupLike[]>([]);
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
-  const [pendingFieldChanges, setPendingFieldChanges] = useState<Record<string, unknown>>({});
+  const [, setPendingFieldChanges] = useState<Record<string, unknown>>({});
   const [overrideModes, setOverrideModes] = useState<Record<string, boolean>>({});
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, unknown>>({});
   const [localizationEligibilityLoading, setLocalizationEligibilityLoading] = useState(false);
   const [canUseTranslateProduct, setCanUseTranslateProduct] = useState(false);
   const [isTranslatePanelOpen, setIsTranslatePanelOpen] = useState(false);
   const [isDeletingVariant, setIsDeletingVariant] = useState(false);
+  const [isDeleteVariantDialogOpen, setIsDeleteVariantDialogOpen] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   const resolveSystemFieldCode = useCallback(
@@ -464,22 +457,14 @@ export function VariantDetailClient({
   const buildScopeQueryString = useCallback(() => {
     const query = new URLSearchParams();
     if (selectedMarketId) query.set('marketId', selectedMarketId);
-    if (selectedChannelId) query.set('channelId', selectedChannelId);
     if (selectedLocaleId) query.set('localeId', selectedLocaleId);
-    if (selectedDestinationId) query.set('destinationId', selectedDestinationId);
     if (selectedLocale?.code) query.set('locale', selectedLocale.code);
-    if (selectedChannel?.code) query.set('channel', selectedChannel.code);
-    if (selectedDestination?.code) query.set('destination', selectedDestination.code);
     if (selectedBrandSlug) query.set('brand', selectedBrandSlug);
     return query.toString();
   }, [
     selectedMarketId,
-    selectedChannelId,
     selectedLocaleId,
-    selectedDestinationId,
     selectedLocale?.code,
-    selectedChannel?.code,
-    selectedDestination?.code,
     selectedBrandSlug,
   ]);
 
@@ -495,13 +480,6 @@ export function VariantDetailClient({
     locales.length,
     selectedLocale?.code,
   ]);
-
-  const showScopeToolbarSection = React.useMemo(
-    () =>
-      !marketContextLoading &&
-      hasLiveScopeControls({ channels, destinations }),
-    [channels, destinations, marketContextLoading]
-  );
 
   const canEditVariantFields = !isSharedBrandView && isScopeReady;
 
@@ -578,16 +556,12 @@ export function VariantDetailClient({
 
     return (
       matchesDimension(selectedMarketId, authoringScope.marketIds) &&
-      matchesDimension(selectedChannelId, authoringScope.channelIds) &&
-      matchesDimension(selectedLocaleId, authoringScope.localeIds) &&
-      matchesDimension(selectedDestinationId, authoringScope.destinationIds)
+      matchesDimension(selectedLocaleId, authoringScope.localeIds)
     );
   }, [
     authoringScope,
     selectedMarketId,
-    selectedChannelId,
     selectedLocaleId,
-    selectedDestinationId,
   ]);
 
   const buildProductUrl = useCallback((id: string) => {
@@ -1307,25 +1281,9 @@ export function VariantDetailClient({
     }
   };
 
-  const handleCatalogVisibilityChange = async (nextVisibility: string) => {
-    if (!variant?.id || !canEditVariantFields || isSharedBrandView) return;
-    const prev = String(variant.catalog_visibility || "standard");
-    if (nextVisibility === prev) return;
-    setVariant((prevV: VariantRecord | null) => (prevV ? { ...prevV, catalog_visibility: nextVisibility } : prevV));
-    try {
-      await saveFieldValues({ catalog_visibility: nextVisibility });
-    } catch (error) {
-      setVariant((prevV: VariantRecord | null) => (prevV ? { ...prevV, catalog_visibility: prev } : prevV));
-      console.error("Failed to update catalog visibility:", error);
-      toast.error("Failed to update catalog visibility.");
-    }
-  };
-
   const handleDeleteVariant = useCallback(async () => {
     if (!variant?.id || isSharedBrandView || isDeletingVariant) return;
-
-    const confirmed = window.confirm("Delete this variant? This action cannot be undone.");
-    if (!confirmed) return;
+    setIsDeleteVariantDialogOpen(false);
 
     setIsDeletingVariant(true);
     try {
@@ -1390,12 +1348,12 @@ export function VariantDetailClient({
   return (
     <div className="h-[calc(100%-var(--app-header-height,44px))] min-h-0 overflow-hidden flex flex-col">
       {isSharedBrandView ? (
-        <div className="border-b border-border bg-muted/20 px-6 py-3 text-sm text-muted-foreground">
+        <div className="border-b border-gray-200 bg-muted/20 px-6 py-3 text-sm text-muted-foreground">
           Shared brand view is read-only. Editing is disabled.
         </div>
       ) : null}
       {/* Header with navigation */}
-      <div className="border-b border-border/60 bg-background">
+      <div className="border-b border-gray-200 bg-background">
         <div className="flex">
           <div className="w-72 shrink-0 border-r border-border/60 bg-background" aria-hidden="true" />
           <div className="min-w-0 flex-1 px-6 py-3">
@@ -1423,33 +1381,25 @@ export function VariantDetailClient({
                 <h1 className="text-lg font-semibold text-foreground">
                   {variant.product_name || variant.sku || variant.id}
                 </h1>
-                <span className={`inline-flex h-6 items-center rounded-md px-2.5 text-xs font-medium ${
-                  variant.status === 'Active' ? 'bg-green-100 text-green-700' :
-                  variant.status === 'Draft' ? 'bg-yellow-100 text-yellow-700' :
-                  variant.status === 'Enrichment' ? 'bg-blue-100 text-blue-700' :
-                  variant.status === 'Review' ? 'bg-amber-100 text-amber-700' :
-                  variant.status === 'Archived' ? 'bg-slate-100 text-slate-700' :
-                  'bg-red-100 text-red-700'
-                }`}>
-                  {variant.status}
-                </span>
               </div>
 
               <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                 <span>SCIN: {variant.scin || variant.id}</span>
                 <span>SKU: {variant.sku || '-'}</span>
                 <span>Barcode: {variant.barcode || '-'}</span>
+                {selectedLocale && (
+                  <span className="flex items-center gap-1" title="Current editing language — change in sidebar">
+                    <Globe className="w-3 h-3" />
+                    {selectedLocale.name || selectedLocale.code}
+                  </span>
+                )}
               </div>
                   </div>
 
                   <div className="flex w-full flex-col gap-2 xl:w-auto xl:items-end">
                     <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                      {!isSharedBrandView ? (
-                        saving || Object.keys(pendingFieldChanges).length > 0 ? (
-                          <span className={headerStatusPillClass}>
-                            {saving ? "Saving changes..." : "Unsaved changes"}
-                          </span>
-                        ) : null
+                      {!isSharedBrandView && saving ? (
+                        <span className={headerStatusPillClass}>Saving...</span>
                       ) : null}
                       {!parentVariantInheritanceConfig.allowChildOverrides ? (
                         <span
@@ -1468,7 +1418,7 @@ export function VariantDetailClient({
                         </span>
                       ) : null}
                       {!isScopeReady ? (
-                        <span className={scopeAlertPillClass}>Select scope in header</span>
+                        <span className={scopeAlertPillClass}>Select language in sidebar</span>
                       ) : null}
                       {!isSharedBrandView ? (
                         <Select
@@ -1487,24 +1437,6 @@ export function VariantDetailClient({
                                 {statusOption}
                               </SelectItem>
                             ))}
-                          </SelectContent>
-                        </Select>
-                      ) : null}
-                      {!isSharedBrandView ? (
-                        <Select
-                          value={String(variant.catalog_visibility || "standard")}
-                          onValueChange={(nextValue) => {
-                            void handleCatalogVisibilityChange(nextValue);
-                          }}
-                          disabled={saving || !canEditVariantFields}
-                        >
-                          <SelectTrigger className="h-8 w-[160px] rounded-full border border-border/60 bg-background px-3 text-xs">
-                            <SelectValue placeholder="Visibility" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="standard">Standard</SelectItem>
-                            <SelectItem value="partner_exclusive">Partner Exclusive</SelectItem>
-                            <SelectItem value="restricted">Internal Only</SelectItem>
                           </SelectContent>
                         </Select>
                       ) : null}
@@ -1536,7 +1468,7 @@ export function VariantDetailClient({
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onSelect={() => {
-                                void handleDeleteVariant();
+                                setIsDeleteVariantDialogOpen(true);
                               }}
                               disabled={isDeletingVariant}
                               className="text-destructive focus:text-destructive"
@@ -1549,12 +1481,6 @@ export function VariantDetailClient({
                     </div>
                   </div>
                 </div>
-
-                {showScopeToolbarSection ? (
-                  <div className="border-t border-border/50 pt-2">
-                    <ScopeToolbar showCycleControls />
-                  </div>
-                ) : null}
 
               </div>
             </PageContentContainer>
@@ -1585,7 +1511,7 @@ export function VariantDetailClient({
                 </div>
               </div>
 
-              <div className="mt-3 space-y-0.5 border-t border-border pt-3">
+              <div className="mt-3 space-y-0.5 border-t border-gray-200 pt-3">
                 <button
                   onClick={() => setActiveSection('assets')}
                   className={`${sidebarNavButtonBaseClass} ${getSidebarNavButtonStateClass(activeSection === 'assets')}`}
@@ -1893,7 +1819,7 @@ export function VariantDetailClient({
                                                   value={displayValue}
                                                   tenantSlug={tenantSlug}
                                                   canEdit={canEditVariantFields}
-                                                  readonlyReasonOverride={!isScopeReady ? "Select scope in header" : null}
+                                                  readonlyReasonOverride={!isScopeReady ? "Select language in sidebar" : null}
                                                   onCommit={async (nextValue: unknown) => {
                                                     setOverrideDrafts(prev => ({
                                                       ...prev,
@@ -1932,7 +1858,7 @@ export function VariantDetailClient({
                                                 value={displayValue}
                                                 tenantSlug={tenantSlug}
                                                 canEdit={canEditVariantFields}
-                                                readonlyReasonOverride={!isScopeReady ? "Select scope in header" : null}
+                                                readonlyReasonOverride={!isScopeReady ? "Select language in sidebar" : null}
                                                 onCommit={async (nextValue: unknown) => {
                                                   setOverrideDrafts(prev => ({
                                                     ...prev,
@@ -1991,6 +1917,19 @@ export function VariantDetailClient({
         </div>
       </div>
 
+      <DeleteConfirmDialog
+        open={isDeleteVariantDialogOpen}
+        onOpenChange={(open) => {
+          if (isDeletingVariant) return;
+          setIsDeleteVariantDialogOpen(open);
+        }}
+        title="Delete Variant"
+        description="Delete this variant? This action cannot be undone."
+        onConfirm={() => void handleDeleteVariant()}
+        confirmLoading={isDeletingVariant}
+        confirmLabel="Delete variant"
+      />
+
       {canUseTranslateProduct && variant?.id && (
         <TranslationPanel
           tenantSlug={tenantSlug}
@@ -2006,5 +1945,3 @@ export function VariantDetailClient({
     </div>
   );
 }
-
-

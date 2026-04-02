@@ -9,6 +9,7 @@ const IMAGE_SIZES: Record<ThumbnailSize, number> = {
   medium: 640,
   large: 1280,
 };
+const THUMBNAIL_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
 type SharpOutputFormat = 'jpeg' | 'png' | 'webp';
 
@@ -86,7 +87,9 @@ export class ThumbnailService {
             originalKey,
             sizeLabel
           );
-          await this.s3Service.uploadObject(thumbKey, resized, mimeType);
+          await this.s3Service.uploadObject(thumbKey, resized, mimeType, {
+            cacheControl: THUMBNAIL_CACHE_CONTROL,
+          });
           thumbnails[sizeLabel] = this.s3Service.getPublicUrl(thumbKey);
         }
       )

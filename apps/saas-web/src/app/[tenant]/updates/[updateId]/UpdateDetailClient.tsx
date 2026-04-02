@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
   AlertCircle,
   ArrowDown,
@@ -313,7 +313,9 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
   const [showAssetPicker, setShowAssetPicker] = useState(false);
   const [assetPickerContext, setAssetPickerContext] = useState<AssetPickerContext>("compose");
   const [productPickerSearch, setProductPickerSearch] = useState("");
+  const deferredProductPickerSearch = useDeferredValue(productPickerSearch);
   const [assetPickerSearch, setAssetPickerSearch] = useState("");
+  const deferredAssetPickerSearch = useDeferredValue(assetPickerSearch);
   const [assetFolderFilter, setAssetFolderFilter] = useState("all");
   const [assetPanelView, setAssetPanelView] = useState<"folders" | "assets">("folders");
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
@@ -367,6 +369,8 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
   const lastSavedMessageSignatureRef = useRef<string>("");
   const initializedAudienceStateUpdateIdRef = useRef<string | null>(null);
   const initializedBuildAndMessageStateUpdateIdRef = useRef<string | null>(null);
+  const wasProductSearchActiveRef = useRef(false);
+  const wasAssetSearchActiveRef = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -401,11 +405,27 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
     }
   }, [tenantSlug, updateId]);
 
-  const loadProductsCatalog = useCallback(async () => {
-    if (productsLoaded || productsLoading) return;
+  const loadProductsCatalog = useCallback(async (options?: { query?: string; force?: boolean }) => {
+    const normalizedQuery = (options?.query || "").trim();
+    const isSearchRequest = normalizedQuery.length >= 2;
+    if (!options?.force && !isSearchRequest && productsLoaded) return;
+    if (productsLoading) return;
+
     setProductsLoading(true);
     try {
-      const response = await fetch(`/api/${tenantSlug}/products`, { cache: "no-store" });
+      const query = new URLSearchParams();
+      query.set("listMode", "table");
+      if (isSearchRequest) {
+        query.set("q", normalizedQuery);
+        query.set("limit", "200");
+      }
+
+      const response = await fetch(
+        query.toString()
+          ? `/api/${tenantSlug}/products?${query.toString()}`
+          : `/api/${tenantSlug}/products`,
+        { cache: "no-store" }
+      );
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setKitErrorMessage(payload?.error || "Failed to load products for kit composer.");
@@ -453,47 +473,50 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
         .sort((a: ProductOption, b: ProductOption) => a.name.localeCompare(b.name));
 
       // Backfill product preview images from product links when product rows do not include image fields.
+      // Skip this for typeahead search requests to keep search responsive.
       const nextProducts = [...mapped];
-      try {
-        const slots = ["image_front", "image_back", "image_left", "image_right"];
-        const slotPayloads = await Promise.all(
-          slots.map(async (slot) => {
-            const query = new URLSearchParams({ document_slot_code: slot });
-            const response = await fetch(`/api/${tenantSlug}/product-links?${query.toString()}`, {
-              cache: "no-store",
-            });
-            if (!response.ok) return [];
-            const payload = await response.json().catch(() => ({}));
-            return Array.isArray(payload?.data) ? payload.data : [];
-          })
-        );
+      if (!isSearchRequest) {
+        try {
+          const slots = ["image_front", "image_back", "image_left", "image_right"];
+          const slotPayloads = await Promise.all(
+            slots.map(async (slot) => {
+              const slotQuery = new URLSearchParams({ document_slot_code: slot });
+              const slotResponse = await fetch(`/api/${tenantSlug}/product-links?${slotQuery.toString()}`, {
+                cache: "no-store",
+              });
+              if (!slotResponse.ok) return [];
+              const slotPayload = await slotResponse.json().catch(() => ({}));
+              return Array.isArray(slotPayload?.data) ? slotPayload.data : [];
+            })
+          );
 
-        const previewByProductId = new Map<string, string>();
-        for (const slotRows of slotPayloads) {
-          for (const row of slotRows) {
-            const link = (row || {}) as Record<string, unknown>;
-            const productId = typeof link.product_id === "string" ? link.product_id : "";
-            const assetId =
-              typeof link.asset_id === "string"
-                ? link.asset_id
-                : typeof (link.dam_assets as Record<string, unknown> | undefined)?.id === "string"
-                  ? String((link.dam_assets as Record<string, unknown>).id)
-                  : "";
-            if (!productId || !assetId || previewByProductId.has(productId)) continue;
-            previewByProductId.set(productId, `/api/${tenantSlug}/assets/${assetId}/preview`);
+          const previewByProductId = new Map<string, string>();
+          for (const slotRows of slotPayloads) {
+            for (const row of slotRows) {
+              const link = (row || {}) as Record<string, unknown>;
+              const productId = typeof link.product_id === "string" ? link.product_id : "";
+              const assetId =
+                typeof link.asset_id === "string"
+                  ? link.asset_id
+                  : typeof (link.dam_assets as Record<string, unknown> | undefined)?.id === "string"
+                    ? String((link.dam_assets as Record<string, unknown>).id)
+                    : "";
+              if (!productId || !assetId || previewByProductId.has(productId)) continue;
+              previewByProductId.set(productId, `/api/${tenantSlug}/assets/${assetId}/preview`);
+            }
           }
-        }
 
-        for (let index = 0; index < nextProducts.length; index += 1) {
-          const row = nextProducts[index];
-          if (row.imageUrl) continue;
-          const linkedPreview = previewByProductId.get(row.id);
-          if (linkedPreview) {
-            nextProducts[index] = { ...row, imageUrl: linkedPreview };
+          for (let index = 0; index < nextProducts.length; index += 1) {
+            const row = nextProducts[index];
+            if (row.imageUrl) continue;
+            const linkedPreview = previewByProductId.get(row.id);
+            if (linkedPreview) {
+              nextProducts[index] = { ...row, imageUrl: linkedPreview };
+            }
           }
+        } catch {
+          // Keep list usable when link-derived previews are unavailable.
         }
-      } catch {
-        // Keep list usable when link-derived previews are unavailable.
       }
 
       // Variants inherit parent thumbnail when they do not have their own image.
@@ -505,17 +528,33 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
       });
 
       setProductsCatalog(withInheritedImages);
-      setProductsLoaded(true);
+      if (!isSearchRequest) {
+        setProductsLoaded(true);
+      }
     } finally {
       setProductsLoading(false);
     }
   }, [productsLoaded, productsLoading, tenantSlug]);
 
-  const loadAssetsCatalog = useCallback(async () => {
-    if (assetsLoaded || assetsLoading) return;
+  const loadAssetsCatalog = useCallback(async (options?: { query?: string; force?: boolean }) => {
+    const normalizedQuery = (options?.query || "").trim();
+    const isSearchRequest = normalizedQuery.length >= 2;
+    if (!options?.force && !isSearchRequest && assetsLoaded) return;
+    if (assetsLoading) return;
+
     setAssetsLoading(true);
     try {
-      const response = await fetch(`/api/${tenantSlug}/assets`, { cache: "no-store" });
+      const query = new URLSearchParams();
+      query.set("fields", "lite");
+      if (isSearchRequest) {
+        query.set("q", normalizedQuery);
+        query.set("limit", "250");
+      }
+
+      const response = await fetch(
+        query.toString() ? `/api/${tenantSlug}/assets?${query.toString()}` : `/api/${tenantSlug}/assets`,
+        { cache: "no-store" }
+      );
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         setKitErrorMessage(payload?.error || "Failed to load assets for kit composer.");
@@ -579,7 +618,9 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
           .filter((row: AssetFolderOption) => row.id.length > 0)
           .sort((a: AssetFolderOption, b: AssetFolderOption) => a.path.localeCompare(b.path))
       );
-      setAssetsLoaded(true);
+      if (!isSearchRequest) {
+        setAssetsLoaded(true);
+      }
     } finally {
       setAssetsLoading(false);
     }
@@ -1319,12 +1360,46 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
   }, [assetFolderFilter, assetPickerSearch, assetPickerSourceRows]);
 
   useEffect(() => {
-    if (activeAddType === "product") {
-      void loadProductsCatalog();
-    } else if (activeAddType === "asset") {
-      void loadAssetsCatalog();
+    if (activeAddType !== "product") return;
+
+    const normalizedSearch = deferredProductPickerSearch.trim();
+    const isSearchRequest = normalizedSearch.length >= 2;
+    const wasSearchActive = wasProductSearchActiveRef.current;
+    wasProductSearchActiveRef.current = isSearchRequest;
+
+    if (isSearchRequest) {
+      void loadProductsCatalog({ query: normalizedSearch });
+      return;
     }
-  }, [activeAddType, loadAssetsCatalog, loadProductsCatalog]);
+
+    if (wasSearchActive) {
+      void loadProductsCatalog({ force: true });
+      return;
+    }
+
+    void loadProductsCatalog();
+  }, [activeAddType, deferredProductPickerSearch, loadProductsCatalog]);
+
+  useEffect(() => {
+    if (activeAddType !== "asset") return;
+
+    const normalizedSearch = deferredAssetPickerSearch.trim();
+    const isSearchRequest = normalizedSearch.length >= 2;
+    const wasSearchActive = wasAssetSearchActiveRef.current;
+    wasAssetSearchActiveRef.current = isSearchRequest;
+
+    if (isSearchRequest) {
+      void loadAssetsCatalog({ query: normalizedSearch });
+      return;
+    }
+
+    if (wasSearchActive) {
+      void loadAssetsCatalog({ force: true });
+      return;
+    }
+
+    void loadAssetsCatalog();
+  }, [activeAddType, deferredAssetPickerSearch, loadAssetsCatalog]);
 
   const toggleProductSelection = (productId: string) => {
     setSelectedProductIds((current) => {
@@ -2145,7 +2220,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                       {/* Products panel */}
                       <TabsContent value="product" className="mt-0">
                         <div className="overflow-hidden rounded-lg border border-border bg-background">
-                          <div className="border-b border-border px-3 py-2.5">
+                          <div className="border-b border-gray-200 px-3 py-2.5">
                             <Input
                               value={productPickerSearch}
                               onChange={(e) => setProductPickerSearch(e.target.value)}
@@ -2206,7 +2281,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                               </div>
                             )}
                           </div>
-                          <div className="flex items-center justify-between border-t border-border px-3 py-2.5">
+                          <div className="flex items-center justify-between border-t border-gray-200 px-3 py-2.5">
                             <p className="text-xs text-muted-foreground">{selectedProductIds.size} selected</p>
                             <Button size="sm" onClick={() => void handleAddInlineItems()} disabled={kitBusy || selectedProductIds.size === 0}>
                               {kitBusy ? "Adding..." : `Add ${selectedProductIds.size > 0 ? selectedProductIds.size : ""} product${selectedProductIds.size !== 1 ? "s" : ""} →`}
@@ -2269,7 +2344,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                           </div>
                         ) : (
                           <div className="overflow-hidden rounded-lg border border-border bg-background">
-                            <div className="flex items-center gap-1.5 border-b border-border px-3 py-2">
+                            <div className="flex items-center gap-1.5 border-b border-gray-200 px-3 py-2">
                               <button
                                 type="button"
                                 onClick={() => { setAssetPanelView("folders"); setSelectedAssetIds(new Set()); setAssetPickerSearch(""); }}
@@ -2283,7 +2358,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                                 {assetFolderFilter === "all" ? "All assets" : assetFolderFilter === "unfiled" ? "Unfiled" : (assetFolders.find((f) => f.id === assetFolderFilter)?.name ?? "Folder")}
                               </span>
                             </div>
-                            <div className="border-b border-border px-3 py-2.5">
+                            <div className="border-b border-gray-200 px-3 py-2.5">
                               <Input
                                 value={assetPickerSearch}
                                 onChange={(e) => setAssetPickerSearch(e.target.value)}
@@ -2326,7 +2401,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                                 </div>
                               )}
                             </div>
-                            <div className="flex items-center justify-between border-t border-border px-3 py-2.5">
+                            <div className="flex items-center justify-between border-t border-gray-200 px-3 py-2.5">
                               <div className="flex items-center gap-2">
                                 <p className="text-xs text-muted-foreground">
                                   {selectedAssetIds.size > 0 ? `${selectedAssetIds.size} selected` : `${filteredAssetPickerRows.length} asset${filteredAssetPickerRows.length !== 1 ? "s" : ""}`}
@@ -2514,7 +2589,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                         return (
                           <div className="mx-auto w-full max-w-[400px] overflow-hidden rounded-xl border border-border bg-white shadow-sm">
                             {typeof c.caption === "string" && c.caption ? (
-                              <div className="border-b border-border px-4 py-3">
+                              <div className="border-b border-gray-200 px-4 py-3">
                                 <p className="text-sm text-foreground">{c.caption as string}</p>
                               </div>
                             ) : null}
@@ -2615,7 +2690,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
 
                   <Dialog open={showAssetPicker} onOpenChange={setShowAssetPicker}>
                     <DialogContent className="max-h-[90vh] max-w-5xl overflow-hidden p-0">
-                      <DialogHeader className="border-b border-border px-6 py-4">
+                      <DialogHeader className="border-b border-gray-200 px-6 py-4">
                         <DialogTitle>
                           {assetPickerContext === "build_email"
                             ? "Select Hero Image"
@@ -2625,7 +2700,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                         </DialogTitle>
                       </DialogHeader>
                       <div className="flex h-[70vh] flex-col">
-                        <div className="grid gap-3 border-b border-border px-6 py-3 md:grid-cols-3">
+                        <div className="grid gap-3 border-b border-gray-200 px-6 py-3 md:grid-cols-3">
                           <div className="md:col-span-2">
                             <Input
                               value={assetPickerSearch}
@@ -2705,7 +2780,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                             </div>
                           )}
                         </div>
-                        <div className="flex items-stretch justify-between border-t border-border">
+                        <div className="flex items-stretch justify-between border-t border-gray-200">
                           <p className="flex items-center px-6 text-xs text-muted-foreground">
                             {selectedAssetIds.size} selected
                           </p>
@@ -3110,7 +3185,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                           return (
                             <div className="mx-auto w-full max-w-[400px] overflow-hidden rounded-xl border border-border bg-white shadow-sm">
                               {typeof c.caption === "string" && c.caption ? (
-                                <div className="border-b border-border px-4 py-3">
+                                <div className="border-b border-gray-200 px-4 py-3">
                                   <p className="text-sm text-foreground">{c.caption as string}</p>
                                 </div>
                               ) : null}
@@ -3678,7 +3753,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
             {activeStep === "analytics" ? (
               <div className="rounded-lg border border-border bg-white overflow-hidden">
                 {/* Header */}
-                <div className="border-b border-border px-5 py-4">
+                <div className="border-b border-gray-200 px-5 py-4">
                   <h2 className="text-base font-semibold text-foreground">Analytics</h2>
                 </div>
 
@@ -3717,7 +3792,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
                 {/* Per-recipient breakdown */}
                 {analyticsRecipients.length > 0 ? (
                   <>
-                    <div className="border-t border-border bg-muted/30 px-5 py-2">
+                    <div className="border-t border-gray-200 bg-muted/30 px-5 py-2">
                       <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Per-recipient breakdown</p>
                     </div>
                     <div className="overflow-x-auto">
@@ -3791,7 +3866,7 @@ export function UpdateDetailClient({ tenantSlug, updateId }: UpdateDetailClientP
       {/* Kit Drawer */}
       <Sheet open={kitDrawerOpen} onOpenChange={setKitDrawerOpen}>
         <SheetContent side="right" className="w-[400px] sm:max-w-none">
-          <SheetHeader className="border-b border-border pb-4">
+          <SheetHeader className="border-b border-gray-200 pb-4">
             <SheetTitle className="flex items-center gap-2">
               <Files className="h-4 w-4" />
               Kit

@@ -10,6 +10,7 @@ import {
   resolveTenantBrandViewContext,
 } from "@/lib/partner-brand-view";
 import { resolveMarketCatalogAssetIds } from "@/lib/market-catalog";
+import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
 const DEFAULT_PERMISSIONS = {
   role: "viewer",
@@ -43,6 +44,22 @@ type RecencyAssetLike = {
   updatedAt?: string | null;
   updated_at?: string | null;
 };
+const configuredCloudFrontDomain = (process.env.AWS_CLOUDFRONT_DOMAIN || "")
+  .trim()
+  .replace(/^https?:\/\//i, "")
+  .replace(/\/+$/, "")
+  .toLowerCase();
+
+type ListPagination = {
+  limit: number;
+  offset: number;
+  enabled: boolean;
+};
+
+const DEFAULT_LIST_LIMIT = 250;
+const MAX_LIST_LIMIT = 2000;
+const LIST_CACHE_TTL_SECONDS = 60;
+type AssetFieldMode = "full" | "lite";
 
 function emptyPartnerAssetsResponse(context: {
   mode: "tenant" | "partner_brand";
@@ -88,6 +105,214 @@ function normalizeToken(value: string | null): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function rewriteStorageUrlToCloudFront(url: string | null | undefined): string | null {
+  const candidate = typeof url === "string" ? url.trim() : "";
+  if (!candidate) return null;
+  if (!configuredCloudFrontDomain) return candidate;
+
+  try {
+    const parsed = new URL(candidate);
+    if (!parsed.hostname.toLowerCase().endsWith("amazonaws.com")) {
+      return candidate;
+    }
+    const path = parsed.pathname.replace(/^\/+/, "");
+    return path ? `https://${configuredCloudFrontDomain}/${path}` : candidate;
+  } catch {
+    return candidate;
+  }
+}
+
+function normalizeAssetDeliveryUrls<T extends Record<string, any>>(asset: T): T {
+  const normalizedAsset = { ...asset } as Record<string, any>;
+  const thumbValue =
+    (asset.thumbnailUrls && typeof asset.thumbnailUrls === "object" && !Array.isArray(asset.thumbnailUrls)
+      ? asset.thumbnailUrls
+      : asset.thumbnail_urls && typeof asset.thumbnail_urls === "object" && !Array.isArray(asset.thumbnail_urls)
+        ? asset.thumbnail_urls
+        : null) as Record<string, unknown> | null;
+
+  if (typeof asset.s3Url === "string") {
+    normalizedAsset.s3Url = rewriteStorageUrlToCloudFront(asset.s3Url);
+  }
+  if (typeof asset.s3_url === "string") {
+    normalizedAsset.s3_url = rewriteStorageUrlToCloudFront(asset.s3_url);
+  }
+
+  if (thumbValue) {
+    const normalizedThumbs: Record<string, unknown> = {};
+    for (const [size, value] of Object.entries(thumbValue)) {
+      normalizedThumbs[size] =
+        typeof value === "string" ? rewriteStorageUrlToCloudFront(value) : value;
+    }
+    if (Object.prototype.hasOwnProperty.call(asset, "thumbnailUrls")) {
+      normalizedAsset.thumbnailUrls = normalizedThumbs;
+    }
+    if (Object.prototype.hasOwnProperty.call(asset, "thumbnail_urls")) {
+      normalizedAsset.thumbnail_urls = normalizedThumbs;
+    }
+  }
+
+  return normalizedAsset as T;
+}
+
+function parsePositiveInt(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function parseListPagination(searchParams: URLSearchParams): ListPagination {
+  const rawLimit = parsePositiveInt(searchParams.get("limit"));
+  const rawOffset = parsePositiveInt(searchParams.get("offset"));
+  const rawPage = parsePositiveInt(searchParams.get("page"));
+
+  const enabled = rawLimit !== null || rawOffset !== null || rawPage !== null;
+  if (!enabled) {
+    return {
+      limit: 0,
+      offset: 0,
+      enabled: false,
+    };
+  }
+
+  const limit = Math.min(MAX_LIST_LIMIT, Math.max(1, rawLimit ?? DEFAULT_LIST_LIMIT));
+  const pageOffset = rawPage ? Math.max(0, (rawPage - 1) * limit) : 0;
+  const offset = Math.max(0, (rawOffset ?? pageOffset) || 0);
+
+  return {
+    limit,
+    offset,
+    enabled: true,
+  };
+}
+
+function normalizeSearchQuery(value: string | null): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(/\s+/g, " ").toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function scoreSearchToken(value: string, query: string): number {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return 0;
+  if (normalized === query) return 120;
+  if (normalized.startsWith(query)) return 80;
+  const containsIndex = normalized.indexOf(query);
+  if (containsIndex >= 0) {
+    return Math.max(20, 60 - containsIndex);
+  }
+  return 0;
+}
+
+function toStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+}
+
+function filterAssetsBySearch<T extends Record<string, any>>(
+  assets: T[],
+  query: string | null
+): T[] {
+  if (!query) return assets;
+
+  const ranked = assets
+    .map((asset) => {
+      const filename =
+        (typeof asset.originalFilename === "string" && asset.originalFilename) ||
+        (typeof asset.original_filename === "string" && asset.original_filename) ||
+        (typeof asset.filename === "string" && asset.filename) ||
+        "";
+      const description = typeof asset.description === "string" ? asset.description : "";
+      const fileType =
+        (typeof asset.fileType === "string" && asset.fileType) ||
+        (typeof asset.file_type === "string" && asset.file_type) ||
+        "";
+      const id = typeof asset.id === "string" ? asset.id : "";
+      const tags = toStringArray(asset.tags);
+      const productIdentifiers = toStringArray(
+        asset.productIdentifiers ?? asset.product_identifiers
+      );
+
+      let score = 0;
+      score = Math.max(score, scoreSearchToken(filename, query) + 30);
+      score = Math.max(score, scoreSearchToken(description, query) + 10);
+      score = Math.max(score, scoreSearchToken(fileType, query) + 5);
+      score = Math.max(score, scoreSearchToken(id, query));
+      for (const tag of tags) {
+        score = Math.max(score, scoreSearchToken(tag, query) + 8);
+      }
+      for (const productIdentifier of productIdentifiers) {
+        score = Math.max(score, scoreSearchToken(productIdentifier, query) + 6);
+      }
+
+      const updatedAt = new Date(
+        String(
+          asset.currentVersionChangedAt ||
+            asset.current_version_changed_at ||
+            asset.updatedAt ||
+            asset.updated_at ||
+            asset.createdAt ||
+            asset.created_at ||
+            0
+        )
+      ).getTime();
+
+      return { asset, score, updatedAt };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt);
+
+  return ranked.map((row) => row.asset);
+}
+
+function paginateRows<T>(rows: T[], pagination: ListPagination) {
+  if (!pagination.enabled) {
+    return {
+      rows,
+      meta: {
+        enabled: false,
+        total: rows.length,
+      },
+    };
+  }
+
+  const start = Math.min(rows.length, pagination.offset);
+  const end = Math.min(rows.length, start + pagination.limit);
+  return {
+    rows: rows.slice(start, end),
+    meta: {
+      enabled: true,
+      limit: pagination.limit,
+      offset: pagination.offset,
+      total: rows.length,
+      hasMore: end < rows.length,
+    },
+  };
+}
+
+function selectAssetFields<T extends Record<string, any>>(asset: T, mode: AssetFieldMode): Record<string, any> {
+  if (mode !== "lite") return asset;
+  return {
+    id: asset.id,
+    organizationId: asset.organizationId ?? asset.organization_id ?? null,
+    folderId: asset.folderId ?? asset.folder_id ?? null,
+    filename: asset.filename ?? asset.original_filename ?? null,
+    fileType: asset.fileType ?? asset.file_type ?? null,
+    mimeType: asset.mimeType ?? asset.mime_type ?? null,
+    fileSize: asset.fileSize ?? asset.file_size ?? null,
+    s3Url: asset.s3Url ?? asset.s3_url ?? null,
+    thumbnailUrls: asset.thumbnailUrls ?? asset.thumbnail_urls ?? null,
+    assetScope: asset.assetScope ?? asset.asset_scope ?? null,
+    assetStatus: asset.assetStatus ?? asset.asset_status ?? "active",
+    updatedAt: asset.updatedAt ?? asset.updated_at ?? null,
+    currentVersionChangedAt:
+      asset.currentVersionChangedAt ?? asset.current_version_changed_at ?? null,
+  };
 }
 
 function filterAssetsByRecency<T extends RecencyAssetLike>(params: {
@@ -222,6 +447,14 @@ export async function GET(
     const filterCertifications = parseCsvIds(requestUrl.searchParams.get("certifications"));
     const filterRegulatoryRegion = parseCsvIds(requestUrl.searchParams.get("regulatoryRegion"));
     const filterExpiringBefore = parseIsoDateParam(requestUrl.searchParams.get("expiringBefore"));
+    const searchQuery = normalizeSearchQuery(
+      requestUrl.searchParams.get("q") ?? requestUrl.searchParams.get("search")
+    );
+    const pagination = parseListPagination(requestUrl.searchParams);
+    const fieldsMode: AssetFieldMode =
+      (requestUrl.searchParams.get("fields") || "").trim().toLowerCase() === "lite"
+        ? "lite"
+        : "full";
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -234,6 +467,21 @@ export async function GET(
 
     const { context } = contextResult;
     const targetOrganizationId = context.targetOrganization.id;
+    const listCacheHash = Buffer.from(
+      [
+        context.userId,
+        context.mode,
+        context.tenantOrganization.id,
+        targetOrganizationId,
+        context.selectedBrandSlug || "-",
+        requestUrl.searchParams.toString(),
+      ].join("|")
+    ).toString("base64url");
+    const listCacheKey = CacheKeys.assetsList(`${targetOrganizationId}:${listCacheHash}`);
+    const cachedPayload = await redisCache.get<Record<string, unknown>>(listCacheKey);
+    if (cachedPayload) {
+      return NextResponse.json(cachedPayload);
+    }
     const db = new DatabaseQueries(supabaseServer);
     const isPartnerAllViewRequest =
       requestedViewScope === "all" &&
@@ -351,6 +599,11 @@ export async function GET(
         regulatoryRegion: filterRegulatoryRegion,
         expiringBefore: filterExpiringBefore,
       });
+      assets = filterAssetsBySearch(assets, searchQuery);
+      const responseAssets = assets
+        .map((asset) => normalizeAssetDeliveryUrls(asset))
+        .map((asset) => selectAssetFields(asset, fieldsMode));
+      const pagedAssets = paginateRows(responseAssets, pagination);
 
       const [folders, permissions, tagsResult, categoriesResult] = await Promise.all([
         db.getFoldersByOrganization(tenantOrganizationId),
@@ -367,9 +620,10 @@ export async function GET(
           .order("path", { ascending: true }),
       ]);
 
-      return NextResponse.json({
+      const payload = {
         data: {
-          assets,
+          assets: pagedAssets.rows,
+          pagination: pagedAssets.meta,
           folders,
           tags: tagsResult.data || [],
           categories: categoriesResult.data || [],
@@ -380,30 +634,20 @@ export async function GET(
             tenantSlug: context.tenantOrganization.slug,
           },
         },
-      });
+      };
+      await redisCache.set(listCacheKey, payload, LIST_CACHE_TTL_SECONDS);
+      return NextResponse.json(payload);
     }
 
     let allowedAssetIds: Set<string> | null = null;
     let hasOrgAssetScope = true;
     let restrictToSharedAssetScope = false;
-    let marketCatalogAllowedAssetIds: Set<string> | null = null;
 
-    // Only apply market catalog filter for brand's own view (preview mode).
+    // Market catalog filtering applies to partner views only.
+    // The brand's own library (mode === "tenant") always shows all org assets regardless
+    // of market selection — the market toolbar is contextual (completeness, etc.), not a
+    // visibility gate on the brand's own files.
     // For partner_brand, resolvePartnerGrantedAssetIds handles market access via partner_market_assignments.
-    if (context.mode === "tenant" && selectedMarketId) {
-      const marketCatalog = await resolveMarketCatalogAssetIds({
-        organizationId: targetOrganizationId,
-        marketId: selectedMarketId,
-      });
-
-      if (!marketCatalog.foundationAvailable) {
-        return NextResponse.json(
-          { error: "Market catalog foundation is unavailable. Apply database migrations first." },
-          { status: 503 }
-        );
-      }
-      marketCatalogAllowedAssetIds = new Set(marketCatalog.ids);
-    }
 
     if (context.mode === "partner_brand") {
       const grantedSetAssets = await resolvePartnerGrantedAssetIds({
@@ -475,16 +719,6 @@ export async function GET(
       }
     }
 
-    if (marketCatalogAllowedAssetIds) {
-      if (allowedAssetIds) {
-        allowedAssetIds = new Set(
-          Array.from(allowedAssetIds).filter((id) => marketCatalogAllowedAssetIds.has(id))
-        );
-      } else {
-        allowedAssetIds = marketCatalogAllowedAssetIds;
-      }
-    }
-
     let assets = await db.getAssetsByOrganization(
       targetOrganizationId,
       selectedFolderId || undefined,
@@ -532,6 +766,11 @@ export async function GET(
       regulatoryRegion: filterRegulatoryRegion,
       expiringBefore: filterExpiringBefore,
     });
+    assets = filterAssetsBySearch(assets, searchQuery);
+    const responseAssets = assets
+      .map((asset) => normalizeAssetDeliveryUrls(asset))
+      .map((asset) => selectAssetFields(asset, fieldsMode));
+    const pagedAssets = paginateRows(responseAssets, pagination);
 
     let folders = await db.getFoldersByOrganization(targetOrganizationId);
     if (context.mode === "partner_brand" && !hasOrgAssetScope) {
@@ -585,9 +824,10 @@ export async function GET(
           }
         : await db.getUserPermissions(context.userId, targetOrganizationId);
 
-    return NextResponse.json({
+    const payload = {
       data: {
-        assets,
+        assets: pagedAssets.rows,
+        pagination: pagedAssets.meta,
         folders,
         tags: tags || [],
         categories: categories || [],
@@ -598,7 +838,9 @@ export async function GET(
           tenantSlug: context.tenantOrganization.slug,
         },
       },
-    });
+    };
+    await redisCache.set(listCacheKey, payload, LIST_CACHE_TTL_SECONDS);
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("GET /assets failed:", error);
     return NextResponse.json(

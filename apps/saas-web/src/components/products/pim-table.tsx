@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useDeferredValue } from "react";
 import NextImage from "next/image";
 import Link from "next/link";
 import {
@@ -15,8 +15,7 @@ import {
   Layers,
   GitBranch,
   Edit,
-  Trash2,
-  X
+  Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,18 +31,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { DeleteConfirmDialog } from "@/components/ui/modal-shells";
 import { cn } from "@/lib/utils";
 import { BulkActionToolbar } from "@/components/dam/bulk-action-toolbar";
 import { AddToKitDialog } from "@/components/updates/AddToKitDialog";
 import { TranslationPanel } from "@/components/products/TranslationPanel";
 import { fetchJsonWithDedupe } from "@/lib/client-request-cache";
-import {
-  AuthoringScopePicker,
-  type AuthoringScopeValue,
-  createGlobalAuthoringScope,
-  getAuthoringScopeSummary,
-  normalizeAuthoringScope,
-} from "@/components/scope/authoring-scope-picker";
 import { type PIMProduct } from "./mock-pim-data";
 import { useMarketContext } from "@/components/market-context";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -137,7 +130,6 @@ type ScopeConstraintOption = {
 };
 
 type ScopeFilterMode = "all" | "in_scope" | "out_of_scope";
-type ProductBulkScopeMode = "set" | "add" | "clear";
 
 const DEFAULT_VISIBLE_COLUMNS = {
   status: true,
@@ -148,6 +140,7 @@ const DEFAULT_VISIBLE_COLUMNS = {
   scin: true,
   family: true,
   contentScore: true,
+  readiness: false,
   brandLine: false,
   msrp: false,
   costOfGoods: false,
@@ -203,42 +196,6 @@ const extractNonEmptyUrl = (value: unknown): string | null => {
   return trimmed.length > 0 ? trimmed : null;
 };
 
-const cloneAuthoringScope = (scope: AuthoringScopeValue): AuthoringScopeValue => ({
-  mode: scope.mode,
-  marketIds: [...scope.marketIds],
-  channelIds: [...scope.channelIds],
-  localeIds: [...scope.localeIds],
-  destinationIds: [...scope.destinationIds],
-});
-
-const mergeAuthoringScopes = (
-  currentScope: Partial<AuthoringScopeValue> | null | undefined,
-  incomingScope: AuthoringScopeValue
-): AuthoringScopeValue => {
-  const current = normalizeAuthoringScope(currentScope);
-  const incoming = normalizeAuthoringScope(incomingScope);
-
-  if (incoming.mode !== "scoped") {
-    return current;
-  }
-  if (current.mode !== "scoped") {
-    return cloneAuthoringScope(incoming);
-  }
-
-  return {
-    mode: "scoped",
-    marketIds: Array.from(new Set([...current.marketIds, ...incoming.marketIds])),
-    channelIds: Array.from(new Set([...current.channelIds, ...incoming.channelIds])),
-    localeIds: Array.from(new Set([...current.localeIds, ...incoming.localeIds])),
-    destinationIds: Array.from(new Set([...current.destinationIds, ...incoming.destinationIds])),
-  };
-};
-
-const isScopeDimensionMatch = (selectedId: string | null, scopeIds: string[]): boolean => {
-  if (scopeIds.length === 0) return true;
-  if (!selectedId) return false;
-  return scopeIds.includes(selectedId);
-};
 
 
 
@@ -250,17 +207,18 @@ export function PIMTable({
   onCreateProduct,
 }: PIMTableProps) {
   const {
-    channels,
     locales,
     markets,
-    selectedDestination,
-    selectedDestinationId,
-    selectedChannel,
-    selectedChannelId,
     selectedLocale,
     selectedLocaleId,
     selectedMarketId,
+    availableLocaleIdsForMarket,
+    shouldFilterLocalesByMarket,
   } = useMarketContext();
+  const visibleLocales = shouldFilterLocalesByMarket
+    ? locales.filter((l) => availableLocaleIdsForMarket.has(l.id))
+    : locales;
+  const selectedLocaleName = selectedLocale?.name ?? selectedLocale?.code ?? 'selected language';
   const normalizedSelectedBrand = (selectedBrandSlug || "").trim().toLowerCase();
   const normalizedTenantSlug = tenantSlug.trim().toLowerCase();
   const isSharedBrandView =
@@ -277,8 +235,11 @@ export function PIMTable({
   );
   const [products, setProducts] = useState<PIMProduct[]>([]);
   const [liveContentScoresByProductId, setLiveContentScoresByProductId] = useState<Record<string, number>>({});
+  const [primaryProfile, setPrimaryProfile] = useState<{ id: string; name: string; profile_type: string } | null>(null);
+  const [liveReadinessScoresByProductId, setLiveReadinessScoresByProductId] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [filterProductModel, setFilterProductModel] = useState<string>(PRODUCT_MODEL_FILTER_ALL);
   const [sortField, setSortField] = useState<keyof PIMProduct>("productName");
@@ -295,24 +256,16 @@ export function PIMTable({
   const [shareDialogError, setShareDialogError] = useState<string | null>(null);
   const [shareStatusMessage, setShareStatusMessage] = useState<string | null>(null);
   const [shareMarketIds, setShareMarketIds] = useState<string[]>([]);
-  const [shareChannelIds, setShareChannelIds] = useState<string[]>([]);
   const [shareLocaleIds, setShareLocaleIds] = useState<string[]>([]);
   const [filterSetId, setFilterSetId] = useState<string>("");
   const [setFilterItemIds, setSetFilterItemIds] = useState<Set<string>>(new Set());
   const [setFilterLoading, setSetFilterLoading] = useState(false);
   const [isRemovingFromSet, setIsRemovingFromSet] = useState(false);
   const [scopeFilterMode, setScopeFilterMode] = useState<ScopeFilterMode>("all");
-  const [bulkScopeDialogOpen, setBulkScopeDialogOpen] = useState(false);
-  const [bulkScopeMode, setBulkScopeMode] = useState<ProductBulkScopeMode>("set");
-  const [bulkScopeValue, setBulkScopeValue] = useState<AuthoringScopeValue>(createGlobalAuthoringScope());
-  const [bulkScopeSubmitting, setBulkScopeSubmitting] = useState(false);
-  const [bulkScopeError, setBulkScopeError] = useState<string | null>(null);
-  const [bulkScopeStatusMessage, setBulkScopeStatusMessage] = useState<string | null>(null);
   const [bulkDeleteSubmitting, setBulkDeleteSubmitting] = useState(false);
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
   const [bulkDeleteStatusMessage, setBulkDeleteStatusMessage] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [pendingDeleteProducts, setPendingDeleteProducts] = useState<PIMProduct[]>([]);
   const [canTranslate, setCanTranslate] = useState(false);
   const [isTranslatePanelOpen, setIsTranslatePanelOpen] = useState(false);
@@ -330,7 +283,8 @@ export function PIMTable({
     (visibleColumns.upc ? 1 : 0) +
     (visibleColumns.scin ? 1 : 0) +
     (visibleColumns.family ? 1 : 0) +
-    (visibleColumns.contentScore ? 1 : 0);
+    (visibleColumns.contentScore ? 1 : 0) +
+    (visibleColumns.readiness ? 1 : 0);
   const tableColumnCount = primaryColumnCount + 1; // + actions
 
   const [coreAssetImagesByProductId, setCoreAssetImagesByProductId] = useState<Record<string, ProductFrontImage[]>>({});
@@ -346,24 +300,21 @@ export function PIMTable({
     query.set("listMode", "table");
     if (isPartnerAllView) query.set("view", "all");
     if (selectedMarketId) query.set("marketId", selectedMarketId);
-    if (selectedChannelId) query.set("channelId", selectedChannelId);
     if (selectedLocaleId) query.set("localeId", selectedLocaleId);
-    if (selectedDestinationId) query.set("destinationId", selectedDestinationId);
     if (selectedLocale?.code) query.set("locale", selectedLocale.code);
-    if (selectedChannel?.code) query.set("channel", selectedChannel.code);
-    if (selectedDestination?.code) query.set("destination", selectedDestination.code);
     if (normalizedSelectedBrand) query.set("brand", normalizedSelectedBrand);
+    const normalizedSearch = deferredSearchQuery.trim();
+    if (normalizedSearch.length >= 2) {
+      query.set("q", normalizedSearch);
+    }
 
     return query.toString()
       ? `/api/${tenantSlug}/products?${query.toString()}`
       : `/api/${tenantSlug}/products`;
   }, [
+    deferredSearchQuery,
     isPartnerAllView,
     normalizedSelectedBrand,
-    selectedChannelId,
-    selectedChannel?.code,
-    selectedDestinationId,
-    selectedDestination?.code,
     selectedLocaleId,
     selectedLocale?.code,
     selectedMarketId,
@@ -373,12 +324,8 @@ export function PIMTable({
   const buildScopedCompletenessBatchUrl = useCallback(() => {
     const query = new URLSearchParams();
     if (selectedMarketId) query.set("marketId", selectedMarketId);
-    if (selectedChannelId) query.set("channelId", selectedChannelId);
     if (selectedLocaleId) query.set("localeId", selectedLocaleId);
-    if (selectedDestinationId) query.set("destinationId", selectedDestinationId);
     if (selectedLocale?.code) query.set("locale", selectedLocale.code);
-    if (selectedChannel?.code) query.set("channel", selectedChannel.code);
-    if (selectedDestination?.code) query.set("destination", selectedDestination.code);
     if (normalizedSelectedBrand) query.set("brand", normalizedSelectedBrand);
 
     return query.toString()
@@ -386,15 +333,21 @@ export function PIMTable({
       : `/api/${tenantSlug}/products/completeness/batch`;
   }, [
     normalizedSelectedBrand,
-    selectedChannelId,
-    selectedChannel?.code,
-    selectedDestinationId,
-    selectedDestination?.code,
     selectedLocaleId,
     selectedLocale?.code,
     selectedMarketId,
     tenantSlug,
   ]);
+
+  const buildScopedReadinessBatchUrl = useCallback(() => {
+    const query = new URLSearchParams();
+    if (selectedMarketId) query.set("marketId", selectedMarketId);
+    if (selectedLocaleId) query.set("localeId", selectedLocaleId);
+    if (normalizedSelectedBrand) query.set("brand", normalizedSelectedBrand);
+    return query.toString()
+      ? `/api/${tenantSlug}/products/readiness/batch?${query.toString()}`
+      : `/api/${tenantSlug}/products/readiness/batch`;
+  }, [normalizedSelectedBrand, selectedLocaleId, selectedMarketId, tenantSlug]);
 
   const productModelOptions = useMemo(() => {
     const models = new Map<string, string>();
@@ -446,25 +399,20 @@ export function PIMTable({
 
   const doesScopedLinkMatch = useCallback(
     (link: ProductLinkRecord) => {
-      const channel = (link.channel_id || "").trim();
       const market = (link.market_id || "").trim();
       const locale = (link.locale_id || "").trim();
-      const destination = (link.destination_id || "").trim();
 
-      if (channel && channel !== selectedChannelId) return false;
       if (market && market !== selectedMarketId) return false;
       if (locale && locale !== selectedLocaleId) return false;
-      if (destination) return false;
 
       return true;
     },
-    [selectedChannelId, selectedLocaleId, selectedMarketId]
+    [selectedLocaleId, selectedMarketId]
   );
 
   const getScopedLinkRank = useCallback(
     (link: ProductLinkRecord) => {
       let rank = 0;
-      if ((link.channel_id || "").trim()) rank += 3;
       if ((link.market_id || "").trim()) rank += 3;
       if ((link.locale_id || "").trim()) rank += 3;
       if (link.is_primary) rank += 1;
@@ -473,39 +421,8 @@ export function PIMTable({
     []
   );
 
-  const getProductAuthoringScope = useCallback((product: PIMProduct): AuthoringScopeValue => {
-    const productWithScope = product as PIMProduct & {
-      marketplaceContent?: Record<string, unknown> | null;
-      marketplace_content?: Record<string, unknown> | null;
-    };
-    const rawScope =
-      productWithScope.marketplaceContent?.authoringScope ??
-      productWithScope.marketplace_content?.authoringScope ??
-      null;
-    return normalizeAuthoringScope(
-      rawScope && typeof rawScope === "object" ? (rawScope as Partial<AuthoringScopeValue>) : null
-    );
-  }, []);
-
-  const isProductInCurrentScope = useCallback(
-    (product: PIMProduct): boolean => {
-      const scope = getProductAuthoringScope(product);
-      if (scope.mode !== "scoped") return true;
-      return (
-        isScopeDimensionMatch(selectedMarketId, scope.marketIds) &&
-        isScopeDimensionMatch(selectedChannelId, scope.channelIds) &&
-        isScopeDimensionMatch(selectedLocaleId, scope.localeIds) &&
-        isScopeDimensionMatch(selectedDestinationId, scope.destinationIds)
-      );
-    },
-    [
-      getProductAuthoringScope,
-      selectedChannelId,
-      selectedDestinationId,
-      selectedLocaleId,
-      selectedMarketId,
-    ]
-  );
+  // Products are global — no per-product scope filtering
+  const isProductInCurrentScope = useCallback((_product: PIMProduct): boolean => true, []);
   
   // Get filtered products with hierarchy (memoized for performance)
   const getFilteredProductsWithHierarchy = useMemo(() => {
@@ -831,6 +748,88 @@ export function PIMTable({
     };
   }, [buildScopedCompletenessBatchUrl, isPartnerAllView, products]);
 
+  // Load readiness scores against the primary output profile
+  useEffect(() => {
+    if (!visibleColumns.readiness) return;
+
+    const controller = new AbortController();
+    let isCancelled = false;
+
+    const loadLiveReadiness = async () => {
+      const productIds = Array.from(
+        new Set(
+          products
+            .map((product) => String(product.id || "").trim())
+            .filter((id) => id.length > 0)
+        )
+      );
+      if (productIds.length === 0) {
+        setPrimaryProfile(null);
+        setLiveReadinessScoresByProductId({});
+        return;
+      }
+
+      const batchUrl = buildScopedReadinessBatchUrl();
+      const chunkSize = 120;
+      const nextScores: Record<string, number> = {};
+      let resolvedProfile: { id: string; name: string; profile_type: string } | null = null;
+
+      for (let index = 0; index < productIds.length; index += chunkSize) {
+        const chunk = productIds.slice(index, index + chunkSize);
+        const response = await fetch(batchUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ productIds: chunk }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch readiness batch (${response.status})`);
+        }
+
+        const payload = (await response.json().catch(() => null)) as {
+          data?: {
+            profile?: { id: string; name: string; profile_type: string } | null;
+            scores?: Record<string, unknown>;
+          };
+        } | null;
+
+        if (index === 0 && payload?.data?.profile) {
+          resolvedProfile = payload.data.profile;
+        }
+
+        const rawScores = payload?.data?.scores;
+        if (!rawScores || typeof rawScores !== "object") continue;
+
+        Object.entries(rawScores).forEach(([productId, value]) => {
+          const numericValue =
+            typeof value === "number"
+              ? value
+              : typeof value === "string"
+              ? Number.parseFloat(value)
+              : Number.NaN;
+          if (!Number.isFinite(numericValue)) return;
+          nextScores[productId] = Math.min(100, Math.max(0, Math.round(numericValue)));
+        });
+      }
+
+      if (isCancelled || controller.signal.aborted) return;
+      setPrimaryProfile(resolvedProfile);
+      setLiveReadinessScoresByProductId(nextScores);
+    };
+
+    void loadLiveReadiness().catch((error) => {
+      if (isCancelled || controller.signal.aborted) return;
+      console.error("Failed to load live product readiness:", error);
+      setLiveReadinessScoresByProductId({});
+    });
+
+    return () => {
+      isCancelled = true;
+      if (!controller.signal.aborted) controller.abort();
+    };
+  }, [buildScopedReadinessBatchUrl, products, visibleColumns.readiness]);
+
   // Check translation eligibility once on mount (not for shared brand views)
   useEffect(() => {
     if (isSharedBrandView) return;
@@ -1083,6 +1082,14 @@ export function PIMTable({
     [liveContentScoresByProductId]
   );
 
+  const getEffectiveReadinessScore = useCallback(
+    (product: PIMProduct): number | null => {
+      const liveValue = liveReadinessScoresByProductId[product.id];
+      return Number.isFinite(liveValue) ? liveValue : null;
+    },
+    [liveReadinessScoresByProductId]
+  );
+
   // Get filtered products with hierarchy, then sort (memoized for performance)
   const filteredAndSortedProducts = useMemo(() => {
     const rows = [...getFilteredProductsWithHierarchy];
@@ -1168,7 +1175,6 @@ export function PIMTable({
       return;
     }
     setPendingDeleteProducts(filtered);
-    setDeleteConfirmText("");
     setBulkDeleteError(null);
     setBulkDeleteStatusMessage(null);
     setShareStatusMessage(null);
@@ -1183,15 +1189,6 @@ export function PIMTable({
         label: `${market.name} (${market.code})`,
       })),
     [markets]
-  );
-
-  const shareChannelOptions = useMemo<ScopeConstraintOption[]>(
-    () =>
-      channels.map((channel) => ({
-        value: channel.id,
-        label: `${channel.name} (${channel.code})`,
-      })),
-    [channels]
   );
 
   const shareLocaleOptions = useMemo<ScopeConstraintOption[]>(
@@ -1224,13 +1221,11 @@ export function PIMTable({
 
   const applyCurrentScopeToShareSelection = useCallback(() => {
     setShareMarketIds(selectedMarketId ? [selectedMarketId] : []);
-    setShareChannelIds(selectedChannelId ? [selectedChannelId] : []);
     setShareLocaleIds(selectedLocaleId ? [selectedLocaleId] : []);
-  }, [selectedChannelId, selectedLocaleId, selectedMarketId]);
+  }, [selectedLocaleId, selectedMarketId]);
 
   const clearShareScopeConstraints = useCallback(() => {
     setShareMarketIds([]);
-    setShareChannelIds([]);
     setShareLocaleIds([]);
   }, []);
 
@@ -1453,7 +1448,6 @@ export function PIMTable({
         resourceType: product.type === "variant" ? "variant" : "product",
         resourceId: product.id,
         marketIds: shareMarketIds,
-        channelIds: shareChannelIds,
         localeIds: shareLocaleIds,
       }));
 
@@ -1491,7 +1485,6 @@ export function PIMTable({
   }, [
     selectedShareSetId,
     selectedShareableProducts,
-    shareChannelIds,
     shareLocaleIds,
     shareMarketIds,
     tenantSlug,
@@ -1499,143 +1492,8 @@ export function PIMTable({
 
   // Bulk action handlers
   const handleBulkEdit = () => {
-    if (selectedShareableProducts.length === 0) {
-      return;
-    }
-    setBulkScopeMode("set");
-    setBulkScopeValue(createGlobalAuthoringScope());
-    setBulkScopeError(null);
-    setBulkScopeDialogOpen(true);
+    // TODO: Bulk edit fields
   };
-
-  const handleApplyBulkScope = useCallback(async () => {
-    if (selectedShareableProducts.length === 0) {
-      setBulkScopeError("Select at least one product or variant.");
-      return;
-    }
-    if (bulkScopeMode === "add") {
-      const normalizedIncoming = normalizeAuthoringScope(bulkScopeValue);
-      const hasDimensions =
-        normalizedIncoming.mode === "scoped" &&
-        (normalizedIncoming.marketIds.length > 0 ||
-          normalizedIncoming.channelIds.length > 0 ||
-          normalizedIncoming.localeIds.length > 0 ||
-          normalizedIncoming.destinationIds.length > 0);
-      if (!hasDimensions) {
-        setBulkScopeError("Choose at least one scope dimension to add.");
-        return;
-      }
-    }
-
-    setBulkScopeSubmitting(true);
-    setBulkScopeError(null);
-    setBulkScopeStatusMessage(null);
-    const successfulUpdates = new Map<string, AuthoringScopeValue>();
-    const failures: string[] = [];
-
-    try {
-      const chunks: PIMProduct[][] = [];
-      const batchSize = 4;
-      for (let index = 0; index < selectedShareableProducts.length; index += batchSize) {
-        chunks.push(selectedShareableProducts.slice(index, index + batchSize));
-      }
-
-      for (const chunk of chunks) {
-        const results = await Promise.allSettled(
-          chunk.map(async (product) => {
-            const currentScope = getProductAuthoringScope(product);
-            const nextScope =
-              bulkScopeMode === "clear"
-                ? createGlobalAuthoringScope()
-                : bulkScopeMode === "add"
-                ? mergeAuthoringScopes(currentScope, bulkScopeValue)
-                : normalizeAuthoringScope(bulkScopeValue);
-
-            const response = await fetch(`/api/${tenantSlug}/products/${product.id}`, {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                initialScope: nextScope,
-              }),
-            });
-
-            if (!response.ok) {
-              const payload = (await response.json().catch(() => ({}))) as {
-                error?: string;
-              };
-              throw new Error(payload.error || `Failed (${response.status})`);
-            }
-
-            return {
-              productId: product.id,
-              scope: nextScope,
-            };
-          })
-        );
-
-        for (const result of results) {
-          if (result.status === "fulfilled") {
-            successfulUpdates.set(result.value.productId, result.value.scope);
-            continue;
-          }
-          const reason =
-            result.reason instanceof Error
-              ? result.reason.message
-              : "Unknown scope update failure";
-          failures.push(reason);
-        }
-      }
-
-      if (successfulUpdates.size > 0) {
-        setProducts((previous) =>
-          previous.map((product) => {
-            const scope = successfulUpdates.get(product.id);
-            if (!scope) return product;
-            const productWithScope = product as PIMProduct & {
-              marketplaceContent?: Record<string, unknown> | null;
-              marketplace_content?: Record<string, unknown> | null;
-            };
-            return {
-              ...productWithScope,
-              marketplaceContent: {
-                ...(productWithScope.marketplaceContent || {}),
-                authoringScope: scope,
-              },
-              marketplace_content: {
-                ...(productWithScope.marketplace_content || {}),
-                authoringScope: scope,
-              },
-            } as PIMProduct;
-          })
-        );
-      }
-
-      if (failures.length > 0) {
-        setBulkScopeError(`Updated ${successfulUpdates.size}, failed ${failures.length}.`);
-      } else {
-        setBulkScopeDialogOpen(false);
-        setBulkScopeStatusMessage(
-          `Updated authoring scope for ${successfulUpdates.size} product${
-            successfulUpdates.size === 1 ? "" : "s"
-          }.`
-        );
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to apply authoring scope.";
-      setBulkScopeError(message);
-    } finally {
-      setBulkScopeSubmitting(false);
-    }
-  }, [
-    bulkScopeMode,
-    bulkScopeValue,
-    getProductAuthoringScope,
-    selectedShareableProducts,
-    tenantSlug,
-  ]);
 
   const handleBulkStatusUpdate = () => {
     // TODO: Open status update modal
@@ -1656,9 +1514,6 @@ export function PIMTable({
 
   const handleConfirmDelete = useCallback(async () => {
     if (pendingDeleteProducts.length === 0 || bulkDeleteSubmitting) {
-      return;
-    }
-    if (deleteConfirmText.trim().toLowerCase() !== "delete") {
       return;
     }
 
@@ -1730,7 +1585,6 @@ export function PIMTable({
       }
 
       setShowDeleteDialog(false);
-      setDeleteConfirmText("");
       setPendingDeleteProducts([]);
     } catch (error) {
       const message =
@@ -1741,7 +1595,6 @@ export function PIMTable({
     }
   }, [
     bulkDeleteSubmitting,
-    deleteConfirmText,
     normalizedSelectedBrand,
     pendingDeleteProducts,
     tenantSlug,
@@ -1976,14 +1829,14 @@ export function PIMTable({
               </SelectContent>
             </Select>
 
-            {/* Product Model Filter */}
+            {/* Family Filter */}
             <Select value={filterProductModel} onValueChange={setFilterProductModel}>
               <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
                 <span className="truncate">{modelFilterLabel}</span>
               </SelectTrigger>
               <SelectContent className="!w-auto min-w-[240px]">
-                <SelectItem value={PRODUCT_MODEL_FILTER_ALL}>All Models</SelectItem>
-                <SelectItem value={PRODUCT_MODEL_FILTER_UNASSIGNED}>Unassigned</SelectItem>
+                <SelectItem value={PRODUCT_MODEL_FILTER_ALL}>All Families</SelectItem>
+                <SelectItem value={PRODUCT_MODEL_FILTER_UNASSIGNED}>No Family</SelectItem>
                 {productModelOptions.map((model) => (
                   <SelectItem key={model.value} value={model.value}>
                     {model.label}
@@ -1992,16 +1845,19 @@ export function PIMTable({
               </SelectContent>
             </Select>
 
-            <Select value={scopeFilterMode} onValueChange={(value) => setScopeFilterMode(value as ScopeFilterMode)}>
-              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
-                <span className="truncate">{scopeFilterLabel}</span>
-              </SelectTrigger>
-              <SelectContent className="!w-auto min-w-[240px]">
-                <SelectItem value="all">All Scopes</SelectItem>
-                <SelectItem value="in_scope">In Current Scope</SelectItem>
-                <SelectItem value="out_of_scope">Missing In Scope</SelectItem>
-              </SelectContent>
-            </Select>
+            {/* Language content filter — show products with/without content in selected language */}
+            {visibleLocales.length > 1 && (
+              <Select value={scopeFilterMode} onValueChange={(value) => setScopeFilterMode(value as ScopeFilterMode)}>
+                <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                  <span className="truncate">{scopeFilterLabel}</span>
+                </SelectTrigger>
+                <SelectContent className="!w-auto min-w-[240px]">
+                  <SelectItem value="all">All Languages</SelectItem>
+                  <SelectItem value="in_scope">Has {selectedLocaleName} content</SelectItem>
+                  <SelectItem value="out_of_scope">Missing {selectedLocaleName} content</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
 
             {/* Set filter */}
             {shareSetOptions.length > 0 && (
@@ -2024,12 +1880,19 @@ export function PIMTable({
               </Select>
             )}
 
-            {outOfScopeCount > 0 ? (
-              <Badge variant="outline" className="px-2 py-0.5 text-xs">
-                {outOfScopeCount} missing in current scope
-              </Badge>
-            ) : null}
           </div>
+
+          {/* Hierarchy / Flat toggle */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowVariantHierarchy(!showVariantHierarchy)}
+            className="h-8 gap-1.5 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)]"
+            title={showVariantHierarchy ? "Switch to flat view" : "Switch to hierarchy view"}
+          >
+            {showVariantHierarchy ? <GitBranch className="w-3.5 h-3.5" /> : <Layers className="w-3.5 h-3.5" />}
+            <span className="text-xs">{showVariantHierarchy ? "Hierarchy" : "Flat"}</span>
+          </Button>
 
           {/* Add Product Button on the right */}
           {canCreateProducts ? (
@@ -2047,9 +1910,6 @@ export function PIMTable({
         {shareStatusMessage ? (
           <p className="text-sm text-emerald-700">{shareStatusMessage}</p>
         ) : null}
-        {bulkScopeStatusMessage ? (
-          <p className="text-sm text-blue-700">{bulkScopeStatusMessage}</p>
-        ) : null}
         {bulkDeleteStatusMessage ? (
           <p className="text-sm text-emerald-700">{bulkDeleteStatusMessage}</p>
         ) : null}
@@ -2065,25 +1925,13 @@ export function PIMTable({
             {/* Table Header */}
             <thead className="bg-muted/50">
               <tr style={{ borderBottom: "1px solid #e5e7eb" }}>
-                {/* Status */}
-                {visibleColumns.status && (
+                {/* Product Name */}
+                {visibleColumns.productName && (
                   <th
-                    className="w-[220px] px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
-                    onClick={() => handleSort("status")}
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors min-w-96 w-96"
+                    onClick={() => handleSort("productName")}
                   >
                     <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setShowVariantHierarchy(!showVariantHierarchy);
-                        }}
-                        className="h-4 w-4 p-0 hover:bg-muted/60"
-                        title={showVariantHierarchy ? "Flatten view" : "Show hierarchy"}
-                      >
-                        {showVariantHierarchy ? <GitBranch className="w-3 h-3" /> : <Layers className="w-3 h-3" />}
-                      </Button>
                       <input
                         type="checkbox"
                         checked={
@@ -2094,20 +1942,7 @@ export function PIMTable({
                         className="w-3 h-3 text-[var(--color-accent-blue)] border-input rounded focus:ring-[var(--color-accent-blue-hover)]"
                         onClick={(event) => event.stopPropagation()}
                       />
-                      <span>Status</span>
-                      <ArrowUpDown className="w-3 h-3" />
-                    </div>
-                  </th>
-                )}
-
-                {/* Product Name */}
-                {visibleColumns.productName && (
-                  <th
-                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors min-w-96 w-96"
-                    onClick={() => handleSort("productName")}
-                  >
-                    <div className="flex items-center gap-1">
-                      Product Name
+                      <span>Product Name</span>
                       <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
@@ -2159,14 +1994,14 @@ export function PIMTable({
                   </th>
                 )}
 
-                {/* Product Model */}
+                {/* Family */}
                 {visibleColumns.family && (
                   <th
                     className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
                     onClick={() => handleSort("family")}
                   >
                     <div className="flex items-center gap-1">
-                      Product Model
+                      Family
                       <ArrowUpDown className="w-3 h-3" />
                     </div>
                   </th>
@@ -2185,6 +2020,33 @@ export function PIMTable({
                   </th>
                 )}
 
+                {/* Readiness */}
+                {visibleColumns.readiness && (
+                  <th className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider">
+                    <div className="flex flex-col gap-0.5">
+                      <span>Readiness</span>
+                      {primaryProfile && (
+                        <span className="text-[10px] text-muted-foreground/60 normal-case font-normal truncate max-w-[100px]">
+                          {primaryProfile.name}
+                        </span>
+                      )}
+                    </div>
+                  </th>
+                )}
+
+                {/* Status */}
+                {visibleColumns.status && (
+                  <th
+                    className="px-4 py-3 text-left text-xs font-medium text-muted-foreground/80 uppercase tracking-wider cursor-pointer hover:bg-muted/60 transition-colors"
+                    onClick={() => handleSort("status")}
+                  >
+                    <div className="flex items-center gap-1">
+                      Status
+                      <ArrowUpDown className="w-3 h-3" />
+                    </div>
+                  </th>
+                )}
+
                 {/* Actions */}
                 <th className="px-6 py-3 text-right text-sm font-medium text-muted-foreground">
                   Actions
@@ -2198,43 +2060,18 @@ export function PIMTable({
               {creationMode ? (
                 creatingProducts.map((product, index) => (
                 <tr key={product.id} className="bg-blue-50 border-2 border-muted/30 h-12" style={{ borderBottom: index === creatingProducts.length - 1 ? "none" : "1px solid #e5e7eb" }}>
-                  {/* Status */}
-                  {visibleColumns.status && (
-                    <td className="px-4 py-4">
+                  {/* Product Name */}
+                  {visibleColumns.productName && (
+                    <td className="px-4 py-4 max-w-120">
                       <div className="flex items-center gap-2">
                         <input
                           type="checkbox"
                           disabled
                           className="w-3 h-3"
                         />
-                        <Select
-                          value={product.status || "Draft"}
-                          onValueChange={(value) => handleStatusChange(product, value as ProductStatus)}
-                          disabled={isSharedBrandView}
-                        >
-                          <SelectTrigger
-                            className="h-8 w-[140px]"
-                            onPointerDown={(event) => event.stopPropagation()}
-                          >
-                            <SelectValue placeholder="Draft" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {PRODUCT_STATUSES.map((statusOption) => (
-                              <SelectItem key={statusOption} value={statusOption}>
-                                {statusOption}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </td>
-                  )}
-
-                  {/* Product Name */}
-                  {visibleColumns.productName && (
-                    <td className="px-6 py-4 max-w-120">
-                      <div className="break-words">
-                        {product.productName || <span className="text-muted-foreground">Enter product name...</span>}
+                        <div className="break-words">
+                          {product.productName || <span className="text-muted-foreground">Enter product name...</span>}
+                        </div>
                       </div>
                     </td>
                   )}
@@ -2287,6 +2124,38 @@ export function PIMTable({
                     </td>
                   )}
 
+                  {/* Readiness */}
+                  {visibleColumns.readiness && (
+                    <td className="px-6 py-4 text-sm text-muted-foreground">
+                      -
+                    </td>
+                  )}
+
+                  {/* Status */}
+                  {visibleColumns.status && (
+                    <td className="px-4 py-4">
+                      <Select
+                        value={product.status || "Draft"}
+                        onValueChange={(value) => handleStatusChange(product, value as ProductStatus)}
+                        disabled={isSharedBrandView}
+                      >
+                        <SelectTrigger
+                          className="h-8 w-[140px]"
+                          onPointerDown={(event) => event.stopPropagation()}
+                        >
+                          <SelectValue placeholder="Draft" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PRODUCT_STATUSES.map((statusOption) => (
+                            <SelectItem key={statusOption} value={statusOption}>
+                              {statusOption}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </td>
+                  )}
+
                   {/* Actions */}
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
@@ -2321,6 +2190,8 @@ export function PIMTable({
                 const normalizedContentScore = normalizeContentScore(
                   getEffectiveContentScore(product)
                 );
+                const rawReadinessScore = getEffectiveReadinessScore(product);
+                const normalizedReadinessScore = rawReadinessScore !== null ? normalizeContentScore(rawReadinessScore) : null;
                 
                 // Determine if this row is part of an expanded variant group
                 const isInExpandedGroup = (isVariantProduct(product) || isViewAllLink) && 
@@ -2338,7 +2209,7 @@ export function PIMTable({
                       className={cn(
                         "bg-muted/20 hover:bg-muted/30 transition-colors cursor-pointer",
                         isInExpandedGroup && "border-l-2 border-r-2 border-gray-300",
-                        isLastInGroup && "border-b-2 border-gray-300"
+                        isLastInGroup && "border-b-2 border-gray-200"
                       )}
                       style={{
                         borderBottom:
@@ -2378,7 +2249,7 @@ export function PIMTable({
                       !isInCurrentScope && "bg-amber-50/40",
                       // Visual grouping for expanded variants
                       isInExpandedGroup && "bg-blue-50/30",
-                      isFirstInGroup && "border-t-2 border-gray-300",
+                      isFirstInGroup && "border-t-2 border-gray-200",
                       isInExpandedGroup && "border-l-2 border-r-2 border-gray-300"
                     )}
                     style={{
@@ -2390,112 +2261,78 @@ export function PIMTable({
                     }}
                     onClick={() => onProductClick?.(product)}
                   >
-                    {/* Status */}
-                    {visibleColumns.status && (
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-2">
-                        {/* Hierarchy indicators - always reserve space */}
-                        <div className="flex items-center gap-1" style={{ marginLeft: isVariantProduct(product) ? '16px' : '0px' }}>
-                          {showVariantHierarchy && isParentProduct(product) && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleParentExpansion(product.id);
-                              }}
-                              className="h-4 w-4 p-0 hover:bg-gray-200"
-                            >
-                              {expandedParents.has(product.id) ? (
-                                <ChevronDown className="w-3 h-3" />
-                              ) : (
-                                <ChevronRight className="w-3 h-3" />
-                              )}
-                            </Button>
-                          )}
-                          {showVariantHierarchy && isVariantProduct(product) && (
-                            <div className="w-3 h-3 flex items-center justify-center">
-                              <div className="w-2 h-px bg-gray-300" />
-                            </div>
-                          )}
-                          {/* Reserve space for chevron even when not showing hierarchy or for standalone products */}
-                          {(!showVariantHierarchy || isStandaloneProduct(product)) && (
-                            <div className="w-4 h-4"></div>
-                          )}
-                        </div>
-                        
-                        {/* Checkbox */}
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={(e) => handleProductSelect(product.id, e)}
-                          onClick={(e) => e.stopPropagation()}
-                          disabled={isSharedProductRow}
-                          className="w-3 h-3 text-[var(--color-accent-blue)] border-input rounded focus:ring-[var(--color-accent-blue-hover)]"
-                        />
-
-                        {isParentProduct(product) ? (
-                          <div className="text-sm text-foreground">
-                            Variants ({product.variantCount || 0})
-                          </div>
-                        ) : (
-                          <Select
-                            value={product.status || "Draft"}
-                            onValueChange={(value) => handleStatusChange(product, value as ProductStatus)}
-                            disabled={isSharedProductRow}
-                          >
-                            <SelectTrigger
-                              className="h-8 w-[140px]"
-                              onPointerDown={(event) => event.stopPropagation()}
-                            >
-                              <SelectValue placeholder="Draft" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {PRODUCT_STATUSES.map((statusOption) => (
-                                <SelectItem key={statusOption} value={statusOption}>
-                                  {statusOption}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
-                    </td>
-                    )}
-
                     {/* Product Name */}
                     {visibleColumns.productName && (
-                      <td className="px-6 py-4">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <div className="font-normal flex-1 min-w-0 text-sm text-foreground">
-                              {product.productName}
-                            </div>
-                            {isVariantProduct(product) && product.isInherited?.productName && (
-                              <div className="w-2 h-2 bg-blue-400 rounded-full flex-shrink-0" title="Inherited from parent" />
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-2">
+                          {/* Hierarchy indicators */}
+                          <div className="flex items-center gap-1 flex-shrink-0" style={{ marginLeft: isVariantProduct(product) ? '16px' : '0px' }}>
+                            {showVariantHierarchy && isParentProduct(product) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleParentExpansion(product.id);
+                                }}
+                                className="h-4 w-4 p-0 hover:bg-gray-200"
+                              >
+                                {expandedParents.has(product.id) ? (
+                                  <ChevronDown className="w-3 h-3" />
+                                ) : (
+                                  <ChevronRight className="w-3 h-3" />
+                                )}
+                              </Button>
+                            )}
+                            {showVariantHierarchy && isVariantProduct(product) && (
+                              <div className="w-3 h-3 flex items-center justify-center">
+                                <div className="w-2 h-px bg-gray-300" />
+                              </div>
+                            )}
+                            {(!showVariantHierarchy || isStandaloneProduct(product)) && (
+                              <div className="w-4 h-4"></div>
                             )}
                           </div>
 
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {!isInCurrentScope ? (
-                              <Badge variant="outline" className="px-2 py-0.5 text-xs border-amber-300 text-amber-800">
-                                Missing in scope
-                              </Badge>
-                            ) : null}
-                            {isParentProduct(product) && (
-                              <span className="text-sm text-muted-foreground whitespace-nowrap">
-                                {product.variantCount ? `Variations (${product.variantCount})` : "Variations (0)"}
-                              </span>
-                            )}
-                            {isVariantProduct(product) && product.variantAxis && (
-                              <div className="flex gap-2 flex-wrap">
-                                {Object.entries(product.variantAxis).map(([key, value]) => (
-                                  <span key={key} className="text-xs text-muted-foreground">
-                                    {value}
-                                  </span>
-                                ))}
+                          {/* Checkbox */}
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => handleProductSelect(product.id, e)}
+                            onClick={(e) => e.stopPropagation()}
+                            disabled={isSharedProductRow}
+                            className="w-3 h-3 flex-shrink-0 text-[var(--color-accent-blue)] border-input rounded focus:ring-[var(--color-accent-blue-hover)]"
+                          />
+
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <div className={cn(
+                                "font-normal flex-1 min-w-0 text-sm",
+                                isVariantProduct(product) && showVariantHierarchy ? "text-muted-foreground" : "text-foreground"
+                              )}>
+                                {product.productName}
                               </div>
-                            )}
+                              {isVariantProduct(product) && product.isInherited?.productName && (
+                                <div className="w-2 h-2 bg-blue-400 rounded-full flex-shrink-0" title="Inherited from parent" />
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {isParentProduct(product) && (
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                  {product.variantCount ? `${product.variantCount} variant${product.variantCount === 1 ? '' : 's'}` : "No variants"}
+                                </span>
+                              )}
+                              {isVariantProduct(product) && product.variantAxis && showVariantHierarchy && (
+                                <div className="flex gap-1.5 flex-wrap">
+                                  {Object.entries(product.variantAxis).map(([key, value]) => (
+                                    <span key={key} className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-muted text-foreground">
+                                      {String(value)}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -2600,11 +2437,11 @@ export function PIMTable({
                       </td>
                     )}
 
-                    {/* Product Model */}
+                    {/* Family */}
                     {visibleColumns.family && (
                       <td className="px-6 py-4">
                         <div className="text-sm text-foreground">
-                          {product.family || "Unassigned"}
+                          {product.family || "—"}
                         </div>
                       </td>
                     )}
@@ -2612,7 +2449,10 @@ export function PIMTable({
                     {/* Completeness */}
                     {visibleColumns.contentScore && (
                       <td className="px-6 py-4 text-sm">
-                        <div className="flex items-center gap-2.5">
+                        <div
+                          className="flex items-center gap-2.5"
+                          title={product.family ? `Completeness against ${product.family} required fields` : "Completeness against required fields"}
+                        >
                           <div
                             className="h-[6px] w-[74px] overflow-hidden rounded-full"
                             style={{ backgroundColor: "rgba(31, 41, 55, 0.2)" }}
@@ -2639,6 +2479,70 @@ export function PIMTable({
                           </span>
                         </div>
                       </td>
+                    )}
+
+                    {/* Readiness */}
+                    {visibleColumns.readiness && (
+                      <td className="px-6 py-4 text-sm">
+                        {normalizedReadinessScore !== null ? (
+                          <div
+                            className="flex items-center gap-2.5"
+                            title={primaryProfile ? `Readiness against ${primaryProfile.name}` : "Channel readiness score"}
+                          >
+                            <div
+                              className="h-[6px] w-[74px] overflow-hidden rounded-full"
+                              style={{ backgroundColor: "rgba(31, 41, 55, 0.2)" }}
+                              role="progressbar"
+                              aria-valuemin={0}
+                              aria-valuemax={100}
+                              aria-valuenow={normalizedReadinessScore}
+                              aria-label={`Readiness ${normalizedReadinessScore}%`}
+                            >
+                              <div
+                                className="h-full rounded-full transition-[width] duration-200 ease-out"
+                                style={{
+                                  width: `${normalizedReadinessScore}%`,
+                                  backgroundColor: getContentScoreBarColor(normalizedReadinessScore),
+                                  minWidth: normalizedReadinessScore > 0 ? "0.375rem" : "0",
+                                }}
+                              />
+                            </div>
+                            <span
+                              className="text-sm font-medium tabular-nums"
+                              style={{ color: "#6b7280" }}
+                            >
+                              {normalizedReadinessScore}%
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground/50 text-xs">—</span>
+                        )}
+                      </td>
+                    )}
+
+                    {/* Status */}
+                    {visibleColumns.status && (
+                    <td className="px-4 py-4">
+                      <Select
+                        value={product.status || "Draft"}
+                        onValueChange={(value) => handleStatusChange(product, value as ProductStatus)}
+                        disabled={isSharedProductRow}
+                      >
+                        <SelectTrigger
+                          className="h-8 w-[140px]"
+                          onPointerDown={(event) => event.stopPropagation()}
+                        >
+                          <SelectValue placeholder="Draft" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PRODUCT_STATUSES.map((statusOption) => (
+                            <SelectItem key={statusOption} value={statusOption}>
+                              {statusOption}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </td>
                     )}
 
                     {/* Actions */}
@@ -2708,102 +2612,6 @@ export function PIMTable({
         </div>
       )}
       </div>
-
-      <Dialog
-        open={bulkScopeDialogOpen}
-        onOpenChange={(open) => {
-          setBulkScopeDialogOpen(open);
-          if (!open) {
-            setBulkScopeError(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Bulk Edit Authoring Scope</DialogTitle>
-            <DialogDescription>
-              Apply scope changes to {selectedShareableProducts.length} selected product
-              {selectedShareableProducts.length === 1 ? "" : "s"} and variants.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
-              Current view context:{" "}
-              <span className="font-medium text-foreground">
-                {selectedMarketId ? markets.find((market) => market.id === selectedMarketId)?.name || "Market selected" : "All markets"}
-              </span>
-              {" / "}
-              <span className="font-medium text-foreground">
-                {selectedChannel?.name || "All channels"}
-              </span>
-              {" / "}
-              <span className="font-medium text-foreground">
-                {selectedLocale?.code || "All languages"}
-              </span>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Operation</label>
-              <Select
-                value={bulkScopeMode}
-                onValueChange={(value) => setBulkScopeMode(value as ProductBulkScopeMode)}
-              >
-                <SelectTrigger className="h-8 w-[220px]">
-                  <SelectValue placeholder="Choose operation" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="set">Set scope</SelectItem>
-                  <SelectItem value="add">Add to scope</SelectItem>
-                  <SelectItem value="clear">Clear to global</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {bulkScopeMode === "set" || bulkScopeMode === "add" ? (
-              <AuthoringScopePicker
-                value={bulkScopeValue}
-                onChange={setBulkScopeValue}
-                title="Scope values"
-                description="Set replaces existing scope. Add merges with existing scope per product."
-              />
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Clear removes scoped limits and sets selected products to global authoring scope.
-              </p>
-            )}
-            <div className="rounded-md border border-border bg-muted/10 p-3 text-xs text-muted-foreground">
-              Result:{" "}
-              <span className="font-medium text-foreground">
-                {bulkScopeMode === "clear"
-                  ? "Global"
-                  : bulkScopeMode === "add"
-                  ? `Add ${getAuthoringScopeSummary(bulkScopeValue)}`
-                  : `Set to ${getAuthoringScopeSummary(bulkScopeValue)}`}
-              </span>
-            </div>
-            {bulkScopeError ? (
-              <p className="text-sm text-destructive">{bulkScopeError}</p>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setBulkScopeDialogOpen(false)}
-              disabled={bulkScopeSubmitting}
-              className="h-8 px-3 text-sm"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                void handleApplyBulkScope();
-              }}
-              disabled={bulkScopeSubmitting}
-              className="h-8 px-3 text-sm"
-            >
-              {bulkScopeSubmitting ? "Applying..." : "Apply Scope"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={isShareDialogOpen}
@@ -2886,10 +2694,10 @@ export function PIMTable({
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Empty scope means these products/variants are visible in all markets/channels/locales
+                  Empty scope means these products/variants are visible in all markets and locales
                   allowed by the partner grant.
                 </p>
-                <div className="grid gap-2 md:grid-cols-3">
+                <div className="grid gap-2 md:grid-cols-2">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">Markets</label>
                     <MultiSelect
@@ -2897,15 +2705,6 @@ export function PIMTable({
                       value={shareMarketIds}
                       onChange={setShareMarketIds}
                       placeholder="Select one or more markets"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">Channels</label>
-                    <MultiSelect
-                      options={shareChannelOptions}
-                      value={shareChannelIds}
-                      onChange={setShareChannelIds}
-                      placeholder="Select one or more channels"
                     />
                   </div>
                   <div className="space-y-1">
@@ -2971,97 +2770,61 @@ export function PIMTable({
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <DeleteConfirmDialog
         open={showDeleteDialog}
         onOpenChange={(open) => {
           setShowDeleteDialog(open);
           if (!open) {
-            setDeleteConfirmText("");
             setPendingDeleteProducts([]);
           }
         }}
+        title={`Delete Product${pendingDeleteProducts.length === 1 ? "" : "s"}`}
+        description="This action permanently deletes the selected product records."
+        onConfirm={() => {
+          void handleConfirmDelete();
+        }}
+        confirmLoading={bulkDeleteSubmitting}
+        confirmDisabled={bulkDeleteSubmitting || pendingDeleteProducts.length === 0}
+        safetyMode="typed"
+        confirmPhrase="delete"
       >
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Delete Product{pendingDeleteProducts.length === 1 ? "" : "s"}</DialogTitle>
-            <DialogDescription>
-              This action permanently deletes the selected product records.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-              <p className="font-medium">You are about to delete:</p>
-              <p>
-                {pendingDeleteProducts.length} product{pendingDeleteProducts.length === 1 ? "" : "s"}
-              </p>
-              <p className="mt-1">
-                This cannot be undone. Parent products with remaining variants will not be deleted.
-              </p>
-            </div>
-
-            <div className="rounded-md border border-border bg-muted/20 p-3">
-              <p className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
-                Selected items
-              </p>
-              <div className="space-y-1 text-sm">
-                {pendingDeleteProducts.slice(0, 8).map((product) => (
-                  <p key={product.id} className="text-foreground">
-                    {product.productName || product.sku || product.id}
-                    <span className="ml-2 text-muted-foreground">
-                      ({isVariantProduct(product) ? "Variant" : isParentProduct(product) ? "Parent" : "Single SKU"})
-                    </span>
-                  </p>
-                ))}
-                {pendingDeleteProducts.length > 8 ? (
-                  <p className="text-muted-foreground">
-                    +{pendingDeleteProducts.length - 8} more
-                  </p>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">
-                To confirm, type <span className="rounded bg-muted px-1 font-mono">delete</span>
-              </label>
-              <Input
-                value={deleteConfirmText}
-                onChange={(event) => setDeleteConfirmText(event.target.value)}
-                placeholder="Type 'delete' to confirm"
-                className="h-8"
-              />
-            </div>
-
-            {bulkDeleteError ? (
-              <p className="text-sm text-destructive">{bulkDeleteError}</p>
-            ) : null}
+        <div className="space-y-4">
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <p className="font-medium">You are about to delete:</p>
+            <p>
+              {pendingDeleteProducts.length} product{pendingDeleteProducts.length === 1 ? "" : "s"}
+            </p>
+            <p className="mt-1">
+              This cannot be undone. Parent products with remaining variants will not be deleted.
+            </p>
           </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowDeleteDialog(false);
-                setDeleteConfirmText("");
-                setPendingDeleteProducts([]);
-              }}
-              disabled={bulkDeleteSubmitting}
-              className="h-8 px-3 text-sm"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                void handleConfirmDelete();
-              }}
-              disabled={bulkDeleteSubmitting || deleteConfirmText.trim().toLowerCase() !== "delete"}
-              className="h-8 px-3 text-sm"
-            >
-              {bulkDeleteSubmitting ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
+          <div className="rounded-md border border-border bg-muted/20 p-3">
+            <p className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
+              Selected items
+            </p>
+            <div className="space-y-1 text-sm">
+              {pendingDeleteProducts.slice(0, 8).map((product) => (
+                <p key={product.id} className="text-foreground">
+                  {product.productName || product.sku || product.id}
+                  <span className="ml-2 text-muted-foreground">
+                    ({isVariantProduct(product) ? "Variant" : isParentProduct(product) ? "Parent" : "Single SKU"})
+                  </span>
+                </p>
+              ))}
+              {pendingDeleteProducts.length > 8 ? (
+                <p className="text-muted-foreground">
+                  +{pendingDeleteProducts.length - 8} more
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          {bulkDeleteError ? (
+            <p className="text-sm text-destructive">{bulkDeleteError}</p>
+          ) : null}
+        </div>
+      </DeleteConfirmDialog>
 
       {/* Bulk Action Toolbar */}
       <BulkActionToolbar

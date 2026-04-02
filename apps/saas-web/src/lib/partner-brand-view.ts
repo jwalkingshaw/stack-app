@@ -1177,17 +1177,33 @@ async function resolvePartnerGrantedProductIdsUncached(params: {
     }
 
     if (parentIdsWithDescendants.size > 0) {
-      // Exclude partner_exclusive and restricted variants from auto-expansion
+      // Exclude restricted variants from auto-expansion
       const { data: descendants } = await supabaseServer
         .from("products")
         .select("id")
         .eq("organization_id", params.brandOrganizationId)
         .in("parent_id", Array.from(parentIdsWithDescendants))
-        .not("catalog_visibility", "in", '("partner_exclusive","restricted")');
+        .neq("catalog_visibility", "restricted");
 
       for (const row of (descendants || []) as Array<{ id: string | null }>) {
         if (row.id) productIds.add(row.id);
       }
+    }
+  }
+
+  // Enforce restricted: block at the explicit-grant level too.
+  // A restricted product must never be visible to a partner, even if explicitly in a set.
+  const allIds = Array.from(productIds);
+  if (allIds.length > 0) {
+    const { data: restrictedRows } = await supabaseServer
+      .from("products")
+      .select("id")
+      .eq("organization_id", params.brandOrganizationId)
+      .in("id", allIds)
+      .eq("catalog_visibility", "restricted");
+
+    for (const row of (restrictedRows || []) as Array<{ id: string | null }>) {
+      if (row.id) productIds.delete(row.id);
     }
   }
 
@@ -1233,6 +1249,28 @@ export async function resolvePartnerGrantedProductIds(params: {
   return clonePartnerGrantedProductIdsResult(await computePromise);
 }
 
+/**
+ * Returns the output_profile_id assigned to this partner for the given market.
+ * Used by the partner product view to determine which channel profile to score readiness against.
+ * Returns null if the partner has no assignment for this market, or if no profile is set.
+ */
+export async function resolvePartnerMarketOutputProfileId(params: {
+  brandOrganizationId: string;
+  partnerOrganizationId: string;
+  marketId: string | null | undefined;
+}): Promise<string | null> {
+  if (!params.marketId) return null;
 
+  const { data, error } = await supabaseServer
+    .from("partner_market_assignments" as never)
+    .select("output_profile_id")
+    .eq("organization_id", params.brandOrganizationId)
+    .eq("partner_organization_id", params.partnerOrganizationId)
+    .eq("market_id", params.marketId)
+    .eq("is_active", true)
+    .maybeSingle();
 
+  if (error || !data) return null;
+  return (data as { output_profile_id: string | null }).output_profile_id ?? null;
+}
 

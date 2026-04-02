@@ -45,10 +45,10 @@ export async function GET(
       return NextResponse.json({ error: "Failed to load markets." }, { status: 500 });
     }
 
-    // Load active market assignments for this partner
+    // Load active market assignments for this partner (include channel profile)
     const { data: assignments, error: assignmentsError } = await supabaseServer
       .from("partner_market_assignments" as never)
-      .select("id,market_id,valid_from,created_at")
+      .select("id,market_id,valid_from,created_at,output_profile_id")
       .eq("organization_id", organizationId)
       .eq("partner_organization_id", partnerOrganizationId)
       .eq("is_active", true);
@@ -67,9 +67,24 @@ export async function GET(
       market_id: string;
       valid_from: string | null;
       created_at: string;
+      output_profile_id: string | null;
     }>;
     const assignedMarketIds = new Set(assignmentRows.map((r) => r.market_id));
     const assignmentByMarketId = new Map(assignmentRows.map((r) => [r.market_id, r]));
+
+    // Resolve channel profile names/types
+    const profileIds = [...new Set(assignmentRows.map((r) => r.output_profile_id).filter(Boolean))] as string[];
+    const profileById = new Map<string, { id: string; name: string; code: string; profile_type: string }>();
+    if (profileIds.length > 0) {
+      const { data: profileRowsRaw } = await supabaseServer
+        .from("output_channel_profiles" as never)
+        .select("id,name,code,profile_type")
+        .in("id", profileIds as never);
+      const profileRows = (profileRowsRaw ?? []) as Array<{ id: string; name: string; code: string; profile_type: string }>;
+      for (const p of profileRows) {
+        profileById.set(p.id, p);
+      }
+    }
 
     const allMarkets = (markets || []) as Array<{ id: string; name: string; code: string }>;
 
@@ -77,6 +92,8 @@ export async function GET(
       .filter((m) => assignedMarketIds.has(m.id))
       .map((m) => {
         const assignment = assignmentByMarketId.get(m.id);
+        const profileId = assignment?.output_profile_id ?? null;
+        const profile = profileId ? profileById.get(profileId) ?? null : null;
         return {
           assignment_id: assignment?.id,
           market_id: m.id,
@@ -84,6 +101,8 @@ export async function GET(
           code: m.code,
           valid_from: assignment?.valid_from ?? null,
           assigned_at: assignment?.created_at,
+          output_profile_id: profileId,
+          channel: profile ? { id: profile.id, name: profile.name, code: profile.code, profile_type: profile.profile_type } : null,
         };
       });
 

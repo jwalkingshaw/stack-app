@@ -3,6 +3,7 @@ import { getSafeUserData, isAuthenticated, requireUser } from '@/lib/auth-server
 import { createServerClient, DatabaseQueries } from '@tradetool/database'
 import { evaluateTenantAccessDecision } from '@/lib/tenant-access-decision'
 import { getActiveWorkspaceMemberships } from '@/lib/workspace-notifications'
+import { cache as redisCache, CacheKeys, CacheTTL } from '@/lib/redis'
 import TenantLayoutClient from './TenantLayoutClient'
 
 interface TenantLayoutProps {
@@ -73,28 +74,43 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
     const workspaceIds = effectiveWorkspaces.map((workspace) => workspace.organization.id)
     const recentSince = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
     const unreadCountByWorkspace = new Map<string, number>()
+    const unreadScope = `${tenantSlug}:${workspaceIds.slice().sort().join(',')}`
+    const unreadCacheKey = CacheKeys.workspaceUnreadCounts(user.id, unreadScope)
+    const cachedUnread = await redisCache.get<Record<string, number>>(unreadCacheKey)
 
-    await Promise.all(
-      workspaceIds.map(async (workspaceId) => {
-        const [{ count: recentAssetCount }, { count: recentProductCount }] = await Promise.all([
-          supabase
-            .from('dam_assets')
-            .select('id', { count: 'exact', head: true })
-            .eq('organization_id', workspaceId)
-            .gte('created_at', recentSince),
-          supabase
-            .from('products')
-            .select('id', { count: 'exact', head: true })
-            .eq('organization_id', workspaceId)
-            .gte('created_at', recentSince),
-        ])
-
-        unreadCountByWorkspace.set(
-          workspaceId,
-          (recentAssetCount ?? 0) + (recentProductCount ?? 0)
-        )
+    if (cachedUnread && typeof cachedUnread === 'object') {
+      Object.entries(cachedUnread).forEach(([workspaceId, count]) => {
+        unreadCountByWorkspace.set(workspaceId, Number.isFinite(count) ? count : 0)
       })
-    )
+    } else {
+      await Promise.all(
+        workspaceIds.map(async (workspaceId) => {
+          const [{ count: recentAssetCount }, { count: recentProductCount }] = await Promise.all([
+            supabase
+              .from('dam_assets')
+              .select('id', { count: 'exact', head: true })
+              .eq('organization_id', workspaceId)
+              .gte('created_at', recentSince),
+            supabase
+              .from('products')
+              .select('id', { count: 'exact', head: true })
+              .eq('organization_id', workspaceId)
+              .gte('created_at', recentSince),
+          ])
+
+          unreadCountByWorkspace.set(
+            workspaceId,
+            (recentAssetCount ?? 0) + (recentProductCount ?? 0)
+          )
+        })
+      )
+
+      const serialized: Record<string, number> = {}
+      unreadCountByWorkspace.forEach((count, workspaceId) => {
+        serialized[workspaceId] = count
+      })
+      await redisCache.set(unreadCacheKey, serialized, CacheTTL.WORKSPACE_UNREAD)
+    }
 
     const workspaces = effectiveWorkspaces.map((workspace) => ({
       id: workspace.organization.id,

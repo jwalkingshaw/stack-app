@@ -406,7 +406,7 @@ export default async function KitSharePage({
         <div className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
 
           {/* Brand header bar */}
-          <div className="border-b border-border bg-muted/30 px-6 py-4 flex items-center gap-3">
+          <div className="border-b border-gray-200 bg-muted/30 px-6 py-4 flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-foreground/10">
               <Package className="h-4 w-4 text-foreground" />
             </div>
@@ -454,7 +454,7 @@ export default async function KitSharePage({
           </div>
 
           {/* Access gate */}
-          <div className="border-t border-border bg-muted/20 px-6 py-5">
+          <div className="border-t border-gray-200 bg-muted/20 px-6 py-5">
             <p className="text-sm font-semibold text-foreground">
               Sign in for secure access
             </p>

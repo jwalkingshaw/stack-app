@@ -10,10 +10,12 @@ import {
   Files,
   Package,
   Megaphone,
+  Search,
   ChevronDown,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react'
+import { ScopeToolbar } from './scope-toolbar'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -29,6 +31,7 @@ import {
   extractPartnerScopeFromPath,
   resolvePartnerSelectedBrandSlug,
 } from '@/lib/tenant-view-scope'
+import { GlobalSearchDialog } from './GlobalSearchDialog'
 
 export interface Organization {
   id: string
@@ -83,6 +86,7 @@ export function SaaSSidebar({
   )
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false)
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false)
   const searchParams = useSearchParams()
   const fallbackBrandSlug = (searchParams.get('brand') || '').trim().toLowerCase()
 
@@ -91,6 +95,7 @@ export function SaaSSidebar({
   const showWorkspaceRail = organization?.organizationType === 'partner'
   const [workspaceLogoFailed, setWorkspaceLogoFailed] = useState(false)
   const [workspaceLogoBySlug, setWorkspaceLogoBySlug] = useState<Record<string, string | null>>({})
+  const [partnerChannelName, setPartnerChannelName] = useState<string | null>(null)
   const currentWorkspaceMembership = workspaces?.find(
     (workspace) => workspace.slug === currentWorkspaceSlug
   )
@@ -128,6 +133,7 @@ export function SaaSSidebar({
       isActive = false
     }
   }, [currentWorkspaceSlug])
+
   const currentWorkspaceLogoUrl =
     workspaceLogoBySlug[currentWorkspaceSlug.toLowerCase()] ??
     currentWorkspaceMembership?.logoUrl ??
@@ -142,6 +148,7 @@ export function SaaSSidebar({
   const userFirstName = user?.firstName ?? ''
   const userLastName = user?.lastName ?? ''
   const userEmail = user?.email ?? ''
+  const urlMarketCode = (searchParams.get('market') || '').trim().toUpperCase()
   const pathScope = extractPartnerScopeFromPath(currentPath, currentWorkspaceSlug)
   const selectedBrandSlug = resolvePartnerSelectedBrandSlug({
     pathname: currentPath,
@@ -150,6 +157,32 @@ export function SaaSSidebar({
     organizationType: organization?.organizationType,
   })
   const activeScope = pathScope || selectedBrandSlug
+
+  useEffect(() => {
+    if (organization?.organizationType !== 'partner' || !activeScope) {
+      setPartnerChannelName(null)
+      return
+    }
+    let active = true
+    const fetchPartnerChannel = async () => {
+      try {
+        const res = await fetch(`/api/${currentWorkspaceSlug}/view/${activeScope}/markets`, { cache: 'no-store' })
+        if (!res.ok || !active) return
+        const data = await res.json()
+        const markets: Array<{ code: string; channel: { name: string } | null }> = data?.data?.markets ?? []
+        if (markets.length === 0) { setPartnerChannelName(null); return }
+        const match = urlMarketCode
+          ? markets.find((m) => m.code.toUpperCase() === urlMarketCode)
+          : null
+        const market = match ?? markets[0]
+        if (active) setPartnerChannelName(market.channel?.name ?? null)
+      } catch {
+        // silent
+      }
+    }
+    void fetchPartnerChannel()
+    return () => { active = false }
+  }, [organization?.organizationType, activeScope, currentWorkspaceSlug, urlMarketCode])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -176,6 +209,19 @@ export function SaaSSidebar({
       // no-op: localStorage is best-effort
     }
   }, [isCollapsed, sidebarStorageKey])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+      if (!(event.metaKey || event.ctrlKey)) return
+      if (event.key.toLowerCase() !== 'k') return
+      event.preventDefault()
+      setIsGlobalSearchOpen(true)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const updateCollapsedState = (collapsed: boolean) => {
     setIsCollapsed(collapsed)
@@ -229,42 +275,31 @@ export function SaaSSidebar({
     return basis.charAt(0).toUpperCase()
   }, [organizationName, organizationSlug, userEmail, userFullName])
 
-  const navGroups = useMemo(() => {
-    const groups = [
+  const navItems = useMemo(
+    () => [
       {
-        label: '',
-        items: [
-          {
-            label: t("dashboard"),
-            path: buildPath(),
-            icon: BarChart3,
-          },
-        ],
+        label: t("dashboard"),
+        path: buildPath(),
+        icon: BarChart3,
       },
       {
-        label: t("catalog"),
-        items: [
-          {
-            label: t("assets"),
-            path: buildPath('/assets'),
-            icon: Files,
-          },
-          {
-            label: t("products"),
-            path: buildPath('/products'),
-            icon: Package,
-          },
-          {
-            label: t("updates"),
-            path: buildPath('/updates'),
-            icon: Megaphone,
-          },
-        ],
+        label: t("products"),
+        path: buildPath('/products'),
+        icon: Package,
       },
-    ]
-
-    return groups.filter((group) => group.items.length > 0)
-  }, [buildPath, t])
+      {
+        label: organization?.organizationType === 'partner' ? t("brandLibrary") : t("assets"),
+        path: buildPath('/assets'),
+        icon: Files,
+      },
+      {
+        label: t("updates"),
+        path: buildPath('/updates'),
+        icon: Megaphone,
+      },
+    ],
+    [buildPath, t]
+  )
 
   const handleLogout = () => {
     onLogout?.()
@@ -350,7 +385,7 @@ export function SaaSSidebar({
                         )}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-normal text-foreground truncate">
+                        <div className="text-sm font-medium text-foreground truncate">
                           {organizationName || t("workspace")}
                         </div>
                       </div>
@@ -422,50 +457,76 @@ export function SaaSSidebar({
           </div>
         </div>
 
-        <nav className={`flex-1 overflow-y-auto ${isCollapsed ? 'py-2 px-2' : 'py-3 px-2'}`}>
-          <div className="space-y-4">
-            {navGroups.map((group) => (
-              <div key={group.label}>
-                {group.label && !isCollapsed ? (
-                  <div className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                    {group.label}
-                  </div>
-                ) : null}
-                <div className="space-y-0.5">
-                  {group.items.map((item) => {
-                    const Icon = item.icon
-                    const active = isActive(item.path)
-                    return (
-                      <Link
-                        key={item.label}
-                        href={item.path}
-                        prefetch={false}
-                        aria-label={item.label}
-                        title={isCollapsed ? item.label : undefined}
-                        className={`flex items-center rounded-md transition-colors ${
-                          active
-                            ? 'bg-muted text-foreground'
-                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                        } ${
-                          isCollapsed
-                            ? 'justify-center h-10 px-0 py-0'
-                            : 'gap-2 px-3 py-2 text-sm font-normal'
-                        }`}
-                      >
-                        <Icon className="h-4 w-4 flex-shrink-0" />
-                        {!isCollapsed ? (
-                          <span className="flex-1 truncate">{item.label}</span>
-                        ) : null}
-                      </Link>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
+        <nav className={`flex-1 overflow-y-auto ${isCollapsed ? 'py-2 px-2' : 'py-1 px-2'}`}>
+          <div className="space-y-0.5">
+            {!isCollapsed ? (
+              <button
+                type="button"
+                onClick={() => setIsGlobalSearchOpen(true)}
+                className="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-sm font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                aria-label="Open global search"
+              >
+                <Search className="h-4 w-4 flex-shrink-0" />
+                <span className="flex-1 truncate">Search</span>
+              </button>
+            ) : null}
+
+            {navItems.map((item) => {
+              const Icon = item.icon
+              const active = isActive(item.path)
+              return (
+                <Link
+                  key={item.label}
+                  href={item.path}
+                  prefetch={false}
+                  aria-label={item.label}
+                  title={isCollapsed ? item.label : undefined}
+                  className={`flex items-center rounded-md transition-colors ${
+                    active
+                      ? 'bg-muted text-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  } ${
+                    isCollapsed
+                      ? 'justify-center h-10 px-0 py-0'
+                      : 'h-9 gap-2 px-2.5 text-sm font-medium'
+                  }`}
+                >
+                  <Icon className="h-4 w-4 flex-shrink-0" />
+                  {!isCollapsed ? (
+                    <span className="flex-1 truncate">{item.label}</span>
+                  ) : null}
+                </Link>
+              )
+            })}
           </div>
         </nav>
 
+        {/* Session context — varies by org type. Hidden when collapsed. */}
+        {!isCollapsed ? (
+          <div className="border-t border-gray-200 px-3 py-3">
+            {organization?.organizationType === 'partner' ? (
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-muted-foreground">Channel</span>
+                <div className="flex h-7 items-center rounded-md border border-border bg-background px-2 text-xs text-muted-foreground">
+                  {partnerChannelName ?? 'No channel assigned'}
+                </div>
+              </div>
+            ) : (
+              <ScopeToolbar showCycleControls={false} layout="vertical" />
+            )}
+          </div>
+        ) : null}
+
         {children}
+
+        <GlobalSearchDialog
+          open={isGlobalSearchOpen}
+          onOpenChange={setIsGlobalSearchOpen}
+          tenantSlug={currentWorkspaceSlug}
+          organizationType={organization?.organizationType}
+          activeScope={activeScope}
+          onNavigate={handleNavigation}
+        />
       </div>
     </div>
   )

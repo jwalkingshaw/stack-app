@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, Trash2 } from 'lucide-react';
+import { Bell, ChevronLeft, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -17,10 +18,18 @@ import { SettingsSecondLevelPage } from '../settings-page-content';
 
 type ShareSetModule = 'assets' | 'products';
 
+interface OutputProfileOption {
+  id: string;
+  name: string;
+  profile_type: string;
+}
+
 interface SetInfo {
   id: string;
   name: string;
   module_key: ShareSetModule;
+  output_profile_id: string | null;
+  output_profile: OutputProfileOption | null;
 }
 
 interface SetItem {
@@ -142,7 +151,7 @@ interface SetDetailSettingsProps {
 export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettingsProps) {
   // Core set info (comes from grants response)
   const [setInfo, setSetInfo] = useState<SetInfo | null>(null);
-  const [activeTab, setActiveTab] = useState<'items' | 'grants' | 'rules'>('items');
+  const [activeTab, setActiveTab] = useState<'items' | 'grants' | 'rules' | 'readiness'>('items');
   const [pageLoading, setPageLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
 
@@ -166,6 +175,29 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
   // Markets containing this set (read-only context)
   const [setMarkets, setSetMarkets] = useState<Array<{ id: string; name: string; code: string }>>([]);
   const [setMarketsLoading, setSetMarketsLoading] = useState(true);
+
+  // Output profile (products sets only)
+  const [outputProfiles, setOutputProfiles] = useState<OutputProfileOption[]>([]);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  // Companion Brand Library picker (product catalogs only)
+  const [libraryOptions, setLibraryOptions] = useState<{ id: string; name: string }[]>([]);
+  const [selectedLibraryId, setSelectedLibraryId] = useState('');
+
+  // Readiness tab (product catalogs only)
+  const [readinessProfile, setReadinessProfile] = useState<{ id: string; name: string; profile_type: string } | null>(null);
+  const [readinessScores, setReadinessScores] = useState<Record<string, number>>({});
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
+  const [hasLoadedReadiness, setHasLoadedReadiness] = useState(false);
+
+  // Notify Partners dialog (product catalogs only)
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [notifyMessage, setNotifyMessage] = useState('');
+  const [notifySubmitting, setNotifySubmitting] = useState(false);
+  const [notifyError, setNotifyError] = useState<string | null>(null);
+  const [notifySuccess, setNotifySuccess] = useState(false);
 
   // Rules
   const [rules, setRules] = useState<ShareSetDynamicRule[]>([]);
@@ -310,6 +342,76 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
     }
   }, [setId, tenantSlug]);
 
+  const fetchReadiness = useCallback(async (productIds: string[]) => {
+    if (productIds.length === 0) {
+      setReadinessScores({});
+      setReadinessProfile(null);
+      setReadinessLoading(false);
+      return;
+    }
+    setReadinessLoading(true);
+    setReadinessError(null);
+    try {
+      const response = await fetch(`/api/${tenantSlug}/products/readiness/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productIds }),
+      });
+      const payload = await response.json().catch(() => ({})) as {
+        success?: boolean;
+        data?: {
+          profile?: { id: string; name: string; profile_type: string } | null;
+          scores?: Record<string, number>;
+        };
+      };
+      if (!response.ok) throw new Error('Failed to load readiness');
+      setReadinessProfile(payload.data?.profile ?? null);
+      setReadinessScores(payload.data?.scores ?? {});
+    } catch (err) {
+      setReadinessError(getErrorMessage(err, 'Failed to load readiness'));
+    } finally {
+      setReadinessLoading(false);
+    }
+  }, [tenantSlug]);
+
+  const notifyPartners = useCallback(async () => {
+    if (!setInfo || notifySubmitting || grants.length === 0) return;
+    setNotifySubmitting(true);
+    setNotifyError(null);
+    setNotifySuccess(false);
+    try {
+      const createRes = await fetch(`/api/${tenantSlug}/updates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `Catalog update: ${setInfo.name}`,
+          summary: notifyMessage.trim() || `${setInfo.name} has been updated.`,
+          urgency: 'normal',
+        }),
+      });
+      const createPayload = await createRes.json().catch(() => ({})) as { data?: { id?: string }; error?: string };
+      if (!createRes.ok) throw new Error(createPayload.error ?? 'Failed to create update');
+      const updateId = createPayload.data?.id;
+      if (!updateId) throw new Error('No update ID returned');
+      const publishRes = await fetch(`/api/${tenantSlug}/updates/${updateId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientSelection: { partnerOrganizationIds: grants.map((g) => g.partner_organization_id) },
+          deliveryChannels: ['in_app', 'email'],
+        }),
+      });
+      const publishPayload = await publishRes.json().catch(() => ({})) as { error?: string };
+      if (!publishRes.ok) throw new Error(publishPayload.error ?? 'Failed to send update');
+      setNotifySuccess(true);
+      setNotifyMessage('');
+    } catch (err) {
+      setNotifyError(getErrorMessage(err, 'Failed to notify partners'));
+    } finally {
+      setNotifySubmitting(false);
+    }
+  }, [grants, notifyMessage, notifySubmitting, setInfo, tenantSlug]);
+
   // ---------------------------------------------------------------------------
   // Initial load
   // ---------------------------------------------------------------------------
@@ -330,15 +432,38 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
     setHasLoadedItems(false);
     setHasLoadedRules(false);
     setHasLoadedRuleReferenceData(false);
+    setHasLoadedReadiness(false);
+    setReadinessScores({});
+    setReadinessProfile(null);
     setSetMarkets([]);
     setFolders([]);
     setFamilies([]);
     void fetchGrants().finally(() => {
       if (!cancelled) {
         setPageLoading(false);
+        // Fetch output profiles for products sets after we know the module_key
+        // Use setInfo state after fetch completes — we read from DOM state directly
       }
     });
     void fetchSetMarkets();
+    // Fetch output profiles unconditionally — filtered to products sets in the UI
+    fetch(`/api/${tenantSlug}/output-profiles`)
+      .then((r) => r.json().catch(() => ({})))
+      .then((payload: { success?: boolean; data?: OutputProfileOption[] }) => {
+        if (!cancelled && payload.success && Array.isArray(payload.data)) {
+          setOutputProfiles(payload.data);
+        }
+      })
+      .catch(() => { /* non-critical */ });
+    // Fetch asset sets for companion Brand Library picker (used in product catalog grant form)
+    fetch(`/api/${tenantSlug}/sharing/sets?page=1&pageSize=100`)
+      .then((r) => r.json().catch(() => ({})))
+      .then((payload: { data?: { asset_sets?: { id: string; name: string }[] } }) => {
+        if (!cancelled && Array.isArray(payload.data?.asset_sets)) {
+          setLibraryOptions(payload.data.asset_sets.map((s) => ({ id: s.id, name: s.name })));
+        }
+      })
+      .catch(() => { /* non-critical */ });
     return () => {
       cancelled = true;
     };
@@ -362,6 +487,20 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
     void fetchFolders();
     void fetchFamilies();
   }, [activeTab, fetchFamilies, fetchFolders, hasLoadedRuleReferenceData, pageLoading]);
+
+  // Readiness tab: first ensure items are loaded, then fetch readiness scores
+  useEffect(() => {
+    if (pageLoading || activeTab !== 'readiness' || hasLoadedReadiness) return;
+    if (!hasLoadedItems) {
+      setHasLoadedItems(true);
+      void fetchItems();
+      return;
+    }
+    if (itemsLoading) return;
+    setHasLoadedReadiness(true);
+    const productIds = items.filter((i) => i.resource_type === 'product').map((i) => i.resource_id);
+    void fetchReadiness(productIds);
+  }, [activeTab, fetchItems, fetchReadiness, hasLoadedItems, hasLoadedReadiness, items, itemsLoading, pageLoading]);
 
   // ---------------------------------------------------------------------------
   // Items actions
@@ -390,6 +529,39 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
   }, [removingItemId, setId, tenantSlug]);
 
   // ---------------------------------------------------------------------------
+  // Profile assignment
+  // ---------------------------------------------------------------------------
+
+  const handleProfileChange = useCallback(async (profileId: string | null) => {
+    setSavingProfile(true);
+    setProfileError(null);
+    // Optimistic update
+    setSetInfo((prev) => {
+      if (!prev) return prev;
+      const profile = profileId ? outputProfiles.find((p) => p.id === profileId) ?? null : null;
+      return { ...prev, output_profile_id: profileId, output_profile: profile };
+    });
+    try {
+      const res = await fetch(`/api/${tenantSlug}/sharing/sets/${setId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ output_profile_id: profileId }),
+      });
+      const payload = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) {
+        setProfileError(payload.error ?? 'Failed to save profile');
+        // Roll back
+        await fetchGrants();
+      }
+    } catch {
+      setProfileError('Failed to save profile');
+      await fetchGrants();
+    } finally {
+      setSavingProfile(false);
+    }
+  }, [fetchGrants, outputProfiles, setId, tenantSlug]);
+
+  // ---------------------------------------------------------------------------
   // Grant actions
   // ---------------------------------------------------------------------------
 
@@ -405,14 +577,23 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
       });
       const payload = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(payload.error || 'Failed to add partner');
+      // Optionally also grant a companion Brand Library in one step
+      if (selectedLibraryId) {
+        await fetch(`/api/${tenantSlug}/sharing/sets/${selectedLibraryId}/grants`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ partnerOrganizationId: addPartnerId, accessLevel: addAccessLevel }),
+        }).catch(() => { /* best-effort; primary grant succeeded */ });
+      }
       setAddPartnerId('');
+      setSelectedLibraryId('');
       await fetchGrants();
     } catch (err) {
       setGrantsError(getErrorMessage(err, 'Failed to add partner'));
     } finally {
       setGrantsSubmitting(false);
     }
-  }, [addAccessLevel, addPartnerId, fetchGrants, grantsSubmitting, setId, tenantSlug]);
+  }, [addAccessLevel, addPartnerId, fetchGrants, grantsSubmitting, selectedLibraryId, setId, tenantSlug]);
 
   const revokeGrant = useCallback(async (grantId: string) => {
     if (revokingGrantId) return;
@@ -674,7 +855,7 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
   if (pageLoading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading set..." size="lg" />
+        <PageSkeleton text="Loading..." size="lg" />
       </div>
     );
   }
@@ -685,7 +866,7 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
       className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
     >
       <ChevronLeft className="h-4 w-4" />
-      <span>Sets</span>
+      <span>Sharing</span>
     </Link>
   );
 
@@ -706,15 +887,86 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
       <div className="space-y-6">
 
         {/* Header */}
-        <div className="flex items-center gap-2">
-          <h2 className="text-2xl font-semibold text-foreground">{setInfo.name}</h2>
-          <Badge variant={isAsset ? 'info' : 'purple'}>
-            {isAsset ? 'Assets' : 'Products'}
-          </Badge>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <h2 className="text-2xl font-semibold text-foreground truncate">{setInfo.name}</h2>
+              <Badge variant={isAsset ? 'info' : 'purple'}>
+                {isAsset ? 'Brand Library' : 'Product Catalog'}
+              </Badge>
+            </div>
+            {!isAsset && grants.length > 0 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 gap-1.5"
+                onClick={() => {
+                  const profileName = setInfo.output_profile?.name;
+                  setNotifyMessage(
+                    `${setInfo.name} has been updated${profileName ? ` for ${profileName}` : ''} — check your catalog for the latest products.`
+                  );
+                  setNotifySuccess(false);
+                  setNotifyError(null);
+                  setNotifyOpen(true);
+                }}
+              >
+                <Bell className="h-3.5 w-3.5" />
+                Notify Partners
+              </Button>
+            ) : null}
+          </div>
+
+          {/* Output profile picker — product catalogs only */}
+          {!isAsset && (
+            <div className="rounded-lg border border-border/60 bg-card px-4 py-3">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">Channel</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Partners see readiness scored against this channel&apos;s field requirements.
+                  </p>
+                </div>
+                <div className="shrink-0 w-64">
+                  <Select
+                    value={setInfo.output_profile_id ?? 'none'}
+                    onValueChange={(v) => void handleProfileChange(v === 'none' ? null : v)}
+                    disabled={savingProfile}
+                  >
+                    <SelectTrigger className="h-8 text-sm">
+                      <SelectValue placeholder="No profile assigned" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        <span className="text-muted-foreground">No profile</span>
+                      </SelectItem>
+                      {outputProfiles.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {profileError && (
+                <p className="mt-2 text-xs text-destructive">{profileError}</p>
+              )}
+            </div>
+          )}
+
+          {/* Brand Library companion note — product catalogs only */}
+          {!isAsset && (
+            <div className="rounded-lg border border-border/60 bg-muted/40 px-4 py-3">
+              <p className="text-sm font-medium text-foreground">Brand Libraries</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                When sharing this catalog you can also give partners access to a Brand Library — brand guidelines, compliance certificates, and other standing files. Add a companion library in the Direct Access tab below.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'items' | 'grants' | 'rules')}>
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'items' | 'grants' | 'rules' | 'readiness')}>
           <TabsList>
             <TabsTrigger value="items">
               Items
@@ -740,6 +992,9 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
                 </span>
               ) : null}
             </TabsTrigger>
+            {!isAsset ? (
+              <TabsTrigger value="readiness">Readiness</TabsTrigger>
+            ) : null}
           </TabsList>
 
           {/* ── Items tab ── */}
@@ -761,7 +1016,7 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
                 {/* Summary stats */}
                 <div className="rounded-lg border border-border/60 bg-card p-4">
                   {itemCounts.total === 0 ? (
-                    <p className="text-sm text-muted-foreground">No items in this set yet.</p>
+                    <p className="text-sm text-muted-foreground">No items yet.</p>
                   ) : isAsset ? (
                     <div className="flex flex-wrap gap-4 text-sm">
                       <span><span className="font-medium text-foreground">{itemCounts.assets}</span> <span className="text-muted-foreground">assets</span></span>
@@ -784,8 +1039,8 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
                 {/* How to manage note */}
                 <p className="text-sm text-muted-foreground">
                   {isAsset
-                    ? 'Add assets and folders to this set from the Assets view using the "Add to Set" action.'
-                    : 'Add products and variants to this set from the Products view.'}
+                    ? 'Add assets and folders to this library from the Assets view using the "Add to Library" action.'
+                    : 'Add products and variants to this catalog from the Products view.'}
                   {itemCounts.total > 0 ? (
                     <>
                       {' '}
@@ -1007,44 +1262,64 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
             ) : (
               <>
                 {partnersAvailableToAdd.length > 0 ? (
-                  <div className="flex gap-2">
-                    <Select value={addPartnerId} onValueChange={setAddPartnerId}>
-                      <SelectTrigger className="flex-1">
-                        <SelectValue placeholder="Select partner to add" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {partnersAvailableToAdd.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select
-                      value={addAccessLevel}
-                      onValueChange={(v) => setAddAccessLevel(v as 'view' | 'edit')}
-                    >
-                      <SelectTrigger className="w-28">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="view">View</SelectItem>
-                        <SelectItem value="edit">Edit</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button
-                      variant="secondary"
-                      disabled={grantsSubmitting || !addPartnerId}
-                      onClick={() => void addGrant()}
-                    >
-                      {grantsSubmitting ? 'Adding...' : 'Add'}
-                    </Button>
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <Select value={addPartnerId} onValueChange={setAddPartnerId}>
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="Select partner to add" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {partnersAvailableToAdd.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Select
+                        value={addAccessLevel}
+                        onValueChange={(v) => setAddAccessLevel(v as 'view' | 'edit')}
+                      >
+                        <SelectTrigger className="w-28">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="view">View</SelectItem>
+                          <SelectItem value="edit">Edit</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="secondary"
+                        disabled={grantsSubmitting || !addPartnerId}
+                        onClick={() => void addGrant()}
+                      >
+                        {grantsSubmitting ? 'Adding...' : 'Add'}
+                      </Button>
+                    </div>
+                    {!isAsset && libraryOptions.length > 0 ? (
+                      <div className="flex items-center gap-2">
+                        <label className="shrink-0 text-xs text-muted-foreground">Also share a Brand Library</label>
+                        <Select value={selectedLibraryId || 'none'} onValueChange={(v) => setSelectedLibraryId(v === 'none' ? '' : v)}>
+                          <SelectTrigger className="flex-1 h-8 text-sm">
+                            <SelectValue placeholder="None" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">
+                              <span className="text-muted-foreground">None</span>
+                            </SelectItem>
+                            {libraryOptions.map((lib) => (
+                              <SelectItem key={lib.id} value={lib.id}>{lib.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     {availablePartners.length === 0
                       ? 'No partner organizations connected to this workspace.'
-                      : 'All connected partners already have access to this set.'}
+                      : 'All connected partners already have access.'}
                   </p>
                 )}
 
@@ -1074,7 +1349,7 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    No active partner grants for this set.
+                    No active direct grants.
                   </p>
                 )}
               </>
@@ -1338,8 +1613,144 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
               </div>
             )}
           </TabsContent>
+
+          {/* ── Readiness tab ── */}
+          {!isAsset ? (
+            <TabsContent value="readiness" className="space-y-4 pt-4">
+              {readinessError ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                  {readinessError}
+                </div>
+              ) : null}
+
+              {readinessLoading || (activeTab === 'readiness' && !hasLoadedReadiness) ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-12 animate-pulse rounded-lg bg-muted" />
+                  ))}
+                </div>
+              ) : !setInfo.output_profile_id ? (
+                <div className="rounded-lg border border-border/60 bg-card p-4">
+                  <p className="text-sm text-muted-foreground">
+                    Assign a channel above to see readiness scores for this catalog.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Summary */}
+                  <div className="rounded-lg border border-border/60 bg-card px-4 py-3">
+                    {readinessProfile ? (
+                      <p className="text-sm font-medium text-foreground mb-0.5">
+                        {readinessProfile.name}
+                      </p>
+                    ) : null}
+                    {(() => {
+                      const productIds = items.filter((i) => i.resource_type === 'product').map((i) => i.resource_id);
+                      const total = productIds.length;
+                      const ready = productIds.filter((id) => (readinessScores[id] ?? 0) >= 100).length;
+                      const color =
+                        total === 0
+                          ? 'text-muted-foreground'
+                          : ready === total
+                          ? 'text-green-600 dark:text-green-400'
+                          : ready / total >= 0.7
+                          ? 'text-amber-600 dark:text-amber-400'
+                          : 'text-destructive';
+                      return (
+                        <p className={`text-sm ${color}`}>
+                          {total === 0
+                            ? 'No products in this catalog yet.'
+                            : `${ready} of ${total} products ready`}
+                        </p>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Per-product rows */}
+                  {items.filter((i) => i.resource_type === 'product').length > 0 ? (
+                    <div className="space-y-1">
+                      {items
+                        .filter((i) => i.resource_type === 'product')
+                        .map((item) => {
+                          const entry = resolved[item.resource_id];
+                          const score = readinessScores[item.resource_id] ?? 0;
+                          const isReady = score >= 100;
+                          const badgeColor = isReady
+                            ? 'text-green-600 dark:text-green-400'
+                            : score >= 70
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-destructive';
+                          return (
+                            <Link
+                              key={item.id}
+                              href={`/${tenantSlug}/products/${item.resource_id}`}
+                              className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2 hover:bg-muted/40 transition-colors"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="truncate text-sm text-foreground">
+                                  {entry?.name ?? item.resource_id}
+                                </span>
+                                {entry?.sku ? (
+                                  <span className="shrink-0 text-xs text-muted-foreground">{entry.sku}</span>
+                                ) : null}
+                              </div>
+                              <span className={`shrink-0 text-sm font-medium tabular-nums ${badgeColor}`}>
+                                {score}%
+                              </span>
+                            </Link>
+                          );
+                        })}
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </TabsContent>
+          ) : null}
         </Tabs>
       </div>
+
+      {/* Notify Partners dialog */}
+      <Dialog open={notifyOpen} onOpenChange={(open) => { setNotifyOpen(open); if (!open) { setNotifySuccess(false); setNotifyError(null); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Notify Partners</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">
+              Send an in-app and email notification to all {grants.length} partner{grants.length !== 1 ? 's' : ''} with access to this catalog.
+            </p>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Message</label>
+              <textarea
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
+                rows={4}
+                value={notifyMessage}
+                onChange={(e) => setNotifyMessage(e.target.value)}
+                disabled={notifySubmitting || notifySuccess}
+              />
+            </div>
+            {notifyError ? (
+              <p className="text-xs text-destructive">{notifyError}</p>
+            ) : null}
+            {notifySuccess ? (
+              <p className="text-xs text-green-600 dark:text-green-400">
+                Partners notified successfully.
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setNotifyOpen(false)} disabled={notifySubmitting}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void notifyPartners()}
+              disabled={notifySubmitting || notifySuccess}
+            >
+              {notifySubmitting ? 'Sending...' : 'Send notification'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SettingsSecondLevelPage>
   );
 }

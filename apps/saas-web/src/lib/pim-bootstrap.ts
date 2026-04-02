@@ -1,4 +1,8 @@
-import { CORE_BASIC_INFO_GROUP_CODE, CORE_DOCUMENTATION_GROUP_CODE } from '@/lib/pim-core';
+import {
+  CORE_BASIC_INFO_GROUP_CODE,
+  CORE_DOCUMENTATION_GROUP_CODE,
+  CORE_SERVING_INFO_GROUP_CODE
+} from '@/lib/pim-core';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@tradetool/database';
 
@@ -35,7 +39,7 @@ type CoreFieldSeed = {
   code: string;
   name: string;
   description: string;
-  field_type: 'text' | 'identifier' | 'file';
+  field_type: 'text' | 'textarea' | 'number' | 'identifier' | 'file' | 'select' | 'measurement' | 'table';
   is_required: boolean;
   is_unique: boolean;
   is_localizable?: boolean;
@@ -258,18 +262,314 @@ async function ensureFieldsInGroup(
   }
 }
 
+const SERVING_INFO_FIELD_SEEDS: CoreFieldSeed[] = [
+  {
+    code: 'dose_form',
+    name: 'Dose Form',
+    description: 'Product delivery format (Powder, Capsule, Tablet, etc.). Determines which Facts Panel template applies.',
+    field_type: 'select',
+    is_required: false,
+    is_unique: false,
+    sort_order: 10,
+    validation_rules: {},
+    options: {
+      is_system: true,
+      system_key: 'dose_form',
+      options: [
+        { value: 'Powder',  label: 'Powder' },
+        { value: 'Capsule', label: 'Capsule' },
+        { value: 'RTD',     label: 'RTD (Ready to Drink)' },
+        { value: 'Tablet',  label: 'Tablet' },
+        { value: 'Gummy',   label: 'Gummy' },
+        { value: 'Softgel', label: 'Softgel' },
+        { value: 'Liquid',  label: 'Liquid' },
+        { value: 'Bar',     label: 'Bar' },
+        { value: 'Other',   label: 'Other' }
+      ]
+    }
+  },
+  {
+    code: 'serving_size',
+    name: 'Serving Size',
+    description: 'Amount per single serving (e.g. 32 g, 2 capsules). Required on the Supplement/Nutrition Facts panel (FDA 21 CFR 101.9).',
+    field_type: 'measurement',
+    is_required: false,
+    is_unique: false,
+    sort_order: 20,
+    validation_rules: {},
+    options: {
+      is_system: true,
+      system_key: 'serving_size',
+      measurement_family_code: 'weight'
+    }
+  },
+  {
+    code: 'servings_per_container',
+    name: 'Servings Per Container',
+    description: 'Number of servings in the container. Required on the Supplement/Nutrition Facts panel (FDA 21 CFR 101.9).',
+    field_type: 'number',
+    is_required: false,
+    is_unique: false,
+    sort_order: 30,
+    validation_rules: { min: 1, integer_only: true },
+    options: {
+      is_system: true,
+      system_key: 'servings_per_container'
+    }
+  },
+  {
+    code: 'net_weight',
+    name: 'Net Weight',
+    description: 'Total net weight of the product (e.g. 1000 g, 2.2 lb). Required on the product label (FDA 21 CFR 101.105).',
+    field_type: 'measurement',
+    is_required: false,
+    is_unique: false,
+    sort_order: 40,
+    validation_rules: {},
+    options: {
+      is_system: true,
+      system_key: 'net_weight',
+      measurement_family_code: 'weight'
+    }
+  },
+  {
+    code: 'net_volume',
+    name: 'Net Volume',
+    description: 'Total net volume — use for liquid or RTD products (e.g. 500 ml, 16 fl oz). Required on the label for liquid products (FDA 21 CFR 101.105).',
+    field_type: 'measurement',
+    is_required: false,
+    is_unique: false,
+    sort_order: 50,
+    validation_rules: {},
+    options: {
+      is_system: true,
+      system_key: 'net_volume',
+      measurement_family_code: 'volume'
+    }
+  }
+];
+
+const COMPLIANCE_EXPANSION_FIELD_SEEDS: CoreFieldSeed[] = [
+  {
+    code: 'key_actives',
+    name: 'Key Actives',
+    description: 'Primary active ingredients with dose and unit. Used for marketing claims, sell sheets, and channel output. Separate from the full ingredient list on the label.',
+    field_type: 'table',
+    is_required: false,
+    is_unique: false,
+    sort_order: 45,
+    validation_rules: {},
+    options: {
+      is_system: true,
+      system_key: 'key_actives',
+      table_definition: {
+        columns: [
+          {
+            key: 'ingredient',
+            label: 'Ingredient',
+            type: 'text',
+            is_editable: true,
+            is_required: true,
+            placeholder: 'e.g. Creatine Monohydrate'
+          },
+          {
+            key: 'amount',
+            label: 'Amount',
+            type: 'number',
+            is_editable: true,
+            is_required: false,
+            placeholder: 'e.g. 3'
+          },
+          {
+            key: 'unit',
+            label: 'Unit',
+            type: 'text',
+            is_editable: true,
+            is_required: false,
+            placeholder: 'e.g. g, mg, IU'
+          }
+        ],
+        meta: {
+          allows_custom_rows: true,
+          supports_sections: false
+        }
+      }
+    }
+  },
+  {
+    code: 'directions_for_use',
+    name: 'Directions for Use',
+    description: 'How to take the product. Required on supplement labels. Localise per market language.',
+    field_type: 'textarea',
+    is_required: false,
+    is_unique: false,
+    is_localizable: true,
+    sort_order: 65,
+    validation_rules: {},
+    options: {
+      is_system: true,
+      system_key: 'directions_for_use',
+      rows: 5
+    }
+  },
+  {
+    code: 'warnings',
+    name: 'Warnings',
+    description: 'Safety warnings required by FDA and other regulatory bodies. Localise per market language.',
+    field_type: 'textarea',
+    is_required: false,
+    is_unique: false,
+    is_localizable: true,
+    sort_order: 66,
+    validation_rules: {},
+    options: {
+      is_system: true,
+      system_key: 'warnings',
+      rows: 4
+    }
+  },
+  {
+    code: 'storage_conditions',
+    name: 'Storage Conditions',
+    description: 'How the product should be stored (e.g. "Store in a cool, dry place"). Required in some markets. Localise per market language.',
+    field_type: 'text',
+    is_required: false,
+    is_unique: false,
+    is_localizable: true,
+    sort_order: 67,
+    validation_rules: {},
+    options: {
+      is_system: true,
+      system_key: 'storage_conditions'
+    }
+  },
+  {
+    code: 'country_of_origin',
+    name: 'Country of Origin',
+    description: 'Country where the product is manufactured or substantially transformed. Required by US CBP for dietary supplements.',
+    field_type: 'text',
+    is_required: false,
+    is_unique: false,
+    sort_order: 68,
+    validation_rules: {},
+    options: {
+      is_system: true,
+      system_key: 'country_of_origin'
+    }
+  },
+  {
+    code: 'certifications',
+    name: 'Certifications',
+    description: 'Third-party certifications held by this product (e.g. NSF/ANSI 173-2023, Informed Sport, USDA Organic). Required for Amazon US channel listing as of March 2026 cGMP enforcement.',
+    field_type: 'table',
+    is_required: false,
+    is_unique: false,
+    sort_order: 70,
+    validation_rules: {},
+    options: {
+      is_system: true,
+      system_key: 'certifications',
+      table_definition: {
+        columns: [
+          {
+            key: 'cert_name',
+            label: 'Certification',
+            type: 'text',
+            is_editable: true,
+            is_required: true,
+            placeholder: 'e.g. NSF/ANSI 173-2023'
+          },
+          {
+            key: 'certifying_body',
+            label: 'Certifying Body',
+            type: 'text',
+            is_editable: true,
+            is_required: true,
+            placeholder: 'e.g. NSF International'
+          },
+          {
+            key: 'cert_number',
+            label: 'Certificate No.',
+            type: 'text',
+            is_editable: true,
+            is_required: false,
+            placeholder: 'e.g. C12345'
+          },
+          {
+            key: 'expiry_date',
+            label: 'Expiry Date',
+            type: 'text',
+            is_editable: true,
+            is_required: false,
+            placeholder: 'YYYY-MM-DD'
+          }
+        ],
+        meta: {
+          allows_custom_rows: true,
+          supports_sections: false
+        }
+      }
+    }
+  }
+];
+
+async function ensureServingInfoGroup(
+  supabase: SupabaseClient<Database>,
+  organizationId: string
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('field_groups')
+    .upsert(
+      {
+        organization_id: organizationId,
+        code: CORE_SERVING_INFO_GROUP_CODE,
+        name: 'Serving & Packaging',
+        description:
+          'Physical product attributes: dose form, serving size, and net content. All fields are regulatory label requirements or universal product identity.',
+        sort_order: 5,
+        is_active: true
+      },
+      { onConflict: 'organization_id,code', ignoreDuplicates: false }
+    )
+    .select('id')
+    .single();
+
+  if (error || !data?.id) {
+    throw error || new Error('Failed to ensure Serving Info field group');
+  }
+
+  return data.id as string;
+}
+
+async function ensureComplianceGroup(
+  supabase: SupabaseClient<Database>,
+  organizationId: string
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('field_groups')
+    .select('id')
+    .eq('organization_id', organizationId)
+    .eq('code', 'compliance')
+    .single();
+
+  if (error || !data?.id) {
+    throw error || new Error('Compliance field group not found — ensure it exists before running bootstrap');
+  }
+
+  return data.id as string;
+}
+
 export async function ensureCoreBasicInformationFields(
   supabase: SupabaseClient<Database>,
   organizationId: string
 ): Promise<void> {
   const basicInfoGroupId = await ensureBasicInformationGroup(supabase, organizationId);
   const documentationGroupId = await ensureDocumentationGroup(supabase, organizationId);
+  const servingInfoGroupId = await ensureServingInfoGroup(supabase, organizationId);
+  const complianceGroupId = await ensureComplianceGroup(supabase, organizationId);
 
   await ensureFieldsInGroup(supabase, organizationId, basicInfoGroupId, CORE_FIELD_SEEDS);
-  await ensureFieldsInGroup(
-    supabase,
-    organizationId,
-    documentationGroupId,
-    DOCUMENTATION_FIELD_SEEDS
-  );
+  await ensureFieldsInGroup(supabase, organizationId, documentationGroupId, DOCUMENTATION_FIELD_SEEDS);
+  await ensureFieldsInGroup(supabase, organizationId, servingInfoGroupId, SERVING_INFO_FIELD_SEEDS);
+  await ensureFieldsInGroup(supabase, organizationId, complianceGroupId, COMPLIANCE_EXPANSION_FIELD_SEEDS);
 }

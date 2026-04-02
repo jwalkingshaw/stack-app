@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { DeleteConfirmDialog } from '@/components/ui/modal-shells';
 import { Switch } from '@/components/ui/switch';
 import { ItemList } from '@/components/ui/item-list';
 import {
@@ -125,7 +125,6 @@ export default function ProductFamilyDetailPage({
   const [showAddGroupsDialog, setShowAddGroupsDialog] = useState(false);
   const [selectedGroupsToAdd, setSelectedGroupsToAdd] = useState<string[]>([]);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [activeDraft, setActiveDraft] = useState(true);
@@ -639,7 +638,7 @@ export default function ProductFamilyDetailPage({
   };
 
   const handleDeleteFamily = async () => {
-    if (!family?.id || deleteConfirmation.trim().toLowerCase() !== 'delete') return;
+    if (!family?.id) return;
 
     try {
       setDeleteLoading(true);
@@ -768,7 +767,6 @@ export default function ProductFamilyDetailPage({
               className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
               onClick={() => {
                 setDeleteError(null);
-                setDeleteConfirmation('');
                 setShowDeleteDialog(true);
               }}
             >
@@ -1103,56 +1101,31 @@ export default function ProductFamilyDetailPage({
       </Dialog>
 
       {/* Delete Model Dialog */}
-      <Dialog
+      <DeleteConfirmDialog
         open={showDeleteDialog}
         onOpenChange={(open) => {
           setShowDeleteDialog(open);
           if (!open) {
-            setDeleteConfirmation('');
             setDeleteError(null);
           }
         }}
+        title="Delete Product Model"
+        description={`Delete "${family.name}" permanently. This action cannot be undone.`}
+        onConfirm={handleDeleteFamily}
+        confirmLabel="Delete model"
+        confirmLoading={deleteLoading}
+        safetyMode="typed"
+        confirmPhrase="delete"
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Product Model</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Delete &quot;{family.name}&quot; permanently. This action cannot be undone.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              If products still use this model, deletion will be blocked.
-            </p>
-            <p className="text-sm text-muted-foreground font-medium">
-              Type <span className="font-mono bg-muted px-1 rounded">delete</span> to confirm:
-            </p>
-            <Input
-              value={deleteConfirmation}
-              onChange={(e) => setDeleteConfirmation(e.target.value)}
-              placeholder="Type 'delete' to confirm"
-            />
-            {deleteError ? (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
-                {deleteError}
-              </div>
-            ) : null}
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" onClick={() => setShowDeleteDialog(false)} className="flex-1">
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleDeleteFamily}
-                disabled={deleteLoading || deleteConfirmation.trim().toLowerCase() !== 'delete'}
-                className="flex-1"
-              >
-                {deleteLoading ? 'Deleting...' : 'Delete model'}
-              </Button>
-            </div>
+        <p className="text-sm text-muted-foreground">
+          If products still use this model, deletion will be blocked.
+        </p>
+        {deleteError ? (
+          <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
+            {deleteError}
           </div>
-        </DialogContent>
-      </Dialog>
+        ) : null}
+      </DeleteConfirmDialog>
     </>
   );
 }

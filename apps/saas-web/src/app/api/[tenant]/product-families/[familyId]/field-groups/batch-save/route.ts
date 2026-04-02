@@ -108,7 +108,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed to save some changes." }, { status: 500 });
     }
 
-    invalidateFamilyFieldGroupsCache({
+    await invalidateFamilyFieldGroupsCache({
       organizationId: familyContext.organizationId,
       familyId: familyContext.familyId,
     });

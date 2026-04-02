@@ -27,25 +27,24 @@ function getNextSelectionId<T extends { id: string }>(
 const labelClass = 'text-[11px] font-medium text-muted-foreground'
 const groupClass = 'flex shrink-0 items-center gap-1'
 const selectTriggerClass =
-  'h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground shadow-none'
+  'h-9 rounded-full border-muted/30 bg-background px-3 text-sm shadow-soft'
 const stepperClass =
-  'inline-flex h-7 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-const GLOBAL_SELECT_VALUE = '__global__'
+  'inline-flex h-7 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/60 hover:text-foreground'
 
-export function ScopeToolbar({ showCycleControls = true }: { showCycleControls?: boolean }) {
+export function ScopeToolbar({
+  showCycleControls = true,
+  layout = 'horizontal',
+}: {
+  showCycleControls?: boolean
+  layout?: 'horizontal' | 'vertical'
+}) {
   const {
-    channels,
     markets,
     locales,
-    selectedChannelId,
-    selectedDestinationId,
     selectedMarketId,
     selectedLocaleId,
-    setSelectedChannelId,
-    setSelectedDestinationId,
     setSelectedMarketId,
     setSelectedLocaleId,
-    availableDestinations,
     availableLocaleIdsForMarket,
     shouldFilterLocalesByMarket,
   } = useMarketContext()
@@ -55,157 +54,77 @@ export function ScopeToolbar({ showCycleControls = true }: { showCycleControls?:
     : locales
 
   const canCycleMarkets = showCycleControls && markets.length >= 3
-  const canCycleChannels = showCycleControls && channels.length >= 3
-  const canCycleDestinations = showCycleControls && availableDestinations.length >= 3
-  const shouldShowChannelControl = channels.length > 0
-  const shouldShowLanguageControl = visibleLocales.length !== 1
+  const shouldShowLanguageControl = visibleLocales.length > 0
+  const shouldShowMarketControl = markets.length > 0
+
+  const isVertical = layout === 'vertical'
+  const containerClass = isVertical
+    ? 'flex flex-col gap-2'
+    : 'flex items-center gap-3 overflow-x-auto whitespace-nowrap pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+  const itemGroupClass = isVertical ? 'flex flex-col gap-1' : groupClass
+  const selectWidth = isVertical ? 'w-full' : ''
 
   return (
-    <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {/* Market */}
-      <div className={groupClass}>
-        <span className={labelClass}>Market</span>
-        {canCycleMarkets && (
-          <button
-            type="button"
-            onClick={() => setSelectedMarketId(getNextSelectionId(markets, selectedMarketId, 'prev'))}
-            className={stepperClass}
-            aria-label="Previous market"
-          >
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
-        )}
-        <Select
-          value={selectedMarketId || undefined}
-          onValueChange={(value) => setSelectedMarketId(value || null)}
-          disabled={markets.length === 0}
-        >
-          <SelectTrigger
-            className={`${selectTriggerClass} w-[132px] sm:w-[142px]`}
-            disabled={markets.length === 0}
-          >
-            <SelectValue placeholder="No markets" />
-          </SelectTrigger>
-          {markets.length > 0 ? (
-            <SelectContent>
-              {markets.map((m) => (
-                <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-              ))}
-            </SelectContent>
-          ) : null}
-        </Select>
-        {canCycleMarkets && (
-          <button
-            type="button"
-            onClick={() => setSelectedMarketId(getNextSelectionId(markets, selectedMarketId, 'next'))}
-            className={stepperClass}
-            aria-label="Next market"
-          >
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
-
-      {/* Channel */}
-      {shouldShowChannelControl && (
-        <div className={groupClass}>
-          <span className={labelClass}>Channel</span>
-          {canCycleChannels && (
-            <button
-              type="button"
-              onClick={() => setSelectedChannelId(getNextSelectionId(channels, selectedChannelId, 'prev'))}
-              className={stepperClass}
-              aria-label="Previous channel"
+    <div className={containerClass}>
+      {/* Market — primary context (regulatory requirements, shared content scope) */}
+      {shouldShowMarketControl && (
+        <div className={itemGroupClass}>
+          <span className={labelClass}>Market</span>
+          <div className={groupClass}>
+            {canCycleMarkets && (
+              <button
+                type="button"
+                onClick={() => setSelectedMarketId(getNextSelectionId(markets, selectedMarketId, 'prev'))}
+                className={stepperClass}
+                aria-label="Previous market"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <Select
+              value={selectedMarketId || undefined}
+              onValueChange={(value) => setSelectedMarketId(value || null)}
+              disabled={markets.length === 0}
             >
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </button>
-          )}
-          <Select
-            value={selectedChannelId || GLOBAL_SELECT_VALUE}
-            onValueChange={(value) =>
-              setSelectedChannelId(value === GLOBAL_SELECT_VALUE ? null : value || null)
-            }
-          >
-            <SelectTrigger
-              className={`${selectTriggerClass} w-[132px] sm:w-[142px]`}
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={GLOBAL_SELECT_VALUE}>Global</SelectItem>
-              {channels.map((c) => (
-                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {canCycleChannels && (
-            <button
-              type="button"
-              onClick={() => setSelectedChannelId(getNextSelectionId(channels, selectedChannelId, 'next'))}
-              className={stepperClass}
-              aria-label="Next channel"
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-            </button>
-          )}
+              <SelectTrigger
+                className={`${selectTriggerClass} ${isVertical ? 'flex-1' : 'w-[132px] sm:w-[142px]'}`}
+                disabled={markets.length === 0}
+              >
+                <SelectValue placeholder="No markets" />
+              </SelectTrigger>
+              {markets.length > 0 ? (
+                <SelectContent>
+                  {markets.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              ) : null}
+            </Select>
+            {canCycleMarkets && (
+              <button
+                type="button"
+                onClick={() => setSelectedMarketId(getNextSelectionId(markets, selectedMarketId, 'next'))}
+                className={stepperClass}
+                aria-label="Next market"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Destination */}
-      {availableDestinations.length > 0 && (
-        <div className={groupClass}>
-          <span className={labelClass}>Destination</span>
-          {canCycleDestinations && (
-            <button
-              type="button"
-              onClick={() => setSelectedDestinationId(getNextSelectionId(availableDestinations, selectedDestinationId, 'prev'))}
-              className={stepperClass}
-              aria-label="Previous destination"
-            >
-            <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
-        )}
-          <Select
-            value={selectedDestinationId || GLOBAL_SELECT_VALUE}
-            onValueChange={(value) =>
-              setSelectedDestinationId(value === GLOBAL_SELECT_VALUE ? null : value || null)
-            }
-          >
-            <SelectTrigger className={`${selectTriggerClass} w-[132px] sm:w-[142px]`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={GLOBAL_SELECT_VALUE}>Global</SelectItem>
-              {availableDestinations.map((d) => (
-                <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {canCycleDestinations && (
-            <button
-              type="button"
-              onClick={() => setSelectedDestinationId(getNextSelectionId(availableDestinations, selectedDestinationId, 'next'))}
-              className={stepperClass}
-              aria-label="Next destination"
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Language */}
+      {/* Language — content language within the market */}
       {shouldShowLanguageControl && (
-        <div className={groupClass}>
+        <div className={itemGroupClass}>
           <span className={labelClass}>Language</span>
           <Select
             value={selectedLocaleId || undefined}
             onValueChange={(value) => setSelectedLocaleId(value || null)}
-            disabled={visibleLocales.length === 0}
+            disabled={visibleLocales.length <= 1}
           >
             <SelectTrigger
-              className={`${selectTriggerClass} w-[112px] sm:w-[122px]`}
-              disabled={visibleLocales.length === 0}
+              className={`${selectTriggerClass} ${isVertical ? selectWidth : 'w-[112px] sm:w-[122px]'}`}
             >
               <SelectValue placeholder="No languages" />
             </SelectTrigger>

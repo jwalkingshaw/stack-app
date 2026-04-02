@@ -9,6 +9,8 @@ type ShareSetRecord = {
   id: string;
   module_key: ShareSetModule;
   name: string;
+  output_profile_id: string | null;
+  output_profile: { id: string; name: string; profile_type: string } | null;
 };
 
 type PartnerGrantRow = {
@@ -57,7 +59,7 @@ async function getShareSet(params: {
 
   const { data, error } = await supabaseServer
     .from("share_sets")
-    .select("id,module_key,name")
+    .select("id,module_key,name,output_profile_id,output_profile:output_channel_profiles!output_profile_id(id,name,profile_type)")
     .eq("id", setId)
     .eq("organization_id", organizationId)
     .maybeSingle();

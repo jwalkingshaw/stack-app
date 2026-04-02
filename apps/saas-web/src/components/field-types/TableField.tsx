@@ -748,7 +748,7 @@ export function TableField({
                   {definition.columns.map((column, index) => (
                     <th
                       key={column.key || index}
-                      className="border-b border-border/60 px-3 py-2 text-left font-medium text-foreground"
+                      className="border-b border-gray-200 px-3 py-2 text-left font-medium text-foreground"
                     >
                       {column.label || `Column ${index + 1}`}
                     </th>
@@ -760,7 +760,7 @@ export function TableField({
                   {definition.columns.map((column, index) => (
                     <td
                       key={column.key || index}
-                      className="border-b border-border/40 px-3 py-2 text-muted-foreground"
+                      className="border-b border-gray-200 px-3 py-2 text-muted-foreground"
                     >
                       {getPreviewCellValue(column)}
                     </td>

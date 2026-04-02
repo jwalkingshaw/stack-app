@@ -6,6 +6,7 @@ import {
   PRODUCT_VIEW_PERMISSION_KEYS,
   getScopedPermissionSummary,
   resolvePartnerGrantedProductIds,
+  resolvePartnerMarketOutputProfileId,
   resolvePartnerSharedBrandOrganizationIds,
   resolveTenantBrandViewContext,
 } from "@/lib/partner-brand-view";
@@ -16,6 +17,7 @@ import {
   addResourceToGlobalCatalogSet,
   resolveMarketCatalogProductIds,
 } from "@/lib/market-catalog";
+import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -127,9 +129,16 @@ const PRODUCT_RETURN_SELECT_WITH_BARCODE = `
 
 const PRODUCT_RETURN_SELECT_WITH_UPC =
   PRODUCT_RETURN_SELECT_WITH_BARCODE.replace("barcode", "upc");
+const LIST_CACHE_TTL_SECONDS = 60;
 
 const UPC_MISSING_COLUMN_ERROR = "42703";
 type ProductListMode = "full" | "table";
+
+type ListPagination = {
+  limit: number;
+  offset: number;
+  enabled: boolean;
+};
 
 type ProductAuthoringScope = {
   mode: "global" | "scoped";
@@ -204,6 +213,8 @@ const SCOPED_FIELD_CODE_CANDIDATES: Record<string, string[]> = {
 
 const SCOPED_PRODUCT_LIST_COLUMNS = new Set(Object.keys(SCOPED_FIELD_CODE_CANDIDATES));
 const TABLE_SCOPED_PRODUCT_LIST_COLUMNS = new Set(["product_name", "sku", "barcode", "brand_line"]);
+const DEFAULT_LIST_LIMIT = 200;
+const MAX_LIST_LIMIT = 1000;
 
 function normalizeBarcodeInput(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
@@ -302,6 +313,122 @@ function normalizeScopeToken(value: string | null): string | null {
 function normalizeScopeCode(value: string | null): string | null {
   const token = normalizeScopeToken(value);
   return token ? token.toLowerCase() : null;
+}
+
+function parsePositiveInt(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function parseListPagination(searchParams: URLSearchParams): ListPagination {
+  const rawLimit = parsePositiveInt(searchParams.get("limit"));
+  const rawOffset = parsePositiveInt(searchParams.get("offset"));
+  const rawPage = parsePositiveInt(searchParams.get("page"));
+
+  const enabled = rawLimit !== null || rawOffset !== null || rawPage !== null;
+  if (!enabled) {
+    return {
+      limit: 0,
+      offset: 0,
+      enabled: false,
+    };
+  }
+
+  const limit = Math.min(MAX_LIST_LIMIT, Math.max(1, rawLimit ?? DEFAULT_LIST_LIMIT));
+  const pageOffset = rawPage ? Math.max(0, (rawPage - 1) * limit) : 0;
+  const offset = Math.max(0, (rawOffset ?? pageOffset) || 0);
+
+  return {
+    limit,
+    offset,
+    enabled: true,
+  };
+}
+
+function normalizeSearchQuery(value: string | null): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(/\s+/g, " ").toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function readRowString(row: ProductListRow, key: string): string {
+  const raw = row[key];
+  return typeof raw === "string" ? raw : "";
+}
+
+function scoreSearchToken(value: string, query: string): number {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return 0;
+  if (normalized === query) return 120;
+  if (normalized.startsWith(query)) return 80;
+  const containsIndex = normalized.indexOf(query);
+  if (containsIndex >= 0) {
+    return Math.max(20, 60 - containsIndex);
+  }
+  return 0;
+}
+
+function scoreProductSearchMatch(product: ProductListRow, query: string): number {
+  const productName = readRowString(product, "product_name");
+  const sku = readRowString(product, "sku");
+  const scin = readRowString(product, "scin");
+  const barcode = readRowString(product, "barcode") || readRowString(product, "upc");
+  const brandLine = readRowString(product, "brand_line");
+
+  let score = 0;
+  score = Math.max(score, scoreSearchToken(productName, query) + 30);
+  score = Math.max(score, scoreSearchToken(sku, query) + 20);
+  score = Math.max(score, scoreSearchToken(scin, query) + 15);
+  score = Math.max(score, scoreSearchToken(barcode, query) + 10);
+  score = Math.max(score, scoreSearchToken(brandLine, query));
+  return score;
+}
+
+function filterProductsBySearch(
+  products: ProductListRow[],
+  query: string | null
+): ProductListRow[] {
+  if (!query) return products;
+
+  const ranked = products
+    .map((product) => ({
+      product,
+      score: scoreProductSearchMatch(product, query),
+      updatedAt: new Date(String(product.updated_at || product.created_at || 0)).getTime(),
+    }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || b.updatedAt - a.updatedAt);
+
+  return ranked.map((row) => row.product);
+}
+
+function paginateRows<T>(rows: T[], pagination: ListPagination) {
+  if (!pagination.enabled) {
+    return {
+      rows,
+      meta: {
+        enabled: false,
+        total: rows.length,
+      },
+    };
+  }
+
+  const start = Math.min(rows.length, pagination.offset);
+  const end = Math.min(rows.length, start + pagination.limit);
+  const pagedRows = rows.slice(start, end);
+
+  return {
+    rows: pagedRows,
+    meta: {
+      enabled: true,
+      limit: pagination.limit,
+      offset: pagination.offset,
+      total: rows.length,
+      hasMore: end < rows.length,
+    },
+  };
 }
 
 function parseScopeSelectionFromSearchParams(searchParams: URLSearchParams): ScopeSelection {
@@ -679,10 +806,19 @@ export async function GET(
     const scopeSelection = parseScopeSelectionFromSearchParams(requestUrl.searchParams);
     const selectedBrandSlug = requestUrl.searchParams.get("brand");
     const requestedListMode = (requestUrl.searchParams.get("listMode") || "").trim().toLowerCase();
+    const requestedInclude = (requestUrl.searchParams.get("include") || "").trim().toLowerCase();
+    const requestedFields = (requestUrl.searchParams.get("fields") || "").trim().toLowerCase();
     const requestedViewScope = (requestUrl.searchParams.get("view") || "")
       .trim()
       .toLowerCase();
-    const listMode: ProductListMode = requestedListMode === "table" ? "table" : "full";
+    const searchQuery = normalizeSearchQuery(
+      requestUrl.searchParams.get("q") ?? requestUrl.searchParams.get("search")
+    );
+    const pagination = parseListPagination(requestUrl.searchParams);
+    const listMode: ProductListMode =
+      requestedListMode === "table" || requestedInclude === "table" || requestedFields === "table"
+        ? "table"
+        : "full";
     const scopedListColumns = Array.from(
       listMode === "table" ? TABLE_SCOPED_PRODUCT_LIST_COLUMNS : SCOPED_PRODUCT_LIST_COLUMNS
     );
@@ -698,6 +834,21 @@ export async function GET(
 
     const { context } = contextResult;
     const targetOrganizationId = context.targetOrganization.id;
+    const listCacheHash = Buffer.from(
+      [
+        context.userId,
+        context.mode,
+        context.tenantOrganization.id,
+        targetOrganizationId,
+        context.selectedBrandSlug || "-",
+        requestUrl.searchParams.toString(),
+      ].join("|")
+    ).toString("base64url");
+    const listCacheKey = CacheKeys.productsList(`${targetOrganizationId}:${listCacheHash}`);
+    const cachedPayload = await redisCache.get<Record<string, unknown>>(listCacheKey);
+    if (cachedPayload) {
+      return NextResponse.json(cachedPayload);
+    }
     const isPartnerAllViewRequest =
       requestedViewScope === "all" &&
       context.mode === "tenant" &&
@@ -829,10 +980,13 @@ export async function GET(
             new Date(String(b.created_at || 0)).getTime() -
             new Date(String(a.created_at || 0)).getTime()
         );
+      const searchFilteredProducts = filterProductsBySearch(products, searchQuery);
+      const pagedProducts = paginateRows(searchFilteredProducts, pagination);
 
-      return NextResponse.json({
+      const payload = {
         success: true,
-        data: products,
+        data: pagedProducts.rows,
+        pagination: pagedProducts.meta,
         organization: {
           id: context.targetOrganization.id,
           name: context.targetOrganization.name,
@@ -843,11 +997,21 @@ export async function GET(
           selectedBrandSlug: context.selectedBrandSlug,
           tenantSlug: context.tenantOrganization.slug,
         },
-      });
+      };
+      await redisCache.set(listCacheKey, payload, LIST_CACHE_TTL_SECONDS);
+      return NextResponse.json(payload);
     }
 
     let constrainedProductIds: string[] | null = null;
+    let partnerOutputProfileId: string | null = null;
     if (context.mode === "partner_brand") {
+      // Resolve channel profile for the partner's selected market (for readiness scoring)
+      partnerOutputProfileId = await resolvePartnerMarketOutputProfileId({
+        brandOrganizationId: targetOrganizationId,
+        partnerOrganizationId: context.tenantOrganization.id,
+        marketId: scopeSelection.marketId,
+      });
+
       const grantedSetProducts = await resolvePartnerGrantedProductIds({
         brandOrganizationId: targetOrganizationId,
         partnerOrganizationId: context.tenantOrganization.id,
@@ -969,15 +1133,18 @@ export async function GET(
       scope: scopeSelection,
     });
 
-    const products = visibleProducts.map((product) => ({
+    const searchFilteredProducts = filterProductsBySearch(visibleProducts, searchQuery);
+    const products = searchFilteredProducts.map((product) => ({
       ...product,
       organization_slug: context.targetOrganization.slug,
       organization_name: context.targetOrganization.name,
     }));
+    const pagedProducts = paginateRows(products, pagination);
 
-    return NextResponse.json({
+    const payload = {
       success: true,
-      data: products || [],
+      data: pagedProducts.rows || [],
+      pagination: pagedProducts.meta,
       organization: {
         id: context.targetOrganization.id,
         name: context.targetOrganization.name,
@@ -987,8 +1154,11 @@ export async function GET(
         mode: context.mode,
         selectedBrandSlug: context.selectedBrandSlug,
         tenantSlug: context.tenantOrganization.slug,
+        output_profile_id: partnerOutputProfileId,
       },
-    });
+    };
+    await redisCache.set(listCacheKey, payload, LIST_CACHE_TTL_SECONDS);
+    return NextResponse.json(payload);
   } catch (error) {
     console.error("Error in products GET:", error);
     return NextResponse.json(
@@ -1277,6 +1447,15 @@ export async function POST(
       } catch (error) {
         console.error("Failed to auto-include new product in Global Products set:", error);
       }
+    }
+
+    try {
+      await Promise.all([
+        redisCache.invalidatePattern(`${CacheKeys.productsList(`${organizationId}:`)}*`),
+        redisCache.invalidatePattern(`${CacheKeys.apiResponse("products", `${organizationId}:`)}*`),
+      ]);
+    } catch (cacheError) {
+      console.warn("POST /products cache invalidation failed:", cacheError);
     }
 
     return NextResponse.json(

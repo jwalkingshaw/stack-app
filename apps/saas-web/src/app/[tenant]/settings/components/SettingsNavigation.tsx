@@ -13,7 +13,8 @@ import {
   Layers,
   Globe,
   Languages,
-  Link2
+  Link2,
+  Zap,
 } from 'lucide-react';
 import { BackLinkButton } from '@/components/ui/back-link-button';
 import { WorkspaceRail } from '@/components/WorkspaceRail';
@@ -82,14 +83,9 @@ const settingsSections: SettingsSection[] = [
     href: "/localization",
   },
   {
-    id: "channels",
-    icon: "Layers",
-    href: "/channels",
-  },
-  {
-    id: "destinations",
-    icon: "Globe",
-    href: "/destinations",
+    id: "output-profiles",
+    icon: "Zap",
+    href: "/output-profiles",
   },
   {
     id: "team",
@@ -117,7 +113,8 @@ const iconMap = {
   Layers,
   Globe,
   Languages,
-  Link2
+  Link2,
+  Zap,
 };
 
 export default function SettingsNavigation({
@@ -177,7 +174,7 @@ export default function SettingsNavigation({
                   key={section.id}
                   href={getFullHref(section)}
                   className={cn(
-                    "flex items-center gap-2 px-3 py-2 text-sm font-normal rounded-md transition-colors",
+                    "flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors",
                     active
                       ? "bg-muted text-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/50"

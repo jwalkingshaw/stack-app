@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageContentContainer } from "@/components/ui/page-content-container";
 
@@ -96,18 +97,19 @@ export function PartnerUpdatesClient({ tenantSlug, scope }: PartnerUpdatesClient
               placeholder="Search updates"
               className="max-w-sm"
             />
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              className="h-8 rounded-lg border border-muted/30 bg-background px-3 text-sm shadow-soft"
-            >
-              <option value="all">All statuses</option>
-              <option value="queued">Queued</option>
-              <option value="notified">Notified</option>
-              <option value="opened">Opened</option>
-              <option value="acknowledged">Acknowledged</option>
-              <option value="activated">Activated</option>
-            </select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-8 w-[160px] rounded-lg border-muted/30 shadow-soft">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="queued">Queued</SelectItem>
+                <SelectItem value="notified">Notified</SelectItem>
+                <SelectItem value="opened">Opened</SelectItem>
+                <SelectItem value="acknowledged">Acknowledged</SelectItem>
+                <SelectItem value="activated">Activated</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="mt-4 space-y-2">

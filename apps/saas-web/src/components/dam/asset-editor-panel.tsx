@@ -17,6 +17,7 @@ import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { DeleteConfirmDialog } from "@/components/ui/modal-shells";
 import { cn } from "@/lib/utils";
 import type {
   DamAsset,
@@ -76,6 +77,7 @@ export function AssetEditorPanel({
   const [newTagName, setNewTagName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const initialState = useMemo(() => {
     if (!asset) {
@@ -114,6 +116,7 @@ export function AssetEditorPanel({
       setTagFilter("");
       setNewTagName("");
       setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
     }
   }, [asset, initialState]);
 
@@ -203,8 +206,7 @@ export function AssetEditorPanel({
 
   const handleDelete = useCallback(async () => {
     if (!asset) return;
-    const confirmed = confirm("Delete this asset? This action cannot be undone.");
-    if (!confirmed) return;
+    setIsDeleteDialogOpen(false);
     setIsDeleting(true);
     try {
       await onDelete(asset.id);
@@ -429,7 +431,7 @@ export function AssetEditorPanel({
           <div className="flex gap-3">
             <Button
               variant="destructive"
-              onClick={handleDelete}
+              onClick={() => setIsDeleteDialogOpen(true)}
               disabled={isDeleting || isSaving}
               className="flex-1"
             >
@@ -473,6 +475,17 @@ export function AssetEditorPanel({
           </div>
         </div>
       </div>
+      <DeleteConfirmDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          if (isDeleting) return;
+          setIsDeleteDialogOpen(open);
+        }}
+        title="Delete asset?"
+        description="This action cannot be undone."
+        onConfirm={() => void handleDelete()}
+        confirmLoading={isDeleting}
+      />
     </>
   );
 }

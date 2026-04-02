@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
@@ -112,7 +112,7 @@ function cloneDefinition(definition: TableDefinition | undefined): TableDefiniti
   return JSON.parse(JSON.stringify(definition));
 }
 
-// ─── Facts panel print / PDF helpers ────────────────────────────────────────
+// --- Facts panel print / PDF helpers ----------------------------------------
 
 function formatPrintMeasurement(value: unknown): string {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -229,26 +229,26 @@ function buildFactsPanelPrintHtml(
   .product-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
                    color: #888; margin-bottom: 4px; }
   .product-name  { font-size: 22px; font-weight: 700; margin-bottom: 20px; line-height: 1.2; }
-  .panel { border: 2px solid #000; }
-  .panel-header  { padding: 6px 10px 8px; border-bottom: 8px solid #000; }
+  .panel { border: 2px solid #e5e7eb; }
+  .panel-header  { padding: 6px 10px 8px; border-bottom: 8px solid #e5e7eb; }
   .panel-title   { font-size: 28px; font-weight: 900; line-height: 1.1; }
   .panel-meta    { font-size: 9px; color: #555; margin-top: 3px; }
-  .serving-info  { padding: 6px 10px; border-bottom: 4px solid #000; font-size: 12px; }
+  .serving-info  { padding: 6px 10px; border-bottom: 4px solid #e5e7eb; font-size: 12px; }
   .si-row  { display: flex; justify-content: space-between; gap: 12px; line-height: 1.5; }
   .si-name { font-weight: 600; }
   table  { width: 100%; border-collapse: collapse; font-size: 11px; }
   .col-head th   { padding: 4px 8px; font-size: 9px; text-transform: uppercase;
-                   letter-spacing: .05em; border-bottom: 1px solid #000; text-align: right; }
+                   letter-spacing: .05em; border-bottom: 1px solid #e5e7eb; text-align: right; }
   .col-head .th-nutrient { text-align: left; }
   .section-head td { padding: 4px 8px; font-weight: 700; font-size: 10px; text-transform: uppercase;
-                     letter-spacing: .04em; border-top: 2px solid #000; background: #f2f2f2; }
+                     letter-spacing: .04em; border-top: 2px solid #e5e7eb; background: #f2f2f2; }
   tbody tr + tr td { border-top: .5px solid #ddd; }
   .td-nutrient  { padding: 3px 8px; font-weight: 600; font-size: 11px; }
   .td-nutrient.child { font-weight: 400; padding-left: 20px; }
   .td-val { padding: 3px 8px; text-align: right; white-space: nowrap; }
   .ingredients-section { margin-top: 16px; font-size: 11px; line-height: 1.5; }
   .ingredients-section h3 { font-size: 10px; font-weight: 700; text-transform: uppercase;
-                             letter-spacing: .05em; border-bottom: 1px solid #000;
+                             letter-spacing: .05em; border-bottom: 1px solid #e5e7eb;
                              padding-bottom: 3px; margin-bottom: 6px; }
   .ingredients-section p { margin: 0; white-space: pre-wrap; word-break: break-word; }
   @media print {
@@ -327,7 +327,7 @@ function reorderWithChildren(
   return rest;
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+// --- Component ---------------------------------------------------------------
 
 export function TableFieldComponent({
   field,
@@ -933,7 +933,7 @@ export function TableFieldComponent({
     emitChange(nextRows);
   };
 
-  // ── Drag-to-reorder ──────────────────────────────────────────────────────
+  // -- Drag-to-reorder ------------------------------------------------------
   const draggingIdRef = useRef<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
@@ -969,7 +969,7 @@ export function TableFieldComponent({
     setDragOverId(null);
   };
 
-  // ── Sub-rows ─────────────────────────────────────────────────────────────
+  // -- Sub-rows -------------------------------------------------------------
   const addSubRow = (parentRow: InternalTableRow) => {
     if (!allowsCustomRows) return;
     const parentKey =
@@ -1184,9 +1184,9 @@ export function TableFieldComponent({
             {(() => {
               const sectionColumns = getSectionColumns(section.key);
               return (
-            <table className="min-w-full divide-y divide-border text-sm">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-muted/50">
-                <tr className="border-b border-border">
+                <tr className="border-b border-gray-200">
                   {allowsCustomRows && <th className="w-6 px-1 py-2" />}
                   {sectionColumns.map((column) => (
                     <th
@@ -1199,7 +1199,7 @@ export function TableFieldComponent({
                   {allowsCustomRows && <th className="w-14 px-1 py-2" />}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border/60">
+              <tbody className="divide-y divide-gray-200">
                 {section.rows.length === 0 ? (
                   <tr>
                     <td
@@ -1247,7 +1247,7 @@ export function TableFieldComponent({
                                 className="w-full bg-transparent text-sm font-semibold text-foreground outline-none placeholder:text-muted-foreground/40"
                               />
                             ) : (
-                              <hr className="border-t-2 border-foreground/20" />
+                              <hr className="border-t-2 border-gray-200" />
                             )}
                           </td>
                           {allowsCustomRows && (
@@ -1269,7 +1269,7 @@ export function TableFieldComponent({
                                   aria-label="Remove row"
                                   className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
                                 >
-                                  −
+                                  -
                                 </button>
                               </div>
                             </td>
@@ -1331,7 +1331,7 @@ export function TableFieldComponent({
                               aria-label="Remove row"
                               className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
                             >
-                              −
+                              -
                             </button>
                           </div>
                         </td>
@@ -1346,7 +1346,7 @@ export function TableFieldComponent({
                   <tr>
                     <td
                       colSpan={sectionColumns.length + 2}
-                      className="border-t border-border/40 px-3 py-1 text-right"
+                      className="border-t border-gray-200 px-3 py-1 text-right"
                     >
                       <button
                         type="button"

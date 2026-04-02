@@ -396,6 +396,9 @@ export async function POST(
               localeId: resolvedScopeIds.localeId,
               localeCode,
               destinationId: resolvedScopeIds.destinationId,
+            },
+            {
+              syncFamilyAttributes: false,
             }
           );
 

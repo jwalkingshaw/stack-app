@@ -150,9 +150,15 @@ async function resolvePartnerLinkReadConstraints(params: {
   });
 
   if (grantedProducts.foundationAvailable && grantedAssets.foundationAvailable) {
+    // allowedProductIds already scopes every row in product_asset_links — every link has a
+    // product_id. Do not add a separate allowedAssetIds filter here: if the partner has only
+    // product share set grants (no asset share sets), grantedAssets.assetIds is empty, and
+    // applying that empty set would block all product-linked assets. Asset visibility through
+    // this route is fully bounded by the product grant; asset share sets govern standalone DAM
+    // access, not product-linked images.
     return {
       allowedProductIds: new Set(grantedProducts.productIds),
-      allowedAssetIds: new Set(grantedAssets.assetIds),
+      allowedAssetIds: null,
       restrictToSharedAssetScope: false,
     };
   }
@@ -566,7 +572,7 @@ export async function GET(
           document_expiry_date,
           is_active,
           created_at,
-          products!inner(id, sku, product_name, brand:brand_line),
+          products!product_asset_links_product_id_fkey(id, sku, product_name, brand:brand_line),
           dam_assets!inner(
             id,
             filename,
@@ -614,7 +620,8 @@ export async function GET(
     });
 
     if (linksError) {
-      return NextResponse.json({ error: "Failed to fetch product-asset links" }, { status: 500 });
+      console.error("product-links GET linksError:", linksError.message, linksError.details, linksError.hint);
+      return NextResponse.json({ error: "Failed to fetch product-asset links", detail: linksError.message }, { status: 500 });
     }
 
     const linkRows = (productLinks || []) as ProductLinkRow[];

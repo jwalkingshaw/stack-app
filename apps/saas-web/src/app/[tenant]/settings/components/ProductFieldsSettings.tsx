@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
-import { ConfirmActionModal, FullscreenFormModal } from '@/components/ui/modal-shells';
+import { DeleteConfirmDialog, FullscreenFormModal } from '@/components/ui/modal-shells';
 import { SettingsPageContent } from './settings-page-content';
 import { ItemList } from '@/components/ui/item-list';
 import { readApiData, readApiError } from '@/lib/api-contract';
@@ -195,7 +195,6 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [selectedField, setSelectedField] = useState<ProductField | null>(null);
   const [selectedFieldType, setSelectedFieldType] = useState<FieldTypeOption | null>(null);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   // Form states
   const [formData, setFormData] = useState({
@@ -448,7 +447,6 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       await fetchData(); // Refresh list
       setShowDeleteDialog(false);
       setSelectedField(null);
-      setDeleteConfirmText('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete attribute');
     } finally {
@@ -1146,41 +1144,30 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       </FullscreenFormModal>
 
       {/* Delete Dialog */}
-      <ConfirmActionModal
+      <DeleteConfirmDialog
         open={showDeleteDialog}
         onOpenChange={(open) => {
           setShowDeleteDialog(open);
           if (!open) {
             setSelectedField(null);
-            setDeleteConfirmText('');
           }
         }}
         title="Delete Attribute"
         description={`Are you sure you want to delete ${selectedField?.name || 'this attribute'}? This action cannot be undone.`}
         confirmLabel="Delete Attribute"
-        confirmDisabled={formLoading || deleteConfirmText !== 'delete'}
+        confirmDisabled={formLoading}
         confirmLoading={formLoading}
         confirmLoadingLabel="Deleting..."
         onConfirm={() => void handleDelete()}
-        variant="destructive"
+        safetyMode="typed"
+        confirmPhrase="delete"
       >
         {error && (
           <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
             {error}
           </div>
         )}
-        <div className="space-y-3">
-          <label className="block text-sm font-medium text-red-800">
-            To confirm deletion, type <strong>delete</strong> below:
-          </label>
-          <Input
-            value={deleteConfirmText}
-            onChange={(e) => setDeleteConfirmText(e.target.value)}
-            placeholder="Type 'delete' to confirm"
-            className="border-red-200 focus:border-red-400"
-          />
-        </div>
-      </ConfirmActionModal>
+      </DeleteConfirmDialog>
     </SettingsPageContent>
   );
 }

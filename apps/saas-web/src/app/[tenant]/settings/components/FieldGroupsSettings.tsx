@@ -6,7 +6,6 @@ import {
   Search
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { ItemList } from '@/components/ui/item-list';
 import { CenteredFormModal } from '@/components/ui/modal-shells';
 import { isLockedFieldGroupCode } from '@/lib/field-group-codes';
@@ -166,13 +165,6 @@ export default function FieldGroupsSettings({ tenantSlug }: FieldGroupsSettingsP
         renderTitle={(group) => group.name}
         renderSubtitle={(group) => group.description}
         getStatus={(group) => (group.is_active ? 'active' : 'inactive')}
-        renderRight={(group) => (
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary">
-              {group.product_fields?.length ?? 0} {((group.product_fields?.length ?? 0) === 1) ? 'attribute' : 'attributes'}
-            </Badge>
-          </div>
-        )}
         onClickItem={(group) => router.push(`/${tenantSlug}/settings/field-groups/${group.code}`)}
         isLocked={(group) => isLockedFieldGroup(group)}
         loading={loading}

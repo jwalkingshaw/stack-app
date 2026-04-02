@@ -52,8 +52,8 @@ type InviteConfigPayload = {
   error?: string;
 };
 
-function getSetModuleLabel(moduleKey: ShareSetOption["module_key"]): "Assets" | "Products" {
-  return moduleKey === "assets" ? "Assets" : "Products";
+function getSetModuleLabel(moduleKey: ShareSetOption["module_key"]): "Brand Library" | "Product Catalog" {
+  return moduleKey === "assets" ? "Brand Library" : "Product Catalog";
 }
 
 type InviteWizardClientProps = {
@@ -527,7 +527,7 @@ export default function InviteWizardClient({
                 </div>
                 {!isTeamInvite ? (
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">Sets (Optional)</label>
+                    <label className="mb-2 block text-sm font-medium text-foreground">Sharing (Optional)</label>
                     <MultiSelect
                       options={shareSets.map((set) => ({
                         value: set.id,
@@ -535,10 +535,10 @@ export default function InviteWizardClient({
                       }))}
                       value={selectedShareSetIds}
                       onChange={setSelectedShareSetIds}
-                      placeholder="Select one or more sets to assign on invite acceptance"
+                      placeholder="Select catalogs or brand libraries to grant on invite acceptance"
                     />
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Selected sets are granted to the partner automatically when the invite is accepted.
+                      Selected catalogs and libraries are granted to the partner automatically when the invite is accepted.
                     </p>
                   </div>
                 ) : null}
@@ -582,11 +582,11 @@ export default function InviteWizardClient({
                   </div>
                   {!isTeamInvite ? (
                     <div>
-                      <p className="text-xs font-medium text-foreground mb-2">Assigned sets</p>
+                      <p className="text-xs font-medium text-foreground mb-2">Catalogs &amp; libraries</p>
                       <p className="text-sm text-muted-foreground">
                         {selectedShareSetIds.length > 0
-                          ? `${selectedShareSetIds.length} set(s) selected`
-                          : "No sets selected"}
+                          ? `${selectedShareSetIds.length} selected`
+                          : "None selected"}
                       </p>
                     </div>
                   ) : null}

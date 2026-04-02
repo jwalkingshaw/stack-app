@@ -94,7 +94,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Failed to update assignment." }, { status: 500 });
     }
 
-    invalidateFamilyFieldGroupsCache({
+    await invalidateFamilyFieldGroupsCache({
       organizationId: familyContext.organizationId,
       familyId: familyContext.familyId,
     });
@@ -155,7 +155,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Failed to remove assignment." }, { status: 500 });
     }
 
-    invalidateFamilyFieldGroupsCache({
+    await invalidateFamilyFieldGroupsCache({
       organizationId: familyContext.organizationId,
       familyId: familyContext.familyId,
     });

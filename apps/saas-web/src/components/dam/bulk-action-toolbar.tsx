@@ -1,6 +1,6 @@
 "use client";
 
-import { Edit, Languages, Tag, Trash2, X, LayersIcon, MinusCircle, PackagePlus } from "lucide-react";
+import { Edit, Languages, Trash2, X, LayersIcon, MinusCircle, PackagePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +13,6 @@ interface BulkActionToolbarProps {
   /** Display name of the currently active set filter */
   activeSetName?: string;
   onEdit: () => void;
-  onTag: () => void;
   onDelete: () => void;
   onClear: () => void;
   /** When provided, an Add to Kit button is shown. */
@@ -29,7 +28,6 @@ export function BulkActionToolbar({
   onRemoveFromSet,
   activeSetName,
   onEdit,
-  onTag,
   onDelete,
   onClear,
   onAddToKit,
@@ -100,18 +98,7 @@ export function BulkActionToolbar({
             <span className="hidden sm:inline ml-1">Edit</span>
           </Button>
 
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onTag}
-            className="h-8 px-3 hover:bg-[var(--color-secondary-button-hover)]"
-            title="Update status"
-          >
-            <Tag className="w-4 h-4" />
-            <span className="hidden sm:inline ml-1">Status</span>
-          </Button>
-
-          {onAddToKit && (
+{onAddToKit && (
             <Button
               size="sm"
               variant="ghost"

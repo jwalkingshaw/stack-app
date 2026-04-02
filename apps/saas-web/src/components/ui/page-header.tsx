@@ -6,8 +6,6 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from './button'
 import type { ButtonProps } from './button'
 import { cn } from '@/lib/utils'
-import { useHeaderToolbar } from '@/components/header-toolbar-context'
-import { ScopeToolbar } from '@/components/scope-toolbar'
 
 export interface PageHeaderAction {
   label: string
@@ -41,17 +39,15 @@ export function PageHeader({
   sticky = true,
 }: PageHeaderProps) {
   const showBack = Boolean(backHref || onBack)
-  const { showScopeToolbar } = useHeaderToolbar()
 
   return (
     <div
       className={cn(
-        "z-20 border-b border-border/70 bg-white",
+        "z-20 border-b border-gray-200 bg-white",
         sticky && "sticky top-0",
         className
       )}
     >
-      {/* Title + actions row */}
       <div className="flex items-start justify-between gap-3 px-4 py-4 sm:px-6">
         <div className="min-w-0">
           {showBack ? (
@@ -127,13 +123,6 @@ export function PageHeader({
           </div>
         )}
       </div>
-
-      {/* Scope toolbar row — shown on PIM/DAM list pages */}
-      {showScopeToolbar ? (
-        <div className="border-t border-border/50 px-4 py-1.5 sm:px-6">
-          <ScopeToolbar />
-        </div>
-      ) : null}
     </div>
   )
 }

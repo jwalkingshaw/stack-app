@@ -4,7 +4,7 @@ import { AuthService, ScopedPermission } from "@tradetool/auth";
 import { DatabaseQueries } from "@tradetool/database";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { evaluateScopedPermission } from "@/lib/security-permissions";
-import { S3Service } from "@tradetool/storage";
+import { S3Service, ThumbnailService } from "@tradetool/storage";
 import {
   createGlobalAuthoringScope,
   replaceAssetScopeAssignments,
@@ -12,6 +12,7 @@ import {
 } from "@/lib/authoring-scope";
 import { getOrganizationBillingLimits } from "@/lib/billing-policy";
 import { addResourceToGlobalCatalogSet } from "@/lib/market-catalog";
+import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -161,6 +162,7 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
 const DEFAULT_UPLOAD_PROFILE: UploadProfileId = "fast";
 const DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const FREE_PLAN_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const ASSET_OBJECT_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 const UPLOAD_PROFILE_REQUIREMENTS: Record<
   UploadProfileId,
@@ -879,9 +881,12 @@ export async function POST(
 
     const s3Service = new S3Service();
     const s3Key = s3Service.generateAssetKey(organization.id, file.name);
+    const thumbnailService = new ThumbnailService(s3Service);
+    let uploadBuffer: Buffer | null = null;
 
     try {
       const fileBuffer = await file.arrayBuffer();
+      uploadBuffer = Buffer.from(fileBuffer);
       const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
       const s3Client = new S3Client({
         region: process.env.AWS_REGION || "ap-southeast-2",
@@ -895,8 +900,9 @@ export async function POST(
         new PutObjectCommand({
           Bucket: process.env.AWS_S3_BUCKET!,
           Key: s3Key,
-          Body: Buffer.from(fileBuffer),
+          Body: uploadBuffer,
           ContentType: effectiveMimeType,
+          CacheControl: ASSET_OBJECT_CACHE_CONTROL,
         })
       );
     } catch (s3Error) {
@@ -913,6 +919,11 @@ export async function POST(
     else if (isDocumentMimeType(effectiveMimeType)) assetType = "document";
 
     const publicUrl = s3Service.getPublicUrl(s3Key);
+    const thumbnailUrls = await thumbnailService.generateThumbnails(
+      s3Key,
+      effectiveMimeType,
+      uploadBuffer || undefined
+    );
 
     let linkedProduct: ProductForAssetFolder | null = null;
     let linkedFamilyName: string | null = null;
@@ -1094,6 +1105,7 @@ export async function POST(
         mime_type: effectiveMimeType,
         s3_key: s3Key,
         s3_url: publicUrl,
+        thumbnail_urls: thumbnailUrls,
         product_identifiers: Array.from(productIdentifiers),
         metadata: metadataPayload,
         tags: uploadMetadata?.tags || [],
@@ -1319,6 +1331,15 @@ export async function POST(
       });
     } catch (globalSetError) {
       console.error("POST /assets/upload global asset set auto-include failed:", globalSetError);
+    }
+
+    try {
+      await Promise.all([
+        redisCache.invalidatePattern(`${CacheKeys.assetsList(`${organization.id}:`)}*`),
+        redisCache.invalidatePattern(`${CacheKeys.apiResponse("assets", `${organization.id}:`)}*`),
+      ]);
+    } catch (cacheError) {
+      console.warn("POST /assets/upload cache invalidation failed:", cacheError);
     }
 
     return NextResponse.json({

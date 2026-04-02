@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { PageContentContainer } from '@/components/ui/page-content-container';
 import { cn } from '@/lib/utils';
 
@@ -68,7 +69,7 @@ export function FullscreenFormModal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-white" />
         <DialogPrimitive.Content className={cn('fixed inset-0 z-50 bg-white', className)}>
           <div className="flex h-full flex-col">
-            <div className="border-b border-border/60">
+            <div className="border-b border-gray-200">
               <PageContentContainer
                 mode="form"
                 padding="compact"
@@ -229,5 +230,77 @@ export function ConfirmActionModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+interface DeleteConfirmDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description: string;
+  onConfirm: () => void;
+  confirmLabel?: string;
+  confirmDisabled?: boolean;
+  confirmLoading?: boolean;
+  confirmLoadingLabel?: string;
+  cancelLabel?: string;
+  safetyMode?: 'standard' | 'typed';
+  confirmPhrase?: string;
+  children?: React.ReactNode;
+}
+
+export function DeleteConfirmDialog({
+  open,
+  onOpenChange,
+  title,
+  description,
+  onConfirm,
+  confirmLabel = 'Delete',
+  confirmDisabled = false,
+  confirmLoading = false,
+  confirmLoadingLabel = 'Deleting...',
+  cancelLabel = 'Cancel',
+  safetyMode = 'standard',
+  confirmPhrase = 'delete',
+  children,
+}: DeleteConfirmDialogProps) {
+  const [typedConfirmation, setTypedConfirmation] = React.useState('');
+
+  React.useEffect(() => {
+    if (!open) setTypedConfirmation('');
+  }, [open]);
+
+  const requiresTypedConfirmation = safetyMode === 'typed';
+  const isPhraseValid = !requiresTypedConfirmation || typedConfirmation.trim() === confirmPhrase;
+  const isConfirmDisabled = confirmDisabled || !isPhraseValid;
+
+  return (
+    <ConfirmActionModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={title}
+      description={description}
+      confirmLabel={confirmLabel}
+      onConfirm={onConfirm}
+      confirmDisabled={isConfirmDisabled}
+      confirmLoading={confirmLoading}
+      confirmLoadingLabel={confirmLoadingLabel}
+      cancelLabel={cancelLabel}
+      variant="destructive"
+    >
+      {children}
+      {requiresTypedConfirmation ? (
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Type <span className="rounded bg-muted px-1 font-mono">{confirmPhrase}</span> to confirm.
+          </p>
+          <Input
+            value={typedConfirmation}
+            onChange={(event) => setTypedConfirmation(event.target.value)}
+            placeholder={`Type '${confirmPhrase}' to confirm`}
+          />
+        </div>
+      ) : null}
+    </ConfirmActionModal>
   );
 }

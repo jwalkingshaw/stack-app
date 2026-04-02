@@ -13,6 +13,7 @@ import { getChannelScopedProductIds } from '@/lib/product-channel-scope';
 import { assertBillingCapacity, isBillableSkuRecord } from '@/lib/billing-policy';
 import { validateAuthoringScope } from '@/lib/authoring-scope';
 import { resolveMarketCatalogProductIds } from '@/lib/market-catalog';
+import { cache as redisCache, CacheKeys } from '@/lib/redis';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -369,6 +370,13 @@ function intersectIds(left: string[] | null, right: string[] | null): string[] |
   if (!right) return Array.from(new Set(left));
   const rightSet = new Set(right);
   return Array.from(new Set(left.filter((id) => rightSet.has(id))));
+}
+
+async function invalidateProductCaches(organizationId: string): Promise<void> {
+  await Promise.all([
+    redisCache.invalidatePattern(`${CacheKeys.productsList(`${organizationId}:`)}*`),
+    redisCache.invalidatePattern(`${CacheKeys.apiResponse('products', `${organizationId}:`)}*`),
+  ]);
 }
 
 function scoreDimensionByIdOrCode(params: {
@@ -1568,6 +1576,12 @@ export async function PUT(
         ...scopedCustomFieldValues,
       };
 
+      try {
+        await invalidateProductCaches(organizationId);
+      } catch (cacheError) {
+        console.warn("PUT /products/[productId] scoped cache invalidation failed:", cacheError);
+      }
+
       return NextResponse.json({
         success: true,
         data: scopedHydratedProduct,
@@ -1752,6 +1766,12 @@ export async function PUT(
       includeSystemFields: false,
     });
 
+    try {
+      await invalidateProductCaches(organizationId);
+    } catch (cacheError) {
+      console.warn("PUT /products/[productId] cache invalidation failed:", cacheError);
+    }
+
     return NextResponse.json({
       success: true,
       data: {
@@ -1813,6 +1833,10 @@ export async function DELETE(
         { status: 403 }
       );
     }
+    if (!access.organizationId) {
+      return NextResponse.json({ error: 'Organization context is missing.' }, { status: 500 });
+    }
+    const organizationId = access.organizationId;
 
     await setDatabaseUserContext(user.id, kindeOrg?.orgCode);
 
@@ -1820,7 +1844,7 @@ export async function DELETE(
       .from('products')
       .select('id, type, has_variants, variant_count, sku')
       .eq('id', productId)
-      .eq('organization_id', access.organizationId)
+      .eq('organization_id', organizationId)
       .single();
 
     if (checkError || !product) {
@@ -1833,13 +1857,13 @@ export async function DELETE(
       const { count: childCount, error: childCountError } = await supabase
         .from('products')
         .select('id', { count: 'exact', head: true })
-        .eq('organization_id', access.organizationId)
+        .eq('organization_id', organizationId)
         .eq('parent_id', productId);
 
       if (childCountError) {
         console.error('Failed to resolve parent child count before delete:', {
           productId,
-          organizationId: access.organizationId,
+          organizationId,
           code: childCountError.code,
           message: childCountError.message,
           details: childCountError.details,
@@ -1862,10 +1886,16 @@ export async function DELETE(
       .from('products')
       .delete()
       .eq('id', productId)
-      .eq('organization_id', access.organizationId);
+      .eq('organization_id', organizationId);
 
     if (deleteError) {
       return NextResponse.json({ error: 'Failed to delete product' }, { status: 500 });
+    }
+
+    try {
+      await invalidateProductCaches(organizationId);
+    } catch (cacheError) {
+      console.warn("DELETE /products/[productId] cache invalidation failed:", cacheError);
     }
 
     return NextResponse.json({

@@ -181,7 +181,7 @@ export function ProductLinkDialog({
           </div>
 
           <div className="rounded-lg border border-border bg-background">
-            <div className="flex items-center gap-3 border-b border-border px-4 py-3 text-sm">
+            <div className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 text-sm">
               <input
                 type="checkbox"
                 checked={selection.all}

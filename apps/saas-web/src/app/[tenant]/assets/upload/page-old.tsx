@@ -335,7 +335,7 @@ export default function UploadPage() {
   return (
       <div className="min-h-screen bg-background flex flex-col">
         {/* Header */}
-        <div className="bg-card border-b border-border sticky top-0 z-10">
+        <div className="bg-card border-b border-gray-200 sticky top-0 z-10">
           <div className="max-w-7xl mx-auto px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">

@@ -1,8 +1,8 @@
 'use client';
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import NextImage from 'next/image';
-import { Building2, Globe, Languages, Save, Upload } from 'lucide-react';
+import { Building2, Globe, Languages, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -67,7 +67,10 @@ export default function OrganizationSettings({ tenantSlug }: OrganizationSetting
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [logoLoadFailed, setLogoLoadFailed] = useState(false);
+  const [autosaveState, setAutosaveState] = useState<'saved' | 'saving' | 'unsaved' | 'error'>('saved');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failedAutosaveSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -161,111 +164,144 @@ export default function OrganizationSettings({ tenantSlug }: OrganizationSetting
     };
   }, [tenantSlug, t]);
 
-  const saveOrganizationSettings = async () => {
-    const response = await fetch(`/api/${tenantSlug}/settings/organization`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: orgSettings.name,
-        website: orgSettings.website,
-        description: orgSettings.description,
-        logoUrl: orgSettings.logoUrl,
-        defaultUiLocale: orgSettings.defaultUiLocale,
-      }),
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload?.error || 'Failed to save organization settings');
-    }
-
-    const nextSettings: OrgSettings = {
-      name: payload?.organization?.name ?? orgSettings.name,
-      website: payload?.organization?.website ?? orgSettings.website,
-      description: payload?.organization?.description ?? orgSettings.description,
-      logoUrl: payload?.organization?.logoUrl ?? orgSettings.logoUrl,
-      defaultUiLocale: normalizeUiLocale(payload?.organization?.defaultUiLocale),
-    };
-    setOrgSettings(nextSettings);
-    setInitialSettings(nextSettings);
-    setPreferences((current) =>
-      current.uiLocaleOverride
-        ? current
-        : {
-            ...current,
-            effectiveUiLocale: nextSettings.defaultUiLocale,
-          }
+  const orgSettingsEqual = useCallback((a: OrgSettings, b: OrgSettings) => {
+    return (
+      a.name === b.name &&
+      a.website === b.website &&
+      a.description === b.description &&
+      a.logoUrl === b.logoUrl &&
+      a.defaultUiLocale === b.defaultUiLocale
     );
-    setLogoLoadFailed(false);
-  };
+  }, []);
 
-  const savePreferenceSettings = async () => {
-    const response = await fetch(`/api/${tenantSlug}/settings/preferences`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        uiLocaleOverride: preferences.uiLocaleOverride,
-      }),
+  const preferenceOverrideEqual = useCallback((a: PreferenceState, b: PreferenceState) => {
+    return a.uiLocaleOverride === b.uiLocaleOverride;
+  }, []);
+
+  const saveOrganizationSettings = useCallback(
+    async (settingsToSave: OrgSettings) => {
+      const response = await fetch(`/api/${tenantSlug}/settings/organization`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: settingsToSave.name,
+          website: settingsToSave.website,
+          description: settingsToSave.description,
+          logoUrl: settingsToSave.logoUrl,
+          defaultUiLocale: settingsToSave.defaultUiLocale,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to save organization settings');
+      }
+
+      const nextSettings: OrgSettings = {
+        name: payload?.organization?.name ?? settingsToSave.name,
+        website: payload?.organization?.website ?? settingsToSave.website,
+        description: payload?.organization?.description ?? settingsToSave.description,
+        logoUrl: payload?.organization?.logoUrl ?? settingsToSave.logoUrl,
+        defaultUiLocale: normalizeUiLocale(payload?.organization?.defaultUiLocale),
+      };
+      setInitialSettings(nextSettings);
+      setLogoLoadFailed(false);
+    },
+    [tenantSlug]
+  );
+
+  const savePreferenceSettings = useCallback(
+    async (uiLocaleOverride: UiLocale | null, canManageWorkspaceDefault: boolean) => {
+      const response = await fetch(`/api/${tenantSlug}/settings/preferences`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          uiLocaleOverride,
+        }),
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to save language preference');
+      }
+
+      const nextPreferences: PreferenceState = {
+        uiLocaleOverride:
+          payload?.preference?.uiLocaleOverride &&
+          payload.preference.uiLocaleOverride === 'es-MX'
+            ? 'es-MX'
+            : payload?.preference?.uiLocaleOverride === 'en-US'
+            ? 'en-US'
+            : null,
+        effectiveUiLocale: normalizeUiLocale(
+          payload?.preference?.effectiveUiLocale ?? (uiLocaleOverride || orgSettings.defaultUiLocale)
+        ),
+        canManageWorkspaceDefault,
+      };
+      setInitialPreferences(nextPreferences);
+    },
+    [tenantSlug, orgSettings.defaultUiLocale]
+  );
+
+  const runAutoSave = useCallback(async () => {
+    if (isSaving || !initialSettings || !initialPreferences) return;
+
+    const orgSnapshot: OrgSettings = { ...orgSettings };
+    const preferenceSnapshot: PreferenceState = { ...preferences };
+    const saveSignature = JSON.stringify({
+      name: orgSnapshot.name,
+      website: orgSnapshot.website,
+      description: orgSnapshot.description,
+      logoUrl: orgSnapshot.logoUrl,
+      defaultUiLocale: orgSnapshot.defaultUiLocale,
+      uiLocaleOverride: preferenceSnapshot.uiLocaleOverride,
     });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload?.error || 'Failed to save language preference');
-    }
-
-    const nextPreferences: PreferenceState = {
-      ...preferences,
-      uiLocaleOverride:
-        payload?.preference?.uiLocaleOverride &&
-        payload.preference.uiLocaleOverride === 'es-MX'
-          ? 'es-MX'
-          : payload?.preference?.uiLocaleOverride === 'en-US'
-          ? 'en-US'
-          : null,
-      effectiveUiLocale: normalizeUiLocale(payload?.preference?.effectiveUiLocale),
-    };
-    setPreferences(nextPreferences);
-    setInitialPreferences(nextPreferences);
-  };
-
-  const handleSaveSettings = async () => {
-    if (isSaving) return;
-
-    const hasOrgChanges =
-      Boolean(initialSettings) &&
-      (orgSettings.name !== initialSettings!.name ||
-        orgSettings.website !== initialSettings!.website ||
-        orgSettings.description !== initialSettings!.description ||
-        orgSettings.logoUrl !== initialSettings!.logoUrl ||
-        orgSettings.defaultUiLocale !== initialSettings!.defaultUiLocale);
-    const hasPreferenceChanges =
-      Boolean(initialPreferences) &&
-      preferences.uiLocaleOverride !== initialPreferences!.uiLocaleOverride;
+    const hasOrgChanges = !orgSettingsEqual(orgSnapshot, initialSettings);
+    const hasPreferenceChanges = !preferenceOverrideEqual(preferenceSnapshot, initialPreferences);
 
     if (!hasOrgChanges && !hasPreferenceChanges) {
+      setAutosaveState('saved');
       return;
     }
 
     setIsSaving(true);
+    setAutosaveState('saving');
     try {
       if (hasOrgChanges) {
-        await saveOrganizationSettings();
+        await saveOrganizationSettings(orgSnapshot);
       }
       if (hasPreferenceChanges) {
-        await savePreferenceSettings();
+        await savePreferenceSettings(
+          preferenceSnapshot.uiLocaleOverride,
+          preferenceSnapshot.canManageWorkspaceDefault
+        );
       }
-      toast.success(t('toasts.saveSuccess'));
+      failedAutosaveSignatureRef.current = null;
+      setAutosaveState('saved');
     } catch (error) {
-      console.error('Failed to save settings:', error);
+      console.error('Failed to auto-save settings:', error);
+      failedAutosaveSignatureRef.current = saveSignature;
+      setAutosaveState('error');
       toast.error(error instanceof Error ? error.message : t('toasts.saveError'));
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [
+    isSaving,
+    initialSettings,
+    initialPreferences,
+    orgSettings,
+    preferences,
+    orgSettingsEqual,
+    preferenceOverrideEqual,
+    saveOrganizationSettings,
+    savePreferenceSettings,
+    t,
+  ]);
 
   const handleLogoFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -323,9 +359,92 @@ export default function OrganizationSettings({ tenantSlug }: OrganizationSetting
     return hasOrgChanges || hasPreferenceChanges;
   }, [initialSettings, initialPreferences, orgSettings, preferences.uiLocaleOverride]);
 
+  const autosaveSignature = useMemo(
+    () =>
+      JSON.stringify({
+        name: orgSettings.name,
+        website: orgSettings.website,
+        description: orgSettings.description,
+        logoUrl: orgSettings.logoUrl,
+        defaultUiLocale: orgSettings.defaultUiLocale,
+        uiLocaleOverride: preferences.uiLocaleOverride,
+      }),
+    [
+      orgSettings.name,
+      orgSettings.website,
+      orgSettings.description,
+      orgSettings.logoUrl,
+      orgSettings.defaultUiLocale,
+      preferences.uiLocaleOverride,
+    ]
+  );
+
+  useEffect(() => {
+    if (isLoading || preferencesLoading || !initialSettings || !initialPreferences) return;
+
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+
+    if (!hasChanges) {
+      setAutosaveState('saved');
+      return;
+    }
+
+    if (autosaveState === 'error' && failedAutosaveSignatureRef.current === autosaveSignature) {
+      return;
+    }
+
+    setAutosaveState((current) => (current === 'saving' ? current : 'unsaved'));
+    if (isSaving) return;
+
+    autosaveTimerRef.current = setTimeout(() => {
+      void runAutoSave();
+    }, 700);
+
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [
+    hasChanges,
+    isLoading,
+    preferencesLoading,
+    initialSettings,
+    initialPreferences,
+    isSaving,
+    autosaveState,
+    autosaveSignature,
+    runAutoSave,
+  ]);
+
+  const autosaveStatusLabel =
+    autosaveState === 'saving'
+      ? t('footer.status.saving')
+      : autosaveState === 'error'
+      ? t('footer.status.error')
+      : autosaveState === 'unsaved'
+      ? t('footer.status.unsaved')
+      : t('footer.status.saved');
+
+  const autosaveStatusClassName =
+    autosaveState === 'error'
+      ? 'text-destructive'
+      : autosaveState === 'saving'
+      ? 'text-muted-foreground'
+      : autosaveState === 'unsaved'
+      ? 'text-amber-700'
+      : 'text-emerald-700';
+
   if (isLoading) {
     return (
       <SettingsPageContent page="organization">
+        <div>
+          <h2 className="text-2xl font-semibold text-foreground">{t('cards.organization.title')}</h2>
+        </div>
         <Card>
           <CardContent className="py-12 flex items-center justify-center">
             <LoadingSkeleton size="md" />
@@ -337,14 +456,10 @@ export default function OrganizationSettings({ tenantSlug }: OrganizationSetting
 
   return (
     <SettingsPageContent page="organization">
+      <div>
+        <h2 className="text-2xl font-semibold text-foreground">{t('cards.organization.title')}</h2>
+      </div>
       <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Building2 className="w-5 h-5" />
-            {t('cards.organization.title')}
-          </CardTitle>
-          <CardDescription>{t('cards.organization.description')}</CardDescription>
-        </CardHeader>
         <CardContent className="space-y-4 pb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
@@ -545,19 +660,7 @@ export default function OrganizationSettings({ tenantSlug }: OrganizationSetting
             <Globe className="w-4 h-4" />
             {t('footer.hint')}
           </div>
-          <Button onClick={handleSaveSettings} variant="accent-blue" disabled={isSaving || !hasChanges}>
-            {isSaving ? (
-              <>
-                <LoadingSkeleton size="sm" color="white" className="mr-2" />
-                {t('actions.saving')}
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4 mr-2" />
-                {t('actions.save')}
-              </>
-            )}
-          </Button>
+          <span className={`text-xs ${autosaveStatusClassName}`}>{autosaveStatusLabel}</span>
         </CardContent>
       </Card>
     </SettingsPageContent>

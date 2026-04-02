@@ -71,9 +71,13 @@ async function resolvePartnerLinkReadConstraints(params: {
   });
 
   if (grantedProducts.foundationAvailable && grantedAssets.foundationAvailable) {
+    // allowedProductIds fully scopes product_asset_links — every link has a product_id.
+    // Do not add allowedAssetIds here: a partner with only product set grants has no asset
+    // set grants, so grantedAssets.assetIds is empty — applying it would block all product-
+    // linked assets. Visibility through this route is bounded by the product grant alone.
     return {
       allowedProductIds: new Set(grantedProducts.productIds),
-      allowedAssetIds: new Set(grantedAssets.assetIds),
+      allowedAssetIds: null,
       restrictToSharedAssetScope: false,
     };
   }

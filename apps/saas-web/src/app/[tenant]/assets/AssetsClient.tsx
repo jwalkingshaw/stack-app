@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback, type ChangeEvent } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue, type ChangeEvent } from "react";
 import NextImage from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DeleteConfirmDialog } from "@/components/ui/modal-shells";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
@@ -73,9 +74,9 @@ const isImageAsset = (asset: Pick<DamAsset, "mimeType" | "fileType">) =>
 const getAssetPreviewUrl = (
   asset: Pick<DamAsset, "thumbnailUrls" | "s3Url"> & { previewUrl?: string | null }
 ) =>
-  asset.previewUrl ||
   asset.thumbnailUrls?.medium ||
   asset.thumbnailUrls?.small ||
+  asset.previewUrl ||
   asset.s3Url;
 
 interface AssetsClientProps {
@@ -342,12 +343,11 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const {
-    channels,
     locales,
     markets,
-    selectedChannelId,
     selectedLocaleId,
     selectedMarketId,
+    isReady: isMarketContextReady,
   } = useMarketContext();
   const partnerPathScope = useMemo(
     () => extractPartnerScopeFromPath(pathname, tenantSlug),
@@ -370,6 +370,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
     return (searchParams.get("brand") || "").trim().toLowerCase();
   }, [partnerPathScope, searchParams, selectedBrandSlugProp, tenantSlug]);
+  const initialSearchQuery = useMemo(
+    () => (searchParams.get("q") || "").trim(),
+    [searchParams]
+  );
   const isSharedBrandView =
     selectedBrandSlug.length > 0 && selectedBrandSlug !== tenantSlug.toLowerCase();
   // Always use API preview URLs so thumbnails render consistently regardless of bucket ACL.
@@ -385,7 +389,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [viewMode, setViewMode] = useState("grid"); // grid, list, visual
   const [isUploadDropActive, setIsUploadDropActive] = useState(false);
   const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(false);
@@ -399,7 +404,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [filterComplianceStatus, setFilterComplianceStatus] = useState("all");
   const [newContentFilter, setNewContentFilter] = useState<string>("all");
   const [updatedContentFilter, setUpdatedContentFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState("name"); // name, date, size, type
+  const [sortBy, setSortBy] = useState("lastReplaced"); // lastReplaced, date, size, type, name
   const [selectedAsset, setSelectedAsset] = useState<AssetRecord | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
   const [isBulkEditorOpen, setIsBulkEditorOpen] = useState(false);
@@ -421,6 +426,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [isTransferringFolderContents, setIsTransferringFolderContents] = useState(false);
   const [isTransferPreviewLoading, setIsTransferPreviewLoading] = useState(false);
+  const [showDeleteAssetsDialog, setShowDeleteAssetsDialog] = useState(false);
+  const [pendingDeleteAssetIds, setPendingDeleteAssetIds] = useState<string[]>([]);
+  const [assetDeleteError, setAssetDeleteError] = useState<string | null>(null);
+  const [isDeletingAssets, setIsDeletingAssets] = useState(false);
   const [productOptions, setProductOptions] = useState<ProductOption[]>([]);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [shareSetOptions, setShareSetOptions] = useState<AssetShareSetOption[]>([]);
@@ -432,7 +441,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [shareDialogError, setShareDialogError] = useState<string | null>(null);
   const [shareStatusMessage, setShareStatusMessage] = useState<string | null>(null);
   const [shareMarketIds, setShareMarketIds] = useState<string[]>([]);
-  const [shareChannelIds, setShareChannelIds] = useState<string[]>([]);
   const [shareLocaleIds, setShareLocaleIds] = useState<string[]>([]);
   const [lastVisitedAt, setLastVisitedAt] = useState<string | null>(null);
   const [replaceTargetAssetId, setReplaceTargetAssetId] = useState<string | null>(null);
@@ -443,6 +451,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const productsParam = searchParams.get("products") || searchParams.get("product");
   const newContentParam = searchParams.get("new");
   const updatedContentParam = searchParams.get("updated");
+
+  useEffect(() => {
+    setSearchQuery(initialSearchQuery);
+  }, [initialSearchQuery]);
 
   const buildScopedQuery = useCallback(() => {
     const queryParams = new URLSearchParams();
@@ -457,6 +469,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     }
     if (selectedBrandSlug) {
       queryParams.set("brand", selectedBrandSlug);
+    }
+    const normalizedSearch = deferredSearchQuery.trim();
+    if (normalizedSearch.length >= 2) {
+      queryParams.set("q", normalizedSearch);
     }
 
     if (selectedMarketId) {
@@ -485,6 +501,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
     return queryParams.toString();
   }, [
+    deferredSearchQuery,
     isPartnerAllView,
     selectedFolderId,
     selectedProductIds,
@@ -623,12 +640,16 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       }
     };
 
-    if (tenantSlug) {
-      void fetchAssetsData();
-    }
+    if (!tenantSlug) return () => { controller.abort(); };
+    if (!isMarketContextReady) return () => { controller.abort(); };
+    if (markets.length > 0 && !selectedMarketId) return () => { controller.abort(); };
+
+    void fetchAssetsData();
     return () => { controller.abort(); };
   }, [
     tenantSlug,
+    isMarketContextReady,
+    markets.length,
     selectedFolderId,
     selectedProductIds,
     selectedBrandSlug,
@@ -745,14 +766,19 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     })
     .sort((a, b) => {
       switch (sortBy) {
-        case "name":
-          return a.originalFilename.localeCompare(b.originalFilename);
+        case "lastReplaced":
+          return (
+            new Date(b.currentVersionChangedAt ?? b.createdAt).getTime() -
+            new Date(a.currentVersionChangedAt ?? a.createdAt).getTime()
+          );
         case "date":
           return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         case "size":
           return b.fileSize - a.fileSize;
         case "type":
           return a.fileType.localeCompare(b.fileType);
+        case "name":
+          return a.originalFilename.localeCompare(b.originalFilename);
         default:
           return 0;
       }
@@ -760,7 +786,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   useEffect(() => {
     if ((newContentFilter !== "all" || updatedContentFilter !== "all") && sortBy === "name") {
-      setSortBy("date");
+      setSortBy("lastReplaced");
     }
   }, [newContentFilter, updatedContentFilter, sortBy]);
 
@@ -853,7 +879,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     (filterComplianceStatus !== "all" ? 1 : 0) +
     (newContentFilter !== "all" ? 1 : 0) +
     (updatedContentFilter !== "all" ? 1 : 0) +
-    (sortBy !== "name" ? 1 : 0);
+    (sortBy !== "lastReplaced" ? 1 : 0);
 
   useEffect(() => {
     if (!selectedFolderId || selectedFolderId === "unfiled") return;
@@ -1344,15 +1370,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     [markets]
   );
 
-  const shareChannelOptions = useMemo<ScopeConstraintOption[]>(
-    () =>
-      channels.map((channel) => ({
-        value: channel.id,
-        label: `${channel.name} (${channel.code})`,
-      })),
-    [channels]
-  );
-
   const shareLocaleOptions = useMemo<ScopeConstraintOption[]>(
     () =>
       locales.map((locale) => ({
@@ -1364,13 +1381,11 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   const applyCurrentScopeToShareSelection = () => {
     setShareMarketIds(selectedMarketId ? [selectedMarketId] : []);
-    setShareChannelIds(selectedChannelId ? [selectedChannelId] : []);
     setShareLocaleIds(selectedLocaleId ? [selectedLocaleId] : []);
   };
 
   const clearShareScopeConstraints = () => {
     setShareMarketIds([]);
-    setShareChannelIds([]);
     setShareLocaleIds([]);
   };
 
@@ -1722,15 +1737,15 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   };
 
   const handleUploadPanelDone = useCallback(
-    async (uploadedAssetIds: string[], openBulkEditor?: boolean) => {
+    async () => {
       await refreshAssets();
-      if (openBulkEditor && uploadedAssetIds.length > 0) {
-        setSelectedAssetIds(new Set(uploadedAssetIds));
-        setIsBulkEditorOpen(true);
-      }
     },
     [refreshAssets]
   );
+
+  const handleFileUploaded = useCallback(() => {
+    void refreshAssets();
+  }, [refreshAssets]);
 
   const handleBulkTag = () => {
     // Quick tag mode - open bulk editor with tags pre-selected
@@ -1742,46 +1757,85 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     // TODO: Implement folder selection modal
   };
 
-  const handleBulkDelete = useCallback(async () => {
-    const deletableAssetIds = Array.from(selectedAssetIds).filter((assetId) => {
+  const openAssetDeleteDialog = useCallback((assetIds: string[]) => {
+    const deletableAssetIds = assetIds.filter((assetId) => {
       const asset = assets.find((row) => row.id === assetId);
       return canMutateAsset(asset);
     });
     if (deletableAssetIds.length === 0) return;
-    const confirmed = confirm(
-      `Delete ${deletableAssetIds.length} assets? This action cannot be undone.`
-    );
-    if (!confirmed) return;
+    setPendingDeleteAssetIds(deletableAssetIds);
+    setAssetDeleteError(null);
+    setShowDeleteAssetsDialog(true);
+  }, [assets, canMutateAsset]);
+
+  const handleBulkDelete = useCallback(async () => {
+    openAssetDeleteDialog(Array.from(selectedAssetIds));
+  }, [openAssetDeleteDialog, selectedAssetIds]);
+
+  const handleConfirmAssetDelete = useCallback(async () => {
+    if (pendingDeleteAssetIds.length === 0 || isDeletingAssets) return;
+
+    setIsDeletingAssets(true);
+    setAssetDeleteError(null);
+
+    const deletedIds: string[] = [];
+    const failures: string[] = [];
 
     try {
-      await Promise.all(
-        deletableAssetIds.map(async (assetId) => {
+      for (const assetId of pendingDeleteAssetIds) {
+        const assetRecord = assets.find((row) => row.id === assetId);
+        const assetLabel = assetRecord?.originalFilename || assetRecord?.filename || assetId;
+
+        try {
           const response = await fetch(`/api/${tenantSlug}/assets/${assetId}`, {
             method: 'DELETE',
           });
           if (!response.ok) {
-            throw new Error(`Failed to delete asset ${assetId}: ${response.status}`);
+            failures.push(`${assetLabel} (${response.status})`);
+            continue;
           }
-        })
-      );
+          deletedIds.push(assetId);
+        } catch {
+          failures.push(assetLabel);
+        }
+      }
 
-      setAssets((prevAssets) =>
-        prevAssets.filter((asset) => !deletableAssetIds.includes(asset.id))
-      );
-      setSelectedAssetIds(new Set());
+      if (deletedIds.length > 0) {
+        setAssets((prevAssets) => prevAssets.filter((asset) => !deletedIds.includes(asset.id)));
+        setSelectedAssetIds((prev) => {
+          const next = new Set(prev);
+          deletedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+        setPendingDeleteAssetIds((prev) => prev.filter((id) => !deletedIds.includes(id)));
         setIsBulkEditorOpen(false);
 
-      if (selectedAsset && deletableAssetIds.includes(selectedAsset.id)) {
-        setIsViewOpen(false);
-        setSelectedAsset(null);
+        if (selectedAsset && deletedIds.includes(selectedAsset.id)) {
+          setIsViewOpen(false);
+          setSelectedAsset(null);
+        }
+
+        setShareStatusMessage(
+          `Deleted ${deletedIds.length} asset${deletedIds.length === 1 ? "" : "s"}.`
+        );
+      }
+
+      if (failures.length > 0) {
+        const preview = failures.slice(0, 3).join(", ");
+        const suffix = failures.length > 3 ? ` (+${failures.length - 3} more)` : "";
+        setAssetDeleteError(
+          `Could not delete ${failures.length} asset${failures.length === 1 ? "" : "s"}: ${preview}${suffix}`
+        );
+      } else {
+        setShowDeleteAssetsDialog(false);
+        setPendingDeleteAssetIds([]);
       }
 
       await refreshAssets();
-    } catch (error) {
-      console.error('Failed to bulk delete assets:', error);
-      throw error;
+    } finally {
+      setIsDeletingAssets(false);
     }
-  }, [selectedAssetIds, assets, canMutateAsset, tenantSlug, selectedAsset, refreshAssets]);
+  }, [assets, isDeletingAssets, pendingDeleteAssetIds, refreshAssets, selectedAsset, tenantSlug]);
 
   const handleBulkShare = () => {
     void openShareDialog();
@@ -1907,7 +1961,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
           resourceType: "asset",
           resourceId,
           marketIds: shareMarketIds,
-          channelIds: shareChannelIds,
           localeIds: shareLocaleIds,
         })),
         ...Array.from(selectedFolderIds).map((resourceId) => ({
@@ -1915,7 +1968,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
           resourceId,
           includeDescendants: true,
           marketIds: shareMarketIds,
-          channelIds: shareChannelIds,
           localeIds: shareLocaleIds,
         })),
       ];
@@ -2051,9 +2103,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={() => {
-                const confirmed = confirm(`Delete "${asset.originalFilename}"?`);
-                if (!confirmed) return;
-                void handleDeleteAsset(asset.id);
+                openAssetDeleteDialog([asset.id]);
               }}
               className="text-destructive"
             >
@@ -2128,7 +2178,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
             </div>
           </div>
 
-          <div className="border-t border-border" />
+          <div className="border-t border-gray-200" />
 
           {/* Filters */}
           <div className="space-y-3">
@@ -2306,12 +2356,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                       {isAllSelected ? "Deselect all" : "Select all"}
                     </button>
                   ) : null}
-                  {!isSharedBrandView && canManageLibrary ? (
-                    <Button size="sm" variant="outline" onClick={handleBulkShare} className="gap-1.5 h-7 text-xs">
-                      <Share2 className="h-3.5 w-3.5" />
-                      Share
-                    </Button>
-                  ) : null}
                 </>
               ) : (
                 <>
@@ -2387,14 +2431,15 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
             {/* Sort + View switcher */}
             <div className="flex items-center gap-2 shrink-0">
               <Select value={sortBy} onValueChange={setSortBy}>
-                <SelectTrigger className="h-8 w-[110px] text-xs">
+                <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 text-xs shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="name">Name</SelectItem>
-                  <SelectItem value="date">Date</SelectItem>
-                  <SelectItem value="size">Size</SelectItem>
-                  <SelectItem value="type">Type</SelectItem>
+                <SelectContent className="w-auto min-w-[var(--radix-select-trigger-width)]">
+                  <SelectItem value="lastReplaced" className="whitespace-nowrap">Last Modified</SelectItem>
+                  <SelectItem value="date" className="whitespace-nowrap">Creation Date</SelectItem>
+                  <SelectItem value="size" className="whitespace-nowrap">Size</SelectItem>
+                  <SelectItem value="type" className="whitespace-nowrap">Type</SelectItem>
+                  <SelectItem value="name" className="whitespace-nowrap">File Name</SelectItem>
                 </SelectContent>
               </Select>
               <div className="flex items-center bg-muted/50 border border-border rounded p-0.5">
@@ -2465,7 +2510,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                         ))}
                       </div>
                     )}
-                    <div className="border-t border-border mt-5 pt-4">
+                    <div className="border-t border-gray-200 mt-5 pt-4">
                       <button
                         type="button"
                         onClick={() => setIsAssetsSectionCollapsed((v) => !v)}
@@ -2805,10 +2850,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Empty scope means these files/folders are visible in all markets/channels/locales
+                  Empty scope means these files/folders are visible in all markets and locales
                   allowed by the partner grant.
                 </p>
-                <div className="grid gap-2 md:grid-cols-3">
+                <div className="grid gap-2 md:grid-cols-2">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">Markets</label>
                     <MultiSelect
@@ -2816,15 +2861,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                       value={shareMarketIds}
                       onChange={setShareMarketIds}
                       placeholder="Select one or more markets"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">Channels</label>
-                    <MultiSelect
-                      options={shareChannelOptions}
-                      value={shareChannelIds}
-                      onChange={setShareChannelIds}
-                      placeholder="Select one or more channels"
                     />
                   </div>
                   <div className="space-y-1">
@@ -2892,12 +2928,51 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         </DialogContent>
       </Dialog>
 
+      <DeleteConfirmDialog
+        open={showDeleteAssetsDialog}
+        onOpenChange={(open) => {
+          if (isDeletingAssets) return;
+          setShowDeleteAssetsDialog(open);
+          if (!open) {
+            setPendingDeleteAssetIds([]);
+            setAssetDeleteError(null);
+          }
+        }}
+        title={`Delete Asset${pendingDeleteAssetIds.length === 1 ? "" : "s"}`}
+        description={`Delete ${pendingDeleteAssetIds.length} asset${pendingDeleteAssetIds.length === 1 ? "" : "s"}? This action cannot be undone.`}
+        onConfirm={() => void handleConfirmAssetDelete()}
+        confirmLabel={pendingDeleteAssetIds.length === 1 ? "Delete asset" : "Delete assets"}
+        confirmLoading={isDeletingAssets}
+        confirmDisabled={isDeletingAssets || pendingDeleteAssetIds.length === 0}
+        safetyMode={pendingDeleteAssetIds.length > 1 ? "typed" : "standard"}
+        confirmPhrase="delete"
+      >
+        {pendingDeleteAssetIds.length > 0 ? (
+          <div className="rounded-md border border-border bg-muted/20 p-3">
+            <p className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">Selected assets</p>
+            <div className="space-y-1 text-sm">
+              {pendingDeleteAssetIds.slice(0, 8).map((assetId) => {
+                const selectedAssetRecord = assets.find((asset) => asset.id === assetId);
+                return (
+                  <p key={assetId} className="text-foreground">
+                    {selectedAssetRecord?.originalFilename || selectedAssetRecord?.filename || assetId}
+                  </p>
+                );
+              })}
+              {pendingDeleteAssetIds.length > 8 ? (
+                <p className="text-muted-foreground">+{pendingDeleteAssetIds.length - 8} more</p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+        {assetDeleteError ? <p className="text-sm text-destructive">{assetDeleteError}</p> : null}
+      </DeleteConfirmDialog>
+
       {/* Bulk Action Toolbar */}
       <BulkActionToolbar
         selectedCount={isSharedBrandView ? 0 : selectedSelectableCount}
         onAddToSet={handleBulkShare}
         onEdit={handleBulkEdit}
-        onTag={handleBulkTag}
         onDelete={handleBulkDelete}
         onClear={handleClearSelection}
       />
@@ -2905,7 +2980,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       {/* Upload Panel */}
       <UploadPanel
         open={isUploadPanelOpen}
-        onOpenChange={setIsUploadPanelOpen}
+        onOpenChange={(open) => {
+          setIsUploadPanelOpen(open);
+          if (!open) void refreshAssets();
+        }}
         tenantSlug={tenantSlug}
         initialFiles={uploadPanelInitialFiles}
         initialFolderId={
@@ -2913,6 +2991,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         }
         folders={folders}
         onDone={handleUploadPanelDone}
+        onFileUploaded={handleFileUploaded}
       />
 
       {/* Bulk Editor Panel */}
@@ -2978,27 +3057,19 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showDeleteFolder} onOpenChange={setShowDeleteFolder}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Folder</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <p>
-              Delete <span className="font-semibold text-foreground">{activeFolder?.name}</span>?
-            </p>
-            <p>Subfolders will be removed and assets will be unfiled.</p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteFolder(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDeleteFolder} disabled={isDeletingFolder}>
-              {isDeletingFolder ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={showDeleteFolder}
+        onOpenChange={(open) => {
+          if (isDeletingFolder) return;
+          setShowDeleteFolder(open);
+        }}
+        title="Delete Folder"
+        description={`Delete "${activeFolder?.name || "this folder"}"? Subfolders will be removed and assets will be unfiled.`}
+        onConfirm={handleDeleteFolder}
+        confirmLoading={isDeletingFolder}
+        safetyMode="typed"
+        confirmPhrase="delete"
+      />
 
       <Dialog open={showTransferFolderContents} onOpenChange={setShowTransferFolderContents}>
         <DialogContent>

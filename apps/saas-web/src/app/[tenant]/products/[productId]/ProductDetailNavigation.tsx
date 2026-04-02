@@ -149,7 +149,7 @@ export default function ProductDetailNavigation({
 
   return (
     <div className="bg-[#f5f5f5] h-full flex flex-col w-48">
-      <div className="border-b border-border/70 px-2 py-3">
+      <div className="border-b border-gray-200 px-2 py-3">
         <BackLinkButton href={`/${tenantSlug}/products`} label="Back to products" fullWidth />
       </div>
 

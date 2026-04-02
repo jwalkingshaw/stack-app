@@ -62,12 +62,16 @@ export class S3Service {
   async getPresignedUploadUrl(
     key: string,
     contentType: string,
-    expiresIn: number = 3600
+    expiresIn: number = 3600,
+    options?: {
+      cacheControl?: string;
+    }
   ): Promise<string> {
     const command = new PutObjectCommand({
       Bucket: this.bucketName,
       Key: key,
       ContentType: contentType,
+      CacheControl: options?.cacheControl,
     });
 
     return await getSignedUrl(this.client, command, { expiresIn });
@@ -111,13 +115,17 @@ export class S3Service {
   async uploadObject(
     key: string,
     body: Buffer | Uint8Array | string,
-    contentType?: string
+    contentType?: string,
+    options?: {
+      cacheControl?: string;
+    }
   ): Promise<void> {
     const command = new PutObjectCommand({
       Bucket: this.bucketName,
       Key: key,
       Body: body,
       ContentType: contentType,
+      CacheControl: options?.cacheControl,
     });
 
     await this.client.send(command);

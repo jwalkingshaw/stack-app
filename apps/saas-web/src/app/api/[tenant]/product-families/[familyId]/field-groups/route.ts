@@ -66,8 +66,14 @@ const FIELD_GROUP_SELECT_WITH_SCOPES = `
     description,
     sort_order,
     is_active,
+    source_output_profile_id,
     created_at,
     updated_at,
+    output_channel_profiles!source_output_profile_id (
+      id,
+      name,
+      profile_type
+    ),
     product_field_group_assignments (
       id,
       product_field_id,
@@ -275,7 +281,7 @@ export async function GET(
 
     const shouldUseSharedCache = familyContext.mode !== "partner_brand";
     if (shouldUseSharedCache) {
-      const cached = getFamilyFieldGroupsCache({
+      const cached = await getFamilyFieldGroupsCache({
         organizationId: familyContext.organizationId,
         familyId: familyContext.familyId,
       });
@@ -314,7 +320,7 @@ export async function GET(
     }
 
     if (shouldUseSharedCache) {
-      setFamilyFieldGroupsCache({
+      await setFamilyFieldGroupsCache({
         organizationId: familyContext.organizationId,
         familyId: familyContext.familyId,
         data: normalized,
@@ -393,7 +399,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed to assign field group to family." }, { status: 500 });
     }
 
-    invalidateFamilyFieldGroupsCache({
+    await invalidateFamilyFieldGroupsCache({
       organizationId: familyContext.organizationId,
       familyId: familyContext.familyId,
     });
@@ -411,7 +417,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed to resolve assignment after write." }, { status: 500 });
     }
 
-    setFamilyFieldGroupsCache({
+    await setFamilyFieldGroupsCache({
       organizationId: familyContext.organizationId,
       familyId: familyContext.familyId,
       data: normalized,

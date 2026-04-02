@@ -228,29 +228,31 @@ export function UpdatesClient({ tenantSlug }: UpdatesClientProps) {
               placeholder="Search updates..."
               className="h-9 w-56"
             />
-            <select
-              value={urgencyFilter}
-              onChange={(event) => setUrgencyFilter(event.target.value)}
-              className="h-9 rounded-lg border border-muted/30 bg-background px-3 text-sm shadow-soft"
-            >
-              <option value="all">All priorities</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="normal">Normal</option>
-              <option value="low">Low</option>
-            </select>
-            <select
-              value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
-              className="h-9 rounded-lg border border-muted/30 bg-background px-3 text-sm shadow-soft"
-            >
-              <option value="all">All statuses</option>
-              <option value="draft">Draft</option>
-              <option value="scheduled">Scheduled</option>
-              <option value="published">Published</option>
-              <option value="archived">Archived</option>
-              <option value="canceled">Canceled</option>
-            </select>
+            <Select value={urgencyFilter} onValueChange={setUrgencyFilter}>
+              <SelectTrigger className="h-9 w-[150px] rounded-lg border-muted/30 shadow-soft">
+                <SelectValue placeholder="All priorities" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All priorities</SelectItem>
+                <SelectItem value="critical">Critical</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+                <SelectItem value="normal">Normal</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-9 w-[150px] rounded-lg border-muted/30 shadow-soft">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="draft">Draft</SelectItem>
+                <SelectItem value="scheduled">Scheduled</SelectItem>
+                <SelectItem value="published">Published</SelectItem>
+                <SelectItem value="archived">Archived</SelectItem>
+                <SelectItem value="canceled">Canceled</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <Button onClick={openCreateDialog} className="gap-2 shrink-0">
             <Plus className="h-4 w-4" />
@@ -263,7 +265,7 @@ export function UpdatesClient({ tenantSlug }: UpdatesClientProps) {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/30">
+                <tr className="border-b border-gray-200 bg-muted/30">
                   <th className="w-[26px] px-3 py-2.5" />
                   <th className="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
                     Update
@@ -288,7 +290,7 @@ export function UpdatesClient({ tenantSlug }: UpdatesClientProps) {
               <tbody>
                 {loading ? (
                   Array.from({ length: 6 }).map((_, index) => (
-                    <tr key={`loading-row-${index}`} className="border-b border-border/60">
+                    <tr key={`loading-row-${index}`} className="border-b border-gray-200">
                       <td className="px-3 py-3">
                         <div className="h-3.5 w-3.5 animate-pulse rounded bg-gray-200" />
                       </td>
@@ -326,7 +328,7 @@ export function UpdatesClient({ tenantSlug }: UpdatesClientProps) {
                     const stats = row.analytics;
                     const isLive = row.status === "published" || row.status === "scheduled";
                     return (
-                      <tr key={row.id} className="border-b border-border/60 hover:bg-muted/20">
+                      <tr key={row.id} className="border-b border-gray-200 hover:bg-muted/20">
                         {/* Priority icon */}
                         <td className="px-3 py-3">
                           <div title={PRIORITY_LABEL[row.urgency] ?? row.urgency}>

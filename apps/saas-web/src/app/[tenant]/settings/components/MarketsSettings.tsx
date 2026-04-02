@@ -127,7 +127,7 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
           </div>
         )}
 
-        <section className="space-y-4 rounded-lg border border-border/60 bg-card p-6">
+        <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <Input
               value={search}
@@ -151,7 +151,7 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
               router.push(`/${tenantSlug}/settings/markets/${nextMarketId}`);
             }}
           />
-        </section>
+        </div>
       </SettingsPageContent>
 
       <CreateMarketDialog

@@ -107,7 +107,7 @@ export async function GET(
           is_active,
           created_at,
           created_by,
-          products!inner(id, sku, product_name, brand:brand_line, status)
+          products!product_asset_links_product_id_fkey(id, sku, product_name, brand:brand_line, status)
         `
       )
       .eq("asset_id", assetId)
@@ -146,7 +146,8 @@ export async function GET(
 
     const { data: productLinks, error: linksError } = await linksQuery;
     if (linksError) {
-      return NextResponse.json({ error: "Failed to fetch product context" }, { status: 500 });
+      console.error("product-context linksError:", linksError.message, linksError.details, linksError.hint);
+      return NextResponse.json({ error: "Failed to fetch product context", detail: linksError.message }, { status: 500 });
     }
 
     const linkRows = ((productLinks || []) as unknown) as ProductLinkRow[];

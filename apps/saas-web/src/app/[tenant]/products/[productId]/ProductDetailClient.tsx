@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Package, Zap, FileText, Settings, ImageIcon, ExternalLink, Info, MoreHorizontal, Languages } from "lucide-react";
+import { Package, Zap, FileText, Settings, ImageIcon, ExternalLink, Info, MoreHorizontal, Languages, Globe } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -22,8 +22,6 @@ import type { ProductField } from "@/components/field-types/DynamicFieldRenderer
 import { VariantNavigationHeader } from "@/components/products/VariantNavigationHeader";
 import { PageContentContainer } from "@/components/ui/page-content-container";
 import { ItemList } from "@/components/ui/item-list";
-import { ScopeToolbar } from "@/components/scope-toolbar";
-import { hasLiveScopeControls } from "@/lib/scope-visibility";
 import {
   buildCanonicalProductIdentifier,
   generateVariantUrl,
@@ -31,9 +29,11 @@ import {
 } from "@/lib/product-utils";
 import { PageSkeleton } from "@/components/ui/loading-skeleton";
 import { useMarketContext } from "@/components/market-context";
+import { ChannelReadinessSection } from "@/components/products/ChannelReadinessSection";
 import { fetchJsonWithDedupe } from "@/lib/client-request-cache";
 import { buildTenantPathForScope } from "@/lib/tenant-view-scope";
 import { isBasicInformationFieldGroupCode } from "@/lib/field-group-codes";
+import { DeleteConfirmDialog } from "@/components/ui/modal-shells";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   createGlobalAuthoringScope,
@@ -122,6 +122,12 @@ type ProductFieldLike = ProductField & {
   [key: string]: unknown;
 };
 
+type OutputProfileRef = {
+  id: string;
+  name: string;
+  profile_type: string;
+};
+
 type ProductFieldGroupLike = {
   id: string;
   field_group_id: string;
@@ -129,6 +135,8 @@ type ProductFieldGroupLike = {
     code: string;
     name: string;
     description?: string;
+    source_output_profile_id?: string | null;
+    output_profile?: OutputProfileRef | null;
     [key: string]: unknown;
   };
   hidden_fields?: string[];
@@ -248,6 +256,14 @@ const PRIMARY_IMAGE_SLOT_CODES = new Set([
 ]);
 const PRIMARY_DOCUMENT_SLOT_CODES = new Set(["coa", "legal", "sfp"]);
 const DOCUMENTATION_GROUP_CODE = "documentation";
+
+const PROFILE_TYPE_SHORT: Record<string, string> = {
+  portal:      'Portal',
+  marketplace: 'Marketplace',
+  retail:      'Retail',
+  export:      'Export',
+  api:         'API',
+};
 const MUTABLE_PRODUCT_COLUMNS = new Set([
   "type",
   "parent_id",
@@ -409,6 +425,12 @@ function normalizeProductFieldGroup(value: unknown): ProductFieldGroupLike | nul
   const hiddenFieldSet = new Set(hiddenFields);
   const visibleFields = allFields.filter((field) => !hiddenFieldSet.has(field.id));
 
+  const profileRaw = asRecord(fieldGroup.output_channel_profiles);
+  const outputProfile: OutputProfileRef | null =
+    profileRaw && typeof profileRaw.id === "string"
+      ? { id: profileRaw.id, name: String(profileRaw.name ?? ""), profile_type: String(profileRaw.profile_type ?? "") }
+      : null;
+
   return {
     ...groupAssignment,
     id: String(groupAssignment.id ?? `${code}-assignment`),
@@ -421,6 +443,8 @@ function normalizeProductFieldGroup(value: unknown): ProductFieldGroupLike | nul
           ? fieldGroup.name
           : code,
       description: typeof fieldGroup.description === "string" ? fieldGroup.description : undefined,
+      source_output_profile_id: typeof fieldGroup.source_output_profile_id === "string" ? fieldGroup.source_output_profile_id : null,
+      output_profile: outputProfile,
     },
     hidden_fields: hiddenFields,
     sort_order: typeof groupAssignment.sort_order === "number" ? groupAssignment.sort_order : 0,
@@ -633,7 +657,7 @@ export function ProductDetailClient({
   const [, setLoadingFieldGroups] = useState(false);
   const fieldGroupsCacheRef = useRef<Map<string, ProductFieldGroupLike[]>>(new Map());
   const [fieldValues, setFieldValues] = useState<Record<string, unknown>>({});
-  const [pendingFieldChanges, setPendingFieldChanges] = useState<Record<string, unknown>>({});
+  const [, setPendingFieldChanges] = useState<Record<string, unknown>>({});
   const [linkedAssets, setLinkedAssets] = useState<ProductLinkLike[]>([]);
   const [loadingLinkedAssets, setLoadingLinkedAssets] = useState(false);
   const [linkedAssetsError, setLinkedAssetsError] = useState<string | null>(null);
@@ -687,21 +711,15 @@ export function ProductDetailClient({
   const [canUseTranslateProduct, setCanUseTranslateProduct] = useState(false);
   const [isTranslatePanelOpen, setIsTranslatePanelOpen] = useState(false);
   const [isDeletingProduct, setIsDeletingProduct] = useState(false);
+  const [isDeleteProductDialogOpen, setIsDeleteProductDialogOpen] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   const {
-    channels,
-    destinations,
     locales,
     markets,
-    selectedChannelId,
     selectedMarketId,
     selectedLocaleId,
-    selectedDestinationId,
-    selectedChannel,
     selectedLocale,
-    selectedDestination,
-    availableDestinations,
     isLoading: marketContextLoading,
   } = useMarketContext();
 
@@ -717,13 +735,6 @@ export function ProductDetailClient({
     locales.length,
     selectedLocale?.code,
   ]);
-
-  const showScopeToolbarSection = useMemo(
-    () =>
-      !marketContextLoading &&
-      hasLiveScopeControls({ channels, destinations }),
-    [channels, destinations, marketContextLoading]
-  );
 
   const canEditFields = !isSharedBrandView && isScopeReady;
 
@@ -783,16 +794,12 @@ export function ProductDetailClient({
 
     return (
       matchesDimension(selectedMarketId, authoringScope.marketIds) &&
-      matchesDimension(selectedChannelId, authoringScope.channelIds) &&
-      matchesDimension(selectedLocaleId, authoringScope.localeIds) &&
-      matchesDimension(selectedDestinationId, authoringScope.destinationIds)
+      matchesDimension(selectedLocaleId, authoringScope.localeIds)
     );
   }, [
     authoringScope,
     selectedMarketId,
-    selectedChannelId,
     selectedLocaleId,
-    selectedDestinationId,
   ]);
 
   const resolveSystemFieldCode = useCallback(
@@ -912,21 +919,13 @@ export function ProductDetailClient({
 
       const useScopedTarget = !options?.forceGlobalScope;
       const targetMarketId = useScopedTarget ? selectedMarketId : null;
-      const targetChannelId = useScopedTarget ? selectedChannelId : null;
       const targetLocaleId = useScopedTarget ? selectedLocaleId : null;
-      const targetDestinationId = useScopedTarget ? selectedDestinationId : null;
       const targetLocaleCode = useScopedTarget ? selectedLocale?.code : null;
-      const targetChannelCode = useScopedTarget ? selectedChannel?.code : null;
-      const targetDestinationCode = useScopedTarget ? selectedDestination?.code : null;
 
       const query = new URLSearchParams();
       if (targetMarketId) query.set('marketId', targetMarketId);
-      if (targetChannelId) query.set('channelId', targetChannelId);
       if (targetLocaleId) query.set('localeId', targetLocaleId);
-      if (targetDestinationId) query.set('destinationId', targetDestinationId);
       if (targetLocaleCode) query.set('locale', targetLocaleCode);
-      if (targetChannelCode) query.set('channel', targetChannelCode);
-      if (targetDestinationCode) query.set('destination', targetDestinationCode);
       if (selectedBrandSlug) query.set('brand', selectedBrandSlug);
       const url = query.toString()
         ? `/api/${tenantSlug}/products/${product.id}?${query.toString()}`
@@ -1080,11 +1079,6 @@ export function ProductDetailClient({
   };
 
   const isFieldAllowed = useCallback((field: ProductFieldLike) => {
-    if (field?.is_channelable && Array.isArray(field.allowed_channel_ids) && field.allowed_channel_ids.length > 0) {
-      if (selectedChannelId && !field.allowed_channel_ids.includes(selectedChannelId)) {
-        return false;
-      }
-    }
     if (field?.is_localizable && Array.isArray(field.allowed_market_ids) && field.allowed_market_ids.length > 0) {
       if (selectedMarketId && !field.allowed_market_ids.includes(selectedMarketId)) {
         return false;
@@ -1096,7 +1090,7 @@ export function ProductDetailClient({
       }
     }
     return true;
-  }, [selectedChannelId, selectedMarketId, selectedLocaleId]);
+  }, [selectedMarketId, selectedLocaleId]);
 
   const filteredFieldGroups = useMemo(() => {
     const processedGroups = fieldGroups.map((group) => ({
@@ -1305,7 +1299,14 @@ export function ProductDetailClient({
   );
 
   useEffect(() => {
-    const validSections = new Set(sections.map((section) => section.id));
+    const staticSections = new Set([
+      'attributes-all', 'attributes-required', 'attributes-missing',
+      'variants', 'media', 'product-settings', 'readiness',
+    ]);
+    const validSections = new Set([
+      ...staticSections,
+      ...sections.map((section) => section.id),
+    ]);
     if (!validSections.has(activeSection)) {
       setActiveSection('attributes-all');
     }
@@ -1324,6 +1325,7 @@ export function ProductDetailClient({
       "variants",
       "media",
       "product-settings",
+      "readiness",
     ]);
     const dynamicSectionIds = new Set(sections.map((section) => section.id));
 
@@ -2146,12 +2148,8 @@ export function ProductDetailClient({
       setCompletenessLoading(true);
       const query = new URLSearchParams();
       if (selectedMarketId) query.set('marketId', selectedMarketId);
-      if (selectedChannelId) query.set('channelId', selectedChannelId);
       if (selectedLocaleId) query.set('localeId', selectedLocaleId);
-      if (selectedDestinationId) query.set('destinationId', selectedDestinationId);
       if (selectedLocale?.code) query.set('locale', selectedLocale.code);
-      if (selectedChannel?.code) query.set('channel', selectedChannel.code);
-      if (selectedDestination?.code) query.set('destination', selectedDestination.code);
       if (selectedBrandSlug) query.set('brand', selectedBrandSlug);
       const url = query.toString()
         ? `/api/${tenantSlug}/products/${product.id}/completeness?${query.toString()}`
@@ -2184,12 +2182,8 @@ export function ProductDetailClient({
     product?.id,
     tenantSlug,
     selectedMarketId,
-    selectedChannelId,
     selectedLocaleId,
-    selectedDestinationId,
     selectedLocale?.code,
-    selectedChannel?.code,
-    selectedDestination?.code,
     selectedBrandSlug,
     isScopeReady,
   ]);
@@ -2206,12 +2200,8 @@ export function ProductDetailClient({
 
         const query = new URLSearchParams();
         if (selectedMarketId) query.set('marketId', selectedMarketId);
-        if (selectedChannelId) query.set('channelId', selectedChannelId);
         if (selectedLocaleId) query.set('localeId', selectedLocaleId);
-        if (selectedDestinationId) query.set('destinationId', selectedDestinationId);
         if (selectedLocale?.code) query.set('locale', selectedLocale.code);
-        if (selectedChannel?.code) query.set('channel', selectedChannel.code);
-        if (selectedDestination?.code) query.set('destination', selectedDestination.code);
         if (selectedBrandSlug) query.set('brand', selectedBrandSlug);
         const url = query.toString()
           ? `/api/${tenantSlug}/products/${productId}?${query.toString()}`
@@ -2405,12 +2395,8 @@ export function ProductDetailClient({
     productId,
     tenantSlug,
     selectedMarketId,
-    selectedChannelId,
     selectedLocaleId,
-    selectedDestinationId,
     selectedLocale?.code,
-    selectedChannel?.code,
-    selectedDestination?.code,
     selectedBrandSlug,
     router,
     fetchFieldGroups,
@@ -2484,28 +2470,11 @@ export function ProductDetailClient({
     }
   };
 
-  const handleCatalogVisibilityChange = async (nextVisibility: string) => {
-    if (!product?.id || !canEditFields || isSharedBrandView) return;
-    const prev = String(product.catalog_visibility || "standard");
-    if (nextVisibility === prev) return;
-    setProduct((p) => (p ? { ...p, catalog_visibility: nextVisibility } : p));
-    try {
-      await saveFieldValues({ catalog_visibility: nextVisibility });
-    } catch (error) {
-      setProduct((p) => (p ? { ...p, catalog_visibility: prev } : p));
-      console.error("Failed to update catalog visibility:", error);
-      toast.error("Failed to update catalog visibility.");
-    }
-  };
-
   const handleDeleteProduct = useCallback(async () => {
     if (!product?.id || isSharedBrandView || isDeletingProduct) return;
 
     const deleteLabel = product.type === "variant" ? "variant" : "product";
-    const confirmed = window.confirm(
-      `Delete this ${deleteLabel}? This action cannot be undone.`
-    );
-    if (!confirmed) return;
+    setIsDeleteProductDialogOpen(false);
 
     setIsDeletingProduct(true);
     try {
@@ -2615,12 +2584,12 @@ export function ProductDetailClient({
   return (
     <div className="h-[calc(100%-var(--app-header-height,44px))] min-h-0 overflow-hidden flex flex-col">
       {isSharedBrandView ? (
-        <div className="border-b border-border bg-muted/20 px-6 py-3 text-sm text-muted-foreground">
+        <div className="border-b border-gray-200 bg-muted/20 px-6 py-3 text-sm text-muted-foreground">
           Shared brand view is read-only. Editing and product creation are disabled.
         </div>
       ) : null}
       {/* Minimal header */}
-      <div className="border-b border-border/60 bg-background">
+      <div className="border-b border-gray-200 bg-background">
         <div className="flex">
           <div className="w-72 shrink-0 border-r border-border/60 bg-background" aria-hidden="true" />
           <div className="min-w-0 flex-1 px-6 py-3">
@@ -2655,33 +2624,25 @@ export function ProductDetailClient({
                 <h1 className="text-lg font-semibold text-foreground">
                   {product.productName}
                 </h1>
-                <span className={`inline-flex h-6 items-center rounded-md px-2.5 text-xs font-medium ${
-                  product.status === 'Active' ? 'bg-green-100 text-green-700' :
-                  product.status === 'Draft' ? 'bg-yellow-100 text-yellow-700' :
-                  product.status === 'Enrichment' ? 'bg-blue-100 text-blue-700' :
-                  product.status === 'Review' ? 'bg-amber-100 text-amber-700' :
-                  product.status === 'Archived' ? 'bg-slate-100 text-slate-700' :
-                  'bg-red-100 text-red-700'
-                }`}>
-                  {product.status}
-                </span>
               </div>
 
               <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                 <span>SCIN: {product.scin || product.id}</span>
                 <span>SKU: {product.sku || '-'}</span>
                 <span>Barcode: {product.upc || '-'}</span>
+                {selectedLocale && (
+                  <span className="flex items-center gap-1" title="Current editing language — change in sidebar">
+                    <Globe className="w-3 h-3" />
+                    {selectedLocale.name || selectedLocale.code}
+                  </span>
+                )}
               </div>
                   </div>
 
                   <div className="flex w-full flex-col gap-2 xl:w-auto xl:items-end">
                     <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                      {!isSharedBrandView ? (
-                        saving || Object.keys(pendingFieldChanges).length > 0 ? (
-                          <span className={headerStatusPillClass}>
-                            {saving ? 'Saving changes...' : 'Unsaved changes'}
-                          </span>
-                        ) : null
+                      {!isSharedBrandView && saving ? (
+                        <span className={headerStatusPillClass}>Saving...</span>
                       ) : null}
                       {!isCurrentViewInsideAuthoringScope ? (
                         <span
@@ -2692,7 +2653,7 @@ export function ProductDetailClient({
                         </span>
                       ) : null}
                       {!isScopeReady ? (
-                        <span className={scopeAlertPillClass}>Select scope in header</span>
+                        <span className={scopeAlertPillClass}>Select language in sidebar</span>
                       ) : null}
                       {!isSharedBrandView ? (
                         <Select
@@ -2711,24 +2672,6 @@ export function ProductDetailClient({
                                 {statusOption}
                               </SelectItem>
                             ))}
-                          </SelectContent>
-                        </Select>
-                      ) : null}
-                      {!isSharedBrandView ? (
-                        <Select
-                          value={String(product.catalog_visibility || "standard")}
-                          onValueChange={(nextValue) => {
-                            void handleCatalogVisibilityChange(nextValue);
-                          }}
-                          disabled={saving || !canEditFields}
-                        >
-                          <SelectTrigger className="h-8 w-[160px] rounded-full border border-border/60 bg-background px-3 text-xs">
-                            <SelectValue placeholder="Visibility" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="standard">Standard</SelectItem>
-                            <SelectItem value="partner_exclusive">Partner Exclusive</SelectItem>
-                            <SelectItem value="restricted">Internal Only</SelectItem>
                           </SelectContent>
                         </Select>
                       ) : null}
@@ -2760,7 +2703,7 @@ export function ProductDetailClient({
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onSelect={() => {
-                                void handleDeleteProduct();
+                                setIsDeleteProductDialogOpen(true);
                               }}
                               disabled={isDeletingProduct || isParentDeleteBlocked}
                               className="text-destructive focus:text-destructive"
@@ -2780,11 +2723,6 @@ export function ProductDetailClient({
                   </div>
                 </div>
 
-                {showScopeToolbarSection ? (
-                  <div className="border-t border-border/50 pt-2">
-                    <ScopeToolbar showCycleControls />
-                  </div>
-                ) : null}
 
               </div>
             </PageContentContainer>
@@ -2817,19 +2755,27 @@ export function ProductDetailClient({
                 </p>
 
                 <div className="space-y-0.5">
-                  {dynamicFieldGroupSections.map((section) => (
-                    <button
-                      key={section.id}
-                      onClick={() => setActiveSection(section.id)}
-                      className={`${sidebarNavButtonBaseClass} ${getSidebarNavButtonStateClass(activeSection === section.id)}`}
-                    >
-                      <span className="truncate">{section.label}</span>
-                    </button>
-                  ))}
+                  {dynamicFieldGroupSections.map((section) => {
+                    const outputProfile = section.fieldGroup.field_group.output_profile;
+                    return (
+                      <button
+                        key={section.id}
+                        onClick={() => setActiveSection(section.id)}
+                        className={`${sidebarNavButtonBaseClass} ${getSidebarNavButtonStateClass(activeSection === section.id)}`}
+                      >
+                        <span className="truncate">{section.label}</span>
+                        {outputProfile && (
+                          <span className="text-[10px] text-muted-foreground/60 shrink-0">
+                            {PROFILE_TYPE_SHORT[outputProfile.profile_type] ?? outputProfile.profile_type}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="mt-3 space-y-0.5 border-t border-border pt-3">
+              <div className="mt-3 space-y-0.5 border-t border-gray-200 pt-3">
                 <button
                   onClick={() => setActiveSection('variants')}
                   className={`${sidebarNavButtonBaseClass} ${getSidebarNavButtonStateClass(activeSection === 'variants')}`}
@@ -2844,6 +2790,15 @@ export function ProductDetailClient({
                   <span className="truncate">Assets</span>
                   <span className="text-xs leading-4 text-muted-foreground">{linkedAssets.length}</span>
                 </button>
+                <button
+                  onClick={() => setActiveSection('readiness')}
+                  className={`${sidebarNavButtonBaseClass} ${getSidebarNavButtonStateClass(activeSection === 'readiness')}`}
+                >
+                  <span className="flex items-center gap-1.5 truncate">
+                    <Zap className="h-3.5 w-3.5 shrink-0" />
+                    Channel Readiness
+                  </span>
+                </button>
               </div>
             </nav>
           </div>
@@ -2857,10 +2812,18 @@ export function ProductDetailClient({
             >
               <div className="mb-6 space-y-1">
                 <h2 className={contentSectionHeadingClass}>
-                  {sections.find(s => s.id === activeSection)?.label || 'Variants'}
+                  {activeSection === 'readiness'
+                    ? 'Channel Readiness'
+                    : activeSection === 'media'
+                    ? 'Assets'
+                    : activeSection === 'variants'
+                    ? 'Variants'
+                    : sections.find(s => s.id === activeSection)?.label || 'Section'}
                 </h2>
                 <p className={contentSectionHintClass}>
-                  Review and update fields in this section.
+                  {activeSection === 'readiness'
+                    ? 'Track how ready this product is for each channel.'
+                    : 'Review and update fields in this section.'}
                 </p>
               </div>
 
@@ -3048,6 +3011,8 @@ export function ProductDetailClient({
                   );
                   const isWideFieldGroup = isTableHeavyFieldGroup(fieldGroup);
 
+                  const sectionOutputProfile = fieldGroup.field_group.output_profile;
+
                   return (
                     <div
                       className={
@@ -3056,6 +3021,20 @@ export function ProductDetailClient({
                           : 'mx-auto w-full max-w-4xl space-y-5'
                       }
                     >
+                      {sectionOutputProfile && (
+                        <div className="flex items-center justify-between">
+                          <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                            {PROFILE_TYPE_SHORT[sectionOutputProfile.profile_type] ?? sectionOutputProfile.profile_type}
+                          </span>
+                          <Link
+                            href={`/${tenantSlug}/settings/output-profiles/${sectionOutputProfile.id}`}
+                            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            Configure profile
+                            <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        </div>
+                      )}
                       {fieldGroup.fields && fieldGroup.fields.length > 0 ? (
                         <div className="space-y-4">
                           {isDocumentationGroup && documentationSlotFields.length > 0 && (
@@ -3354,7 +3333,7 @@ export function ProductDetailClient({
                                             productName={product?.productName ?? product?.product_name ?? undefined}
                                             ingredients={typeof fieldValues['ingredients'] === 'string' ? fieldValues['ingredients'] : undefined}
                                             otherIngredients={typeof fieldValues['other_ingredients'] === 'string' ? fieldValues['other_ingredients'] : undefined}
-                                            readonlyReasonOverride={!isScopeReady ? "Select scope in header" : null}
+                                            readonlyReasonOverride={!isScopeReady ? "Select language in sidebar" : null}
                                             onCommit={async (nextValue: unknown) => {
                                               handleFieldChange(field.code, nextValue);
                                               await saveFieldValues({
@@ -3380,7 +3359,7 @@ export function ProductDetailClient({
                                           value={resolvedFieldValue}
                                           tenantSlug={tenantSlug}
                                           canEdit={canEditFields}
-                                          readonlyReasonOverride={!isScopeReady ? "Select scope in header" : null}
+                                          readonlyReasonOverride={!isScopeReady ? "Select language in sidebar" : null}
                                           onCommit={async (nextValue: unknown) => {
                                             handleFieldChange(field.code, nextValue);
                                             await saveFieldValues({
@@ -3841,7 +3820,7 @@ export function ProductDetailClient({
                                 return (
                                   <label
                                     key={asset.id}
-                                    className="flex items-center gap-3 border-b border-border/50 px-4 py-3 text-sm last:border-b-0"
+                                    className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 text-sm last:border-b-0"
                                   >
                                     <input
                                       type="radio"
@@ -3935,7 +3914,7 @@ export function ProductDetailClient({
                               return (
                                 <div
                                   key={record.id}
-                                  className="border-b border-border/50 px-4 py-3 text-sm last:border-b-0"
+                                  className="border-b border-gray-200 px-4 py-3 text-sm last:border-b-0"
                                 >
                                   <div className="flex items-center justify-between gap-2">
                                     <div className="flex items-center gap-2">
@@ -4127,7 +4106,7 @@ export function ProductDetailClient({
                               <div className="px-4 py-6 text-sm text-muted-foreground">No available assets found.</div>
                             ) : (
                               filteredAvailableAssets.map((asset) => (
-                                <label key={asset.id} className="flex items-center gap-3 border-b border-border/50 px-4 py-3 text-sm last:border-b-0">
+                                <label key={asset.id} className="flex items-center gap-3 border-b border-gray-200 px-4 py-3 text-sm last:border-b-0">
                                   <input
                                     type="checkbox"
                                     checked={selectedAssetIdsToLink.has(asset.id)}
@@ -4204,7 +4183,11 @@ export function ProductDetailClient({
                   </div>
                 )}
 
-                {!['attributes-all', 'attributes-required', 'attributes-missing', 'variants', 'media', 'product-settings'].includes(activeSection) && !activeSection.startsWith('fieldgroup-') && (
+                {activeSection === 'readiness' && (
+                  <ChannelReadinessSection tenantSlug={tenantSlug} productId={productId} />
+                )}
+
+                {!['attributes-all', 'attributes-required', 'attributes-missing', 'variants', 'media', 'product-settings', 'readiness'].includes(activeSection) && !activeSection.startsWith('fieldgroup-') && (
                   <div className="text-center py-12">
                     <div className="text-muted-foreground mb-4">
                       <div className="w-12 h-12 mx-auto bg-muted rounded-md flex items-center justify-center">
@@ -4223,6 +4206,19 @@ export function ProductDetailClient({
         </div>
       </div>
 
+      <DeleteConfirmDialog
+        open={isDeleteProductDialogOpen}
+        onOpenChange={(open) => {
+          if (isDeletingProduct) return;
+          setIsDeleteProductDialogOpen(open);
+        }}
+        title={`Delete ${product?.type === "variant" ? "Variant" : "Product"}`}
+        description={`Delete this ${product?.type === "variant" ? "variant" : "product"}? This action cannot be undone.`}
+        onConfirm={() => void handleDeleteProduct()}
+        confirmLoading={isDeletingProduct}
+        confirmLabel={product?.type === "variant" ? "Delete variant" : "Delete product"}
+      />
+
       {canUseTranslateProduct && product?.id && (
         <TranslationPanel
           tenantSlug={tenantSlug}
@@ -4238,4 +4234,3 @@ export function ProductDetailClient({
     </div>
   );
 }
-

@@ -135,6 +135,19 @@ export const ASSET_STATUS_OPTIONS = [
   { value: 'retired', label: 'Retired' },
 ];
 
+export const COMPLIANCE_STATUS_OPTIONS = [
+  { value: 'Pending', label: 'Pending Review' },
+  { value: 'Approved', label: 'Approved' },
+  { value: 'Rejected', label: 'Rejected' },
+  { value: 'Under Review', label: 'Under Review' },
+];
+
+export const BRAND_LEGAL_APPROVAL_OPTIONS = [
+  { value: 'Pending', label: 'Pending' },
+  { value: 'Approved', label: 'Approved' },
+  { value: 'Rejected', label: 'Rejected' },
+];
+
 export const ARTWORK_TYPE_OPTIONS = [
   { value: 'Front Panel', label: 'Front Panel' },
   { value: 'Back Panel', label: 'Back Panel' },

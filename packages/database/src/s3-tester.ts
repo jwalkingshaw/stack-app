@@ -7,7 +7,7 @@ export async function testS3Configuration(): Promise<ServiceTestResult> {
       'AWS_ACCESS_KEY_ID',
       'AWS_SECRET_ACCESS_KEY',
       'AWS_REGION',
-      'AWS_S3_BUCKET'
+      'AWS_S3_BUCKET_NAME'
     ];
 
     const missing = requiredVars.filter(varName => !process.env[varName]);
@@ -34,14 +34,14 @@ export async function testS3Configuration(): Promise<ServiceTestResult> {
     }
 
     // Validate bucket name format
-    const bucket = process.env.AWS_S3_BUCKET!;
+    const bucket = process.env.AWS_S3_BUCKET_NAME!;
     const bucketPattern = /^[a-z0-9][a-z0-9\-]*[a-z0-9]$/;
     
     if (!bucketPattern.test(bucket) || bucket.length < 3 || bucket.length > 63) {
       return {
         service: 'S3 Configuration',
         status: 'warning',
-        message: `AWS_S3_BUCKET name may be invalid: ${bucket}`,
+        message: `AWS_S3_BUCKET_NAME may be invalid: ${bucket}`,
         details: { bucket }
       };
     }
@@ -83,7 +83,7 @@ export async function testS3Connectivity(): Promise<ServiceTestResult> {
     // We'll use a simple fetch to test AWS credentials without AWS SDK for now
     // This tests if we can reach AWS S3 service
     const region = process.env.AWS_REGION!;
-    const bucket = process.env.AWS_S3_BUCKET!;
+    const bucket = process.env.AWS_S3_BUCKET_NAME!;
     
     // Test if we can reach the S3 endpoint
     const s3Endpoint = `https://s3.${region}.amazonaws.com/${bucket}`;
@@ -185,7 +185,7 @@ export async function testS3Credentials(): Promise<ServiceTestResult> {
       },
     });
 
-    const bucket = process.env.AWS_S3_BUCKET!;
+    const bucket = process.env.AWS_S3_BUCKET_NAME!;
 
     try {
       // Test if we can access the specific bucket
@@ -271,7 +271,7 @@ export async function testS3Operations(): Promise<ServiceTestResult> {
       },
     });
 
-    const bucket = process.env.AWS_S3_BUCKET!;
+    const bucket = process.env.AWS_S3_BUCKET_NAME!;
     const testKey = `test-connectivity-${Date.now()}.txt`;
     const testContent = 'This is a test file created during environment validation.';
 

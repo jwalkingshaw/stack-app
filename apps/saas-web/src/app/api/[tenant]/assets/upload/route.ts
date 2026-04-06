@@ -898,7 +898,7 @@ export async function POST(
 
       await s3Client.send(
         new PutObjectCommand({
-          Bucket: process.env.AWS_S3_BUCKET!,
+          Bucket: process.env.AWS_S3_BUCKET_NAME!,
           Key: s3Key,
           Body: uploadBuffer,
           ContentType: effectiveMimeType,

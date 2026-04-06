@@ -80,7 +80,7 @@ curl "http://localhost:3001/api/health-check?skip=s3,kinde"
 
 ### Environment Variables Missing
 ```
-❌ Missing required environment variables: KINDE_CLIENT_ID, AWS_S3_BUCKET
+❌ Missing required environment variables: KINDE_CLIENT_ID, AWS_S3_BUCKET_NAME
 ```
 **Solution**: Copy `.env.example` to `.env` and fill in the missing values.
 

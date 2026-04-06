@@ -31,6 +31,8 @@ type FieldValueRow = {
   value_json: unknown;
   locale_id: string | null;
   market_id: string | null;
+  channel_id: string | null;
+  destination_id: string | null;
 };
 
 function resolveRawValue(row: FieldValueRow): unknown {
@@ -63,10 +65,23 @@ function extractAssetId(value: unknown): string | null {
 }
 
 // Best-scoped value: prefer locale+market match over partial or global
-function scopeScore(row: FieldValueRow, localeId: string | null, marketId: string | null): number {
+function scopeScore(
+  row: FieldValueRow,
+  localeId: string | null,
+  marketId: string | null,
+  channelId: string | null,
+  destinationId: string | null
+): number {
   if (row.locale_id !== null && row.locale_id !== localeId) return -1;
   if (row.market_id !== null && row.market_id !== marketId) return -1;
-  return (row.locale_id !== null ? 2 : 0) + (row.market_id !== null ? 1 : 0);
+  if (row.channel_id !== null && row.channel_id !== channelId) return -1;
+  if (row.destination_id !== null && row.destination_id !== destinationId) return -1;
+  return (
+    (row.locale_id !== null ? 8 : 0) +
+    (row.market_id !== null ? 4 : 0) +
+    (row.channel_id !== null ? 2 : 0) +
+    (row.destination_id !== null ? 1 : 0)
+  );
 }
 
 function buildCacheKey(params: {
@@ -75,6 +90,8 @@ function buildCacheKey(params: {
   profileId: string;
   localeId: string | null;
   marketId: string | null;
+  channelId: string | null;
+  destinationId: string | null;
 }): string {
   const descriptor = [
     `org=${params.organizationId}`,
@@ -82,6 +99,8 @@ function buildCacheKey(params: {
     `profile=${params.profileId}`,
     `locale=${params.localeId ?? "-"}`,
     `market=${params.marketId ?? "-"}`,
+    `channel=${params.channelId ?? "-"}`,
+    `destination=${params.destinationId ?? "-"}`,
   ].join("|");
   return CacheKeys.apiResponse("products:export", descriptor);
 }
@@ -91,6 +110,8 @@ function buildCacheKey(params: {
 //   profile  — channel code (e.g. "amazon-us") or UUID
 //   localeId — UUID of the locale to scope field values
 //   marketId — UUID of the market to scope field values
+//   channelId — UUID of the channel to scope field values
+//   destinationId — UUID of the destination to scope field values
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string; productId: string }> }
@@ -101,6 +122,8 @@ export async function GET(
   const profileParam = searchParams.get("profile");
   const localeId = searchParams.get("localeId") ?? null;
   const marketId = searchParams.get("marketId") ?? null;
+  const channelId = searchParams.get("channelId") ?? null;
+  const destinationId = searchParams.get("destinationId") ?? null;
 
   if (!profileParam) {
     return NextResponse.json(
@@ -159,7 +182,15 @@ export async function GET(
     };
 
     // Cache check (after profile ID is resolved)
-    const cacheKey = buildCacheKey({ organizationId, productId, profileId: profile.id, localeId, marketId });
+    const cacheKey = buildCacheKey({
+      organizationId,
+      productId,
+      profileId: profile.id,
+      localeId,
+      marketId,
+      channelId,
+      destinationId,
+    });
     const cached = await redisCache.get<object>(cacheKey);
     if (cached) {
       return NextResponse.json({ success: true, data: cached });
@@ -199,7 +230,9 @@ export async function GET(
     if (fieldIds.length > 0) {
       const { data: valuesRaw, error: valuesError } = await supabase
         .from("product_field_values")
-        .select("product_field_id, value_text, value_number, value_boolean, value_json, locale_id, market_id")
+        .select(
+          "product_field_id, value_text, value_number, value_boolean, value_json, locale_id, market_id, channel_id, destination_id"
+        )
         .eq("product_id", productId)
         .in("product_field_id", fieldIds);
 
@@ -213,10 +246,10 @@ export async function GET(
     // Pick the best-scoped value per field
     const bestValueByFieldId = new Map<string, FieldValueRow>();
     for (const row of fieldValuesRaw) {
-      const score = scopeScore(row, localeId, marketId);
+      const score = scopeScore(row, localeId, marketId, channelId, destinationId);
       if (score < 0) continue;
       const current = bestValueByFieldId.get(row.product_field_id);
-      if (!current || scopeScore(current, localeId, marketId) < score) {
+      if (!current || scopeScore(current, localeId, marketId, channelId, destinationId) < score) {
         bestValueByFieldId.set(row.product_field_id, row);
       }
     }
@@ -294,7 +327,18 @@ export async function GET(
       }
     }
 
-    const result = buildResult({ profile, productId, localeId, marketId, fields, assets, missing, warnings });
+    const result = buildResult({
+      profile,
+      productId,
+      localeId,
+      marketId,
+      channelId,
+      destinationId,
+      fields,
+      assets,
+      missing,
+      warnings,
+    });
     await redisCache.set(cacheKey, result, CacheTTL.API_RESPONSE);
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
@@ -308,6 +352,8 @@ function buildResult(params: {
   productId: string;
   localeId: string | null;
   marketId: string | null;
+  channelId: string | null;
+  destinationId: string | null;
   fields: Record<string, unknown>;
   assets: Record<string, string | null>;
   missing: string[];
@@ -321,6 +367,8 @@ function buildResult(params: {
     profile_type: params.profile.profile_type,
     locale_id: params.localeId,
     market_id: params.marketId,
+    channel_id: params.channelId,
+    destination_id: params.destinationId,
     exported_at: new Date().toISOString(),
     fields: params.fields,
     assets: params.assets,

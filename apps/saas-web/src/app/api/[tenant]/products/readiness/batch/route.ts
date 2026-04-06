@@ -58,7 +58,9 @@ function isFieldValuePresent(value: unknown): boolean {
 function buildCacheKey(params: {
   organizationId: string;
   marketId: string | null;
+  channelId: string | null;
   localeId: string | null;
+  destinationId: string | null;
   productIds: string[];
 }): string {
   const sortedIds = [...params.productIds].sort();
@@ -66,7 +68,9 @@ function buildCacheKey(params: {
   const descriptor = [
     `org=${params.organizationId}`,
     `market=${params.marketId || "-"}`,
+    `channel=${params.channelId || "-"}`,
     `locale=${params.localeId || "-"}`,
+    `destination=${params.destinationId || "-"}`,
     `ids=${idsHash}`,
   ].join("|");
   return CacheKeys.apiResponse("products:readiness:batch", descriptor);
@@ -87,7 +91,9 @@ export async function POST(
     const searchParams = new URL(request.url).searchParams;
     const selectedBrandSlug = searchParams.get("brand");
     const marketId = searchParams.get("marketId")?.trim() || null;
+    const channelId = searchParams.get("channelId")?.trim() || null;
     const localeId = searchParams.get("localeId")?.trim() || null;
+    const destinationId = searchParams.get("destinationId")?.trim() || null;
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -111,7 +117,14 @@ export async function POST(
     }
 
     // Check cache
-    const cacheKey = buildCacheKey({ organizationId, marketId, localeId, productIds });
+    const cacheKey = buildCacheKey({
+      organizationId,
+      marketId,
+      channelId,
+      localeId,
+      destinationId,
+      productIds,
+    });
     const cached = await redisCache.get<unknown>(cacheKey);
     if (cached && typeof cached === "object" && "profile" in (cached as object)) {
       return NextResponse.json({ success: true, data: cached, cached: true });
@@ -193,6 +206,8 @@ export async function POST(
       value_json: unknown;
       locale_id: string | null;
       market_id: string | null;
+      channel_id: string | null;
+      destination_id: string | null;
     };
 
     let fieldValues: ValueRow[] = [];
@@ -200,7 +215,7 @@ export async function POST(
       const valQuery = supabase
         .from("product_field_values")
         .select(
-          "product_id,product_field_id,value_text,value_number,value_boolean,value_json,locale_id,market_id"
+          "product_id,product_field_id,value_text,value_number,value_boolean,value_json,locale_id,market_id,channel_id,destination_id"
         )
         .eq("organization_id", organizationId)
         .in("product_id", productIds)
@@ -216,9 +231,16 @@ export async function POST(
 
     // Group values by product ID, then determine populated field IDs per product
     const populatedFieldIdsByProduct = new Map<string, Set<string>>();
+    const matchesScope = (rowScope: string | null, selectedScope: string | null): boolean => {
+      if (rowScope === null) return true;
+      if (!selectedScope) return false;
+      return rowScope === selectedScope;
+    };
     for (const row of fieldValues) {
-      if (row.market_id && marketId && row.market_id !== marketId) continue;
-      if (row.locale_id && localeId && row.locale_id !== localeId) continue;
+      if (!matchesScope(row.market_id, marketId)) continue;
+      if (!matchesScope(row.channel_id, channelId)) continue;
+      if (!matchesScope(row.locale_id, localeId)) continue;
+      if (!matchesScope(row.destination_id, destinationId)) continue;
       const val =
         row.value_text ?? row.value_number ?? row.value_boolean ?? row.value_json;
       if (!isFieldValuePresent(val)) continue;

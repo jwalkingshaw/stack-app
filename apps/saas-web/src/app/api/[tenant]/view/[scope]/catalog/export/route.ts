@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import {
   resolveTenantBrandViewContext,
   resolvePartnerGrantedProductIds,
-  resolvePartnerMarketOutputProfileId,
+  resolvePartnerEffectiveOutputProfileId,
 } from "@/lib/partner-brand-view";
 import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 
@@ -37,6 +37,8 @@ type FieldValueRow = {
   value_json: unknown;
   locale_id: string | null;
   market_id: string | null;
+  channel_id: string | null;
+  destination_id: string | null;
 };
 
 function resolveRawValue(row: Omit<FieldValueRow, "product_id" | "product_field_id">): unknown {
@@ -65,10 +67,23 @@ function extractAssetId(value: unknown): string | null {
   return null;
 }
 
-function scopeScore(row: FieldValueRow, localeId: string | null, marketId: string | null): number {
+function scopeScore(
+  row: FieldValueRow,
+  localeId: string | null,
+  marketId: string | null,
+  channelId: string | null,
+  destinationId: string | null
+): number {
   if (row.locale_id !== null && row.locale_id !== localeId) return -1;
   if (row.market_id !== null && row.market_id !== marketId) return -1;
-  return (row.locale_id !== null ? 2 : 0) + (row.market_id !== null ? 1 : 0);
+  if (row.channel_id !== null && row.channel_id !== channelId) return -1;
+  if (row.destination_id !== null && row.destination_id !== destinationId) return -1;
+  return (
+    (row.locale_id !== null ? 8 : 0) +
+    (row.market_id !== null ? 4 : 0) +
+    (row.channel_id !== null ? 2 : 0) +
+    (row.destination_id !== null ? 1 : 0)
+  );
 }
 
 function toCsvValue(value: unknown): string {
@@ -110,7 +125,7 @@ function buildCsv(rows: ProductExportRow[], fieldCodes: string[], assetFieldCode
 
 // ---------------------------------------------------------------------------
 // GET /api/[tenant]/view/[scope]/catalog/export
-// Query params: format=csv|json (default csv), marketId=uuid, localeId=uuid
+// Query params: format=csv|json (default csv), marketId=uuid, channelId=uuid, localeId=uuid, destinationId=uuid
 // ---------------------------------------------------------------------------
 
 export async function GET(
@@ -123,7 +138,9 @@ export async function GET(
     const url = new URL(request.url);
     const format = (url.searchParams.get("format") ?? "csv").toLowerCase();
     const marketId = url.searchParams.get("marketId") ?? null;
+    const channelId = url.searchParams.get("channelId") ?? null;
     const localeId = url.searchParams.get("localeId") ?? null;
+    const destinationId = url.searchParams.get("destinationId") ?? null;
 
     if (format !== "csv" && format !== "json") {
       return NextResponse.json({ error: "format must be 'csv' or 'json'" }, { status: 400 });
@@ -151,7 +168,12 @@ export async function GET(
     const grantedResult = await resolvePartnerGrantedProductIds({
       brandOrganizationId,
       partnerOrganizationId,
-      scope: marketId ? { marketId } : undefined,
+      scope: {
+        marketId,
+        channelId,
+        localeId,
+        destinationId,
+      },
     });
 
     if (!grantedResult.foundationAvailable) {
@@ -177,28 +199,13 @@ export async function GET(
       });
     }
 
-    // Resolve output profile: market assignment first, then brand primary
-    let profileId: string | null = null;
-
-    if (marketId && UUID_RE.test(marketId)) {
-      profileId = await resolvePartnerMarketOutputProfileId({
-        brandOrganizationId,
-        partnerOrganizationId,
-        marketId,
-      });
-    }
-
-    if (!profileId) {
-      // Fall back to the brand's primary output profile
-      const { data: primaryProfile } = await supabase
-        .from("output_channel_profiles")
-        .select("id")
-        .eq("organization_id", brandOrganizationId)
-        .eq("is_primary", true)
-        .eq("is_active", true)
-        .maybeSingle();
-      profileId = (primaryProfile as { id: string } | null)?.id ?? null;
-    }
+    // Resolve output profile using shared precedence:
+    // 1) active share-set profile, 2) partner market assignment profile, 3) brand primary profile
+    const profileId = await resolvePartnerEffectiveOutputProfileId({
+      brandOrganizationId,
+      partnerOrganizationId,
+      marketId,
+    });
 
     if (!profileId) {
       // No profile configured — export raw product IDs only
@@ -226,6 +233,8 @@ export async function GET(
       `profile=${profileId}`,
       `locale=${localeId ?? "-"}`,
       `market=${marketId ?? "-"}`,
+      `channel=${channelId ?? "-"}`,
+      `destination=${destinationId ?? "-"}`,
       `format=${format}`,
       `ids=${idsHash}`,
     ].join("|");
@@ -288,7 +297,9 @@ export async function GET(
     if (fieldIds.length > 0) {
       const { data: valuesRaw, error: valuesError } = await supabase
         .from("product_field_values")
-        .select("product_id, product_field_id, value_text, value_number, value_boolean, value_json, locale_id, market_id")
+        .select(
+          "product_id, product_field_id, value_text, value_number, value_boolean, value_json, locale_id, market_id, channel_id, destination_id"
+        )
         .eq("organization_id", brandOrganizationId)
         .in("product_id", productIds)
         .in("product_field_id", fieldIds);
@@ -302,14 +313,14 @@ export async function GET(
     // Pick best-scoped value per product per field
     const bestValueByProductAndField = new Map<string, Map<string, FieldValueRow>>();
     for (const row of allValues) {
-      const score = scopeScore(row, localeId, marketId);
+      const score = scopeScore(row, localeId, marketId, channelId, destinationId);
       if (score < 0) continue;
       if (!bestValueByProductAndField.has(row.product_id)) {
         bestValueByProductAndField.set(row.product_id, new Map());
       }
       const fieldMap = bestValueByProductAndField.get(row.product_id)!;
       const current = fieldMap.get(row.product_field_id);
-      if (!current || scopeScore(current, localeId, marketId) < score) {
+      if (!current || scopeScore(current, localeId, marketId, channelId, destinationId) < score) {
         fieldMap.set(row.product_field_id, row);
       }
     }

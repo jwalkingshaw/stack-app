@@ -1,9 +1,15 @@
 import { Suspense } from 'react';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { getSafeUserData } from '@/lib/auth-server';
 import SettingsNavigation from './components/SettingsNavigation';
 import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { createServerClient, DatabaseQueries } from '@tradetool/database';
 import { getOrganizationBillingLimits } from '@/lib/billing-policy';
+import {
+  buildPartnerSettingsRedirectPath,
+  isPartnerSettingsPathAllowed,
+} from '@/lib/partner-settings-access';
 
 interface SettingsLayoutProps {
   children: React.ReactNode;
@@ -14,14 +20,27 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
   const { tenant } = await params;
 
   // Get user and organization data for consistent styling
-  const [userData, organization] = await Promise.all([
+  const [userData, organization, requestHeaders] = await Promise.all([
     getSafeUserData(),
     (async () => {
       const supabase = createServerClient();
       const db = new DatabaseQueries(supabase);
       return db.getOrganizationBySlug(tenant);
     })(),
+    headers(),
   ]);
+
+  const organizationType = (organization?.organizationType ||
+    organization?.type ||
+    "brand") as "brand" | "partner";
+  const requestPathname =
+    requestHeaders.get("x-request-pathname") ?? `/${tenant}/settings`;
+  if (
+    organizationType === "partner" &&
+    !isPartnerSettingsPathAllowed(requestPathname, tenant)
+  ) {
+    redirect(buildPartnerSettingsRedirectPath(tenant));
+  }
 
   const planId = organization
     ? await getOrganizationBillingLimits(organization.id).then((r) => r.planId).catch(() => 'starter')
@@ -40,7 +59,7 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
         id: organization.id,
         name: organization.name,
         slug: organization.slug,
-        type: (organization.organizationType || organization.type || "brand") as "brand" | "partner",
+        type: organizationType,
         partnerCategory: organization.partnerCategory ?? null,
         logoUrl: organization.logoUrl ?? null,
         storageUsed: organization.storageUsed,

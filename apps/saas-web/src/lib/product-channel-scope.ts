@@ -90,7 +90,7 @@ export async function getChannelScopedProductIds(params: {
     .from("product_field_values")
     .select("product_id")
     .eq("organization_id", params.organizationId)
-    .eq("channel", params.channelId);
+    .eq("channel_id", params.channelId);
 
   if (error || !data) {
     return [];

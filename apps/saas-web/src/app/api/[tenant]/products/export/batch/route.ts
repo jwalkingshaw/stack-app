@@ -31,6 +31,8 @@ type FieldValueRow = {
   value_json: unknown;
   locale_id: string | null;
   market_id: string | null;
+  channel_id: string | null;
+  destination_id: string | null;
 };
 
 function resolveRawValue(row: Omit<FieldValueRow, "product_id" | "product_field_id">): unknown {
@@ -59,10 +61,23 @@ function extractAssetId(value: unknown): string | null {
   return null;
 }
 
-function scopeScore(row: FieldValueRow, localeId: string | null, marketId: string | null): number {
+function scopeScore(
+  row: FieldValueRow,
+  localeId: string | null,
+  marketId: string | null,
+  channelId: string | null,
+  destinationId: string | null
+): number {
   if (row.locale_id !== null && row.locale_id !== localeId) return -1;
   if (row.market_id !== null && row.market_id !== marketId) return -1;
-  return (row.locale_id !== null ? 2 : 0) + (row.market_id !== null ? 1 : 0);
+  if (row.channel_id !== null && row.channel_id !== channelId) return -1;
+  if (row.destination_id !== null && row.destination_id !== destinationId) return -1;
+  return (
+    (row.locale_id !== null ? 8 : 0) +
+    (row.market_id !== null ? 4 : 0) +
+    (row.channel_id !== null ? 2 : 0) +
+    (row.destination_id !== null ? 1 : 0)
+  );
 }
 
 function buildCacheKey(params: {
@@ -71,6 +86,8 @@ function buildCacheKey(params: {
   productIds: string[];
   localeId: string | null;
   marketId: string | null;
+  channelId: string | null;
+  destinationId: string | null;
   format: string;
 }): string {
   const sorted = [...params.productIds].sort();
@@ -80,6 +97,8 @@ function buildCacheKey(params: {
     `profile=${params.profileId}`,
     `locale=${params.localeId ?? "-"}`,
     `market=${params.marketId ?? "-"}`,
+    `channel=${params.channelId ?? "-"}`,
+    `destination=${params.destinationId ?? "-"}`,
     `format=${params.format}`,
     `ids=${idsHash}`,
   ].join("|");
@@ -125,7 +144,7 @@ function buildCsv(rows: ProductExportRow[], fieldCodes: string[], assetFieldCode
 }
 
 // POST /api/[tenant]/products/export/batch
-// Body: { profile_id, product_ids[], locale_id?, market_id?, format?: 'json' | 'csv' }
+// Body: { profile_id, product_ids[], locale_id?, market_id?, channel_id?, destination_id?, format?: 'json' | 'csv' }
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string }> }
@@ -143,6 +162,18 @@ export async function POST(
   const format = (typeof body.format === "string" ? body.format : "json").toLowerCase();
   const localeId = typeof body.locale_id === "string" ? body.locale_id : null;
   const marketId = typeof body.market_id === "string" ? body.market_id : null;
+  const channelId =
+    typeof body.channel_id === "string"
+      ? body.channel_id
+      : typeof body.channelId === "string"
+        ? body.channelId
+        : null;
+  const destinationId =
+    typeof body.destination_id === "string"
+      ? body.destination_id
+      : typeof body.destinationId === "string"
+        ? body.destinationId
+        : null;
 
   if (!profileId || !UUID_RE.test(profileId)) {
     return NextResponse.json({ error: "profile_id is required and must be a UUID" }, { status: 400 });
@@ -178,7 +209,16 @@ export async function POST(
     const organizationId = contextResult.context.targetOrganization.id;
 
     // Cache check (JSON only — CSV is always generated fresh to get correct Content-Disposition)
-    const cacheKey = buildCacheKey({ organizationId, profileId, productIds, localeId, marketId, format });
+    const cacheKey = buildCacheKey({
+      organizationId,
+      profileId,
+      productIds,
+      localeId,
+      marketId,
+      channelId,
+      destinationId,
+      format,
+    });
     if (format === "json") {
       const cached = await redisCache.get<object>(cacheKey);
       if (cached) {
@@ -253,7 +293,9 @@ export async function POST(
     if (fieldIds.length > 0) {
       const { data: valuesRaw, error: valuesError } = await supabase
         .from("product_field_values")
-        .select("product_id, product_field_id, value_text, value_number, value_boolean, value_json, locale_id, market_id")
+        .select(
+          "product_id, product_field_id, value_text, value_number, value_boolean, value_json, locale_id, market_id, channel_id, destination_id"
+        )
         .eq("organization_id", organizationId)
         .in("product_id", productIds)
         .in("product_field_id", fieldIds);
@@ -268,14 +310,14 @@ export async function POST(
     // Group values by product, then pick best-scoped value per field
     const bestValueByProductAndField = new Map<string, Map<string, FieldValueRow>>();
     for (const row of allValues) {
-      const score = scopeScore(row, localeId, marketId);
+      const score = scopeScore(row, localeId, marketId, channelId, destinationId);
       if (score < 0) continue;
       if (!bestValueByProductAndField.has(row.product_id)) {
         bestValueByProductAndField.set(row.product_id, new Map());
       }
       const fieldMap = bestValueByProductAndField.get(row.product_id)!;
       const current = fieldMap.get(row.product_field_id);
-      if (!current || scopeScore(current, localeId, marketId) < score) {
+      if (!current || scopeScore(current, localeId, marketId, channelId, destinationId) < score) {
         fieldMap.set(row.product_field_id, row);
       }
     }

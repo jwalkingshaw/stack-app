@@ -53,6 +53,11 @@ function buildRequestHeaders(request: NextRequest, tenantSlug: string | null): H
   } else {
     headers.delete("x-tenant-slug");
   }
+  const canonicalPathname =
+    tenantSlug && !request.nextUrl.pathname.startsWith(`/${tenantSlug}`)
+      ? `/${tenantSlug}${request.nextUrl.pathname}`
+      : request.nextUrl.pathname;
+  headers.set("x-request-pathname", canonicalPathname);
   return headers;
 }
 

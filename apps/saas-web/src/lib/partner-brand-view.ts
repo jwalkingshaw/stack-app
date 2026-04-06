@@ -1274,3 +1274,69 @@ export async function resolvePartnerMarketOutputProfileId(params: {
   return (data as { output_profile_id: string | null }).output_profile_id ?? null;
 }
 
+async function resolvePartnerShareSetOutputProfileId(params: {
+  brandOrganizationId: string;
+  partnerOrganizationId: string;
+}): Promise<string | null> {
+  const activeSetIds = await resolveActivePartnerShareSetIds({
+    brandOrganizationId: params.brandOrganizationId,
+    partnerOrganizationId: params.partnerOrganizationId,
+    moduleKey: "products",
+  });
+
+  if (!activeSetIds.foundationAvailable || activeSetIds.setIds.length === 0) {
+    return null;
+  }
+
+  const { data, error } = await supabaseServer
+    .from("share_sets")
+    .select("output_profile_id,updated_at")
+    .eq("organization_id", params.brandOrganizationId)
+    .eq("module_key", "products")
+    .in("id", activeSetIds.setIds)
+    .not("output_profile_id", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  if (error || !Array.isArray(data) || data.length === 0) {
+    return null;
+  }
+
+  const row = data[0] as { output_profile_id?: string | null };
+  return row.output_profile_id ?? null;
+}
+
+async function resolvePrimaryOutputProfileId(organizationId: string): Promise<string | null> {
+  const { data, error } = await supabaseServer
+    .from("output_channel_profiles")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("is_primary", true)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return (data as { id: string | null }).id ?? null;
+}
+
+export async function resolvePartnerEffectiveOutputProfileId(params: {
+  brandOrganizationId: string;
+  partnerOrganizationId: string;
+  marketId?: string | null;
+}): Promise<string | null> {
+  const shareSetProfileId = await resolvePartnerShareSetOutputProfileId({
+    brandOrganizationId: params.brandOrganizationId,
+    partnerOrganizationId: params.partnerOrganizationId,
+  });
+  if (shareSetProfileId) return shareSetProfileId;
+
+  const marketProfileId = await resolvePartnerMarketOutputProfileId({
+    brandOrganizationId: params.brandOrganizationId,
+    partnerOrganizationId: params.partnerOrganizationId,
+    marketId: params.marketId,
+  });
+  if (marketProfileId) return marketProfileId;
+
+  return resolvePrimaryOutputProfileId(params.brandOrganizationId);
+}
+

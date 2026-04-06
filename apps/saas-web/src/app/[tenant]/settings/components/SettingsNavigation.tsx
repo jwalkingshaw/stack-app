@@ -141,6 +141,9 @@ export default function SettingsNavigation({
   const showWorkspaceRail = organization?.type === "partner";
   const isStarter = planId === 'starter';
   const visibleSections = settingsSections.filter((s) => {
+    if (organization?.type === "partner") {
+      return s.id === "organization" || s.id === "billing";
+    }
     if (s.id === 'localization' && isStarter) return false;
     return true;
   });

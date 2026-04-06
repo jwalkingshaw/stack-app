@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
+import { blockPartnerBrandMutation } from "@/lib/partner-brand-mutation-guard";
+import { logSecurityEvent } from "@/lib/security-audit";
 
 function normalizeToken(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -20,6 +22,40 @@ async function ensureMarketExists(params: {
     .maybeSingle();
   if (error) return false;
   return Boolean(data?.id);
+}
+
+async function requireBrandOwnerOrAdmin(params: {
+  organizationId: string;
+  userId: string;
+  request: NextRequest;
+  action: string;
+}): Promise<NextResponse | null> {
+  const { data: memberRow } = await supabaseServer
+    .from("organization_members")
+    .select("role")
+    .eq("organization_id", params.organizationId)
+    .eq("kinde_user_id", params.userId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (memberRow && ["owner", "admin"].includes(String(memberRow.role || ""))) {
+    return null;
+  }
+
+  await logSecurityEvent(supabaseServer, {
+    organizationId: params.organizationId,
+    actorUserId: params.userId,
+    action: "security.partner_brand_permission_denied",
+    resourceType: "partner_market_assignment",
+    userAgent: params.request.headers.get("user-agent"),
+    metadata: {
+      attempted_action: params.action,
+      method: params.request.method,
+      path: new URL(params.request.url).pathname,
+    },
+  });
+
+  return NextResponse.json({ error: "Insufficient permissions." }, { status: 403 });
 }
 
 // GET /api/[tenant]/markets/[marketId]/partners
@@ -160,19 +196,26 @@ export async function POST(
     if (!contextResult.ok) return contextResult.response;
 
     const { context } = contextResult;
-    // Only brand owners/admins can write
-    const { data: memberRow } = await supabaseServer
-      .from("organization_members")
-      .select("role")
-      .eq("organization_id", context.tenantOrganization.id)
-      .eq("kinde_user_id", context.userId)
-      .eq("status", "active")
-      .maybeSingle();
-    if (!memberRow || !["owner", "admin"].includes(String(memberRow.role || ""))) {
-      return NextResponse.json({ error: "Insufficient permissions." }, { status: 403 });
-    }
+    const blockedMutation = await blockPartnerBrandMutation({
+      request,
+      context,
+      action: "markets.partners.assign",
+      resourceType: "partner_market_assignment",
+      metadata: {
+        market_id: marketId,
+      },
+    });
+    if (blockedMutation) return blockedMutation;
 
     const organizationId = context.targetOrganization.id;
+    const denied = await requireBrandOwnerOrAdmin({
+      organizationId,
+      userId: context.userId,
+      request,
+      action: "markets.partners.assign",
+    });
+    if (denied) return denied;
+
     const exists = await ensureMarketExists({ organizationId, marketId });
     if (!exists) {
       return NextResponse.json({ error: "Market not found." }, { status: 404 });
@@ -253,18 +296,26 @@ export async function PATCH(
     if (!contextResult.ok) return contextResult.response;
 
     const { context } = contextResult;
-    const { data: memberRow } = await supabaseServer
-      .from("organization_members")
-      .select("role")
-      .eq("organization_id", context.tenantOrganization.id)
-      .eq("kinde_user_id", context.userId)
-      .eq("status", "active")
-      .maybeSingle();
-    if (!memberRow || !["owner", "admin"].includes(String(memberRow.role || ""))) {
-      return NextResponse.json({ error: "Insufficient permissions." }, { status: 403 });
-    }
+    const blockedMutation = await blockPartnerBrandMutation({
+      request,
+      context,
+      action: "markets.partners.update",
+      resourceType: "partner_market_assignment",
+      metadata: {
+        market_id: marketId,
+      },
+    });
+    if (blockedMutation) return blockedMutation;
 
     const organizationId = context.targetOrganization.id;
+    const denied = await requireBrandOwnerOrAdmin({
+      organizationId,
+      userId: context.userId,
+      request,
+      action: "markets.partners.update",
+    });
+    if (denied) return denied;
+
     const body = await request.json().catch(() => ({}));
     const partnerOrganizationId = normalizeToken(body?.partnerOrganizationId ?? body?.partner_organization_id);
 
@@ -275,6 +326,27 @@ export async function PATCH(
     // output_profile_id can be null (clear the channel) or a UUID string
     const outputProfileId: string | null =
       body?.output_profile_id === null ? null : normalizeToken(body?.output_profile_id);
+
+    if (outputProfileId) {
+      const { data: profile } = await supabaseServer
+        .from("output_channel_profiles")
+        .select("id,market_id")
+        .eq("id", outputProfileId)
+        .eq("organization_id", organizationId)
+        .maybeSingle();
+
+      if (!profile) {
+        return NextResponse.json({ error: "Output profile not found." }, { status: 404 });
+      }
+
+      const scopedMarketId = (profile as { market_id?: string | null }).market_id ?? null;
+      if (scopedMarketId && scopedMarketId !== marketId) {
+        return NextResponse.json(
+          { error: "Output profile market does not match this market assignment." },
+          { status: 400 }
+        );
+      }
+    }
 
     const { error: updateError } = await supabaseServer
       .from("partner_market_assignments" as never)
@@ -325,18 +397,26 @@ export async function DELETE(
     if (!contextResult.ok) return contextResult.response;
 
     const { context } = contextResult;
-    const { data: deleteMemberRow } = await supabaseServer
-      .from("organization_members")
-      .select("role")
-      .eq("organization_id", context.tenantOrganization.id)
-      .eq("kinde_user_id", context.userId)
-      .eq("status", "active")
-      .maybeSingle();
-    if (!deleteMemberRow || !["owner", "admin"].includes(String(deleteMemberRow.role || ""))) {
-      return NextResponse.json({ error: "Insufficient permissions." }, { status: 403 });
-    }
+    const blockedMutation = await blockPartnerBrandMutation({
+      request,
+      context,
+      action: "markets.partners.remove",
+      resourceType: "partner_market_assignment",
+      metadata: {
+        market_id: marketId,
+        partner_organization_id: partnerOrganizationId,
+      },
+    });
+    if (blockedMutation) return blockedMutation;
 
     const organizationId = context.targetOrganization.id;
+    const denied = await requireBrandOwnerOrAdmin({
+      organizationId,
+      userId: context.userId,
+      request,
+      action: "markets.partners.remove",
+    });
+    if (denied) return denied;
 
     const { error: updateError } = await supabaseServer
       .from("partner_market_assignments" as never)

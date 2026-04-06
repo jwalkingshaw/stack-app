@@ -6,7 +6,7 @@ import {
   PRODUCT_VIEW_PERMISSION_KEYS,
   getScopedPermissionSummary,
   resolvePartnerGrantedProductIds,
-  resolvePartnerMarketOutputProfileId,
+  resolvePartnerEffectiveOutputProfileId,
   resolvePartnerSharedBrandOrganizationIds,
   resolveTenantBrandViewContext,
 } from "@/lib/partner-brand-view";
@@ -1006,7 +1006,7 @@ export async function GET(
     let partnerOutputProfileId: string | null = null;
     if (context.mode === "partner_brand") {
       // Resolve channel profile for the partner's selected market (for readiness scoring)
-      partnerOutputProfileId = await resolvePartnerMarketOutputProfileId({
+      partnerOutputProfileId = await resolvePartnerEffectiveOutputProfileId({
         brandOrganizationId: targetOrganizationId,
         partnerOrganizationId: context.tenantOrganization.id,
         marketId: scopeSelection.marketId,
@@ -1016,9 +1016,7 @@ export async function GET(
         brandOrganizationId: targetOrganizationId,
         partnerOrganizationId: context.tenantOrganization.id,
         scope: {
-          // Do not pass marketId: partner's market access is determined by partner_market_assignments,
-          // not the ambient scope toolbar market. Passing it would filter to only markets matching
-          // the brand's auto-selected default market, hiding products the partner should see.
+          marketId: scopeSelection.marketId,
           channelId: scopeSelection.channelId,
           localeId: scopeSelection.localeId,
           destinationId: scopeSelection.destinationId,

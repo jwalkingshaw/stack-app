@@ -1,4 +1,4 @@
-# Tradetool Setup Guide
+# Stack App Setup Guide
 
 Complete setup guide for the Tradetool monorepo with SAAS MMP and DAM features.
 

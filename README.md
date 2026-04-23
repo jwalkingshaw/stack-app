@@ -1,4 +1,4 @@
-# Tradetool Monorepo
+# Stack App Monorepo
 
 A modern SAAS platform with Digital Asset Management capabilities.
 

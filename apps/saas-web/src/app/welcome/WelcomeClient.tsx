@@ -6,7 +6,7 @@ import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { AuthLayoutShell } from "@tradetool/ui";
+import { AuthLayoutShell } from "@stack-app/ui";
 import { useMe } from "@/hooks/useMe";
 import { Check, Loader2 } from "lucide-react";
 

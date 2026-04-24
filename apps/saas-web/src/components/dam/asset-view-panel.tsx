@@ -37,7 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@tradetool/ui";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@stack-app/ui";
 import { cn } from "@/lib/utils";
 import type {
   AssetCategory,
@@ -45,7 +45,7 @@ import type {
   AssetTag,
   AssetTagAssignment,
   DamAsset,
-} from "@tradetool/types";
+} from "@stack-app/types";
 
 type AssetWithAssignments = DamAsset & {
   tagAssignments: AssetTagAssignment[];

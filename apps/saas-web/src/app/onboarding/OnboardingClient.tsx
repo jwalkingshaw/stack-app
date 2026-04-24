@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { Loader2, Building2, Globe, Users, CheckCircle2, XCircle } from "lucide-react";
-import { AuthLayoutShell } from "@tradetool/ui";
+import { AuthLayoutShell } from "@stack-app/ui";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";

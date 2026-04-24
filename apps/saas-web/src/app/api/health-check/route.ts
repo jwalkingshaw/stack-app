@@ -6,7 +6,7 @@ import {
   runKindeTests,
   runS3Tests,
   type ServiceTestResult
-} from "@tradetool/database";
+} from "@stack-app/database";
 
 export async function GET(request: NextRequest) {
   const startTime = Date.now();

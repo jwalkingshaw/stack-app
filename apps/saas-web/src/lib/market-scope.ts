@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { AuthService } from "@tradetool/auth";
+import { AuthService } from "@stack-app/auth";
 
 export type MarketScopeParams = {
   authService: AuthService;

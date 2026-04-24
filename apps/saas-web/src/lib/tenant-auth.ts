@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase";
-import { DatabaseQueries } from "@tradetool/database";
-import type { Organization } from "@tradetool/types";
+import { DatabaseQueries } from "@stack-app/database";
+import type { Organization } from "@stack-app/types";
 import { evaluateTenantAccessDecision } from "@/lib/tenant-access-decision";
 
 export interface TenantAuthResult {

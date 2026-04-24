@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AuthService } from "@tradetool/auth";
+import type { AuthService } from "@stack-app/auth";
 
 type ResolveChannelScopeParams = {
   authService: AuthService;

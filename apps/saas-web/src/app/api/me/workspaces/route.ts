@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentOrganization, requireUser } from "@/lib/auth-server";
-import { createServerClient } from "@tradetool/database";
+import { createServerClient } from "@stack-app/database";
 import {
   getActiveWorkspaceMemberships,
   getWorkspaceNotificationStateMap,

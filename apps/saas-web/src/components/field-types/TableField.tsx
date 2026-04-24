@@ -12,7 +12,7 @@ import {
   ProductTableColumn,
   ProductTableMeta,
   ProductTableUnitOption
-} from '@tradetool/types';
+} from '@stack-app/types';
 
 interface MeasurementFamily {
   id: string;

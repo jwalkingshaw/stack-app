@@ -24,7 +24,7 @@ import type {
   AssetCategory,
   AssetTagAssignment,
   AssetCategoryAssignment,
-} from "@tradetool/types";
+} from "@stack-app/types";
 
 type AssetWithAssignments = DamAsset & {
   tagAssignments: AssetTagAssignment[];

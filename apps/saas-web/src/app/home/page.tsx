@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-server";
-import { createServerClient } from "@tradetool/database";
+import { createServerClient } from "@stack-app/database";
 import { getActiveWorkspaceMemberships } from "@/lib/workspace-notifications";
 import AllBrandsClient from "../all-brands/AllBrandsClient";
 

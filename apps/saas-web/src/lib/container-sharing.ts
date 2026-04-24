@@ -1,4 +1,4 @@
-import { ScopedPermission } from "@tradetool/auth";
+import { ScopedPermission } from "@stack-app/auth";
 
 export const SHAREABLE_SCOPE_TYPES = ["market", "channel", "collection"] as const;
 export type ShareableScopeType = (typeof SHAREABLE_SCOPE_TYPES)[number];

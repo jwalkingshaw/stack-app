@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { AuthLayoutShell } from "@tradetool/ui";
+import { AuthLayoutShell } from "@stack-app/ui";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
 

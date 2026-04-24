@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { createServerClient } from "@tradetool/database";
+import { createServerClient } from "@stack-app/database";
 import OnboardingClient from "./OnboardingClient";
-import { AuthLayoutShell } from "@tradetool/ui";
+import { AuthLayoutShell } from "@stack-app/ui";
 import { getCurrentOrganization, requireUser } from "@/lib/auth-server";
 import { getActiveWorkspaceMemberships } from "@/lib/workspace-notifications";
 

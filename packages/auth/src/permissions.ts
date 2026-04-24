@@ -1,4 +1,4 @@
-import type { UserRole, UserPermissions } from '@tradetool/types';
+import type { UserRole, UserPermissions } from '@stack-app/types';
 
 /**
  * Permission constants

@@ -1,6 +1,6 @@
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
-import type { Organization } from "@tradetool/types";
+import type { Organization } from "@stack-app/types";
 import { verifyTenantAccess } from "@/lib/tenant-auth";
 import { supabaseServer } from "@/lib/supabase";
 

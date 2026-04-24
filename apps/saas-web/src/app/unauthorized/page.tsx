@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AuthLayoutShell } from "@tradetool/ui";
+import { AuthLayoutShell } from "@stack-app/ui";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 

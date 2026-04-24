@@ -13,8 +13,8 @@
     "type-check": "turbo type-check",
     "perf:authz": "node scripts/perf/authz-load-test.mjs",
     "clean": "turbo clean",
-    "dev:saas": "npm run dev --workspace=@tradetool/saas-web",
-    "build:saas": "npm run build --workspace=@tradetool/saas-web"
+    "dev:saas": "npm run dev --workspace=@stack-app/saas-web",
+    "build:saas": "npm run build --workspace=@stack-app/saas-web"
   },
   "devDependencies": {
     "turbo": "^2.3.3",

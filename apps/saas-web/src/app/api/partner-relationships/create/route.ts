@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
-import { DatabaseQueries } from '@tradetool/database';
+import { DatabaseQueries } from '@stack-app/database';
 import { supabaseServer } from '@/lib/supabase';
 import { enforceRateLimit, rateLimitExceededResponse } from '@/lib/rate-limit';
 import { logRateLimitSecurityEvent } from '@/lib/security-audit';

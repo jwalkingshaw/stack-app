@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@tradetool/database";
+import { createServerClient } from "@stack-app/database";
 import { getCurrentOrganization, requireUser } from "@/lib/auth-server";
 import {
   getActiveWorkspaceMemberships,

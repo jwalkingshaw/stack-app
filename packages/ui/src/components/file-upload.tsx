@@ -5,7 +5,7 @@ import { useDropzone } from 'react-dropzone';
 import { Upload, X, FileIcon, Loader2 } from 'lucide-react';
 import { Button } from './button';
 import { formatFileSize } from '../lib/utils';
-import type { FileUploadProgress } from '@tradetool/types';
+import type { FileUploadProgress } from '@stack-app/types';
 
 interface FileUploadProps {
   onFilesSelected: (files: File[]) => void;

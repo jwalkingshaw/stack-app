@@ -1,8 +1,8 @@
 // Server-only utilities for Kinde authentication
 import "server-only";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
-import { DatabaseQueries, createServerClient } from "@tradetool/database";
-import type { User, Organization } from "@tradetool/types";
+import { DatabaseQueries, createServerClient } from "@stack-app/database";
+import type { User, Organization } from "@stack-app/types";
 import { cache } from 'react';
 import { cache as redisCache, CacheKeys, CacheTTL } from './redis';
 

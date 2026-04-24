@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@tradetool/database";
+import type { Database } from "@stack-app/database";
 
 type ContextParams = {
   userId: string;

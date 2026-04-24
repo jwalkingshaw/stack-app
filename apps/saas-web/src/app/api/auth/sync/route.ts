@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase";
-import { DatabaseQueries } from "@tradetool/database";
+import { DatabaseQueries } from "@stack-app/database";
 
 // Sync organization from Kinde to Supabase
 export async function POST(request: NextRequest) {

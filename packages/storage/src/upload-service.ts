@@ -1,5 +1,5 @@
 import { S3Service } from './s3-client';
-import type { UploadRequest, UploadResponse } from '@tradetool/types';
+import type { UploadRequest, UploadResponse } from '@stack-app/types';
 
 export class UploadService {
   constructor(

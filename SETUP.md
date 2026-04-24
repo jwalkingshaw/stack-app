@@ -1,6 +1,6 @@
 # Stack App Setup Guide
 
-Complete setup guide for the Tradetool monorepo with SAAS MMP and DAM features.
+Complete setup guide for the Stackcess monorepo with SAAS MMP and DAM features.
 
 ## Prerequisites
 
@@ -166,7 +166,7 @@ npm run dev:saas
 
 ### Project Structure
 ```
-tradetool/
+stack-app/
 ├── apps/
 │   ├── news-feed-blog/     # Public site (existing)
 │   └── saas-web/           # SAAS platform

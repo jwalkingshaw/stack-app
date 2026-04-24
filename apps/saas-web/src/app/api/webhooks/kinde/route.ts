@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
-import { DatabaseQueries } from "@tradetool/database";
+import { DatabaseQueries } from "@stack-app/database";
 import * as jwksClient from "jwks-rsa";
 import * as jwt from "jsonwebtoken";
 

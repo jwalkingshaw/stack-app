@@ -34,7 +34,7 @@ A modern SAAS platform with Digital Asset Management capabilities.
 ## Project Structure
 
 ```
-tradetool/
+stack-app/
 ├── apps/
 │   ├── public-site/       # Public news/blog site
 │   └── saas-web/          # SAAS platform dashboard

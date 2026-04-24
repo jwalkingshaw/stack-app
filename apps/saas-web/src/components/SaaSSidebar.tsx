@@ -17,7 +17,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-} from '@tradetool/ui'
+} from '@stack-app/ui'
 import { Button } from './ui/button'
 import type { WorkspaceSummary } from '@/hooks/useWorkspaces'
 import { WorkspaceRail } from './WorkspaceRail'

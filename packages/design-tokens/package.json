@@ -1,7 +1,7 @@
 {
-  "name": "@tradetool/design-tokens",
+  "name": "@stack-app/design-tokens",
   "version": "1.0.0",
-  "description": "Shared design tokens for Tradetool applications",
+  "description": "Shared design tokens for Stack App applications",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {

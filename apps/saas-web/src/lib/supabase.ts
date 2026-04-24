@@ -1,4 +1,4 @@
-import { createBrowserClient, createServerClient } from "@tradetool/database";
+import { createBrowserClient, createServerClient } from "@stack-app/database";
 
 // Client-side Supabase instance
 export const supabase: any = createBrowserClient();

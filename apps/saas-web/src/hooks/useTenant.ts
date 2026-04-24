@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useAuth } from "./useAuth";
 import { useEffect, useState } from "react";
-import type { Organization } from "@tradetool/types";
+import type { Organization } from "@stack-app/types";
 
 interface TenantState {
   tenantSlug: string | null;

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getSafeUserData, isAuthenticated, requireUser } from '@/lib/auth-server'
-import { createServerClient, DatabaseQueries } from '@tradetool/database'
+import { createServerClient, DatabaseQueries } from '@stack-app/database'
 import { evaluateTenantAccessDecision } from '@/lib/tenant-access-decision'
 import { getActiveWorkspaceMemberships } from '@/lib/workspace-notifications'
 import TenantLayoutClient from './TenantLayoutClient'

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthService, ScopedPermission } from "@tradetool/auth";
-import { DatabaseQueries } from "@tradetool/database";
+import { AuthService, ScopedPermission } from "@stack-app/auth";
+import { DatabaseQueries } from "@stack-app/database";
 import { supabaseServer } from "@/lib/supabase";
 import { applyRLSContext } from "@/lib/rls-context";
 import { ensureSlug } from "@/lib/slug";

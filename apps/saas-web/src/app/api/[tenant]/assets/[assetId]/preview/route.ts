@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { S3Service } from "@tradetool/storage";
+import { S3Service } from "@stack-app/storage";
 import { supabaseServer } from "@/lib/supabase";
 import {
   ASSET_VIEW_PERMISSION_KEYS,

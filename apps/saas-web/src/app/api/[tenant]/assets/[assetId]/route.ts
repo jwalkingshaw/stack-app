@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { AuthService, ScopedPermission } from "@tradetool/auth";
-import { DatabaseQueries } from "@tradetool/database";
+import { AuthService, ScopedPermission } from "@stack-app/auth";
+import { DatabaseQueries } from "@stack-app/database";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { evaluateScopedPermission } from "@/lib/security-permissions";
 import {

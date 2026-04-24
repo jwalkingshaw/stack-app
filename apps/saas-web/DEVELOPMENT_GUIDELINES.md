@@ -255,7 +255,7 @@ import { Button } from '../../../components/ui/button';
 
 ```typescript
 // ✅ Use design system components
-import { Button, Card, Input } from '@tradetool/ui';
+import { Button, Card, Input } from '@stack-app/ui';
 
 // ✅ Consistent spacing
 <div className="p-6 space-y-4">

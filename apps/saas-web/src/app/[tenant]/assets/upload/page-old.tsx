@@ -12,7 +12,7 @@ import {
   Save
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { FileUpload, AssetMetadataTable, AssetMetadata, validateAssetMetadata, ProductLinkSuggestions } from "@tradetool/ui";
+import { FileUpload, AssetMetadataTable, AssetMetadata, validateAssetMetadata, ProductLinkSuggestions } from "@stack-app/ui";
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 // Upload workflow steps

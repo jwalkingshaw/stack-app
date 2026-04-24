@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PageLoader } from '@/components/ui/loading-spinner';
 import { PageContentContainer } from '@/components/ui/page-content-container';
-import type { Subscription, SubscriptionPlan, Usage } from '@tradetool/types';
+import type { Subscription, SubscriptionPlan, Usage } from '@stack-app/types';
 
 interface BillingSettingsProps {
   tenantSlug: string;

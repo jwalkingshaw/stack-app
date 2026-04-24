@@ -41,7 +41,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@tradetool/ui";
+} from "@stack-app/ui";
 import { AssetViewPanel } from "@/components/dam/asset-view-panel";
 import { BulkActionToolbar } from "@/components/dam/bulk-action-toolbar";
 import { BulkEditorPanel } from "@/components/dam/bulk-editor-panel";
@@ -53,7 +53,7 @@ import type {
   AssetTagAssignment,
   DamAsset,
   UserPermissions,
-} from "@tradetool/types";
+} from "@stack-app/types";
 import { extractPartnerScopeFromPath, isReservedPartnerScope } from "@/lib/tenant-view-scope";
 import { useMarketContext } from "@/components/market-context";
 import { stageAssetUploadFiles } from "@/lib/asset-upload-staging";

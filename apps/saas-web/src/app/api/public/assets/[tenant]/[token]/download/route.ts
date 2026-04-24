@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DatabaseQueries } from "@tradetool/database";
-import { S3Service } from "@tradetool/storage";
+import { DatabaseQueries } from "@stack-app/database";
+import { S3Service } from "@stack-app/storage";
 import { supabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { enforceRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";

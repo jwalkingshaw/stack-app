@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
-import { generateProductLinkSuggestions } from "@tradetool/ui";
+import { generateProductLinkSuggestions } from "@stack-app/ui";
 import {
   resolvePartnerGrantedAssetIds,
   resolvePartnerGrantedProductIds,

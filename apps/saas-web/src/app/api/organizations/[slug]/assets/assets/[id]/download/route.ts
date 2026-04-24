@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthService, ScopedPermission } from "@tradetool/auth";
-import { DatabaseQueries } from "@tradetool/database";
-import { S3Service } from "@tradetool/storage";
+import { AuthService, ScopedPermission } from "@stack-app/auth";
+import { DatabaseQueries } from "@stack-app/database";
+import { S3Service } from "@stack-app/storage";
 import { supabaseServer } from "@/lib/supabase";
 import { enforceCollectionScope } from "@/lib/collection-scope";
 import { enforceRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@tradetool/ui";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@stack-app/ui";
 import { VariantManagement } from "@/components/products/variant-management";
 import { DynamicFieldRenderer } from "@/components/field-types/DynamicFieldRenderer";
 import { VariantNavigationHeader } from "@/components/products/VariantNavigationHeader";

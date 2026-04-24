@@ -3,7 +3,7 @@ import { getSafeUserData } from '@/lib/auth-server';
 import { PageHeader } from '@/components/ui/page-header';
 import SettingsNavigation from './components/SettingsNavigation';
 import { PageLoader } from '@/components/ui/loading-spinner';
-import { createServerClient, DatabaseQueries } from '@tradetool/database';
+import { createServerClient, DatabaseQueries } from '@stack-app/database';
 
 interface SettingsLayoutProps {
   children: React.ReactNode;

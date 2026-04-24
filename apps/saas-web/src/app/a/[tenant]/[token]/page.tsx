@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { DatabaseQueries } from "@tradetool/database";
-import { S3Service } from "@tradetool/storage";
+import { DatabaseQueries } from "@stack-app/database";
+import { S3Service } from "@stack-app/storage";
 import { supabaseServer } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { isAuthenticated, requireOrganization, requireUser } from "@/lib/auth-server";

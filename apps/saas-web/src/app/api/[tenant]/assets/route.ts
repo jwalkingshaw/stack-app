@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DatabaseQueries } from "@tradetool/database";
+import { DatabaseQueries } from "@stack-app/database";
 import { supabaseServer } from "@/lib/supabase";
 import {
   ASSET_VIEW_PERMISSION_KEYS,

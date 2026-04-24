@@ -22,7 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@tradetool/ui";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@stack-app/ui";
 import { PageHeader } from "@/components/ui/page-header";
 
 interface FolderData {

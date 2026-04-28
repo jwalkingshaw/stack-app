@@ -12,8 +12,9 @@ const FK_VIOLATION_ERROR = "23503";
 const ROW_NOT_FOUND_ERROR = "PGRST116";
 const MISSING_COLUMN_ERROR = "42703";
 
-const FAMILY_SELECT_WITH_RULES =
-  "id,code,name,description,require_sku_on_active,require_barcode_on_active,created_at,updated_at";
+const FAMILY_SELECT_WITH_RULES_AND_STATUS =
+  "id,code,name,description,is_active,require_sku_on_active,require_barcode_on_active,created_at,updated_at";
+const FAMILY_SELECT_WITH_STATUS = "id,code,name,description,is_active,created_at,updated_at";
 const FAMILY_SELECT_BASE = "id,code,name,description,created_at,updated_at";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -33,7 +34,7 @@ function isCrossTenantWrite(tenantSlug: string, selectedBrandSlug: string | null
   return selected !== tenantSlug.trim().toLowerCase();
 }
 
-function isMissingColumnError(error: any): boolean {
+function isMissingColumnError(error: { code?: string | null } | null | undefined): boolean {
   return error?.code === MISSING_COLUMN_ERROR;
 }
 
@@ -88,8 +89,16 @@ export async function GET(
     let familyResult = await fetchFamilyByIdOrCode({
       organizationId: targetOrganizationId,
       familyKey: familyId,
-      selectClause: FAMILY_SELECT_WITH_RULES,
+      selectClause: FAMILY_SELECT_WITH_RULES_AND_STATUS,
     });
+
+    if (isMissingColumnError(familyResult.error)) {
+      familyResult = await fetchFamilyByIdOrCode({
+        organizationId: targetOrganizationId,
+        familyKey: familyId,
+        selectClause: FAMILY_SELECT_WITH_STATUS,
+      });
+    }
 
     if (isMissingColumnError(familyResult.error)) {
       familyResult = await fetchFamilyByIdOrCode({
@@ -103,7 +112,19 @@ export async function GET(
       return NextResponse.json({ error: "Product family not found." }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: familyResult.data });
+    const familyDataRaw = familyResult.data as unknown;
+    if (!familyDataRaw || typeof familyDataRaw !== "object" || Array.isArray(familyDataRaw)) {
+      return NextResponse.json({ error: "Product family not found." }, { status: 404 });
+    }
+    const familyData = familyDataRaw as Record<string, unknown> & { is_active?: boolean | null };
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...familyData,
+        is_active: familyData.is_active !== false,
+      },
+    });
   } catch (error) {
     console.error("Error in product family GET:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -119,12 +140,7 @@ export async function PUT(
     const { tenant, familyId } = await params;
     const selectedBrandSlug = new URL(request.url).searchParams.get("brand");
 
-    if (isCrossTenantWrite(tenant, selectedBrandSlug)) {
-      return NextResponse.json(
-        { error: "Cross-tenant writes are blocked in shared brand view." },
-        { status: 403 }
-      );
-    }
+    
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -161,6 +177,10 @@ export async function PUT(
       updatePayload.description = null;
     }
 
+    if (typeof body?.is_active === "boolean") {
+      updatePayload.is_active = body.is_active;
+    }
+
     if (typeof body?.require_sku_on_active === "boolean") {
       updatePayload.require_sku_on_active = body.require_sku_on_active;
     }
@@ -178,13 +198,28 @@ export async function PUT(
       .update(updatePayload)
       .eq("id", familyId)
       .eq("organization_id", targetOrganizationId)
-      .select(FAMILY_SELECT_WITH_RULES)
+      .select(FAMILY_SELECT_WITH_RULES_AND_STATUS)
       .single();
 
     if (isMissingColumnError(updateResult.error)) {
-      const legacyPayload = { ...updatePayload };
-      delete (legacyPayload as any).require_sku_on_active;
-      delete (legacyPayload as any).require_barcode_on_active;
+      const noRulesPayload: Record<string, unknown> = { ...updatePayload };
+      delete noRulesPayload.require_sku_on_active;
+      delete noRulesPayload.require_barcode_on_active;
+
+      updateResult = await supabase
+        .from("product_families")
+        .update(noRulesPayload)
+        .eq("id", familyId)
+        .eq("organization_id", targetOrganizationId)
+        .select(FAMILY_SELECT_WITH_STATUS)
+        .single();
+    }
+
+    if (isMissingColumnError(updateResult.error)) {
+      const legacyPayload: Record<string, unknown> = { ...updatePayload };
+      delete legacyPayload.require_sku_on_active;
+      delete legacyPayload.require_barcode_on_active;
+      delete legacyPayload.is_active;
 
       updateResult = await supabase
         .from("product_families")
@@ -212,7 +247,14 @@ export async function PUT(
       return NextResponse.json({ error: "Failed to update product family" }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data });
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...(data || {}),
+        is_active:
+          (data as { is_active?: boolean | null } | null)?.is_active !== false,
+      },
+    });
   } catch (error) {
     console.error("Error in product family PUT:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -228,12 +270,7 @@ export async function DELETE(
     const { tenant, familyId } = await params;
     const selectedBrandSlug = new URL(request.url).searchParams.get("brand");
 
-    if (isCrossTenantWrite(tenant, selectedBrandSlug)) {
-      return NextResponse.json(
-        { error: "Cross-tenant writes are blocked in shared brand view." },
-        { status: 403 }
-      );
-    }
+    
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -275,3 +312,4 @@ export async function DELETE(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+

@@ -1,11 +1,51 @@
 import { NextResponse } from "next/server";
 import { getCurrentOrganization, requireUser } from "@/lib/auth-server";
+import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 import { createServerClient } from "@stack-app/database";
 import {
   getActiveWorkspaceMemberships,
   getWorkspaceNotificationStateMap,
   getWorkspaceUnreadCounts,
 } from "@/lib/workspace-notifications";
+
+type MeWorkspacesPayload = {
+  user: {
+    id: string;
+    email: string | null;
+    given_name?: string | null;
+    family_name?: string | null;
+    picture?: string | null;
+    name?: string | null;
+  };
+  workspaces: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    role: string;
+    organizationType: "brand" | "partner";
+    partnerCategory: string | null;
+    logoUrl: string | null;
+    storageUsed: number;
+    storageLimit: number;
+    lastAccessed?: string;
+    joinedAt?: string;
+    unreadCount: number;
+  }>;
+  lastUsedWorkspace: {
+    id: string;
+    name: string;
+    slug: string;
+    role: string;
+    organizationType: "brand" | "partner";
+    partnerCategory: string | null;
+    logoUrl: string | null;
+    storageUsed: number;
+    storageLimit: number;
+    lastAccessed?: string;
+    joinedAt?: string;
+    unreadCount: number;
+  } | null;
+};
 
 // GET /api/me/workspaces
 // Returns all workspaces the authenticated user can access (direct membership + partner brand access).
@@ -15,6 +55,14 @@ export async function GET() {
 
     if (!user?.id) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+
+    const cacheKey = CacheKeys.userWorkspaces(user.id);
+    const cached = await redisCache.get<MeWorkspacesPayload>(cacheKey);
+    if (cached) {
+      const response = NextResponse.json(cached);
+      response.headers.set("Cache-Control", "private, max-age=20, s-maxage=20");
+      return response;
     }
 
     const supabase = createServerClient();
@@ -37,6 +85,7 @@ export async function GET() {
             currentOrganization.type ||
             "brand") as "brand" | "partner",
           partnerCategory: currentOrganization.partnerCategory ?? null,
+          logoUrl: currentOrganization.logoUrl ?? null,
           storageUsed: currentOrganization.storageUsed,
           storageLimit: currentOrganization.storageLimit,
           lastAccessed: undefined,
@@ -44,24 +93,33 @@ export async function GET() {
           unreadCount: 0,
         };
 
-        return NextResponse.json({
+        const fallbackPayload: MeWorkspacesPayload = {
           user: {
             id: user.id,
             email: user.email,
           },
           workspaces: [fallbackWorkspace],
           lastUsedWorkspace: fallbackWorkspace,
-        });
+        };
+        await redisCache.set(cacheKey, fallbackPayload, CacheTTL.WORKSPACES);
+
+        const response = NextResponse.json(fallbackPayload);
+        response.headers.set("Cache-Control", "private, max-age=20, s-maxage=20");
+        return response;
       }
 
-      return NextResponse.json({
+      const noWorkspacePayload: MeWorkspacesPayload = {
         user: {
           id: user.id,
           email: user.email,
         },
         workspaces: [],
         lastUsedWorkspace: null,
-      });
+      };
+      await redisCache.set(cacheKey, noWorkspacePayload, CacheTTL.WORKSPACES);
+      const response = NextResponse.json(noWorkspacePayload);
+      response.headers.set("Cache-Control", "private, max-age=20, s-maxage=20");
+      return response;
     }
 
     const organizationIds = memberships.map((membership) => membership.organization.id);
@@ -83,6 +141,7 @@ export async function GET() {
       role: membership.role,
       organizationType: membership.organization.organizationType,
       partnerCategory: membership.organization.partnerCategory,
+      logoUrl: membership.organization.logoUrl ?? null,
       storageUsed: membership.organization.storageUsed,
       storageLimit: membership.organization.storageLimit,
       lastAccessed: membership.lastAccessedAt ?? undefined,
@@ -99,7 +158,7 @@ export async function GET() {
             new Date(a.lastAccessed as string).getTime()
         )[0] || workspaces[0];
 
-    const response = NextResponse.json({
+    const payload: MeWorkspacesPayload = {
       user: {
         id: user.id,
         email: user.email,
@@ -113,8 +172,12 @@ export async function GET() {
       },
       workspaces,
       lastUsedWorkspace,
-    });
-    response.headers.set("Cache-Control", "private, max-age=30, s-maxage=30");
+    };
+
+    await redisCache.set(cacheKey, payload, CacheTTL.WORKSPACES);
+
+    const response = NextResponse.json(payload);
+    response.headers.set("Cache-Control", "private, max-age=20, s-maxage=20");
     return response;
   } catch (error) {
     console.error("Error in /api/me/workspaces:", error);

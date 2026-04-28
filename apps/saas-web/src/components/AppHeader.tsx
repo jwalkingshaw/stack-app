@@ -1,285 +1,209 @@
 'use client'
 
-import React, { useEffect, useRef } from 'react'
-import Link from 'next/link'
-import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react'
-import { usePathname } from 'next/navigation'
-import { useMarketContext } from './market-context'
-import { buildTenantPathForScope, splitTenantPathForScope } from '@/lib/tenant-view-scope'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { Search } from 'lucide-react'
+import { useTranslations } from 'next-intl'
+import { buildTenantPathForScope, extractPartnerScopeFromPath, resolvePartnerSelectedBrandSlug, splitTenantPathForScope } from '@/lib/tenant-view-scope'
+import { BackLinkButton } from '@/components/ui/back-link-button'
 
-function getNextSelectionId<T extends { id: string }>(
-  items: T[],
-  selectedId: string | null,
-  direction: 'prev' | 'next'
-): string | null {
-  if (items.length === 0) return null
-  if (!selectedId) return items[0].id
+import { GlobalSearchDialog } from '@/components/GlobalSearchDialog'
 
-  const currentIndex = items.findIndex((item) => item.id === selectedId)
-  if (currentIndex === -1) return items[0].id
-
-  if (direction === 'next') {
-    return items[(currentIndex + 1) % items.length].id
-  }
-  return items[(currentIndex - 1 + items.length) % items.length].id
+interface HeaderWorkspace {
+  name: string
+  slug: string
 }
 
-export function AppHeader() {
+interface AppHeaderProps {
+  tenantSlug?: string
+  organizationName?: string
+  organizationType?: 'brand' | 'partner'
+  workspaces?: HeaderWorkspace[]
+}
+
+export function AppHeader({ tenantSlug, organizationName, organizationType, workspaces }: AppHeaderProps) {
+  const t = useTranslations("Shell.Header")
   const headerRef = useRef<HTMLDivElement | null>(null)
   const pathname = usePathname()
-  const {
-    channels,
-    markets,
-    locales,
-    selectedChannelId,
-    selectedDestinationId,
-    selectedMarketId,
-    selectedLocaleId,
-    setSelectedChannelId,
-    setSelectedDestinationId,
-    setSelectedMarketId,
-    setSelectedLocaleId,
-    availableDestinations,
-    availableLocaleIdsForMarket,
-    shouldFilterLocalesByMarket
-  } = useMarketContext()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false)
+  const [partnerChannelName, setPartnerChannelName] = useState<string | null>(null)
 
-  const visibleLocales = shouldFilterLocalesByMarket
-    ? locales.filter((locale) => availableLocaleIdsForMarket.has(locale.id))
-    : locales
-
-  const scopeControlMatch = pathname?.match(
-    /^\/([^/]+)(?:\/view\/[^/]+)?\/(products|assets)(?:\/.*)?$/
-  )
-  const isAssetsUploadPage = Boolean(
-    pathname?.match(/^\/[^/]+(?:\/view\/[^/]+)?\/assets\/upload(?:\/.*)?$/)
-  )
-  const showScopeControls = Boolean(scopeControlMatch) && !isAssetsUploadPage
+  const normalizedTenantSlug = (tenantSlug || '').trim().toLowerCase()
+  const fallbackBrandSlug = (searchParams.get('brand') || '').trim().toLowerCase()
+  const urlMarketCode = (searchParams.get('market') || '').trim().toUpperCase()
   const productDetailMatch = pathname?.match(
     /^\/([^/]+)(?:\/view\/[^/]+)?\/products\/[^/]+(?:\/variants\/[^/]+)?$/
   )
-  const tenantSlug = productDetailMatch?.[1]
-  const isProductDetailPage = Boolean(productDetailMatch)
-  const scopeInfo = splitTenantPathForScope(pathname, tenantSlug || '')
-  const showBackButton = Boolean(tenantSlug)
-  const backHref = tenantSlug
+  const scopeInfo = splitTenantPathForScope(pathname, productDetailMatch?.[1] || normalizedTenantSlug)
+  const showBackButton = Boolean(productDetailMatch?.[1])
+  const backHref = productDetailMatch?.[1]
     ? buildTenantPathForScope({
-        tenantSlug,
+        tenantSlug: productDetailMatch[1],
         scope: scopeInfo.scope,
         suffix: '/products',
       })
     : '/'
+  const pathScope = extractPartnerScopeFromPath(pathname, normalizedTenantSlug)
+  const selectedBrandSlug = resolvePartnerSelectedBrandSlug({
+    pathname,
+    tenantSlug: normalizedTenantSlug,
+    fallbackBrandSlug,
+    organizationType,
+  })
+  const activeScope = pathScope || selectedBrandSlug
+  const activeOrganizationName = useMemo(() => {
+    const fallbackName = (organizationName || tenantSlug || 'Organization').trim()
+    const normalizedScope = (activeScope || '').trim().toLowerCase()
+    if (!normalizedScope || normalizedScope === 'all' || normalizedScope === normalizedTenantSlug) {
+      return fallbackName
+    }
 
-  const canCycleMarkets = isProductDetailPage && markets.length >= 3
-  const canCycleChannels = isProductDetailPage && channels.length >= 3
-  const canCycleDestinations = isProductDetailPage && availableDestinations.length >= 3
+    const scopedWorkspace = workspaces?.find(
+      (workspace) => workspace.slug.trim().toLowerCase() === normalizedScope
+    )
+    return (scopedWorkspace?.name || fallbackName).trim()
+  }, [activeScope, normalizedTenantSlug, organizationName, tenantSlug, workspaces])
+  const searchPlaceholder = useMemo(
+    () => `Search ${activeOrganizationName}`,
+    [activeOrganizationName]
+  )
 
   useEffect(() => {
-    if (!showScopeControls && !showBackButton) return
-
     const updateHeaderHeight = () => {
       if (!headerRef.current) return
-      const measuredHeight = headerRef.current.getBoundingClientRect().height
-      if (!Number.isFinite(measuredHeight) || measuredHeight <= 0) return
-      document.documentElement.style.setProperty('--app-header-height', `${Math.ceil(measuredHeight)}px`)
+      const height = headerRef.current.getBoundingClientRect().height
+      if (!Number.isFinite(height) || height <= 0) return
+      document.documentElement.style.setProperty('--app-header-height', `${Math.ceil(height)}px`)
     }
 
     updateHeaderHeight()
-
     if (!headerRef.current || typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(() => updateHeaderHeight())
+
+    const observer = new ResizeObserver(updateHeaderHeight)
     observer.observe(headerRef.current)
     window.addEventListener('resize', updateHeaderHeight)
-
     return () => {
       observer.disconnect()
       window.removeEventListener('resize', updateHeaderHeight)
     }
-  }, [showScopeControls, showBackButton])
+  }, [])
 
-  if (!showScopeControls && !showBackButton) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+      if (!(event.metaKey || event.ctrlKey)) return
+      if (event.key.toLowerCase() !== 'k') return
+      event.preventDefault()
+      setIsGlobalSearchOpen(true)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
+
+  useEffect(() => {
+    if (organizationType !== 'partner' || !normalizedTenantSlug || !activeScope) {
+      setPartnerChannelName(null)
+      return
+    }
+
+    let active = true
+    const fetchPartnerChannel = async () => {
+      try {
+        const response = await fetch(`/api/${normalizedTenantSlug}/view/${activeScope}/markets`, {
+          cache: 'no-store',
+        })
+        if (!response.ok || !active) return
+        const payload = await response.json()
+        const markets: Array<{ code: string; channel: { name: string } | null }> =
+          payload?.data?.markets ?? []
+        if (markets.length === 0) {
+          if (active) setPartnerChannelName(null)
+          return
+        }
+        const selectedMarket = urlMarketCode
+          ? markets.find((market) => market.code.toUpperCase() === urlMarketCode)
+          : null
+        const fallbackMarket = selectedMarket ?? markets[0]
+        if (active) setPartnerChannelName(fallbackMarket.channel?.name ?? null)
+      } catch {
+        if (active) setPartnerChannelName(null)
+      }
+    }
+
+    void fetchPartnerChannel()
+    return () => {
+      active = false
+    }
+  }, [activeScope, normalizedTenantSlug, organizationType, urlMarketCode])
+
+  if (!normalizedTenantSlug) {
     return null
   }
 
   return (
-    <div
-      ref={headerRef}
-      className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur"
-    >
-      <div className="px-6 py-2">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="min-w-[60px]">
-            {showBackButton && (
-              <Link
-                href={backHref}
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground hover:bg-muted/50"
-              >
-                <ArrowLeft className="h-3.5 w-3.5" />
-                <span>Back</span>
-              </Link>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4">
-            {showScopeControls ? (
-              <>
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span>Market</span>
-              {canCycleMarkets ? (
-                <button
-                  type="button"
-                  onClick={() => setSelectedMarketId(getNextSelectionId(markets, selectedMarketId, 'prev'))}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground"
-                  aria-label="Previous market"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-              <select
-                value={selectedMarketId || ''}
-                onChange={(e) => setSelectedMarketId(e.target.value || null)}
-                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-                disabled={markets.length === 0}
-              >
-                {markets.length === 0 ? (
-                  <option value="">No markets</option>
-                ) : (
-                  markets.map((market) => (
-                    <option key={market.id} value={market.id}>
-                      {market.name}
-                    </option>
-                  ))
-                )}
-              </select>
-              {canCycleMarkets ? (
-                <button
-                  type="button"
-                  onClick={() => setSelectedMarketId(getNextSelectionId(markets, selectedMarketId, 'next'))}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground"
-                  aria-label="Next market"
-                >
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
+    <>
+      <div
+        ref={headerRef}
+        className="sticky top-0 z-30 border-b border-[hsl(var(--app-shell-border))] bg-[hsl(var(--app-shell-surface))]"
+      >
+        <div className="px-4 py-2 sm:px-5">
+          <div className="flex flex-wrap items-center gap-2 md:grid md:grid-cols-[auto_1fr_auto] md:gap-3">
+            <div className="flex min-w-[40px] items-center gap-2">
+              {showBackButton ? (
+                <BackLinkButton href={backHref} label={t("back")} icon="chevron" className="-ml-2" />
+              ) : (
+                <div className="h-8 w-8" aria-hidden="true" />
+              )}
             </div>
 
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span>Language</span>
-              <select
-                value={selectedLocaleId || ''}
-                onChange={(e) => setSelectedLocaleId(e.target.value || null)}
-                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-                disabled={visibleLocales.length === 0}
+            <div className="order-3 w-full md:order-2 md:flex md:justify-center">
+              <button
+                type="button"
+                onClick={() => setIsGlobalSearchOpen(true)}
+                className="flex w-full max-w-[760px] items-center gap-3 rounded-2xl bg-white/72 px-4 py-2.5 text-left shadow-[inset_0_0_0_1px_rgba(17,24,39,0.05)] transition-colors hover:bg-white/88"
+                aria-label={searchPlaceholder}
               >
-                {visibleLocales.length === 0 ? (
-                  <option value="">No languages</option>
-                ) : (
-                  visibleLocales.map((locale) => (
-                    <option key={locale.id} value={locale.id}>
-                      {locale.code}
-                    </option>
-                  ))
-                )}
-              </select>
+                <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-white text-muted-foreground shadow-sm">
+                  <Search className="h-3.5 w-3.5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium leading-4 text-foreground">
+                    {searchPlaceholder}
+                  </div>
+                </div>
+                <span className="hidden rounded-lg bg-white px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground shadow-[inset_0_0_0_1px_rgba(17,24,39,0.05)] md:inline-flex">
+                  Ctrl/Cmd K
+                </span>
+              </button>
             </div>
 
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span>Channel</span>
-              {canCycleChannels ? (
-                <button
-                  type="button"
-                  onClick={() => setSelectedChannelId(getNextSelectionId(channels, selectedChannelId, 'prev'))}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground"
-                  aria-label="Previous channel"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-              <select
-                value={selectedChannelId || ''}
-                onChange={(e) => setSelectedChannelId(e.target.value || null)}
-                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-                disabled={channels.length === 0}
-              >
-                {channels.length === 0 ? (
-                  <option value="">No channels</option>
-                ) : (
-                  channels.map((channel) => (
-                    <option key={channel.id} value={channel.id}>
-                      {channel.name}
-                    </option>
-                  ))
-                )}
-              </select>
-              {canCycleChannels ? (
-                <button
-                  type="button"
-                  onClick={() => setSelectedChannelId(getNextSelectionId(channels, selectedChannelId, 'next'))}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground"
-                  aria-label="Next channel"
-                >
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
+            <div className="order-2 ml-auto flex min-w-0 items-center gap-2.5 md:order-3">
+              {organizationType === 'partner' ? (
+                <div className="min-w-[180px] rounded-2xl bg-white/72 px-3 py-2 shadow-[inset_0_0_0_1px_rgba(17,24,39,0.05)]">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    Destination
+                  </div>
+                  <div className="truncate text-sm text-foreground">
+                    {partnerChannelName ?? 'No destination assigned'}
+                  </div>
+                </div>
               ) : null}
             </div>
-
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-              <span>Destination</span>
-              {canCycleDestinations ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSelectedDestinationId(
-                      getNextSelectionId(availableDestinations, selectedDestinationId, 'prev')
-                    )
-                  }
-                  className="inline-flex h-6 w-6 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground"
-                  aria-label="Previous destination"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-              <select
-                value={selectedDestinationId || ''}
-                onChange={(e) => setSelectedDestinationId(e.target.value || null)}
-                className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-                disabled={availableDestinations.length === 0}
-              >
-                {availableDestinations.length === 0 ? (
-                  <option value="">No destinations</option>
-                ) : (
-                  availableDestinations.map((destination) => (
-                    <option key={destination.id} value={destination.id}>
-                      {destination.name}
-                    </option>
-                  ))
-                )}
-              </select>
-              {canCycleDestinations ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSelectedDestinationId(
-                      getNextSelectionId(availableDestinations, selectedDestinationId, 'next')
-                    )
-                  }
-                  className="inline-flex h-6 w-6 items-center justify-center rounded border border-border text-muted-foreground hover:text-foreground"
-                  aria-label="Next destination"
-                >
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-            </div>
-              </>
-            ) : null}
           </div>
         </div>
-        {showScopeControls ? (
-          <p className="mt-2 text-right text-[10px] text-muted-foreground">
-            Viewing context only. Authoring scope is set during create/upload.
-          </p>
-        ) : null}
       </div>
-    </div>
+
+      <GlobalSearchDialog
+        open={isGlobalSearchOpen}
+        onOpenChange={setIsGlobalSearchOpen}
+        tenantSlug={normalizedTenantSlug}
+        organizationType={organizationType}
+        activeScope={activeScope}
+        placeholder={searchPlaceholder}
+        onNavigate={(url) => router.push(url)}
+      />
+    </>
   )
 }

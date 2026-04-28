@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { S3Service } from "@stack-app/storage";
 import { supabaseServer } from "@/lib/supabase";
+import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
+import { resolveStorageDeliveryUrl, rewriteStorageUrlToCloudFront } from "@/lib/storage-url";
 import {
   ASSET_VIEW_PERMISSION_KEYS,
   getScopedPermissionSummary,
@@ -26,10 +28,26 @@ function extractUrl(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function redirectNoStore(url: string) {
+function resolvePreferredPreviewUrl(asset: AssetRow): string | null {
+  const thumbnailUrls =
+    asset.thumbnail_urls && typeof asset.thumbnail_urls === "object"
+      ? asset.thumbnail_urls
+      : null;
+
+  return (
+    rewriteStorageUrlToCloudFront(extractUrl(thumbnailUrls?.medium)) ||
+    rewriteStorageUrlToCloudFront(extractUrl(thumbnailUrls?.small)) ||
+    resolveStorageDeliveryUrl({ s3Key: asset.s3_key, s3Url: extractUrl(asset.s3_url) })
+  );
+}
+
+function redirectWithShortCache(url: string, maxAgeSeconds = 45) {
   const response = NextResponse.redirect(url, 307);
-  response.headers.set("Cache-Control", "no-store, max-age=0");
-  response.headers.set("Pragma", "no-cache");
+  response.headers.set(
+    "Cache-Control",
+    `private, max-age=${maxAgeSeconds}, stale-while-revalidate=120`
+  );
+  response.headers.set("Vary", "Cookie, Authorization");
   return response;
 }
 
@@ -37,7 +55,7 @@ async function getAssetById(params: {
   assetId: string;
   organizationId: string;
 }): Promise<AssetRow | null> {
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("dam_assets")
     .select("id,organization_id,asset_scope,s3_key,s3_url,mime_type,thumbnail_urls")
     .eq("id", params.assetId)
@@ -61,6 +79,7 @@ export async function GET(
     const requestedViewScope = (requestUrl.searchParams.get("view") || "")
       .trim()
       .toLowerCase();
+    const forceSigned = requestUrl.searchParams.get("signed") === "1";
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -86,7 +105,7 @@ export async function GET(
       });
       const scopedOrganizationIds = [tenantOrganizationId, ...brandOrganizationIds];
 
-      const { data: row, error: rowError } = await (supabaseServer as any)
+      const { data: row, error: rowError } = await supabaseServer
         .from("dam_assets")
         .select("id,organization_id,asset_scope,s3_key,s3_url,mime_type,thumbnail_urls")
         .eq("id", assetId)
@@ -98,6 +117,9 @@ export async function GET(
       }
 
       if (row.organization_id !== tenantOrganizationId) {
+        if (!row.organization_id) {
+          return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+        }
         const granted = await resolvePartnerGrantedAssetIds({
           brandOrganizationId: row.organization_id,
           partnerOrganizationId: tenantOrganizationId,
@@ -181,20 +203,37 @@ export async function GET(
       }
     }
 
-    const thumbnailUrls =
-      asset.thumbnail_urls && typeof asset.thumbnail_urls === "object"
-        ? asset.thumbnail_urls
-        : null;
-    const fallbackUrl =
-      extractUrl(thumbnailUrls?.medium) ||
-      extractUrl(thumbnailUrls?.small) ||
-      extractUrl(asset.s3_url);
+    const previewScopeDescriptor = [
+      `tenant=${tenant}`,
+      `asset=${asset.id}`,
+      `tenantOrg=${context.tenantOrganization.id}`,
+      `targetOrg=${context.targetOrganization.id}`,
+      `mode=${context.mode}`,
+      `brand=${context.selectedBrandSlug || "-"}`,
+      `view=${requestedViewScope || "-"}`,
+      `forceSigned=${forceSigned ? "1" : "0"}`,
+    ].join("|");
+    const previewScopeKey = Buffer.from(previewScopeDescriptor).toString("base64url");
+    const previewCacheKey = CacheKeys.assetPreview(asset.id, previewScopeKey);
+
+    const cachedRedirect = await redisCache.get<string>(previewCacheKey);
+    if (cachedRedirect) {
+      return redirectWithShortCache(cachedRedirect, 30);
+    }
+
+    const fallbackUrl = resolvePreferredPreviewUrl(asset);
 
     if (!asset.s3_key) {
       if (fallbackUrl) {
-        return redirectNoStore(fallbackUrl);
+        await redisCache.set(previewCacheKey, fallbackUrl, CacheTTL.ASSET_PREVIEW_FALLBACK);
+        return redirectWithShortCache(fallbackUrl, 60);
       }
       return NextResponse.json({ error: "Preview unavailable" }, { status: 404 });
+    }
+
+    if (!forceSigned && fallbackUrl) {
+      await redisCache.set(previewCacheKey, fallbackUrl, CacheTTL.ASSET_PREVIEW_FALLBACK);
+      return redirectWithShortCache(fallbackUrl, 60);
     }
 
     try {
@@ -203,10 +242,12 @@ export async function GET(
         contentType: asset.mime_type || undefined,
         forceDownload: false,
       });
-      return redirectNoStore(signedPreviewUrl);
+      await redisCache.set(previewCacheKey, signedPreviewUrl, CacheTTL.ASSET_PREVIEW_SIGNED);
+      return redirectWithShortCache(signedPreviewUrl, 30);
     } catch (error) {
       if (fallbackUrl) {
-        return redirectNoStore(fallbackUrl);
+        await redisCache.set(previewCacheKey, fallbackUrl, CacheTTL.ASSET_PREVIEW_FALLBACK);
+        return redirectWithShortCache(fallbackUrl, 60);
       }
       console.error("Failed to resolve signed preview URL:", error);
       return NextResponse.json({ error: "Preview unavailable" }, { status: 500 });

@@ -8,13 +8,21 @@ import { randomUUID } from "crypto";
 
 const supabase = createServerClient();
 const db = new DatabaseQueries(supabase);
+const supabaseWithSetConfig = supabase as unknown as {
+  rpc: (
+    fn: string,
+    args: { setting_name: string; new_value: string; is_local: boolean }
+  ) => Promise<{ error: { message?: string } | null }>;
+};
 
 export async function POST(request: NextRequest) {
   try {
     const { getUser } = getKindeServerSession();
     const user = await getUser();
+    const userId = typeof user?.id === "string" ? user.id : null;
+    const userEmail = typeof user?.email === "string" ? user.email : "";
 
-    if (!user) {
+    if (!user || !userId || !userEmail) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
@@ -65,7 +73,7 @@ export async function POST(request: NextRequest) {
       console.log('Kinde organization created:', kindeOrg);
 
       // Step 2: Create organization in Supabase with Kinde org code
-      organization = await db.createOrganization({
+      const organizationPayload: Parameters<typeof db.createOrganization>[0] = {
         name,
         slug,
         kindeOrgId: kindeOrg.code || kindeOrg.id, // Use code as the ID
@@ -76,7 +84,8 @@ export async function POST(request: NextRequest) {
         type: "brand",
         organizationType: "brand",
         partnerCategory: null,
-      } as any);
+      };
+      organization = await db.createOrganization(organizationPayload);
 
       console.log('Supabase organization created:', organization);
 
@@ -84,15 +93,15 @@ export async function POST(request: NextRequest) {
         throw new Error('Failed to create organization in Supabase - returned null');
       }
 
-      await ensureCoreBasicInformationFields(supabase as any, organization.id);
+      await ensureCoreBasicInformationFields(supabase, organization.id);
 
       // Step 3: Add user to new organization in Kinde
       kindeOrgId = kindeOrg.code || kindeOrg.id;
       
-      if (user.id && kindeOrgId) {
+      if (userId && kindeOrgId) {
         try {
           console.log('Adding user to new organization in Kinde');
-          await kindeAPI.addUserToOrganization(kindeOrgId, user.id);
+          await kindeAPI.addUserToOrganization(kindeOrgId, userId);
           console.log('✅ User successfully added to new organization in Kinde');
         } catch (error) {
           console.warn('❌ Failed to add user to new organization in Kinde:', error);
@@ -100,7 +109,7 @@ export async function POST(request: NextRequest) {
         }
       } else {
         console.warn('Missing required data for user management:', { 
-          userId: user.id, 
+          userId: userId, 
           kindeOrgId 
         });
       }
@@ -110,27 +119,27 @@ export async function POST(request: NextRequest) {
         console.log('Adding user to organization_members table as owner (self-invited)');
         
         // Set database context for RLS
-        await (supabase as any).rpc('set_config', {
+        await supabaseWithSetConfig.rpc('set_config', {
           setting_name: 'app.current_user_id',
-          new_value: (user as any).id,
+          new_value: userId,
           is_local: true
         });
         
-        await (supabase as any).rpc('set_config', {
+        await supabaseWithSetConfig.rpc('set_config', {
           setting_name: 'app.current_org_code',
           new_value: kindeOrgId,
           is_local: true
         });
 
-        const { data: memberData, error: memberError } = await (supabase as any)
+        const { data: memberData, error: memberError } = await supabase
           .from('organization_members')
           .insert({
             organization_id: organization.id,
-            kinde_user_id: (user as any).id,
-            email: (user as any).email,
+            kinde_user_id: userId,
+            email: userEmail,
             role: 'owner',
             status: 'active',
-            invited_by: (user as any).id  // Self-reference: organization owner invited themselves
+            invited_by: userId  // Self-reference: organization owner invited themselves
           })
           .select()
           .single();
@@ -143,7 +152,7 @@ export async function POST(request: NextRequest) {
         console.log('✅ User successfully added to organization_members as owner:', memberData.id);
         await syncKindeBillingRoleForMember({
           kindeOrgId,
-          kindeUserId: (user as any).id,
+          kindeUserId: userId,
           appRole: 'owner',
           status: 'active',
           context: 'organization_create',
@@ -213,3 +222,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

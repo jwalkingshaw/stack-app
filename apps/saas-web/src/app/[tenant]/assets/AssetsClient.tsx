@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, type ChangeEvent } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue, type ChangeEvent } from "react";
+import NextImage from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -20,12 +21,11 @@ import {
   Share2,
   Check,
   X,
-  Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SearchInput } from "@/components/ui/search-input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DeleteConfirmDialog } from "@/components/ui/modal-shells";
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
@@ -45,7 +45,9 @@ import {
 import { AssetViewPanel } from "@/components/dam/asset-view-panel";
 import { BulkActionToolbar } from "@/components/dam/bulk-action-toolbar";
 import { BulkEditorPanel } from "@/components/dam/bulk-editor-panel";
+import { UploadPanel } from "@/components/dam/upload-panel";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContentContainer } from "@/components/ui/page-content-container";
 import type {
   AssetCategory,
   AssetCategoryAssignment,
@@ -56,7 +58,6 @@ import type {
 } from "@stack-app/types";
 import { extractPartnerScopeFromPath, isReservedPartnerScope } from "@/lib/tenant-view-scope";
 import { useMarketContext } from "@/components/market-context";
-import { stageAssetUploadFiles } from "@/lib/asset-upload-staging";
 
 function getFileIcon(mimeType?: string) {
   if (!mimeType) return <FileText className="w-5 h-5 text-gray-500" />;
@@ -72,9 +73,9 @@ const isImageAsset = (asset: Pick<DamAsset, "mimeType" | "fileType">) =>
 const getAssetPreviewUrl = (
   asset: Pick<DamAsset, "thumbnailUrls" | "s3Url"> & { previewUrl?: string | null }
 ) =>
-  asset.previewUrl ||
   asset.thumbnailUrls?.medium ||
   asset.thumbnailUrls?.small ||
+  asset.previewUrl ||
   asset.s3Url;
 
 interface AssetsClientProps {
@@ -103,6 +104,47 @@ type AssetRecord = DamAsset & {
   tenantOwned?: boolean;
 };
 
+type AssetApiRecord = Partial<AssetRecord> & {
+  organization_id?: string;
+  folder_id?: string | null;
+  original_filename?: string;
+  file_type?: string;
+  asset_type?: string;
+  asset_scope?: string;
+  current_version_number?: number | null;
+  current_version_comment?: string | null;
+  current_version_effective_from?: string | null;
+  current_version_effective_to?: string | null;
+  current_version_changed_by?: string | null;
+  current_version_changed_at?: string | null;
+  file_size?: number | string;
+  mime_type?: string;
+  file_path?: string;
+  s3_key?: string;
+  s3_url?: string;
+  thumbnail_urls?: DamAsset["thumbnailUrls"];
+  product_identifiers?: string[];
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  tenant_owned?: boolean;
+  tagAssignments?: AssetTagAssignment[];
+  categoryAssignments?: AssetCategoryAssignment[];
+  categories?: string[];
+  previewUrl?: string | null;
+  favorite?: boolean;
+};
+
+type AssetsListResponsePayload = {
+  data?: {
+    assets?: AssetApiRecord[];
+    folders?: FolderRecord[];
+    tags?: AssetTag[];
+    categories?: AssetCategory[];
+    permissions?: UserPermissions | null;
+  };
+};
+
 type ProductOption = {
   id: string;
   sku?: string;
@@ -124,6 +166,37 @@ type ScopeConstraintOption = {
   value: string;
   label: string;
 };
+
+const FILE_TYPE_OPTIONS = [
+  { value: "all", label: "All types" },
+  { value: "image", label: "Images" },
+  { value: "video", label: "Videos" },
+  { value: "document", label: "Documents" },
+  { value: "other", label: "Other" },
+] as const;
+
+const ASSET_STATUS_OPTIONS = [
+  { value: "all", label: "Any status" },
+  { value: "active", label: "Active" },
+  { value: "draft", label: "Draft" },
+  { value: "archived", label: "Archived" },
+  { value: "retired", label: "Retired" },
+] as const;
+
+const APPROVAL_STATUS_OPTIONS = [
+  { value: "all", label: "Any approval" },
+  { value: "approved", label: "Approved" },
+  { value: "pending", label: "Pending review" },
+  { value: "rejected", label: "Rejected" },
+  { value: "not_required", label: "Not required" },
+] as const;
+
+const COMPLIANCE_STATUS_OPTIONS = [
+  { value: "all", label: "Any compliance" },
+  { value: "approved", label: "Compliant" },
+  { value: "pending", label: "Pending review" },
+  { value: "rejected", label: "Non-compliant" },
+] as const;
 
 const NEW_CONTENT_FILTER_OPTIONS = [
   { value: "all", label: "Any time" },
@@ -150,7 +223,7 @@ const getAssetTagNames = (asset: AssetRecord): string[] => {
     .filter((name): name is string => Boolean(name));
 };
 
-const mapAssetApiToClient = (asset: any): Partial<AssetRecord> => ({
+const mapAssetApiToClient = (asset: AssetApiRecord): Partial<AssetRecord> => ({
   id: asset?.id,
   organizationId: asset?.organization_id ?? asset?.organizationId,
   folderId: asset?.folder_id ?? asset?.folderId ?? null,
@@ -178,7 +251,7 @@ const mapAssetApiToClient = (asset: any): Partial<AssetRecord> => ({
   thumbnailUrls: asset?.thumbnail_urls ?? asset?.thumbnailUrls,
   metadata: asset?.metadata,
   tags: Array.isArray(asset?.tags) ? asset.tags : [],
-  description: asset?.description ?? null,
+  description: asset?.description ?? undefined,
   productIdentifiers:
     asset?.product_identifiers ?? asset?.productIdentifiers ?? [],
   createdBy: asset?.created_by ?? asset?.createdBy ?? "",
@@ -190,9 +263,27 @@ const mapAssetApiToClient = (asset: any): Partial<AssetRecord> => ({
       : typeof asset?.tenantOwned === "boolean"
         ? asset.tenantOwned
         : undefined,
+  // Structured fields — returned camelCase from mapDamAsset
+  assetStatus: (asset as DamAsset)?.assetStatus ?? 'active',
+  complianceStatus: (asset as DamAsset)?.complianceStatus ?? null,
+  brandLegalApproval: (asset as DamAsset)?.brandLegalApproval ?? null,
+  artworkType: (asset as DamAsset)?.artworkType ?? null,
+  printVsDigital: (asset as DamAsset)?.printVsDigital ?? 'digital',
+  wadaRiskLevel: (asset as DamAsset)?.wadaRiskLevel ?? 'none',
+  certifications: (asset as DamAsset)?.certifications ?? [],
+  regulatoryRegion: (asset as DamAsset)?.regulatoryRegion ?? [],
+  athleteNames: (asset as DamAsset)?.athleteNames ?? [],
+  usagePlatforms: (asset as DamAsset)?.usagePlatforms ?? [],
+  visibleClaims: (asset as DamAsset)?.visibleClaims ?? [],
+  claimsApprovedMarkets: (asset as DamAsset)?.claimsApprovedMarkets ?? [],
+  talentPresent: (asset as DamAsset)?.talentPresent ?? null,
+  releaseOnFile: (asset as DamAsset)?.releaseOnFile ?? null,
+  usageEnd: (asset as DamAsset)?.usageEnd ?? null,
+  expirationDate: (asset as DamAsset)?.expirationDate ?? null,
+  altText: (asset as DamAsset)?.altText ?? null,
 });
 
-const normalizeAssetRecord = (asset: any): AssetRecord => ({
+const normalizeAssetRecord = (asset: AssetApiRecord): AssetRecord => ({
   ...(mapAssetApiToClient(asset) as AssetRecord),
   tagAssignments: Array.isArray(asset?.tagAssignments) ? asset.tagAssignments : [],
   categoryAssignments: Array.isArray(asset?.categoryAssignments)
@@ -251,12 +342,11 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const {
-    channels,
     locales,
     markets,
-    selectedChannelId,
     selectedLocaleId,
     selectedMarketId,
+    isReady: isMarketContextReady,
   } = useMarketContext();
   const partnerPathScope = useMemo(
     () => extractPartnerScopeFromPath(pathname, tenantSlug),
@@ -279,6 +369,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
     return (searchParams.get("brand") || "").trim().toLowerCase();
   }, [partnerPathScope, searchParams, selectedBrandSlugProp, tenantSlug]);
+  const initialSearchQuery = useMemo(
+    () => (searchParams.get("q") || "").trim(),
+    [searchParams]
+  );
   const isSharedBrandView =
     selectedBrandSlug.length > 0 && selectedBrandSlug !== tenantSlug.toLowerCase();
   // Always use API preview URLs so thumbnails render consistently regardless of bucket ACL.
@@ -294,20 +388,27 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [viewMode, setViewMode] = useState("grid"); // grid, list, visual
   const [isUploadDropActive, setIsUploadDropActive] = useState(false);
+  const [isUploadPanelOpen, setIsUploadPanelOpen] = useState(false);
+  const [uploadPanelInitialFiles, setUploadPanelInitialFiles] = useState<File[]>([]);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
   const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
   const [filterTag, setFilterTag] = useState("");
+  const [filterFileType, setFilterFileType] = useState("all");
+  const [filterAssetStatus, setFilterAssetStatus] = useState("all");
+  const [filterApprovalStatus, setFilterApprovalStatus] = useState("all");
+  const [filterComplianceStatus, setFilterComplianceStatus] = useState("all");
   const [newContentFilter, setNewContentFilter] = useState<string>("all");
   const [updatedContentFilter, setUpdatedContentFilter] = useState<string>("all");
-  const [isQuickFiltersCollapsed, setIsQuickFiltersCollapsed] = useState(false);
-  const [sortBy, setSortBy] = useState("name"); // name, date, size, type
+  const [sortBy, setSortBy] = useState("lastReplaced"); // lastReplaced, date, size, type, name
   const [selectedAsset, setSelectedAsset] = useState<AssetRecord | null>(null);
   const [isViewOpen, setIsViewOpen] = useState(false);
-  const [isBulkMode, setIsBulkMode] = useState(false);
   const [isBulkEditorOpen, setIsBulkEditorOpen] = useState(false);
+  const [isFoldersSectionCollapsed, setIsFoldersSectionCollapsed] = useState(false);
+  const [isAssetsSectionCollapsed, setIsAssetsSectionCollapsed] = useState(false);
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderParentId, setNewFolderParentId] = useState<string | null>(null);
@@ -324,6 +425,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
   const [isTransferringFolderContents, setIsTransferringFolderContents] = useState(false);
   const [isTransferPreviewLoading, setIsTransferPreviewLoading] = useState(false);
+  const [showDeleteAssetsDialog, setShowDeleteAssetsDialog] = useState(false);
+  const [pendingDeleteAssetIds, setPendingDeleteAssetIds] = useState<string[]>([]);
+  const [assetDeleteError, setAssetDeleteError] = useState<string | null>(null);
+  const [isDeletingAssets, setIsDeletingAssets] = useState(false);
   const [productOptions, setProductOptions] = useState<ProductOption[]>([]);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [shareSetOptions, setShareSetOptions] = useState<AssetShareSetOption[]>([]);
@@ -335,7 +440,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const [shareDialogError, setShareDialogError] = useState<string | null>(null);
   const [shareStatusMessage, setShareStatusMessage] = useState<string | null>(null);
   const [shareMarketIds, setShareMarketIds] = useState<string[]>([]);
-  const [shareChannelIds, setShareChannelIds] = useState<string[]>([]);
   const [shareLocaleIds, setShareLocaleIds] = useState<string[]>([]);
   const [lastVisitedAt, setLastVisitedAt] = useState<string | null>(null);
   const [replaceTargetAssetId, setReplaceTargetAssetId] = useState<string | null>(null);
@@ -346,20 +450,31 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const productsParam = searchParams.get("products") || searchParams.get("product");
   const newContentParam = searchParams.get("new");
   const updatedContentParam = searchParams.get("updated");
+  const assetParam = searchParams.get("asset");
 
-  const buildScopedQuery = () => {
+  useEffect(() => {
+    setSearchQuery(initialSearchQuery);
+  }, [initialSearchQuery]);
+
+  const buildScopedQuery = useCallback(() => {
     const queryParams = new URLSearchParams();
     if (isPartnerAllView) {
       queryParams.set("view", "all");
     }
-    if (selectedFolderId && selectedFolderId !== "unfiled") {
-      queryParams.set("folderId", selectedFolderId);
-    }
+    // Folder filtering is done client-side via filteredAssets — no server-side folderId filter
     if (selectedProductIds.length > 0) {
       queryParams.set("productIds", selectedProductIds.join(","));
     }
     if (selectedBrandSlug) {
       queryParams.set("brand", selectedBrandSlug);
+    }
+    const normalizedSearch = deferredSearchQuery.trim();
+    if (normalizedSearch.length >= 2) {
+      queryParams.set("q", normalizedSearch);
+    }
+
+    if (selectedMarketId) {
+      queryParams.set("marketId", selectedMarketId);
     }
 
     if (newContentFilter === "since_last_visit") {
@@ -383,9 +498,18 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     }
 
     return queryParams.toString();
-  };
+  }, [
+    deferredSearchQuery,
+    isPartnerAllView,
+    selectedProductIds,
+    selectedBrandSlug,
+    selectedMarketId,
+    newContentFilter,
+    updatedContentFilter,
+    lastVisitedAt,
+  ]);
 
-  const buildAssetPreviewProxyUrl = (assetId: string, versionToken?: string | null) => {
+  const buildAssetPreviewProxyUrl = useCallback((assetId: string, versionToken?: string | null) => {
     const queryParams = new URLSearchParams();
     if (isPartnerAllView) {
       queryParams.set("view", "all");
@@ -398,16 +522,16 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     }
     const queryString = queryParams.toString();
     return `/api/${tenantSlug}/assets/${assetId}/preview${queryString ? `?${queryString}` : ""}`;
-  };
+  }, [isPartnerAllView, selectedBrandSlug, tenantSlug]);
 
-  const withPreviewUrls = (assetList: AssetRecord[]): AssetRecord[] =>
+  const withPreviewUrls = useCallback((assetList: AssetRecord[]): AssetRecord[] =>
     assetList.map((asset) => ({
       ...asset,
       previewUrl: buildAssetPreviewProxyUrl(
         asset.id,
         asset.currentVersionChangedAt || asset.updatedAt || null
       ),
-    }));
+    })), [buildAssetPreviewProxyUrl]);
 
   useEffect(() => {
     if (!folderParam) {
@@ -483,24 +607,23 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
           throw new Error(`Failed to fetch assets: ${response.status}`);
         }
 
-        const { data } = await response.json();
+        const payload = (await response.json()) as AssetsListResponsePayload;
+        const data = payload.data;
         console.log('📥 Assets data received:', data);
 
+        const assetList = Array.isArray(data?.assets) ? data.assets : [];
         setAssets(
-          withPreviewUrls(((data.assets || []) as any[]).map((asset) => normalizeAssetRecord(asset)))
+          withPreviewUrls(assetList.map((asset) => normalizeAssetRecord(asset)))
         );
-        const folderList = (data.folders || []) as FolderRecord[];
+        const folderList = Array.isArray(data?.folders) ? data.folders : [];
         setFolders(folderList);
         setFolderTree(buildFolderTree(folderList));
-        setAvailableTags((data.tags || []) as AssetTag[]);
-        setAvailableCategories((data.categories || []) as AssetCategory[]);
-        setUserPermissions((data.permissions || null) as UserPermissions | null);
+        setAvailableTags(Array.isArray(data?.tags) ? data.tags : []);
+        setAvailableCategories(Array.isArray(data?.categories) ? data.categories : []);
+        setUserPermissions(data?.permissions ?? null);
       } catch (error) {
-        if ((error as Error)?.name === "AbortError") {
-          return;
-        }
+        if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
         console.error('Failed to fetch assets data:', error);
-        // Fallback to empty arrays on error
         setAssets([]);
         setFolders([]);
         setFolderTree([]);
@@ -514,22 +637,27 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       }
     };
 
-    if (tenantSlug) {
-      fetchAssetsData();
-    }
-    return () => controller.abort();
+    if (!tenantSlug) return () => { controller.abort(); };
+    if (!isMarketContextReady) return () => { controller.abort(); };
+    if (markets.length > 0 && !selectedMarketId) return () => { controller.abort(); };
+
+    void fetchAssetsData();
+    return () => { controller.abort(); };
   }, [
     tenantSlug,
-    selectedFolderId,
+    isMarketContextReady,
+    markets.length,
     selectedProductIds,
     selectedBrandSlug,
     newContentFilter,
     updatedContentFilter,
     lastVisitedAt,
+    buildScopedQuery,
+    withPreviewUrls,
   ]);
 
   // Refresh assets function
-  const refreshAssets = async () => {
+  const refreshAssets = useCallback(async () => {
     try {
       console.log('🔄 Refreshing assets...');
       const queryString = buildScopedQuery();
@@ -538,21 +666,23 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         throw new Error(`Failed to fetch assets: ${response.status}`);
       }
 
-      const { data } = await response.json();
+      const payload = (await response.json()) as AssetsListResponsePayload;
+      const data = payload.data;
+      const assetList = Array.isArray(data?.assets) ? data.assets : [];
       setAssets(
-        withPreviewUrls(((data.assets || []) as any[]).map((asset) => normalizeAssetRecord(asset)))
+        withPreviewUrls(assetList.map((asset) => normalizeAssetRecord(asset)))
       );
-      const folderList = (data.folders || []) as FolderRecord[];
+      const folderList = Array.isArray(data?.folders) ? data.folders : [];
       setFolders(folderList);
       setFolderTree(buildFolderTree(folderList));
-      setAvailableTags((data.tags || []) as AssetTag[]);
-      setAvailableCategories((data.categories || []) as AssetCategory[]);
-      setUserPermissions((data.permissions || null) as UserPermissions | null);
+      setAvailableTags(Array.isArray(data?.tags) ? data.tags : []);
+      setAvailableCategories(Array.isArray(data?.categories) ? data.categories : []);
+      setUserPermissions(data?.permissions ?? null);
       console.log('✅ Assets refreshed');
     } catch (error) {
       console.error('Failed to refresh assets:', error);
     }
-  };
+  }, [buildScopedQuery, tenantSlug, withPreviewUrls]);
 
   useEffect(() => {
     if (!tenantSlug) return;
@@ -578,20 +708,15 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         const payload = await response.json();
         setProductOptions((payload?.data || []) as ProductOption[]);
       } catch (error) {
-        if ((error as Error)?.name === "AbortError") {
-          return;
-        }
+        if (controller.signal.aborted || (error as Error)?.name === "AbortError") return;
         console.warn("Product options unavailable for asset filter.");
         setProductOptions([]);
       }
     };
 
-    fetchProductOptions();
+    void fetchProductOptions();
     return () => controller.abort();
   }, [isPartnerAllView, tenantSlug, selectedBrandSlug]);
-
-  const storageUsed = 1024 * 1024 * 500; // 500MB
-  const storageLimit = 5368709120; // 5GB
 
   const filteredAssets = assets
     .filter(asset => {
@@ -606,18 +731,50 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       const matchesFolder =
         !selectedFolderId ||
         (selectedFolderId === "unfiled" ? !asset.folderId : asset.folderId === selectedFolderId);
-      return matchesSearch && matchesFilter && matchesFolder;
+      const matchesFileType =
+        filterFileType === "all" ||
+        (asset as DamAsset).fileType === filterFileType ||
+        (filterFileType === "image" && (asset.mimeType?.startsWith("image/") ?? false)) ||
+        (filterFileType === "video" && (asset.mimeType?.startsWith("video/") ?? false)) ||
+        (filterFileType === "document" &&
+          (asset.mimeType?.includes("pdf") ||
+            asset.mimeType?.includes("word") ||
+            asset.mimeType?.includes("spreadsheet") ||
+            asset.mimeType?.includes("presentation") ||
+            (asset as DamAsset).fileType === "document"));
+      const matchesAssetStatus =
+        filterAssetStatus === "all" || (asset as DamAsset).assetStatus === filterAssetStatus;
+      const matchesApproval =
+        filterApprovalStatus === "all" ||
+        ((asset as DamAsset).brandLegalApproval ?? "pending") === filterApprovalStatus;
+      const matchesCompliance =
+        filterComplianceStatus === "all" ||
+        ((asset as DamAsset).complianceStatus ?? "pending") === filterComplianceStatus;
+      return (
+        matchesSearch &&
+        matchesFilter &&
+        matchesFolder &&
+        matchesFileType &&
+        matchesAssetStatus &&
+        matchesApproval &&
+        matchesCompliance
+      );
     })
     .sort((a, b) => {
       switch (sortBy) {
-        case "name":
-          return a.originalFilename.localeCompare(b.originalFilename);
+        case "lastReplaced":
+          return (
+            new Date(b.currentVersionChangedAt ?? b.createdAt).getTime() -
+            new Date(a.currentVersionChangedAt ?? a.createdAt).getTime()
+          );
         case "date":
           return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         case "size":
           return b.fileSize - a.fileSize;
         case "type":
           return a.fileType.localeCompare(b.fileType);
+        case "name":
+          return a.originalFilename.localeCompare(b.originalFilename);
         default:
           return 0;
       }
@@ -625,7 +782,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   useEffect(() => {
     if ((newContentFilter !== "all" || updatedContentFilter !== "all") && sortBy === "name") {
-      setSortBy("date");
+      setSortBy("lastReplaced");
     }
   }, [newContentFilter, updatedContentFilter, sortBy]);
 
@@ -712,9 +869,13 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const activeQuickFilterCount =
     (selectedProductIds.length > 0 ? 1 : 0) +
     (filterTag ? 1 : 0) +
+    (filterFileType !== "all" ? 1 : 0) +
+    (filterAssetStatus !== "all" ? 1 : 0) +
+    (filterApprovalStatus !== "all" ? 1 : 0) +
+    (filterComplianceStatus !== "all" ? 1 : 0) +
     (newContentFilter !== "all" ? 1 : 0) +
     (updatedContentFilter !== "all" ? 1 : 0) +
-    (sortBy !== "name" ? 1 : 0);
+    (sortBy !== "lastReplaced" ? 1 : 0);
 
   useEffect(() => {
     if (!selectedFolderId || selectedFolderId === "unfiled") return;
@@ -990,7 +1151,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div
-                className={`group flex items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors ${
+                className={`group flex min-w-0 items-center gap-2 overflow-hidden rounded-lg px-2 py-2 text-sm transition-colors ${
                   isSelected
                     ? "bg-primary/10 text-primary"
                     : isFolderChecked
@@ -1003,8 +1164,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                     onClick={(event) => toggleFolderSelection(folder.id, event)}
                     className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border ${
                       isFolderChecked
-                        ? "border-blue-500 bg-blue-600 text-white"
-                        : "border-border bg-background hover:border-blue-400"
+                        ? "border-[var(--color-accent-black)] bg-[var(--color-accent-black)] text-white"
+                        : "border-border bg-background hover:border-[var(--color-accent-black-hover)]"
                     }`}
                     aria-label={isFolderChecked ? "Deselect folder" : "Select folder"}
                   >
@@ -1023,7 +1184,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                 )}
                 <button
                   onClick={() => handleSelectFolder(folder.id)}
-                  className="flex flex-1 items-center gap-2 text-left"
+                  className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left"
                 >
                   {isExpanded ? (
                     <FolderOpen className="h-4 w-4 text-primary" />
@@ -1095,20 +1256,11 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     });
   };
 
-  // Handle navigation to upload page
+  // Handle opening upload panel
   const handleNavigateToUpload = () => {
-    if (isSharedBrandView) {
-      return;
-    }
-    const uploadParams = new URLSearchParams();
-    if (selectedFolderId && selectedFolderId !== "unfiled") {
-      uploadParams.set("folderId", selectedFolderId);
-    } else if (selectedFolderId === "unfiled") {
-      uploadParams.set("folderId", "none");
-    }
-    router.push(
-      `/${tenantSlug}/assets/upload${uploadParams.toString() ? `?${uploadParams.toString()}` : ""}`
-    );
+    if (isSharedBrandView) return;
+    setUploadPanelInitialFiles([]);
+    setIsUploadPanelOpen(true);
   };
 
   const isFileDragEvent = (event: React.DragEvent) =>
@@ -1154,33 +1306,27 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     );
     if (files.length === 0) return;
 
-    const uploadToken = stageAssetUploadFiles(files);
-    if (!uploadToken) return;
-
-    const uploadParams = new URLSearchParams();
-    uploadParams.set("uploadToken", uploadToken);
-    if (selectedFolderId && selectedFolderId !== "unfiled") {
-      uploadParams.set("folderId", selectedFolderId);
-    } else {
-      uploadParams.set("folderId", "none");
-    }
-
-    router.push(`/${tenantSlug}/assets/upload?${uploadParams.toString()}`);
+    setUploadPanelInitialFiles(files);
+    setIsUploadPanelOpen(true);
   };
 
   const canEditAssets = !isSharedBrandView && Boolean(userPermissions?.can_edit_products);
   const canManageLibrary = canEditAssets;
-  const isAssetOwnedByTenant = (asset: AssetRecord | null | undefined) => {
+  const isAssetOwnedByTenant = useCallback((asset: AssetRecord | null | undefined) => {
     if (!asset) return false;
     if (typeof asset.tenantOwned === "boolean") {
       return asset.tenantOwned;
     }
     return !isSharedBrandView;
-  };
-  const canMutateAsset = (asset: AssetRecord | null | undefined) =>
-    canEditAssets && isAssetOwnedByTenant(asset);
-  const selectableAssetIds = new Set(
-    filteredAssets.filter((asset) => canMutateAsset(asset)).map((asset) => asset.id)
+  }, [isSharedBrandView]);
+  const canMutateAsset = useCallback((asset: AssetRecord | null | undefined) =>
+    canEditAssets && isAssetOwnedByTenant(asset), [canEditAssets, isAssetOwnedByTenant]);
+  const selectableAssetIds = useMemo(
+    () =>
+      new Set(
+        filteredAssets.filter((asset) => canMutateAsset(asset)).map((asset) => asset.id)
+      ),
+    [filteredAssets, canMutateAsset]
   );
   const selectedAssetCount = selectedAssetIds.size;
   const selectedFolderCount = selectedFolderIds.size;
@@ -1220,15 +1366,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     [markets]
   );
 
-  const shareChannelOptions = useMemo<ScopeConstraintOption[]>(
-    () =>
-      channels.map((channel) => ({
-        value: channel.id,
-        label: `${channel.name} (${channel.code})`,
-      })),
-    [channels]
-  );
-
   const shareLocaleOptions = useMemo<ScopeConstraintOption[]>(
     () =>
       locales.map((locale) => ({
@@ -1240,13 +1377,11 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   const applyCurrentScopeToShareSelection = () => {
     setShareMarketIds(selectedMarketId ? [selectedMarketId] : []);
-    setShareChannelIds(selectedChannelId ? [selectedChannelId] : []);
     setShareLocaleIds(selectedLocaleId ? [selectedLocaleId] : []);
   };
 
   const clearShareScopeConstraints = () => {
     setShareMarketIds([]);
-    setShareChannelIds([]);
     setShareLocaleIds([]);
   };
 
@@ -1263,7 +1398,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       };
 
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to load asset sets");
+        throw new Error(payload.error || "Failed to load asset saved scopes");
       }
 
       const options = payload.data?.asset_sets || [];
@@ -1277,7 +1412,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       return options;
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to load asset sets";
+        error instanceof Error ? error.message : "Failed to load asset saved scopes";
       setShareDialogError(message);
       setShareSetOptions([]);
       setSelectedShareSetId("");
@@ -1330,7 +1465,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       };
 
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to create set.");
+        throw new Error(payload.error || "Failed to create asset saved scope.");
       }
 
       const createdId = payload.data?.id || "";
@@ -1358,7 +1493,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       await fetchShareSetOptions();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to create set.";
+        error instanceof Error ? error.message : "Failed to create asset saved scope.";
       setShareDialogError(message);
     } finally {
       setIsCreatingShareSet(false);
@@ -1373,6 +1508,14 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     });
     setIsViewOpen(true);
   };
+
+  // Auto-open viewer when ?asset= query param is present
+  useEffect(() => {
+    if (!assetParam || loading || isViewOpen) return;
+    const target = assets.find((a) => a.id === assetParam);
+    if (target) handleViewAsset(target);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assetParam, assets, loading]);
 
   const selectedAssetIndex = selectedAsset
     ? filteredAssets.findIndex((asset) => asset.id === selectedAsset.id)
@@ -1496,7 +1639,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     }
   };
 
-  const handleVersionCreated = async (updatedAsset: Record<string, any>) => {
+  const handleVersionCreated = async (updatedAsset: AssetApiRecord) => {
     if (!updatedAsset?.id) {
       await refreshAssets();
       return;
@@ -1569,7 +1712,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     });
   };
 
-  const handleSelectAll = () => {
+  const handleSelectAll = useCallback(() => {
     const selectableIds = filteredAssets
       .filter((asset) => selectableAssetIds.has(asset.id))
       .map((asset) => asset.id);
@@ -1583,12 +1726,11 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       // Select all filtered assets
       setSelectedAssetIds(new Set(selectableIds));
     }
-  };
+  }, [filteredAssets, selectableAssetIds, selectedAssetIds]);
 
   const handleClearSelection = () => {
     setSelectedAssetIds(new Set());
     setSelectedFolderIds(new Set());
-    setIsBulkMode(false);
     setIsBulkEditorOpen(false);
   };
 
@@ -1597,6 +1739,17 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     console.log('🔵 Opening bulk editor for assets:', selectedAssetIds);
     setIsBulkEditorOpen(true);
   };
+
+  const handleUploadPanelDone = useCallback(
+    async () => {
+      await refreshAssets();
+    },
+    [refreshAssets]
+  );
+
+  const handleFileUploaded = useCallback(() => {
+    void refreshAssets();
+  }, [refreshAssets]);
 
   const handleBulkTag = () => {
     // Quick tag mode - open bulk editor with tags pre-selected
@@ -1608,47 +1761,85 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
     // TODO: Implement folder selection modal
   };
 
-  const handleBulkDelete = async () => {
-    const deletableAssetIds = Array.from(selectedAssetIds).filter((assetId) => {
+  const openAssetDeleteDialog = useCallback((assetIds: string[]) => {
+    const deletableAssetIds = assetIds.filter((assetId) => {
       const asset = assets.find((row) => row.id === assetId);
       return canMutateAsset(asset);
     });
     if (deletableAssetIds.length === 0) return;
-    const confirmed = confirm(
-      `Delete ${deletableAssetIds.length} assets? This action cannot be undone.`
-    );
-    if (!confirmed) return;
+    setPendingDeleteAssetIds(deletableAssetIds);
+    setAssetDeleteError(null);
+    setShowDeleteAssetsDialog(true);
+  }, [assets, canMutateAsset]);
+
+  const handleBulkDelete = useCallback(async () => {
+    openAssetDeleteDialog(Array.from(selectedAssetIds));
+  }, [openAssetDeleteDialog, selectedAssetIds]);
+
+  const handleConfirmAssetDelete = useCallback(async () => {
+    if (pendingDeleteAssetIds.length === 0 || isDeletingAssets) return;
+
+    setIsDeletingAssets(true);
+    setAssetDeleteError(null);
+
+    const deletedIds: string[] = [];
+    const failures: string[] = [];
 
     try {
-      await Promise.all(
-        deletableAssetIds.map(async (assetId) => {
+      for (const assetId of pendingDeleteAssetIds) {
+        const assetRecord = assets.find((row) => row.id === assetId);
+        const assetLabel = assetRecord?.originalFilename || assetRecord?.filename || assetId;
+
+        try {
           const response = await fetch(`/api/${tenantSlug}/assets/${assetId}`, {
             method: 'DELETE',
           });
           if (!response.ok) {
-            throw new Error(`Failed to delete asset ${assetId}: ${response.status}`);
+            failures.push(`${assetLabel} (${response.status})`);
+            continue;
           }
-        })
-      );
+          deletedIds.push(assetId);
+        } catch {
+          failures.push(assetLabel);
+        }
+      }
 
-      setAssets((prevAssets) =>
-        prevAssets.filter((asset) => !deletableAssetIds.includes(asset.id))
-      );
-      setSelectedAssetIds(new Set());
-      setIsBulkMode(false);
-      setIsBulkEditorOpen(false);
+      if (deletedIds.length > 0) {
+        setAssets((prevAssets) => prevAssets.filter((asset) => !deletedIds.includes(asset.id)));
+        setSelectedAssetIds((prev) => {
+          const next = new Set(prev);
+          deletedIds.forEach((id) => next.delete(id));
+          return next;
+        });
+        setPendingDeleteAssetIds((prev) => prev.filter((id) => !deletedIds.includes(id)));
+        setIsBulkEditorOpen(false);
 
-      if (selectedAsset && deletableAssetIds.includes(selectedAsset.id)) {
-        setIsViewOpen(false);
-        setSelectedAsset(null);
+        if (selectedAsset && deletedIds.includes(selectedAsset.id)) {
+          setIsViewOpen(false);
+          setSelectedAsset(null);
+        }
+
+        setShareStatusMessage(
+          `Deleted ${deletedIds.length} asset${deletedIds.length === 1 ? "" : "s"}.`
+        );
+      }
+
+      if (failures.length > 0) {
+        const preview = failures.slice(0, 3).join(", ");
+        const suffix = failures.length > 3 ? ` (+${failures.length - 3} more)` : "";
+        setAssetDeleteError(
+          `Could not delete ${failures.length} asset${failures.length === 1 ? "" : "s"}: ${preview}${suffix}`
+        );
+      } else {
+        setShowDeleteAssetsDialog(false);
+        setPendingDeleteAssetIds([]);
       }
 
       await refreshAssets();
-    } catch (error) {
-      console.error('Failed to bulk delete assets:', error);
-      throw error;
+    } finally {
+      setIsDeletingAssets(false);
     }
-  };
+  }, [assets, isDeletingAssets, pendingDeleteAssetIds, refreshAssets, selectedAsset, tenantSlug]);
 
   const handleBulkShare = () => {
     void openShareDialog();
@@ -1731,7 +1922,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
-        data?: Record<string, any>;
+        data?: AssetApiRecord;
       };
 
       if (!response.ok) {
@@ -1757,7 +1948,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   const handleConfirmShareSelection = async () => {
     if (!selectedShareSetId) {
-      setShareDialogError("Select a set first.");
+      setShareDialogError("Select a saved scope first.");
       return;
     }
     if (totalSelectedShareItems === 0) {
@@ -1774,7 +1965,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
           resourceType: "asset",
           resourceId,
           marketIds: shareMarketIds,
-          channelIds: shareChannelIds,
           localeIds: shareLocaleIds,
         })),
         ...Array.from(selectedFolderIds).map((resourceId) => ({
@@ -1782,7 +1972,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
           resourceId,
           includeDescendants: true,
           marketIds: shareMarketIds,
-          channelIds: shareChannelIds,
           localeIds: shareLocaleIds,
         })),
       ];
@@ -1804,17 +1993,17 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         error?: string;
       };
       if (!response.ok) {
-        throw new Error(payload.error || `Failed to update set (${response.status})`);
+        throw new Error(payload.error || `Failed to update saved scope (${response.status})`);
       }
 
       setIsShareDialogOpen(false);
       setShareStatusMessage(
-        `Added ${selectionSummaryLabel} to the selected set.`
+        `Added ${selectionSummaryLabel} to the selected saved scope.`
       );
       handleClearSelection();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to update set.";
+        error instanceof Error ? error.message : "Failed to update saved scope.";
       setShareDialogError(message);
     } finally {
       setIsSubmittingShare(false);
@@ -1862,43 +2051,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
   const selectableCount = selectableAssetIds.size;
   const selectedSelectableCount = selectedAssets.length;
   const isAllSelected = selectableCount > 0 && selectedSelectableCount === selectableCount;
-  const isPartiallySelected =
-    selectedSelectableCount > 0 && selectedSelectableCount < selectableCount;
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + A for select all
-      if ((e.metaKey || e.ctrlKey) && e.key === 'a' && filteredAssets.length > 0) {
-        e.preventDefault();
-        handleSelectAll();
-      }
-      // Escape to clear selection
-      if (e.key === 'Escape' && totalSelectedShareItems > 0) {
-        handleClearSelection();
-      }
-      // Delete key for bulk delete
-      if (
-        e.key === 'Delete' &&
-        selectedAssetIds.size > 0 &&
-        !isViewOpen &&
-        !isBulkEditorOpen &&
-        !isSharedBrandView
-      ) {
-        handleBulkDelete();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [
-    filteredAssets.length,
-    selectedAssetIds.size,
-    totalSelectedShareItems,
-    isViewOpen,
-    isBulkEditorOpen,
-    isSharedBrandView,
-  ]);
+  // Keyboard shortcuts intentionally disabled.
 
   const getGridClasses = () => {
     switch (viewMode) {
@@ -1953,9 +2107,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={() => {
-                const confirmed = confirm(`Delete "${asset.originalFilename}"?`);
-                if (!confirmed) return;
-                void handleDeleteAsset(asset.id);
+                openAssetDeleteDialog([asset.id]);
               }}
               className="text-destructive"
             >
@@ -1970,198 +2122,80 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Assets" />
-      {isSharedBrandView ? (
-        <div className="mx-6 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          Viewing shared assets from <span className="font-medium text-foreground">{selectedBrandSlug}</span>.
-          Uploading and editing are disabled in shared view.
-        </div>
-      ) : isPartnerAllView ? (
-        <div className="mx-6 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          Viewing your library plus brand-shared assets in one workspace.
-          Shared brand assets are read-only.
-        </div>
-      ) : null}
-      <div className="flex gap-4 p-4">
-        {/* Folder Sidebar */}
-        <aside className="w-64 shrink-0 space-y-4">
-          <div className="rounded-xl bg-muted/20 p-4">
+      <PageHeader
+        title="Assets"
+      />
+      <PageContentContainer mode="fluid" padding="page" className="space-y-4">
+        {isSharedBrandView ? (
+          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Viewing shared assets from <span className="font-medium text-foreground">{selectedBrandSlug}</span>.
+            Uploading and editing are disabled in shared view.
+          </div>
+        ) : isPartnerAllView ? (
+          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Viewing your library plus brand-shared assets in one workspace.
+            Shared brand assets are read-only.
+          </div>
+        ) : null}
+        <div className="flex gap-4">
+        {/* Sidebar */}
+        <aside className="w-56 shrink-0 space-y-2 overflow-hidden">
+
+          {/* Folders */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Folders</span>
+              {canManageLibrary ? (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  onClick={() => openCreateFolder(selectedFolderId && selectedFolderId !== "unfiled" ? selectedFolderId : null)}
+                  title="New folder"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                </Button>
+              ) : null}
+            </div>
             <button
-              type="button"
-              onClick={() => setIsQuickFiltersCollapsed((prev) => !prev)}
-              className="flex w-full items-center justify-between text-left"
+              onClick={() => handleSelectFolder(null)}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                selectedFolderId === null ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+              }`}
             >
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">Quick Filters</h3>
-                {activeQuickFilterCount > 0 ? (
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
-                    {activeQuickFilterCount} active
-                  </span>
-                ) : null}
-              </div>
-              <ChevronRight
-                className={`h-4 w-4 text-muted-foreground transition-transform ${
-                  isQuickFiltersCollapsed ? "" : "rotate-90"
-                }`}
-              />
+              {selectedFolderId === null ? <FolderOpen className="h-4 w-4 shrink-0" /> : <Folder className="h-4 w-4 shrink-0" />}
+              All assets
             </button>
-            {!isQuickFiltersCollapsed ? (
-              <div className="mt-3 space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                    Product
-                  </label>
-                  <MultiSelect
-                    options={productFilterOptions}
-                    value={selectedProductIds}
-                    onChange={handleSelectProducts}
-                    placeholder="Select one or more products"
-                    className="h-9"
-                    contentClassName="max-h-72 overflow-y-auto"
-                  />
+            <button
+              onClick={() => handleSelectFolder("unfiled")}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                selectedFolderId === "unfiled" ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+              }`}
+            >
+              <Files className="h-4 w-4 shrink-0" />
+              Unfiled
+            </button>
+            <div className="space-y-1 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
+              {folderTree.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border px-3 py-3 text-center">
+                  <p className="text-xs text-muted-foreground mb-2">No folders yet.</p>
+                  {canManageLibrary ? (
+                    <Button size="sm" variant="outline" onClick={() => openCreateFolder(null)}>
+                      Create folder
+                    </Button>
+                  ) : null}
                 </div>
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                    New content
-                  </label>
-                  <Select
-                    value={newContentFilter}
-                    onValueChange={handleSelectNewContentFilter}
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Any time" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {NEW_CONTENT_FILTER_OPTIONS.map((option) => (
-                        <SelectItem
-                          key={option.value}
-                          value={option.value}
-                          disabled={option.value === "since_last_visit" && !lastVisitedAt}
-                        >
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                    Updated
-                  </label>
-                  <Select
-                    value={updatedContentFilter}
-                    onValueChange={handleSelectUpdatedContentFilter}
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Any time" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {UPDATED_FILTER_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                    Tags
-                  </label>
-                  <Select
-                    value={filterTag || "all"}
-                    onValueChange={(value) => setFilterTag(value === "all" ? "" : value)}
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="All tags" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All tags</SelectItem>
-                      {allTags.map((tag) => (
-                        <SelectItem key={tag} value={tag}>
-                          {tag}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs uppercase tracking-wide text-muted-foreground">
-                    Sort
-                  </label>
-                  <Select value={sortBy} onValueChange={setSortBy}>
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Sort by name" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="name">Sort by name</SelectItem>
-                      <SelectItem value="date">Sort by date</SelectItem>
-                      <SelectItem value="size">Sort by size</SelectItem>
-                      <SelectItem value="type">Sort by type</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            ) : null}
+              ) : (
+                renderFolderTree(folderTree)
+              )}
+            </div>
           </div>
 
-          <div className="rounded-xl bg-muted/20 p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground">Library</h3>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="ghost" onClick={() => handleSelectFolder(null)}>
-                  All
-                </Button>
-                {canManageLibrary ? (
-                  <Button size="icon" variant="ghost" onClick={() => openCreateFolder(null)}>
-                    <FolderPlus className="h-4 w-4" />
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-            <div className="mt-3 space-y-1">
-              <button
-                onClick={() => handleSelectFolder(null)}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors ${
-                  !selectedFolderId ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                }`}
-              >
-                <Home className="h-4 w-4" />
-                All Assets
-              </button>
-              <button
-                onClick={() => handleSelectFolder("unfiled")}
-                className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm transition-colors ${
-                  selectedFolderId === "unfiled" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                }`}
-              >
-                <Folder className="h-4 w-4" />
-                Unfiled
-              </button>
-              <div className="pt-2">
-                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">Folders</div>
-                <div className="space-y-1 max-h-[420px] overflow-y-auto pr-1">
-                  {folderTree.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center">
-                      <p className="text-xs text-muted-foreground mb-2">No folders yet.</p>
-                      {canManageLibrary ? (
-                        <Button size="sm" variant="outline" onClick={() => openCreateFolder(null)}>
-                          Create your first folder
-                        </Button>
-                      ) : null}
-                    </div>
-                  ) : (
-                    renderFolderTree(folderTree)
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
         </aside>
 
         {/* Main Content */}
         <div
-          className="relative flex-1 space-y-6"
+          className="relative flex-1 space-y-4"
           onDragEnter={handleUploadDropEnter}
           onDragOver={handleUploadDropOver}
           onDragLeave={handleUploadDropLeave}
@@ -2180,225 +2214,262 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
               </div>
             </div>
           ) : null}
-          {/* Enhanced Search Section */}
-          <div className="bg-background px-1 py-1">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              {/* Search Bar */}
-              <div className="flex-1 max-w-2xl">
-                <SearchInput
-                  value={searchQuery}
-                  onChange={setSearchQuery}
-                  placeholder="Search by filename, tags, description, or product..."
-                  className="max-w-none"
-                />
-                {searchQuery && (
-                  <p className="text-sm text-muted-foreground mt-2 ml-1">
-                    {filteredAssets.length} {filteredAssets.length === 1 ? 'result' : 'results'} for "{searchQuery}"
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {!isSharedBrandView ? (
-                  <Button onClick={handleNavigateToUpload} className="gap-2">
-                    <Upload className="w-4 h-4" />
-                    Upload Assets
-                  </Button>
-                ) : null}
-              </div>
+          {!isSharedBrandView ? (
+            <div className="flex justify-end">
+              <Button onClick={handleNavigateToUpload} className="gap-2 shrink-0">
+                <Upload className="w-4 h-4" />
+                Upload Assets
+              </Button>
             </div>
+          ) : null}
+
+          {/* Horizontal filter bar */}
+          <div className="flex flex-wrap items-center gap-1">
+            {/* File type */}
+            <Select value={filterFileType} onValueChange={setFilterFileType}>
+              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                <span className={`truncate ${filterFileType !== "all" ? "font-medium text-foreground" : ""}`}>{FILE_TYPE_OPTIONS.find(o => o.value === filterFileType)?.label ?? "Type"}</span>
+              </SelectTrigger>
+              <SelectContent className="!w-auto min-w-[160px]">
+                {FILE_TYPE_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Asset status */}
+            <Select value={filterAssetStatus} onValueChange={setFilterAssetStatus}>
+              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                <span className={`truncate ${filterAssetStatus !== "all" ? "font-medium text-foreground" : ""}`}>{ASSET_STATUS_OPTIONS.find(o => o.value === filterAssetStatus)?.label ?? "Status"}</span>
+              </SelectTrigger>
+              <SelectContent className="!w-auto min-w-[160px]">
+                {ASSET_STATUS_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Tag */}
+            <Select value={filterTag || "all"} onValueChange={v => setFilterTag(v === "all" ? "" : v)}>
+              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                <span className={`truncate ${filterTag ? "font-medium text-foreground" : ""}`}>{filterTag || "Tag"}</span>
+              </SelectTrigger>
+              <SelectContent className="!w-auto min-w-[180px]">
+                <SelectItem value="all">All tags</SelectItem>
+                {allTags.map(tag => (
+                  <SelectItem key={tag} value={tag}>{tag}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* New content */}
+            <Select value={newContentFilter} onValueChange={handleSelectNewContentFilter}>
+              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                <span className={`truncate ${newContentFilter !== "all" ? "font-medium text-foreground" : ""}`}>{NEW_CONTENT_FILTER_OPTIONS.find(o => o.value === newContentFilter)?.label ?? "New content"}</span>
+              </SelectTrigger>
+              <SelectContent className="!w-auto min-w-[180px]">
+                {NEW_CONTENT_FILTER_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value} disabled={opt.value === "since_last_visit" && !lastVisitedAt}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Updated */}
+            <Select value={updatedContentFilter} onValueChange={handleSelectUpdatedContentFilter}>
+              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                <span className={`truncate ${updatedContentFilter !== "all" ? "font-medium text-foreground" : ""}`}>{UPDATED_FILTER_OPTIONS.find(o => o.value === updatedContentFilter)?.label ?? "Updated"}</span>
+              </SelectTrigger>
+              <SelectContent className="!w-auto min-w-[180px]">
+                {UPDATED_FILTER_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Brand approval */}
+            <Select value={filterApprovalStatus} onValueChange={setFilterApprovalStatus}>
+              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                <span className={`truncate ${filterApprovalStatus !== "all" ? "font-medium text-foreground" : ""}`}>{APPROVAL_STATUS_OPTIONS.find(o => o.value === filterApprovalStatus)?.label ?? "Approval"}</span>
+              </SelectTrigger>
+              <SelectContent className="!w-auto min-w-[180px]">
+                {APPROVAL_STATUS_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Compliance */}
+            <Select value={filterComplianceStatus} onValueChange={setFilterComplianceStatus}>
+              <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                <span className={`truncate ${filterComplianceStatus !== "all" ? "font-medium text-foreground" : ""}`}>{COMPLIANCE_STATUS_OPTIONS.find(o => o.value === filterComplianceStatus)?.label ?? "Compliance"}</span>
+              </SelectTrigger>
+              <SelectContent className="!w-auto min-w-[180px]">
+                {COMPLIANCE_STATUS_OPTIONS.map(opt => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Clear all filters */}
+            {(filterFileType !== "all" || filterAssetStatus !== "all" || filterTag || newContentFilter !== "all" || updatedContentFilter !== "all" || filterApprovalStatus !== "all" || filterComplianceStatus !== "all" || selectedProductIds.length > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterFileType("all");
+                  setFilterAssetStatus("all");
+                  setFilterTag("");
+                  handleSelectNewContentFilter("all");
+                  handleSelectUpdatedContentFilter("all");
+                  setFilterApprovalStatus("all");
+                  setFilterComplianceStatus("all");
+                  setSelectedProductIds([]);
+                }}
+                className="ml-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors"
+              >
+                <X className="h-3 w-3" />
+                Clear filters
+              </button>
+            )}
           </div>
 
-          <div className="rounded-lg bg-muted/20 px-4 py-3">
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex flex-wrap items-center gap-2 text-sm">
+          {/* Context Bar: breadcrumb/count + filter chips + sort + view switcher */}
+          <div className="flex items-center justify-between gap-3 min-h-[32px]">
+            <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+              {totalSelectedShareItems > 0 ? (
+                <>
                   <button
-                    onClick={() => handleSelectFolder(null)}
-                    className={`rounded px-1.5 py-1 transition-colors ${
-                      !selectedFolderId
-                        ? "bg-primary/10 font-medium text-primary"
-                        : "text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-                    }`}
+                    onClick={handleClearSelection}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors border border-blue-200"
                   >
-                    Folders
+                    <X className="w-3.5 h-3.5" />
+                    <span className="font-medium">{selectionSummaryLabel} selected</span>
                   </button>
-                  {canManageLibrary ? (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() =>
-                        openCreateFolder(
-                          selectedFolderId && selectedFolderId !== "unfiled"
-                            ? selectedFolderId
-                            : null
-                        )
-                      }
-                      aria-label="Create folder"
-                      title="Create folder"
-                      className="h-7 w-7"
-                    >
-                      <FolderPlus className="h-4 w-4" />
-                    </Button>
-                  ) : null}
-                  {selectedFolderId === "unfiled" ? (
-                    <>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      <span className="rounded bg-primary/10 px-2 py-1 font-medium text-primary">
-                        Unfiled
-                      </span>
-                    </>
-                  ) : (
-                    folderBreadcrumb.map((folder, index) => {
-                      const isLast = index === folderBreadcrumb.length - 1;
-                      return (
-                        <div key={folder.id} className="flex items-center gap-2">
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                          {isLast ? (
-                            <span className="rounded bg-primary/10 px-2 py-1 font-medium text-primary">
-                              {folder.name}
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => handleSelectFolder(folder.id)}
-                              className="rounded px-1.5 py-1 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
-                            >
-                              {folder.name}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-              {selectedFolderId === "unfiled" ? (
-                <p className="text-xs text-muted-foreground">
-                  Unfiled assets are not inside any folder.
-                </p>
-              ) : childFoldersForMainNav.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {childFoldersForMainNav.map((folder) => (
-                    <button
-                      key={folder.id}
-                      onClick={() => handleSelectFolder(folder.id)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
-                    >
-                      <Folder className="h-4 w-4" />
-                      <span className="truncate max-w-[180px]">{folder.name}</span>
+                  {selectedAssetCount > 0 ? (
+                    <button onClick={handleSelectAll} className="text-sm text-[var(--color-accent-black)] hover:text-[var(--color-accent-black-hover)] font-medium">
+                      {isAllSelected ? "Deselect all" : "Select all"}
                     </button>
-                  ))}
-                </div>
+                  ) : null}
+                </>
               ) : (
-                <p className="text-xs text-muted-foreground">
-                  No subfolders at this level.
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Enhanced Toolbar */}
-          <div className="bg-background px-4 py-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <div className="flex items-center gap-3">
-                  {totalSelectedShareItems > 0 ? (
-                    <>
-                      <button
-                        onClick={handleClearSelection}
-                        className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors border border-blue-200"
-                      >
-                        <X className="w-4 h-4" />
-                        <span className="font-medium">{selectionSummaryLabel} selected</span>
-                      </button>
-                      {selectedAssetCount > 0 ? (
-                        <button
-                          onClick={handleSelectAll}
-                          className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                        >
-                          {isAllSelected ? 'Deselect all files' : 'Select all files'}
-                        </button>
-                      ) : null}
-                      {!isSharedBrandView && canManageLibrary ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={handleBulkShare}
-                          className="gap-2"
-                        >
-                          <Share2 className="h-4 w-4" />
-                          Share selected
-                        </Button>
-                      ) : null}
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-lg font-semibold text-foreground">
-                        {filteredAssets.length} {filteredAssets.length === 1 ? 'asset' : 'assets'}
+                <>
+                  {/* Breadcrumb or count */}
+                  {selectedFolderId === "unfiled" ? (
+                    <nav className="flex items-center gap-1 text-sm">
+                      <button onClick={() => handleSelectFolder(null)} className="text-muted-foreground hover:text-foreground transition-colors">All Assets</button>
+                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="font-medium text-foreground">Unfiled</span>
+                    </nav>
+                  ) : selectedFolderId ? (
+                    <nav className="flex items-center gap-1 text-sm">
+                      <button onClick={() => handleSelectFolder(null)} className="text-muted-foreground hover:text-foreground transition-colors">All Assets</button>
+                      {folderBreadcrumb.map((folder, index) => {
+                        const isLast = index === folderBreadcrumb.length - 1;
+                        return (
+                          <div key={folder.id} className="flex items-center gap-1">
+                            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                            {isLast ? (
+                              <span className="font-medium text-foreground">{folder.name}</span>
+                            ) : (
+                              <button onClick={() => handleSelectFolder(folder.id)} className="text-muted-foreground hover:text-foreground transition-colors">
+                                {folder.name}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </nav>
+                  ) : searchQuery ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <span>
+                        {filteredAssets.length} result{filteredAssets.length !== 1 ? "s" : ""} for &ldquo;{searchQuery}&rdquo;
                       </span>
-                      {selectableCount > 0 && (
-                        <button
-                          onClick={handleSelectAll}
-                          className="text-sm text-gray-500 hover:text-gray-700"
-                        >
-                          Select all
-                        </button>
-                      )}
-                    </>
-                  )}
-                  {filterTag && (
-                    <div className="flex items-center gap-2 px-3 py-2 bg-primary/10 text-primary rounded text-sm border border-primary/20 shadow-soft">
-                      <Tag className="w-4 h-4" />
-                      <span className="font-medium">{filterTag}</span>
                       <button
-                        onClick={() => setFilterTag("")}
-                        className="ml-1 hover:bg-primary/20 rounded-full p-1 transition-colors w-5 h-5 flex items-center justify-center"
+                        type="button"
+                        onClick={() => setAssetsSearchParam("q", null)}
+                        className="rounded-full border border-border bg-background px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
                       >
-                        ×
+                        Clear
                       </button>
                     </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      {filteredAssets.length} asset{filteredAssets.length !== 1 ? "s" : ""}
+                    </span>
                   )}
-                </div>
-              </div>
+                  {/* Active filter chips */}
+                  {filterTag ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs border border-primary/20">
+                      <Tag className="w-3 h-3" />
+                      {filterTag}
+                      <button onClick={() => setFilterTag("")} className="ml-0.5 hover:bg-primary/20 rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">×</button>
+                    </span>
+                  ) : null}
+                  {selectedProductIds.length > 0 ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs border border-primary/20">
+                      {selectedProductIds.length} product{selectedProductIds.length !== 1 ? "s" : ""}
+                      <button onClick={() => handleSelectProducts([])} className="ml-0.5 hover:bg-primary/20 rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">×</button>
+                    </span>
+                  ) : null}
+                  {newContentFilter !== "all" ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs border border-primary/20">
+                      {NEW_CONTENT_FILTER_OPTIONS.find((o) => o.value === newContentFilter)?.label}
+                      <button onClick={() => handleSelectNewContentFilter("all")} className="ml-0.5 hover:bg-primary/20 rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">×</button>
+                    </span>
+                  ) : null}
+                  {updatedContentFilter !== "all" ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-primary/10 text-primary rounded-full text-xs border border-primary/20">
+                      {UPDATED_FILTER_OPTIONS.find((o) => o.value === updatedContentFilter)?.label}
+                      <button onClick={() => handleSelectUpdatedContentFilter("all")} className="ml-0.5 hover:bg-primary/20 rounded-full w-3.5 h-3.5 flex items-center justify-center leading-none">×</button>
+                    </span>
+                  ) : null}
+                  {selectableCount > 0 && !searchQuery ? (
+                    <button onClick={handleSelectAll} className="text-xs text-muted-foreground hover:text-foreground transition-colors ml-1">
+                      Select all
+                    </button>
+                  ) : null}
+                </>
+              )}
+              {shareStatusMessage ? (
+                <span className="text-sm text-emerald-700 ml-2">{shareStatusMessage}</span>
+              ) : null}
+            </div>
 
-              {/* Enhanced View Switcher */}
-              <div className="flex items-center bg-muted/50 border border-border rounded p-1.5">
+            {/* Sort + View switcher */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="h-8 !w-auto shrink-0 border-0 bg-transparent px-3 text-xs shadow-none hover:bg-[var(--color-secondary-button-hover)] data-[state=open]:bg-[var(--color-secondary-button-hover)] [&_svg]:hidden">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="w-auto min-w-[var(--radix-select-trigger-width)]">
+                  <SelectItem value="lastReplaced" className="whitespace-nowrap">Last Modified</SelectItem>
+                  <SelectItem value="date" className="whitespace-nowrap">Creation Date</SelectItem>
+                  <SelectItem value="size" className="whitespace-nowrap">Size</SelectItem>
+                  <SelectItem value="type" className="whitespace-nowrap">Type</SelectItem>
+                  <SelectItem value="name" className="whitespace-nowrap">File Name</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="flex items-center bg-muted/50 border border-border rounded p-0.5">
                 <button
                   onClick={() => setViewMode("grid")}
-                  className={`px-3 py-2 text-sm transition-all duration-200 rounded-lg ${
-                    viewMode === "grid"
-                      ? "bg-background text-primary border border-primary/20"
-                      : "hover:bg-background/50 text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`p-1.5 rounded transition-all ${viewMode === "grid" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                 >
-                  <Grid3X3 className="w-4 h-4" />
+                  <Grid3X3 className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setViewMode("list")}
-                  className={`px-3 py-2 text-sm transition-all duration-200 rounded-lg ${
-                    viewMode === "list"
-                      ? "bg-background text-primary border border-primary/20"
-                      : "hover:bg-background/50 text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`p-1.5 rounded transition-all ${viewMode === "list" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                 >
-                  <List className="w-4 h-4" />
+                  <List className="w-3.5 h-3.5" />
                 </button>
                 <button
                   onClick={() => setViewMode("visual")}
-                  className={`px-3 py-2 text-sm transition-all duration-200 rounded-lg ${
-                    viewMode === "visual"
-                      ? "bg-background text-primary border border-primary/20"
-                      : "hover:bg-background/50 text-muted-foreground hover:text-foreground"
-                  }`}
+                  className={`p-1.5 rounded transition-all ${viewMode === "visual" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                   title="Visual scan"
                 >
-                  <LayoutGrid className="w-4 h-4" />
+                  <LayoutGrid className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
-            {shareStatusMessage ? (
-              <p className="mt-3 text-sm text-emerald-700">{shareStatusMessage}</p>
-            ) : null}
           </div>
 
           {/* Content Area */}
@@ -2415,6 +2486,52 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                 ))}
               </div>
             ) : (
+              <>
+                {/* Folders section — shown at root level and inside folders */}
+                {!searchQuery && childFoldersForMainNav.length > 0 && selectedFolderId !== "unfiled" ? (
+                  <div className="pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsFoldersSectionCollapsed((v) => !v)}
+                      className="flex items-center gap-2 mb-3 group"
+                    >
+                      <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isFoldersSectionCollapsed ? "" : "rotate-90"}`} />
+                      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
+                        Folders
+                      </span>
+                      <span className="text-xs text-muted-foreground/60">{childFoldersForMainNav.length}</span>
+                    </button>
+                    {!isFoldersSectionCollapsed && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+                        {childFoldersForMainNav.map((folder) => (
+                          <button
+                            key={`folder-${folder.id}`}
+                            type="button"
+                            onClick={() => handleSelectFolder(folder.id)}
+                            className="group flex items-center gap-2.5 rounded-lg border border-border bg-muted/60 px-3 py-3 text-left transition-all hover:border-primary/40 hover:bg-muted/80"
+                          >
+                            <Folder className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-foreground transition-colors" />
+                            <span className="text-sm font-medium truncate text-foreground leading-none">{folder.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="border-t border-gray-200 mt-5 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => setIsAssetsSectionCollapsed((v) => !v)}
+                        className="flex items-center gap-2 mb-4 group"
+                      >
+                        <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform ${isAssetsSectionCollapsed ? "" : "rotate-90"}`} />
+                        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">
+                          Assets
+                        </span>
+                        <span className="text-xs text-muted-foreground/60">{filteredAssets.length}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              {(!isAssetsSectionCollapsed || !childFoldersForMainNav.length || searchQuery || selectedFolderId === null) && (
               <div className={getGridClasses()}>
                 {filteredAssets.map((asset) => {
                   const isSelected = selectedAssetIds.has(asset.id);
@@ -2441,8 +2558,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                               onClick={(e) => handleAssetSelect(asset.id, e)}
                               className={`h-4 w-4 rounded border flex items-center justify-center transition-all ${
                                 isSelected
-                                  ? 'bg-blue-600 border-blue-600 text-white'
-                                  : 'border-input hover:border-blue-400'
+                                  ? 'bg-[var(--color-accent-black)] border-[var(--color-accent-black)] text-white'
+                                  : 'border-input hover:border-[var(--color-accent-black-hover)]'
                               }`}
                             >
                               {isSelected && <Check className="h-2.5 w-2.5" />}
@@ -2454,10 +2571,13 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
                         <div className="w-14 h-14 bg-muted/30 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden border border-border/50">
                           {isImage && previewUrl ? (
-                            <img
+                            <NextImage
                               src={previewUrl}
                               alt={asset.originalFilename}
                               className="w-full h-full object-cover"
+                              width={56}
+                              height={56}
+                              unoptimized
                             />
                           ) : (
                             getFileIcon(asset.mimeType)
@@ -2499,8 +2619,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                               onClick={(e) => handleAssetSelect(asset.id, e)}
                               className={`h-4 w-4 rounded border flex items-center justify-center transition-all ${
                                 isSelected
-                                  ? "border-blue-600 bg-blue-600 text-white opacity-100"
-                                  : "border-input bg-white opacity-100 hover:border-blue-400"
+                                  ? "border-[var(--color-accent-black)] bg-[var(--color-accent-black)] text-white opacity-100"
+                                  : "border-input bg-white opacity-100 hover:border-[var(--color-accent-black-hover)]"
                               }`}
                             >
                               {isSelected ? <Check className="h-2.5 w-2.5" /> : null}
@@ -2515,10 +2635,13 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
                         <div className="bg-muted/20">
                           {isImage && previewUrl ? (
-                            <img
+                            <NextImage
                               src={previewUrl}
                               alt={asset.originalFilename}
                               className="w-full h-auto object-cover"
+                              width={640}
+                              height={360}
+                              unoptimized
                             />
                           ) : (
                             <div className="flex h-40 w-full items-center justify-center">
@@ -2553,8 +2676,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                             onClick={(e) => handleAssetSelect(asset.id, e)}
                             className={`h-4 w-4 rounded border flex items-center justify-center transition-all ${
                               isSelected
-                                ? 'bg-blue-600 border-blue-600 text-white opacity-100'
-                                : 'bg-white border-input opacity-100 hover:border-blue-400'
+                                ? 'bg-[var(--color-accent-black)] border-[var(--color-accent-black)] text-white opacity-100'
+                                : 'bg-white border-input opacity-100 hover:border-[var(--color-accent-black-hover)]'
                             }`}
                           >
                             {isSelected && <Check className="h-2.5 w-2.5" />}
@@ -2569,10 +2692,13 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
 
                       <div className="bg-muted/30 relative aspect-square">
                         {isImage && previewUrl ? (
-                          <img
+                          <NextImage
                             src={previewUrl}
                             alt={asset.originalFilename}
                             className="w-full h-full object-cover"
+                            width={512}
+                            height={512}
+                            unoptimized
                           />
                         ) : (
                           <div className="w-full h-32 flex items-center justify-center">
@@ -2597,6 +2723,8 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                   );
                 })}
               </div>
+              )}
+            </>
             )}
 
             {!loading && filteredAssets.length === 0 && (
@@ -2604,12 +2732,20 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                 <div className="w-24 h-24 mx-auto bg-muted/50 rounded-full flex items-center justify-center mb-8 shadow-soft">
                   <Files className="w-10 h-10 text-muted-foreground opacity-60" />
                 </div>
-                <h3 className="text-xl font-semibold text-foreground mb-3">No assets found</h3>
+                {userPermissions?.is_partner ? (
+                  <>
+                    <h3 className="text-xl font-semibold text-foreground mb-3">No assets shared with you yet</h3>
+                    <p className="text-sm text-muted-foreground max-w-sm mx-auto">The brand hasn&apos;t granted you access to any asset saved scopes yet. Contact the brand to request access.</p>
+                  </>
+                ) : (
+                  <h3 className="text-xl font-semibold text-foreground mb-3">No assets found</h3>
+                )}
               </div>
             )}
           </div>
         </div>
       </div>
+      </PageContentContainer>
 
       <input
         ref={replaceFileInputRef}
@@ -2659,17 +2795,17 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Selection To Set</DialogTitle>
+            <DialogTitle>Add Selection To Asset Saved Scope</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
               Selected: <span className="font-medium text-foreground">{selectionSummaryLabel || "None"}</span>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Asset Set</label>
+              <label className="text-sm font-medium text-foreground">Asset Saved Scope</label>
               <Select value={selectedShareSetId} onValueChange={setSelectedShareSetId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a set" />
+                  <SelectValue placeholder="Select an asset saved scope" />
                 </SelectTrigger>
                 <SelectContent>
                   {shareSetOptions.map((set) => (
@@ -2689,10 +2825,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                   }}
                   disabled={isLoadingShareSets}
                 >
-                  {isLoadingShareSets ? "Loading..." : "Refresh sets"}
+                  {isLoadingShareSets ? "Loading..." : "Refresh saved scopes"}
                 </Button>
                 <Link href={`/${tenantSlug}/settings/sets`} className="text-sm text-primary hover:underline">
-                  Manage sets
+                  Manage saved scopes
                 </Link>
               </div>
               <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-3">
@@ -2720,10 +2856,10 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Empty scope means these files/folders are visible in all markets/channels/locales
+                  Empty scope means these files/folders are visible in all markets and locales
                   allowed by the partner grant.
                 </p>
-                <div className="grid gap-2 md:grid-cols-3">
+                <div className="grid gap-2 md:grid-cols-2">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground">Markets</label>
                     <MultiSelect
@@ -2731,15 +2867,6 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
                       value={shareMarketIds}
                       onChange={setShareMarketIds}
                       placeholder="Select one or more markets"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground">Channels</label>
-                    <MultiSelect
-                      options={shareChannelOptions}
-                      value={shareChannelIds}
-                      onChange={setShareChannelIds}
-                      placeholder="Select one or more channels"
                     />
                   </div>
                   <div className="space-y-1">
@@ -2755,7 +2882,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
               </div>
               <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                  Create New Asset Set
+                  Create New Asset Saved Scope
                 </p>
                 <div className="flex items-center gap-2">
                   <Input
@@ -2778,7 +2905,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
               </div>
               {!isLoadingShareSets && shareSetOptions.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No asset sets found yet. Create one above or in Settings.
+                  No asset saved scopes found yet. Create one above or in Settings.
                 </p>
               ) : null}
               {shareDialogError ? (
@@ -2801,21 +2928,76 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
               }}
               disabled={isSubmittingShare || !selectedShareSetId || totalSelectedShareItems === 0}
             >
-              {isSubmittingShare ? "Adding..." : "Add To Set"}
+              {isSubmittingShare ? "Adding..." : "Add To Saved Scope"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      <DeleteConfirmDialog
+        open={showDeleteAssetsDialog}
+        onOpenChange={(open) => {
+          if (isDeletingAssets) return;
+          setShowDeleteAssetsDialog(open);
+          if (!open) {
+            setPendingDeleteAssetIds([]);
+            setAssetDeleteError(null);
+          }
+        }}
+        title={`Delete Asset${pendingDeleteAssetIds.length === 1 ? "" : "s"}`}
+        description={`Delete ${pendingDeleteAssetIds.length} asset${pendingDeleteAssetIds.length === 1 ? "" : "s"}? This action cannot be undone.`}
+        onConfirm={() => void handleConfirmAssetDelete()}
+        confirmLabel={pendingDeleteAssetIds.length === 1 ? "Delete asset" : "Delete assets"}
+        confirmLoading={isDeletingAssets}
+        confirmDisabled={isDeletingAssets || pendingDeleteAssetIds.length === 0}
+        safetyMode={pendingDeleteAssetIds.length > 1 ? "typed" : "standard"}
+        confirmPhrase="delete"
+      >
+        {pendingDeleteAssetIds.length > 0 ? (
+          <div className="rounded-md border border-border bg-muted/20 p-3">
+            <p className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">Selected assets</p>
+            <div className="space-y-1 text-sm">
+              {pendingDeleteAssetIds.slice(0, 8).map((assetId) => {
+                const selectedAssetRecord = assets.find((asset) => asset.id === assetId);
+                return (
+                  <p key={assetId} className="text-foreground">
+                    {selectedAssetRecord?.originalFilename || selectedAssetRecord?.filename || assetId}
+                  </p>
+                );
+              })}
+              {pendingDeleteAssetIds.length > 8 ? (
+                <p className="text-muted-foreground">+{pendingDeleteAssetIds.length - 8} more</p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+        {assetDeleteError ? <p className="text-sm text-destructive">{assetDeleteError}</p> : null}
+      </DeleteConfirmDialog>
+
       {/* Bulk Action Toolbar */}
       <BulkActionToolbar
         selectedCount={isSharedBrandView ? 0 : selectedSelectableCount}
+        onAddToSet={handleBulkShare}
         onEdit={handleBulkEdit}
-        onTag={handleBulkTag}
-        onMove={handleBulkMove}
         onDelete={handleBulkDelete}
-        onShare={handleBulkShare}
         onClear={handleClearSelection}
+      />
+
+      {/* Upload Panel */}
+      <UploadPanel
+        open={isUploadPanelOpen}
+        onOpenChange={(open) => {
+          setIsUploadPanelOpen(open);
+          if (!open) void refreshAssets();
+        }}
+        tenantSlug={tenantSlug}
+        initialFiles={uploadPanelInitialFiles}
+        initialFolderId={
+          selectedFolderId && selectedFolderId !== "unfiled" ? selectedFolderId : null
+        }
+        folders={folders}
+        onDone={handleUploadPanelDone}
+        onFileUploaded={handleFileUploaded}
       />
 
       {/* Bulk Editor Panel */}
@@ -2825,6 +3007,7 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         onClose={() => setIsBulkEditorOpen(false)}
         onSave={handleBulkSave}
         availableTags={availableTags}
+        tenantSlug={tenantSlug}
       />
 
       {/* Keyboard shortcuts intentionally removed for now */}
@@ -2880,27 +3063,19 @@ export default function AssetsClient({ tenantSlug, selectedBrandSlug: selectedBr
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showDeleteFolder} onOpenChange={setShowDeleteFolder}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Folder</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2 text-sm text-muted-foreground">
-            <p>
-              Delete <span className="font-semibold text-foreground">{activeFolder?.name}</span>?
-            </p>
-            <p>Subfolders will be removed and assets will be unfiled.</p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowDeleteFolder(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleDeleteFolder} disabled={isDeletingFolder}>
-              {isDeletingFolder ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={showDeleteFolder}
+        onOpenChange={(open) => {
+          if (isDeletingFolder) return;
+          setShowDeleteFolder(open);
+        }}
+        title="Delete Folder"
+        description={`Delete "${activeFolder?.name || "this folder"}"? Subfolders will be removed and assets will be unfiled.`}
+        onConfirm={handleDeleteFolder}
+        confirmLoading={isDeletingFolder}
+        safetyMode="typed"
+        confirmPhrase="delete"
+      />
 
       <Dialog open={showTransferFolderContents} onOpenChange={setShowTransferFolderContents}>
         <DialogContent>

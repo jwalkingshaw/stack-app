@@ -2,32 +2,28 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { cn } from '@/lib/utils';
+import { canUseDeepL } from '@/lib/billing-policy';
 import {
   Building2,
   Users,
   CreditCard,
-  Database,
-  Bell,
-  Shield,
-  Key,
   Package,
   Grid3X3,
   Layers,
   Globe,
   Languages,
-  ArrowLeft,
-  Link2
+  Link2,
+  Zap,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { BackLinkButton } from '@/components/ui/back-link-button';
 import { WorkspaceRail } from '@/components/WorkspaceRail';
 
 interface SettingsSection {
   id: string;
-  label: string;
   icon: string;
   href: string;
-  description: string;
 }
 
 interface SafeUser {
@@ -44,6 +40,7 @@ interface SafeOrganization {
   slug: string;
   type: "brand" | "partner";
   partnerCategory: "retailer" | "distributor" | "wholesaler" | null;
+  logoUrl?: string | null;
   storageUsed: number;
   storageLimit: number;
 }
@@ -52,113 +49,59 @@ interface SettingsNavigationProps {
   tenantSlug: string;
   organization?: SafeOrganization | null;
   user?: SafeUser | null;
+  planId?: string;
 }
 
 const settingsSections: SettingsSection[] = [
   {
     id: "organization",
-    label: "Organization",
     icon: "Building2",
     href: "",
-    description: "Basic organization information and branding"
   },
   {
     id: "product-families",
-    label: "Product Models",
     icon: "Package",
     href: "/product-models",
-    description: "Define product models, groups, and variant axes"
   },
   {
     id: "field-groups",
-    label: "Attribute Groups",
     icon: "Layers",
     href: "/field-groups",
-    description: "Group related attributes for product models"
   },
   {
     id: "product-fields",
-    label: "Attributes",
     icon: "Grid3X3",
     href: "/product-fields",
-    description: "Define custom attributes for product data"
   },
   {
     id: "markets",
-    label: "Markets",
     icon: "Globe",
     href: "/markets",
-    description: "Define markets (countries) and languages"
   },
   {
     id: "localization",
-    label: "Localization",
     icon: "Languages",
     href: "/localization",
-    description: "Configure translation defaults and review localization jobs"
   },
   {
-    id: "channels",
-    label: "Channels",
-    icon: "Layers",
-    href: "/channels",
-    description: "Define where product content is distributed"
-  },
-  {
-    id: "destinations",
-    label: "Destinations",
-    icon: "Globe",
-    href: "/destinations",
-    description: "Define market and platform-specific publish endpoints"
+    id: "output-profiles",
+    icon: "Zap",
+    href: "/output-profiles",
   },
   {
     id: "team",
-    label: "Team",
     icon: "Users",
     href: "/team",
-    description: "Manage team members and permissions"
   },
   {
     id: "sets",
-    label: "Sets",
     icon: "Link2",
     href: "/sets",
-    description: "Manage reusable DAM/PIM sets"
   },
   {
     id: "billing",
-    label: "Billing",
     icon: "CreditCard",
     href: "/billing",
-    description: "Subscription and payment settings"
-  },
-  {
-    id: "storage",
-    label: "Storage",
-    icon: "Database",
-    href: "/storage",
-    description: "File storage and usage limits"
-  },
-  {
-    id: "notifications",
-    label: "Notifications",
-    icon: "Bell",
-    href: "/notifications",
-    description: "Email and push notification preferences"
-  },
-  {
-    id: "security",
-    label: "Security",
-    icon: "Shield",
-    href: "/security",
-    description: "Two-factor authentication and access logs"
-  },
-  {
-    id: "api",
-    label: "API Keys",
-    icon: "Key",
-    href: "/api-keys",
-    description: "Manage API keys for integrations"
   }
 ];
 
@@ -166,31 +109,21 @@ const iconMap = {
   Building2,
   Users,
   CreditCard,
-  Database,
-  Bell,
-  Shield,
-  Key,
   Package,
   Grid3X3,
   Layers,
   Globe,
   Languages,
-  Link2
+  Link2,
+  Zap,
 };
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes'
-  const k = 1024
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
 
 export default function SettingsNavigation({
   tenantSlug,
   organization,
-  user
+  planId,
 }: SettingsNavigationProps) {
+  const t = useTranslations("Settings.Navigation");
   const pathname = usePathname();
 
   const getFullHref = (section: SettingsSection) => {
@@ -206,39 +139,41 @@ export default function SettingsNavigation({
     return pathname === fullHref || pathname.startsWith(`${fullHref}/`);
   };
 
-  const storagePercentage = organization && organization.storageLimit > 0
-    ? (organization.storageUsed / organization.storageLimit) * 100
-    : 0;
   const showWorkspaceRail = organization?.type === "partner";
-  const visibleSections = settingsSections;
+  const hasDeepLAccess = canUseDeepL(planId);
+  const visibleSections = settingsSections.filter((s) => {
+    if (organization?.type === "partner") {
+      return s.id === "organization" || s.id === "billing";
+    }
+    if (s.id === 'localization' && !hasDeepLAccess) return false;
+    return true;
+  });
 
   return (
-    <div className="bg-[#f5f5f5] h-full flex">
+    <div className="h-full flex bg-transparent">
       {showWorkspaceRail ? (
         <WorkspaceRail
           currentWorkspaceSlug={tenantSlug}
           currentWorkspaceName={organization?.name || tenantSlug}
+          currentWorkspaceLogoUrl={organization?.logoUrl ?? null}
+          currentOrganizationType={organization?.type}
           currentPath={pathname}
         />
       ) : null}
 
-      <div className="h-full flex flex-col w-48">
-        {/* Back to App Button - aligned with Settings header */}
-        <div className="px-2 py-4">
-          <Link href={`/${tenantSlug}`}>
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-2 px-3 py-2 text-sm font-normal"
-            >
-              <ArrowLeft className="h-4 w-4 flex-shrink-0" />
-              Back to app
-            </Button>
-          </Link>
+      <div className="flex h-full w-48 flex-col bg-transparent px-2 py-3">
+        <div className="px-2 pb-3">
+          <BackLinkButton
+            href={`/${tenantSlug}`}
+            label={t("backToApp")}
+            fullWidth
+            icon="chevron"
+            className="border-0 bg-transparent shadow-none ring-0 hover:bg-white/50"
+          />
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 overflow-y-auto px-2">
-          <div className="space-y-0.5">
+          <div className="space-y-1">
             {visibleSections.map((section) => {
               const Icon = iconMap[section.icon as keyof typeof iconMap];
               const active = isActive(section);
@@ -248,49 +183,20 @@ export default function SettingsNavigation({
                   key={section.id}
                   href={getFullHref(section)}
                   className={cn(
-                    "flex items-center gap-2 px-3 py-2 text-sm font-normal rounded-md transition-colors",
+                    "flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                     active
-                      ? "bg-muted text-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      ? "bg-[hsl(var(--app-shell-nav-active))] text-foreground"
+                      : "text-muted-foreground hover:bg-white/50 hover:text-foreground"
                   )}
                 >
                   <Icon className="h-4 w-4 flex-shrink-0" />
-                  <span className="flex-1">{section.label}</span>
+                  <span className="flex-1">{t(`sections.${section.id}`)}</span>
                 </Link>
               );
             })}
           </div>
         </nav>
 
-        {/* Storage Stats - matches SaaSSidebar */}
-        {organization && organization.storageLimit > 0 && (
-          <div className="p-4">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 mb-2">
-                <Database className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium text-foreground">Storage</span>
-              </div>
-
-              <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                <span>{formatFileSize(organization.storageUsed)}</span>
-                <span>{formatFileSize(organization.storageLimit)}</span>
-              </div>
-
-              <div className="w-full bg-muted rounded-sm h-1.5 overflow-hidden">
-                <div
-                  className="bg-primary h-1.5 rounded-sm transition-all duration-300"
-                  style={{ width: `${Math.min(storagePercentage, 100)}%` }}
-                />
-              </div>
-
-              {storagePercentage > 90 && (
-                <Button variant="outline" size="sm" className="w-full mt-2 text-xs">
-                  Upgrade
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -12,7 +12,6 @@ export interface ToastProps {
 }
 
 export function Toast({ id, title, message, type = 'info', duration = 4000, onClose }: ToastProps) {
-  const [isVisible, setIsVisible] = useState(true);
   const [isExiting, setIsExiting] = useState(false);
 
   useEffect(() => {
@@ -97,6 +96,12 @@ export interface ToastContextType {
   showToast: (toast: Omit<ToastProps, 'id' | 'onClose'>) => void;
 }
 
+declare global {
+  interface Window {
+    showToast?: (toast: Omit<ToastProps, 'id' | 'onClose'>) => void;
+  }
+}
+
 // Toast container that manages multiple toasts
 export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastProps[]>([]);
@@ -112,9 +117,9 @@ export function ToastContainer() {
 
   // Expose showToast globally for easy access
   React.useEffect(() => {
-    (window as any).showToast = showToast;
+    window.showToast = showToast;
     return () => {
-      delete (window as any).showToast;
+      delete window.showToast;
     };
   }, [showToast]);
 
@@ -135,23 +140,23 @@ export function ToastContainer() {
 // Utility function for easy toast creation
 export const toast = {
   success: (message: string, title?: string) => {
-    if ((window as any).showToast) {
-      (window as any).showToast({ message, title, type: 'success' });
+    if (window.showToast) {
+      window.showToast({ message, title, type: 'success' });
     }
   },
   error: (message: string, title?: string) => {
-    if ((window as any).showToast) {
-      (window as any).showToast({ message, title, type: 'error' });
+    if (window.showToast) {
+      window.showToast({ message, title, type: 'error' });
     }
   },
   warning: (message: string, title?: string) => {
-    if ((window as any).showToast) {
-      (window as any).showToast({ message, title, type: 'warning' });
+    if (window.showToast) {
+      window.showToast({ message, title, type: 'warning' });
     }
   },
   info: (message: string, title?: string) => {
-    if ((window as any).showToast) {
-      (window as any).showToast({ message, title, type: 'info' });
+    if (window.showToast) {
+      window.showToast({ message, title, type: 'info' });
     }
   }
 };

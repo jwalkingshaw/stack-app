@@ -2,11 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { supabaseServer } from "@/lib/supabase";
+import { stripe } from "@/lib/stripe";
 import {
   BILLING_PLAN_CATALOG,
   getOrganizationBillingLimits,
   getOrganizationUsageSnapshot,
 } from "@/lib/billing-policy";
+
+type ActiveSubscriptionRow = {
+  id: string;
+  plan_id: string;
+  status: string;
+};
 
 export async function GET(
   request: NextRequest,
@@ -41,7 +48,7 @@ export async function GET(
       );
     }
 
-    const { data: subscriptionRow, error: subscriptionError } = await (supabaseServer as any)
+    const { data: subscriptionRow, error: subscriptionError } = await supabaseServer
       .from("organization_subscriptions")
       .select(`
         id,
@@ -109,9 +116,11 @@ export async function GET(
         activeSkuCount: usage.activeSkuCount,
         internalUserCount: usage.internalUserCount,
         partnerInviteCount: usage.partnerInviteCount,
+        translationCharCount: usage.deeplTotalCharCount,
+        agentRunsCount: usage.agentRunsCount,
         assetsCount: 0,
-        deliveryBandwidthGb: 0,
-        uploadsCount: 0, // Would need analytics
+        deliveryBandwidthGb: usage.deliveryBandwidthGb,
+        uploadsCount: 0,
       }
     });
   } catch (error) {
@@ -170,6 +179,9 @@ export async function POST(
       ? String(body.providerSubscriptionId).trim()
       : null;
     const changeSource = body?.source ? String(body.source).trim() : "manual";
+    
+    // Extract Endorsely referrer ID from cookie
+    const endorselyReferrerId = request.cookies.get('endorsely_referrer_id')?.value || null;
 
     const plan = BILLING_PLAN_CATALOG.find((p) => p.id === planId);
     if (!plan) {
@@ -186,7 +198,7 @@ export async function POST(
 
     const targetStatus = useTrial ? "trialing" : "active";
 
-    const { data: currentRows, error: currentRowsError } = await (supabaseServer as any)
+    const { data: currentRows, error: currentRowsError } = await supabaseServer
       .from("organization_subscriptions")
       .select("id,plan_id,status")
       .eq("organization_id", organization.id)
@@ -201,7 +213,7 @@ export async function POST(
       );
     }
 
-    const activeRows = (currentRows || []) as Array<any>;
+    const activeRows = (currentRows || []) as unknown as ActiveSubscriptionRow[];
     const existingEquivalent = activeRows.find(
       (row) => row.plan_id === plan.id && row.status === targetStatus
     );
@@ -216,7 +228,7 @@ export async function POST(
 
     if (activeRows.length > 0) {
       const activeIds = activeRows.map((row) => row.id);
-      const { error: cancelExistingError } = await (supabaseServer as any)
+      const { error: cancelExistingError } = await supabaseServer
         .from("organization_subscriptions")
         .update({
           status: "canceled",
@@ -249,11 +261,12 @@ export async function POST(
       provider: "kinde",
       provider_customer_id: providerCustomerId,
       provider_subscription_id: providerSubscriptionId,
+      endorsely_referrer_id: endorselyReferrerId,
       created_by: user.id,
       updated_at: nowIso,
     };
 
-    const { data: insertedSubscription, error: subscriptionInsertError } = await (supabaseServer as any)
+    const { data: insertedSubscription, error: subscriptionInsertError } = await supabaseServer
       .from("organization_subscriptions")
       .insert(subscriptionInsertPayload)
       .select("id,plan_id,status,current_period_start,current_period_end,trial_end,created_at,updated_at")
@@ -267,7 +280,7 @@ export async function POST(
       );
     }
 
-    const { error: billingEventError } = await (supabaseServer as any)
+    const { error: billingEventError } = await supabaseServer
       .from("organization_billing_events")
       .insert({
         organization_id: organization.id,
@@ -279,12 +292,30 @@ export async function POST(
           status: targetStatus,
           trial_days: useTrial ? trialDays : 0,
           provider_customer_id: providerCustomerId,
+          endorsely_referrer_id: endorselyReferrerId,
           provider_subscription_id: providerSubscriptionId,
         },
       });
 
     if (billingEventError) {
       console.error("Failed to insert organization_billing_events row:", billingEventError);
+    }
+
+    // Update Stripe subscription metadata with Endorsely referrer ID
+    if (endorselyReferrerId && providerSubscriptionId) {
+      try {
+        await stripe.subscriptions.update(
+          providerSubscriptionId,
+          {
+            metadata: {
+              endorsely_referral: endorselyReferrerId,
+            },
+          }
+        );
+      } catch (stripeError) {
+        console.error("Failed to update Stripe subscription metadata:", stripeError);
+        // Don't fail the entire request if Stripe metadata update fails
+      }
     }
 
     return NextResponse.json({

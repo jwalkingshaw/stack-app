@@ -20,7 +20,7 @@ export default function UnauthorizedPage() {
             <p className="text-[var(--font-size-sm)] text-muted-foreground">You need to sign in to access this workspace.</p>
           </div>
 
-          <Card className="rounded-2xl border border-muted/30 bg-white shadow-sm">
+          <Card className="rounded-2xl border-0 bg-white shadow-none">
             <CardContent className="space-y-4 px-6 py-6 sm:px-8">
               <Button asChild className="h-12 w-full rounded-[0.5rem] text-[var(--font-size-base)] font-semibold" size="lg">
                 <Link href="/api/auth/login">Sign In</Link>
@@ -30,7 +30,7 @@ export default function UnauthorizedPage() {
                 <Link href="/api/auth/register">Create Account</Link>
               </Button>
 
-              <Button asChild variant="ghost" className="h-11 w-full rounded-[0.5rem] text-sm font-medium">
+              <Button asChild variant="ghost" className="h-11 w-full rounded-[0.5rem] border-0 text-sm font-medium">
                 <Link href="/">Back to Home</Link>
               </Button>
             </CardContent>

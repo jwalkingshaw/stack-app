@@ -380,7 +380,7 @@ export default function Page() {
 ### ❌ Hardcoded Values
 ```typescript
 // ❌ Hard to maintain
-const API_URL = 'https://api.stackcess.com';
+const API_URL = 'https://api.tradetool.com';
 
 // ✅ Use environment variables
 const API_URL = process.env.NEXT_PUBLIC_API_URL;

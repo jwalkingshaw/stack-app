@@ -53,7 +53,7 @@ async function resolveChannelScopedProductIds(params: {
     const scopedIds = new Set<string>();
     for (const channelId of scopedPermissions.channelIds) {
       const ids = await getChannelScopedProductIds({
-        supabase: supabase as any,
+        supabase: supabase,
         organizationId: params.organizationId,
         channelId,
       });
@@ -171,12 +171,36 @@ export async function GET(
 
     const { context } = contextResult;
     const targetOrganizationId = context.targetOrganization.id;
+    const marketId = normalizeToken(searchParams.get("marketId"));
+    const channelId = normalizeToken(searchParams.get("channelId"));
+    const localeId = normalizeToken(searchParams.get("localeId"));
+    const destinationId = normalizeToken(searchParams.get("destinationId"));
+    const channelCode = normalizeCode(searchParams.get("channel"));
+    const localeCode = normalizeCode(searchParams.get("locale"));
+    const destinationCode = normalizeCode(searchParams.get("destination"));
+
+    const resolvedScopeIds = await resolveScopeIds({
+      organizationId: targetOrganizationId,
+      marketId,
+      channelId,
+      channelCode,
+      localeId,
+      localeCode,
+      destinationId,
+      destinationCode,
+    });
 
     let constrainedProductIds: string[] | null = null;
     if (context.mode === "partner_brand") {
       const grantedSetProducts = await resolvePartnerGrantedProductIds({
         brandOrganizationId: targetOrganizationId,
         partnerOrganizationId: context.tenantOrganization.id,
+        scope: {
+          marketId: resolvedScopeIds.marketId,
+          channelId: resolvedScopeIds.channelId,
+          localeId: resolvedScopeIds.localeId,
+          destinationId: resolvedScopeIds.destinationId,
+        },
       });
 
       if (grantedSetProducts.foundationAvailable) {
@@ -212,25 +236,6 @@ export async function GET(
     ) {
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
-
-    const marketId = normalizeToken(searchParams.get("marketId"));
-    const channelId = normalizeToken(searchParams.get("channelId"));
-    const localeId = normalizeToken(searchParams.get("localeId"));
-    const destinationId = normalizeToken(searchParams.get("destinationId"));
-    const channelCode = normalizeCode(searchParams.get("channel"));
-    const localeCode = normalizeCode(searchParams.get("locale"));
-    const destinationCode = normalizeCode(searchParams.get("destination"));
-
-    const resolvedScopeIds = await resolveScopeIds({
-      organizationId: targetOrganizationId,
-      marketId,
-      channelId,
-      channelCode,
-      localeId,
-      localeCode,
-      destinationId,
-      destinationCode,
-    });
 
     const result = await evaluateProductCompleteness(
       targetOrganizationId,

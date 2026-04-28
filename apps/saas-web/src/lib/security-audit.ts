@@ -9,12 +9,33 @@ type SecurityEventPayload = {
   metadata?: Record<string, unknown>;
 };
 
+type SecurityAuditClient = {
+  rpc: unknown;
+};
+
+type RpcInvoker = (
+  fn: string,
+  params?: Record<string, unknown>
+) => PromiseLike<unknown> | unknown;
+
+function invokeRpc(
+  client: SecurityAuditClient,
+  fn: string,
+  params: Record<string, unknown>
+) {
+  if (typeof client.rpc !== "function") {
+    throw new Error("Security audit client does not expose rpc()");
+  }
+  const rpc = client.rpc as RpcInvoker;
+  return rpc(fn, params);
+}
+
 export async function logSecurityEvent(
-  supabaseClient: any,
+  supabaseClient: SecurityAuditClient,
   payload: SecurityEventPayload
 ): Promise<void> {
   try {
-    await supabaseClient.rpc("log_security_event", {
+    await invokeRpc(supabaseClient, "log_security_event", {
       organization_id_param: payload.organizationId ?? null,
       actor_user_id_param: payload.actorUserId ?? null,
       action_param: payload.action,
@@ -33,7 +54,7 @@ export async function logSecurityEvent(
 }
 
 export async function logRateLimitSecurityEvent(
-  supabaseClient: any,
+  supabaseClient: SecurityAuditClient,
   params: {
     action: string;
     userAgent?: string | null;
@@ -56,4 +77,3 @@ export async function logRateLimitSecurityEvent(
     },
   });
 }
-

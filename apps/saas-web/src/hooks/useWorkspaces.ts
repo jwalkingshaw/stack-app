@@ -14,6 +14,7 @@ export interface WorkspaceSummary {
   role: string
   organizationType?: 'brand' | 'partner'
   partnerCategory?: 'retailer' | 'distributor' | 'wholesaler' | null
+  logoUrl?: string | null
   lastAccessed?: string
   unreadCount?: number
 }

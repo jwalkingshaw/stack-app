@@ -34,6 +34,28 @@ export interface UserContext {
   lastUpdated: Date;
 }
 
+type MemberOrgRow = {
+  organization_id: string;
+  role: string;
+  status: string;
+  organizations?: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    organization_type?: string | null;
+  }> | null;
+};
+
+type BrandRelationshipRow = {
+  brand_organization_id: string;
+  access_level: string;
+  organizations?: Array<{
+    id: string;
+    name: string;
+    slug: string;
+  }> | null;
+};
+
 /**
  * Get comprehensive user context with caching
  */
@@ -59,25 +81,26 @@ export const getUserContext = cache(async (): Promise<UserContext | null> => {
     const kindeOrg = await getOrganization();
     
     // Get owned organizations (via Kinde)
-    const ownedOrganizations = [];
+    const ownedOrganizations: Array<{ id: string; name: string; slug: string; kindeOrgId: string; organizationType?: string }> = [];
     if (kindeOrg?.orgCode) {
       const { data: org } = await supabase
         .from('organizations')
-        .select('id, name, slug, kinde_org_id')
+        .select('id, name, slug, kinde_org_id, organization_type')
         .eq('kinde_org_id', kindeOrg.orgCode)
         .single();
-      
+
       if (org) {
         ownedOrganizations.push({
           id: org.id,
           name: org.name,
           slug: org.slug,
-          kindeOrgId: org.kinde_org_id
+          kindeOrgId: org.kinde_org_id,
+          organizationType: org.organization_type,
         });
       }
     }
 
-    // Get member organizations
+    // Get member organizations (include organization_type for partner detection)
     const { data: memberOrgs } = await supabase
       .from('organization_members')
       .select(`
@@ -87,44 +110,64 @@ export const getUserContext = cache(async (): Promise<UserContext | null> => {
         organizations (
           id,
           name,
-          slug
+          slug,
+          organization_type
         )
       `)
       .eq('kinde_user_id', user.id)
       .eq('status', 'active');
 
-    const memberOrganizations = (memberOrgs || []).map((m: any) => ({
+    const memberOrgRows = Array.isArray(memberOrgs) ? (memberOrgs as MemberOrgRow[]) : [];
+
+    const memberOrganizations = memberOrgRows.map((m) => ({
       orgId: m.organization_id,
-      orgName: m.organizations.name,
-      orgSlug: m.organizations.slug,
+      orgName: m.organizations?.[0]?.name ?? "",
+      orgSlug: m.organizations?.[0]?.slug ?? "",
       role: m.role,
       status: m.status
     }));
 
-    // Get partner access
-    const { data: partnerOrgs } = await supabase
-      .from('partner_access')
-      .select(`
-        organization_id,
-        access_level,
-        expires_at,
-        organizations (
-          id,
-          name,
-          slug
-        )
-      `)
-      .eq('kinde_user_id', user.id)
-      .eq('is_active', true)
-      .or('expires_at.is.null,expires_at.gt.now()');
+    // Resolve partner brand access via brand_partner_relationships.
+    // A user gains brand access through any partner-type org they belong to.
+    const partnerOrgIds = [
+      ...memberOrgRows
+        .filter((m) => m.organizations?.[0]?.organization_type === 'partner')
+        .map((m) => m.organization_id),
+      ...ownedOrganizations
+        .filter((o) => o.organizationType === 'partner')
+        .map((o) => o.id),
+    ];
 
-    const partnerAccess = (partnerOrgs || []).map((p: any) => ({
-      orgId: p.organization_id,
-      orgName: p.organizations.name,
-      orgSlug: p.organizations.slug,
-      accessLevel: p.access_level,
-      expiresAt: p.expires_at
-    }));
+    let partnerAccess: UserContext['partnerAccess'] = [];
+    if (partnerOrgIds.length > 0) {
+      const { data: brandRelationships } = await supabase
+        .from('brand_partner_relationships')
+        .select(`
+          brand_organization_id,
+          access_level,
+          organizations!brand_partner_relationships_brand_organization_id_fkey (
+            id,
+            name,
+            slug
+          )
+        `)
+        .in('partner_organization_id', partnerOrgIds)
+        .eq('status', 'active');
+
+      // Map DB access_level ('view' | 'edit') to internal hierarchy
+      const toAccessLevel = (dbLevel: string) =>
+        dbLevel === 'edit' ? 'collaborate' : 'view';
+
+      const brandRelationshipRows = Array.isArray(brandRelationships)
+        ? (brandRelationships as BrandRelationshipRow[])
+        : [];
+      partnerAccess = brandRelationshipRows.map((r) => ({
+        orgId: r.brand_organization_id,
+        orgName: r.organizations?.[0]?.name ?? "",
+        orgSlug: r.organizations?.[0]?.slug ?? "",
+        accessLevel: toAccessLevel(r.access_level),
+      }));
+    }
 
     // Combine all accessible org IDs
     const allAccessibleOrgIds = [

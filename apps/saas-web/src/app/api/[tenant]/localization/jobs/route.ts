@@ -1,9 +1,12 @@
 import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
+import type { Database, Json } from "@stack-app/database";
 import { supabaseServer } from "@/lib/supabase";
 import { assertBillingCapacity, getOrganizationBillingLimits } from "@/lib/billing-policy";
+import { canUseDeepL } from "@/lib/billing-policy";
 import { improveTextWithDeepL, isDeepLConfigured, translateWithDeepL } from "@/lib/deepl";
 import { incrementLocalizationUsage } from "@/lib/localization-metering";
+import { isBaseOnlySystemFieldCode } from "@/lib/pim-core";
 import { isMissingLocalizationFoundationError, requireLocalizationAccess } from "../_shared";
 
 type JobType = "translate" | "write_assist";
@@ -14,6 +17,16 @@ type LocaleRow = {
   id: string;
   code: string;
   name: string;
+};
+
+const supabase = supabaseServer;
+
+type GlossaryLookupRow = {
+  id: string;
+  source_language_code: string;
+  target_language_code: string;
+  provider_glossary_id: string | null;
+  is_active: boolean;
 };
 
 type PreferredTone = "neutral" | "formal" | "informal" | "professional" | "friendly";
@@ -36,6 +49,7 @@ type ProductFieldRow = {
   id: string;
   code: string;
   field_type: string | null;
+  is_localizable: boolean | null;
   is_translatable: boolean | null;
   is_write_assist_enabled: boolean | null;
   is_active: boolean | null;
@@ -70,6 +84,7 @@ type JobWorkItem = {
   targetMarketId: string | null;
   targetChannelId: string | null;
   targetDestinationId: string | null;
+  targetGlossaryId: string | null;
 };
 
 type GeneratedItem = {
@@ -91,6 +106,7 @@ const TRANSLATABLE_SYSTEM_FIELDS = [
   "meta_title",
   "meta_description",
 ] as const;
+const TRANSLATABLE_SYSTEM_FIELD_CODES = [...TRANSLATABLE_SYSTEM_FIELDS] as string[];
 
 const MAX_PRODUCTS_PER_JOB = 100;
 const MAX_TEXT_BATCH_SIZE = 40;
@@ -207,6 +223,25 @@ function normalizeUuidArray(value: unknown): string[] {
   return normalizeStringArray(value).filter(isUuidLike);
 }
 
+function normalizeLocaleGlossaryMap(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const map: Record<string, string> = {};
+  for (const [localeIdRaw, glossaryIdRaw] of Object.entries(value as Record<string, unknown>)) {
+    const localeId = normalizeOptionalString(localeIdRaw);
+    const glossaryId = normalizeOptionalString(glossaryIdRaw);
+    if (!localeId || !glossaryId) continue;
+    map[localeId] = glossaryId;
+  }
+  return map;
+}
+
+function normalizeLanguageCode(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 function extractFieldValue(product: ProductRow, fieldCode: string): string | null {
   switch (fieldCode) {
     case "product_name":
@@ -247,7 +282,7 @@ async function resolveLocalizationSettings(organizationId: string): Promise<{
   preferredTone: PreferredTone;
   foundationMissing: boolean;
 }> {
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabase
     .from("organization_localization_settings")
     .select("translation_enabled,write_assist_enabled,deepl_glossary_id,brand_instructions,preferred_tone")
     .eq("organization_id", organizationId)
@@ -288,7 +323,7 @@ async function resolveLocalizationSettings(organizationId: string): Promise<{
 }
 
 async function resolveLocales(organizationId: string): Promise<LocaleRow[]> {
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabase
     .from("locales")
     .select("id,code,name")
     .eq("organization_id", organizationId)
@@ -300,8 +335,84 @@ async function resolveLocales(organizationId: string): Promise<LocaleRow[]> {
   return (data || []) as LocaleRow[];
 }
 
+async function resolveTargetGlossaryProviderSelection(params: {
+  organizationId: string;
+  sourceLocaleCode: string;
+  targetLocaleIds: string[];
+  localeById: Map<string, LocaleRow>;
+  requestedGlossaryIdByLocaleId: Record<string, string>;
+}): Promise<{
+  selectedGlossaryIdsByLocaleId: Record<string, string>;
+  providerGlossaryIdByLocaleId: Record<string, string>;
+}> {
+  const selectedGlossaryIdsByLocaleId: Record<string, string> = {};
+  const providerGlossaryIdByLocaleId: Record<string, string> = {};
+  if (params.targetLocaleIds.length === 0) {
+    return { selectedGlossaryIdsByLocaleId, providerGlossaryIdByLocaleId };
+  }
+
+  const targetLocaleIdSet = new Set(params.targetLocaleIds);
+  const requestedEntries = Object.entries(params.requestedGlossaryIdByLocaleId).filter(([localeId, glossaryId]) => {
+    return targetLocaleIdSet.has(localeId) && glossaryId.trim().length > 0;
+  });
+  if (requestedEntries.length === 0) {
+    return { selectedGlossaryIdsByLocaleId, providerGlossaryIdByLocaleId };
+  }
+
+  const glossaryIds = Array.from(new Set(requestedEntries.map(([, glossaryId]) => glossaryId)));
+  const { data: glossaryRows, error: glossaryError } = await supabase
+    .from("translation_glossaries")
+    .select("id,source_language_code,target_language_code,provider_glossary_id,is_active")
+    .eq("organization_id", params.organizationId)
+    .in("id", glossaryIds);
+
+  if (glossaryError) {
+    throw new Error("Failed to validate selected glossaries");
+  }
+
+  const glossaryById = new Map<string, GlossaryLookupRow>();
+  for (const row of (glossaryRows || []) as GlossaryLookupRow[]) {
+    glossaryById.set(row.id, row);
+  }
+
+  const normalizedSourceCode = normalizeLanguageCode(params.sourceLocaleCode);
+  for (const [targetLocaleId, glossaryId] of requestedEntries) {
+    const glossary = glossaryById.get(glossaryId);
+    if (!glossary) {
+      throw new Error("One or more selected glossaries were not found.");
+    }
+    if (!glossary.is_active) {
+      throw new Error(`Glossary '${glossary.id}' is inactive.`);
+    }
+    const providerGlossaryId = normalizeOptionalString(glossary.provider_glossary_id);
+    if (!providerGlossaryId) {
+      throw new Error("Selected glossary is not ready for translation use.");
+    }
+
+    const targetLocale = params.localeById.get(targetLocaleId);
+    if (!targetLocale) {
+      throw new Error("One or more selected target locales are not active.");
+    }
+
+    const glossarySourceCode = normalizeLanguageCode(glossary.source_language_code);
+    const glossaryTargetCode = normalizeLanguageCode(glossary.target_language_code);
+    const targetLocaleCode = normalizeLanguageCode(targetLocale.code);
+
+    if (glossarySourceCode !== normalizedSourceCode || glossaryTargetCode !== targetLocaleCode) {
+      throw new Error(
+        `Glossary '${glossary.id}' does not match locale pair ${params.sourceLocaleCode} -> ${targetLocale.code}.`
+      );
+    }
+
+    selectedGlossaryIdsByLocaleId[targetLocaleId] = glossary.id;
+    providerGlossaryIdByLocaleId[targetLocaleId] = providerGlossaryId;
+  }
+
+  return { selectedGlossaryIdsByLocaleId, providerGlossaryIdByLocaleId };
+}
+
 async function resolveProducts(organizationId: string, productIds: string[]): Promise<ProductRow[]> {
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabase
     .from("products")
     .select(
       "id,type,parent_id,product_name,short_description,long_description,features,meta_title,meta_description,created_by,last_modified_by"
@@ -331,7 +442,7 @@ async function resolveParentProductsForVariants(
     return new Map<string, ProductRow>();
   }
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabase
     .from("products")
     .select(
       "id,type,parent_id,product_name,short_description,long_description,features,meta_title,meta_description,created_by,last_modified_by"
@@ -359,9 +470,9 @@ async function resolveTranslatableProductFields(params: {
     return [];
   }
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabase
     .from("product_fields")
-    .select("id,code,field_type,is_translatable,is_write_assist_enabled,is_active")
+    .select("id,code,field_type,is_localizable,is_translatable,is_write_assist_enabled,is_active")
     .eq("organization_id", params.organizationId)
     .in("id", params.requestedProductFieldIds);
 
@@ -373,13 +484,33 @@ async function resolveTranslatableProductFields(params: {
   return rows.filter((row) => {
     if (!row || !row.id || !row.code) return false;
     if (row.is_active === false) return false;
+    if (isBaseOnlySystemFieldCode(row.code)) return false;
     const fieldType = String(row.field_type || "").trim().toLowerCase();
     if (!TEXTUAL_PRODUCT_FIELD_TYPES.has(fieldType)) return false;
     if (params.jobType === "translate") {
-      return Boolean(row.is_translatable);
+      return Boolean(row.is_localizable);
     }
-    return Boolean(row.is_write_assist_enabled || row.is_translatable);
+    return Boolean(row.is_write_assist_enabled || row.is_localizable);
   });
+}
+
+async function resolveSystemFieldDefinitions(
+  organizationId: string
+): Promise<Array<Pick<ProductFieldRow, "id" | "code">>> {
+  const { data, error } = await supabase
+    .from("product_fields")
+    .select("id,code")
+    .eq("organization_id", organizationId)
+    .in("code", TRANSLATABLE_SYSTEM_FIELD_CODES)
+    .eq("is_active", true);
+
+  if (error) {
+    throw new Error("Failed to load system product fields");
+  }
+
+  return ((data || []) as Array<Pick<ProductFieldRow, "id" | "code">>).filter(
+    (row) => Boolean(row.id && row.code)
+  );
 }
 
 async function resolveProductFieldValues(params: {
@@ -391,16 +522,16 @@ async function resolveProductFieldValues(params: {
     return [];
   }
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabase
     .from("product_field_values")
     .select(
       "product_id,product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,destination_id,locale_id"
     )
-    .eq("organization_id", params.organizationId)
     .in("product_id", params.productIds)
     .in("product_field_id", params.productFieldIds);
 
   if (error) {
+    console.error("Failed to load product field values for localization jobs:", error);
     throw new Error("Failed to load product field values for translation");
   }
 
@@ -516,6 +647,37 @@ function buildProductFieldSourceTextMap(params: {
   return map;
 }
 
+function buildSourceTextMapByFieldCode(params: {
+  rows: ProductFieldValueRow[];
+  productIds: string[];
+  fieldDefinitions: Array<{ id: string; code: string }>;
+  sourceMarketId: string | null;
+  sourceChannelId: string | null;
+  sourceDestinationId: string | null;
+  sourceLocaleId: string | null;
+}): Map<string, string> {
+  const textByProductAndFieldId = buildProductFieldSourceTextMap({
+    rows: params.rows,
+    productIds: params.productIds,
+    productFieldIds: params.fieldDefinitions.map((field) => field.id),
+    sourceMarketId: params.sourceMarketId,
+    sourceChannelId: params.sourceChannelId,
+    sourceDestinationId: params.sourceDestinationId,
+    sourceLocaleId: params.sourceLocaleId,
+  });
+
+  const fieldCodeById = new Map(params.fieldDefinitions.map((field) => [field.id, field.code]));
+  const textByProductAndCode = new Map<string, string>();
+  for (const [key, value] of textByProductAndFieldId.entries()) {
+    const [productId, fieldId] = key.split("::");
+    const fieldCode = fieldCodeById.get(fieldId);
+    if (!fieldCode) continue;
+    textByProductAndCode.set(`${productId}::${fieldCode}`, value);
+  }
+
+  return textByProductAndCode;
+}
+
 function toSourceHash(params: {
   fieldCode: string;
   sourceText: string;
@@ -532,7 +694,6 @@ async function generateTranslatedItems(
   workItems: JobWorkItem[],
   options?: {
     context?: string;
-    glossaryId?: string | null;
     formality?: "default" | "more" | "less" | "prefer_more" | "prefer_less";
   }
 ): Promise<{
@@ -541,7 +702,7 @@ async function generateTranslatedItems(
 }> {
   const grouped = new Map<string, JobWorkItem[]>();
   for (const item of workItems) {
-    const key = `${item.sourceLocaleCode}::${item.targetLocaleCode}`;
+    const key = `${item.sourceLocaleCode}::${item.targetLocaleCode}::${item.targetGlossaryId || "none"}`;
     const existing = grouped.get(key);
     if (existing) {
       existing.push(item);
@@ -556,6 +717,7 @@ async function generateTranslatedItems(
   for (const [, localeGroup] of grouped) {
     const sourceLocaleCode = localeGroup[0]?.sourceLocaleCode;
     const targetLocaleCode = localeGroup[0]?.targetLocaleCode;
+    const targetGlossaryId = localeGroup[0]?.targetGlossaryId || null;
     const chunks = chunkArray(localeGroup, MAX_TEXT_BATCH_SIZE);
 
     for (const chunk of chunks) {
@@ -565,7 +727,7 @@ async function generateTranslatedItems(
           sourceLocaleCode,
           targetLocaleCode,
           context: options?.context || "Product content translation",
-          glossaryId: options?.glossaryId || undefined,
+          glossaryId: targetGlossaryId || undefined,
           formality: options?.formality || "default",
         });
 
@@ -843,20 +1005,56 @@ async function buildJobWorkItems(params: {
   targetMarketId: string | null;
   targetChannelId: string | null;
   targetDestinationId: string | null;
+  targetGlossaryIdByLocaleId?: Record<string, string>;
 }): Promise<{
   workItems: JobWorkItem[];
   activeCustomFields: ProductFieldRow[];
 }> {
   const targets = params.jobType === "translate" ? params.targetLocaleIds : [params.sourceLocaleId];
   const workItems: JobWorkItem[] = [];
+  const relevantProductIds = Array.from(
+    new Set([
+      ...params.products.map((product) => product.id),
+      ...Array.from(params.parentProductsById.keys()),
+    ])
+  );
+  const systemFieldDefinitions =
+    params.activeFieldCodes.length > 0
+      ? (await resolveSystemFieldDefinitions(params.organizationId)).filter((field) =>
+          params.activeFieldCodes.includes(field.code)
+        )
+      : [];
+  let scopedSystemSourceTexts = new Map<string, string>();
+  if (systemFieldDefinitions.length > 0) {
+    const systemValueRows = await resolveProductFieldValues({
+      organizationId: params.organizationId,
+      productIds: relevantProductIds,
+      productFieldIds: systemFieldDefinitions.map((field) => field.id),
+    });
+    scopedSystemSourceTexts = buildSourceTextMapByFieldCode({
+      rows: systemValueRows,
+      productIds: relevantProductIds,
+      fieldDefinitions: systemFieldDefinitions,
+      sourceMarketId: params.sourceMarketId,
+      sourceChannelId: params.sourceChannelId,
+      sourceDestinationId: params.sourceDestinationId,
+      sourceLocaleId: params.sourceLocaleId,
+    });
+  }
 
   for (const product of params.products) {
     for (const fieldCode of params.activeFieldCodes) {
-      let sourceText = extractFieldValue(product, fieldCode);
+      const ownScopedKey = `${product.id}::${fieldCode}`;
+      let sourceText =
+        scopedSystemSourceTexts.get(ownScopedKey) ??
+        extractFieldValue(product, fieldCode);
       if (!sourceText && product.type === "variant" && product.parent_id) {
         const parentProduct = params.parentProductsById.get(product.parent_id);
         if (parentProduct) {
-          sourceText = extractFieldValue(parentProduct, fieldCode);
+          const parentScopedKey = `${product.parent_id}::${fieldCode}`;
+          sourceText =
+            scopedSystemSourceTexts.get(parentScopedKey) ??
+            extractFieldValue(parentProduct, fieldCode);
         }
       }
       if (!sourceText) continue;
@@ -878,6 +1076,10 @@ async function buildJobWorkItems(params: {
           targetMarketId: params.targetMarketId,
           targetChannelId: params.targetChannelId,
           targetDestinationId: params.targetDestinationId,
+          targetGlossaryId:
+            params.jobType === "translate"
+              ? normalizeOptionalString(params.targetGlossaryIdByLocaleId?.[targetLocaleId]) || null
+              : null,
         });
       }
     }
@@ -896,12 +1098,12 @@ async function buildJobWorkItems(params: {
   const activeCustomFieldIds = activeCustomFields.map((field) => field.id);
   const customValueRows = await resolveProductFieldValues({
     organizationId: params.organizationId,
-    productIds: params.products.map((product) => product.id),
+    productIds: relevantProductIds,
     productFieldIds: activeCustomFieldIds,
   });
   const customSourceTextByProductAndField = buildProductFieldSourceTextMap({
     rows: customValueRows,
-    productIds: params.products.map((product) => product.id),
+    productIds: relevantProductIds,
     productFieldIds: activeCustomFieldIds,
     sourceMarketId: params.sourceMarketId,
     sourceChannelId: params.sourceChannelId,
@@ -936,6 +1138,10 @@ async function buildJobWorkItems(params: {
           targetMarketId: params.targetMarketId,
           targetChannelId: params.targetChannelId,
           targetDestinationId: params.targetDestinationId,
+          targetGlossaryId:
+            params.jobType === "translate"
+              ? normalizeOptionalString(params.targetGlossaryIdByLocaleId?.[targetLocaleId]) || null
+              : null,
         });
       }
     }
@@ -951,7 +1157,6 @@ type JobExecutionParams = {
   jobType: JobType;
   workItems: JobWorkItem[];
   localizationSettings: {
-    deeplGlossaryId: string | null;
     preferredTone: PreferredTone;
     brandInstructions: string;
   };
@@ -965,7 +1170,7 @@ type JobExecutionParams = {
   translationContext: string;
 };
 
-export async function runLocalizationJobGeneration(
+async function runLocalizationJobGeneration(
   params: JobExecutionParams
 ): Promise<{
   status: JobStatus;
@@ -977,7 +1182,6 @@ export async function runLocalizationJobGeneration(
     params.jobType === "translate"
       ? await generateTranslatedItems(params.workItems, {
           context: params.translationContext,
-          glossaryId: params.localizationSettings.deeplGlossaryId,
           formality: params.deeplFormality,
         })
       : await buildWriteAssistItems(params.workItems, {
@@ -1031,7 +1235,7 @@ export async function runLocalizationJobGeneration(
         sourceLocale: item.workItem.sourceLocaleCode,
         targetLocale: item.workItem.targetLocaleCode,
         jobType: params.jobType,
-        deeplGlossaryId: params.localizationSettings.deeplGlossaryId,
+        deeplGlossaryId: item.workItem.targetGlossaryId,
         preferredTone: params.localizationSettings.preferredTone,
         hasBrandInstructions: params.localizationSettings.brandInstructions.length > 0,
         writeStyle: params.writeAssistControls.writingStyle,
@@ -1050,13 +1254,13 @@ export async function runLocalizationJobGeneration(
     };
   });
 
-  const { error: itemInsertError } = await (supabaseServer as any)
+  const { error: itemInsertError } = await supabase
     .from("translation_job_items")
     .insert(itemRows);
 
   if (itemInsertError) {
     console.error("Failed to create translation job items:", itemInsertError);
-    await (supabaseServer as any)
+    await supabase
       .from("translation_jobs")
       .update({
         status: "failed",
@@ -1074,7 +1278,7 @@ export async function runLocalizationJobGeneration(
   const errorSummary =
     failedCount > 0 ? `${failedCount} item(s) failed during generation. Review job items for details.` : null;
 
-  const { error: jobFinalizeError } = await (supabaseServer as any)
+  const { error: jobFinalizeError } = await supabase
     .from("translation_jobs")
     .update({
       status: finalStatus,
@@ -1109,7 +1313,8 @@ export async function runLocalizationJobGeneration(
   };
 }
 
-export async function executeLocalizationJobById(params: {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function executeLocalizationJobById(params: {
   organizationId: string;
   jobId: string;
 }): Promise<{
@@ -1119,7 +1324,7 @@ export async function executeLocalizationJobById(params: {
   generatedItems: number;
   failedItems: number;
 }> {
-  const { data: jobRow, error: jobError } = await (supabaseServer as any)
+  const { data: jobRow, error: jobError } = await supabase
     .from("translation_jobs")
     .select(JOB_SELECT)
     .eq("organization_id", params.organizationId)
@@ -1170,8 +1375,10 @@ export async function executeLocalizationJobById(params: {
   }
   if (jobType === "translate") {
     const { planId } = await getOrganizationBillingLimits(params.organizationId);
-    if (planId === "starter") {
-      throw new Error("Translation is unavailable on Starter. Upgrade plan to run this job.");
+    if (!canUseDeepL(planId)) {
+      throw new Error(
+        "Translation is unavailable on Free (Sandbox). Upgrade your plan to run this job."
+      );
     }
   }
   if (jobType === "translate" && !localizationSettings.translationEnabled) {
@@ -1208,6 +1415,40 @@ export async function executeLocalizationJobById(params: {
     throw new Error("Localization job has no valid target locales");
   }
 
+  const providerMeta = normalizeObject(jobRow.provider_meta);
+  const storedTargetGlossaryIdsByLocaleId = normalizeLocaleGlossaryMap(
+    providerMeta.targetGlossaryIdsByLocaleId ?? providerMeta.target_glossary_ids_by_locale_id
+  );
+  let targetGlossaryProviderIdByLocaleId = normalizeLocaleGlossaryMap(
+    providerMeta.targetProviderGlossaryIdsByLocaleId ?? providerMeta.target_provider_glossary_ids_by_locale_id
+  );
+  if (
+    jobType === "translate" &&
+    Object.keys(targetGlossaryProviderIdByLocaleId).length === 0 &&
+    Object.keys(storedTargetGlossaryIdsByLocaleId).length > 0
+  ) {
+    const resolvedGlossarySelection = await resolveTargetGlossaryProviderSelection({
+      organizationId: params.organizationId,
+      sourceLocaleCode: sourceLocale.code,
+      targetLocaleIds: filteredTargetLocaleIds,
+      localeById,
+      requestedGlossaryIdByLocaleId: storedTargetGlossaryIdsByLocaleId,
+    });
+    targetGlossaryProviderIdByLocaleId = resolvedGlossarySelection.providerGlossaryIdByLocaleId;
+  }
+  if (jobType === "translate" && Object.keys(targetGlossaryProviderIdByLocaleId).length === 0) {
+    const legacyGlossaryId = normalizeOptionalString(providerMeta.deeplGlossaryId);
+    if (legacyGlossaryId) {
+      targetGlossaryProviderIdByLocaleId = filteredTargetLocaleIds.reduce(
+        (acc, localeId) => {
+          acc[localeId] = legacyGlossaryId;
+          return acc;
+        },
+        {} as Record<string, string>
+      );
+    }
+  }
+
   const scope = normalizeObject(jobRow.scope);
   const scopeMarketIds = normalizeStringArray(scope.marketIds);
   const scopeChannelIds = normalizeStringArray(scope.channelIds);
@@ -1238,10 +1479,11 @@ export async function executeLocalizationJobById(params: {
     targetMarketId,
     targetChannelId,
     targetDestinationId,
+    targetGlossaryIdByLocaleId: targetGlossaryProviderIdByLocaleId,
   });
 
   if (workItems.length === 0) {
-    await (supabaseServer as any)
+    await supabase
       .from("translation_jobs")
       .update({
         status: "failed",
@@ -1270,7 +1512,7 @@ export async function executeLocalizationJobById(params: {
   }
 
   const nowIso = new Date().toISOString();
-  await (supabaseServer as any)
+  await supabase
     .from("translation_jobs")
     .update({
       status: "running",
@@ -1282,7 +1524,7 @@ export async function executeLocalizationJobById(params: {
     .eq("organization_id", params.organizationId)
     .eq("id", params.jobId);
 
-  const { error: clearItemsError } = await (supabaseServer as any)
+  const { error: clearItemsError } = await supabase
     .from("translation_job_items")
     .delete()
     .eq("organization_id", params.organizationId)
@@ -1304,7 +1546,6 @@ export async function executeLocalizationJobById(params: {
     jobType,
     workItems,
     localizationSettings: {
-      deeplGlossaryId: localizationSettings.deeplGlossaryId,
       preferredTone: localizationSettings.preferredTone,
       brandInstructions: localizationSettings.brandInstructions,
     },
@@ -1333,7 +1574,7 @@ export async function GET(
     const limitRaw = Number(new URL(request.url).searchParams.get("limit") || 25);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 25;
 
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabase
       .from("translation_jobs")
       .select(JOB_SELECT)
       .eq("organization_id", organization.id)
@@ -1351,12 +1592,14 @@ export async function GET(
       return NextResponse.json({ error: "Failed to load translation jobs" }, { status: 500 });
     }
 
-    const jobs = (data || []) as Array<Record<string, any>>;
-    const jobIds = jobs.map((job) => job.id).filter(Boolean);
+    const jobs = (data || []) as Array<Record<string, unknown>>;
+    const jobIds = jobs
+      .map((job) => (typeof job.id === "string" ? job.id : null))
+      .filter((jobId): jobId is string => Boolean(jobId));
 
     let itemCountsByJobId: Record<string, Record<string, number>> = {};
     if (jobIds.length > 0) {
-      const { data: itemRows, error: itemError } = await (supabaseServer as any)
+      const { data: itemRows, error: itemError } = await supabase
         .from("translation_job_items")
         .select("job_id,status")
         .eq("organization_id", organization.id)
@@ -1381,7 +1624,7 @@ export async function GET(
       data: {
         jobs: jobs.map((job) => ({
           ...job,
-          item_counts: itemCountsByJobId[job.id] || {},
+          item_counts: itemCountsByJobId[String(job.id)] || {},
         })),
       },
     });
@@ -1459,7 +1702,7 @@ export async function POST(
 
     if (activeFieldCodes.length === 0 && requestedProductFieldIds.length === 0) {
       return NextResponse.json(
-        { error: "Select at least one system field or custom translatable product field." },
+        { error: "Select at least one system field or custom localizable product field." },
         { status: 400 }
       );
     }
@@ -1474,11 +1717,11 @@ export async function POST(
 
     if (jobType === "translate") {
       const { planId } = await getOrganizationBillingLimits(organization.id);
-      if (planId === "starter") {
+      if (!canUseDeepL(planId)) {
         return NextResponse.json(
           {
             error:
-              "Translation is unavailable on Starter. Upgrade to Free, Growth, Scale, or Enterprise to use Translate this product.",
+              "Translation is unavailable on Free (Sandbox). Upgrade to Starter, Growth, Scale, or Enterprise to use Translate this product.",
             code: "PLAN_RESTRICTED",
             planId,
           },
@@ -1538,6 +1781,38 @@ export async function POST(
       );
     }
 
+    const requestedTargetGlossaryIdsByLocaleId = normalizeLocaleGlossaryMap(
+      body?.targetGlossaryIdsByLocaleId ?? body?.target_glossary_ids_by_locale_id
+    );
+    let targetGlossarySelection: {
+      selectedGlossaryIdsByLocaleId: Record<string, string>;
+      providerGlossaryIdByLocaleId: Record<string, string>;
+    } = {
+      selectedGlossaryIdsByLocaleId: {},
+      providerGlossaryIdByLocaleId: {},
+    };
+    if (jobType === "translate") {
+      try {
+        targetGlossarySelection = await resolveTargetGlossaryProviderSelection({
+          organizationId: organization.id,
+          sourceLocaleCode: sourceLocale.code,
+          targetLocaleIds: filteredTargetLocaleIds,
+          localeById,
+          requestedGlossaryIdByLocaleId: requestedTargetGlossaryIdsByLocaleId,
+        });
+      } catch (glossaryError) {
+        return NextResponse.json(
+          {
+            error:
+              glossaryError instanceof Error
+                ? glossaryError.message
+                : "Failed to validate selected glossary mapping.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     const scope = normalizeObject(body?.scope);
     const scopeMarketIds = normalizeStringArray((scope as Record<string, unknown>).marketIds);
     const scopeChannelIds = normalizeStringArray((scope as Record<string, unknown>).channelIds);
@@ -1583,6 +1858,7 @@ export async function POST(
       targetMarketId,
       targetChannelId,
       targetDestinationId,
+      targetGlossaryIdByLocaleId: targetGlossarySelection.providerGlossaryIdByLocaleId,
     });
 
     if (workItems.length === 0) {
@@ -1620,46 +1896,50 @@ export async function POST(
     const activeCustomFieldIds = activeCustomFields.map((field) => field.id);
 
     const nowIso = new Date().toISOString();
-    const { data: jobRow, error: jobInsertError } = await (supabaseServer as any)
+    const jobInsertPayload: Database["public"]["Tables"]["translation_jobs"]["Insert"] = {
+      organization_id: organization.id,
+      requested_by: userId,
+      job_type: jobType,
+      status: executionMode === "async" ? "queued" : "running",
+      source_locale_id: sourceLocaleId,
+      target_locale_ids: filteredTargetLocaleIds,
+      scope: scope as Json,
+      field_selection: {
+        ...fieldSelection,
+        fieldCodes: activeFieldCodes,
+        productFieldIds: activeCustomFieldIds,
+        mode:
+          activeFieldCodes.length > 0 && activeCustomFieldIds.length > 0
+            ? "system_and_custom_fields"
+            : activeCustomFieldIds.length > 0
+              ? "custom_fields_only"
+              : "system_fields_only",
+      } as Json,
+      product_ids: productIds,
+      provider: "deepl",
+      provider_meta: {
+        ...providerMetaFromBody,
+        executionMode,
+        deeplGlossaryId: null,
+        targetGlossaryIdsByLocaleId: targetGlossarySelection.selectedGlossaryIdsByLocaleId,
+        targetProviderGlossaryIdsByLocaleId: targetGlossarySelection.providerGlossaryIdByLocaleId,
+        preferredTone: localizationSettings.preferredTone,
+        brandInstructions: localizationSettings.brandInstructions,
+        translationContext,
+        deepLFormality: deeplFormality,
+        writeAssistTone: writeAssistControls.tone,
+        writeAssistStyle: writeAssistControls.writingStyle,
+        writeAssistControlSource: writeAssistControls.source,
+        writeAssistControlReason: writeAssistControls.reason,
+      } as Json,
+      estimated_chars: estimatedChars,
+      metadata: metadata as Json,
+      started_at: executionMode === "sync" ? nowIso : null,
+    };
+
+    const { data: jobRow, error: jobInsertError } = await supabase
       .from("translation_jobs")
-      .insert({
-        organization_id: organization.id,
-        requested_by: userId,
-        job_type: jobType,
-        status: (executionMode === "async" ? "queued" : "running") as JobStatus,
-        source_locale_id: sourceLocaleId,
-        target_locale_ids: filteredTargetLocaleIds,
-        scope,
-        field_selection: {
-          ...fieldSelection,
-          fieldCodes: activeFieldCodes,
-          productFieldIds: activeCustomFieldIds,
-          mode:
-            activeFieldCodes.length > 0 && activeCustomFieldIds.length > 0
-              ? "system_and_custom_fields"
-              : activeCustomFieldIds.length > 0
-                ? "custom_fields_only"
-                : "system_fields_only",
-        },
-        product_ids: productIds,
-        provider: "deepl",
-        provider_meta: {
-          ...providerMetaFromBody,
-          executionMode,
-          deeplGlossaryId: localizationSettings.deeplGlossaryId,
-          preferredTone: localizationSettings.preferredTone,
-          brandInstructions: localizationSettings.brandInstructions,
-          translationContext,
-          deepLFormality: deeplFormality,
-          writeAssistTone: writeAssistControls.tone,
-          writeAssistStyle: writeAssistControls.writingStyle,
-          writeAssistControlSource: writeAssistControls.source,
-          writeAssistControlReason: writeAssistControls.reason,
-        },
-        estimated_chars: estimatedChars,
-        metadata,
-        started_at: executionMode === "sync" ? nowIso : null,
-      })
+      .insert(jobInsertPayload)
       .select(JOB_SELECT)
       .single();
 
@@ -1699,7 +1979,6 @@ export async function POST(
       jobType,
       workItems,
       localizationSettings: {
-        deeplGlossaryId: localizationSettings.deeplGlossaryId,
         preferredTone: localizationSettings.preferredTone,
         brandInstructions: localizationSettings.brandInstructions,
       },
@@ -1728,3 +2007,7 @@ export async function POST(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+
+
+

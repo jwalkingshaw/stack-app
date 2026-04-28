@@ -35,6 +35,7 @@ export interface PIMProduct {
   upc?: string;
   brandLine?: string;
   family?: string; // Sports nutrition product family (Protein, Pre-Workout, Creatine, etc.)
+  familyId?: string; // UUID of the product family (used to scope attribute column picker)
   category?: string[];
   status: 'Draft' | 'Enrichment' | 'Review' | 'Active' | 'Discontinued' | 'Archived';
   launchDate?: string;
@@ -42,6 +43,14 @@ export interface PIMProduct {
   costOfGoods?: number;
   marginPercent?: number;
   
+  // Localizable content fields (base/default locale)
+  shortDescription?: string;
+  longDescription?: string;
+  features?: string;
+  metaTitle?: string;
+  metaDescription?: string;
+  keywords?: string;
+
   // Content inheritance (for variants)
   inheritance?: ContentInheritance;
   isInherited?: {

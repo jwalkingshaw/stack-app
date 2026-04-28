@@ -29,7 +29,7 @@ export async function POST(
     const searchParams = new URL(request.url).searchParams;
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetUpload,
@@ -114,7 +114,7 @@ export async function PUT(
     const searchParams = new URL(request.url).searchParams;
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetUpload,
@@ -172,12 +172,21 @@ export async function PUT(
       s3Url,
       assetType: fileType,
       assetScope: 'internal',
+      assetStatus: "active",
       productIdentifiers: [],
       thumbnailUrls,
       metadata: {},
       tags: [],
       description: undefined,
-      createdBy: (user as any).id,
+      usagePlatforms: [],
+      athleteNames: [],
+      regulatoryRegion: [],
+      certifications: [],
+      visibleClaims: [],
+      claimsApprovedMarkets: [],
+      wadaRiskLevel: "none",
+      printVsDigital: "digital",
+      createdBy: user.id,
     });
 
     if (!asset) {

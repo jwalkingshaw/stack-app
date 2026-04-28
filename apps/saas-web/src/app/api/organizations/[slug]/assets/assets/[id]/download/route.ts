@@ -71,7 +71,7 @@ export async function GET(
     }
 
     const collectionScope = await enforceCollectionScope({
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       organizationId: organization.id,
       collectionId,
       assetId: resolvedParams.id,

@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import ProductFamiliesSettings from '../components/ProductFamiliesSettings';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 
 interface ProductFamiliesPageProps {
   params: Promise<{ tenant: string }>;
@@ -11,7 +11,7 @@ export default async function ProductFamiliesPage({ params }: ProductFamiliesPag
 
   return (
     <Suspense fallback={
-      <PageLoader text="Loading product families..." size="lg" />
+      <PageSkeleton text="Loading product families..." size="lg" />
     }>
       <ProductFamiliesSettings tenantSlug={tenant} />
     </Suspense>

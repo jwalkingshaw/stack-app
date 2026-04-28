@@ -36,10 +36,14 @@ type MeasurementState =
 
 interface MeasurementFieldComponentProps {
   field: ProductField;
-  value?: any;
-  onChange?: (value: any) => void;
+  value?: unknown;
+  onChange?: (value: unknown) => void;
   disabled?: boolean;
   className?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 export function MeasurementFieldComponent({
@@ -49,19 +53,45 @@ export function MeasurementFieldComponent({
   disabled = false,
   className = ''
 }: MeasurementFieldComponentProps) {
-  const rawUnits = field.options?.units || [];
+  const rawUnits = useMemo(() => {
+    return Array.isArray(field.options?.units) ? field.options.units : [];
+  }, [field.options?.units]);
 
   const units: MeasurementUnitOption[] = useMemo(() => {
-    return rawUnits.map((unit: any) => {
+    return rawUnits.flatMap<MeasurementUnitOption>((unit): MeasurementUnitOption[] => {
       if (typeof unit === 'string') {
-        return { value: unit, label: unit, symbol: unit };
+        return [{ value: unit, label: unit, symbol: unit }];
       }
-      return {
-        value: unit.value || unit.code || unit.name,
-        label: unit.label || unit.name || unit.value || unit.code,
-        symbol: unit.symbol,
-        conversion_factor: unit.conversion_factor
-      };
+
+      if (!isRecord(unit)) return [];
+
+      const value =
+        (typeof unit.value === 'string' && unit.value) ||
+        (typeof unit.code === 'string' && unit.code) ||
+        (typeof unit.name === 'string' && unit.name) ||
+        '';
+      if (!value) return [];
+
+      const label =
+        (typeof unit.label === 'string' && unit.label) ||
+        (typeof unit.name === 'string' && unit.name) ||
+        (typeof unit.value === 'string' && unit.value) ||
+        (typeof unit.code === 'string' && unit.code) ||
+        value;
+      const symbol = typeof unit.symbol === 'string' ? unit.symbol : undefined;
+      const conversion_factor =
+        typeof unit.conversion_factor === 'number'
+          ? unit.conversion_factor
+          : undefined;
+
+      return [
+        {
+          value,
+          label,
+          symbol,
+          conversion_factor
+        }
+      ];
     });
   }, [rawUnits]);
 
@@ -72,33 +102,59 @@ export function MeasurementFieldComponent({
     '';
 
   const componentSchema: ComponentSchemaEntry[] = useMemo(() => {
-    if (Array.isArray(field.options?.component_schema)) {
-      return field.options.component_schema as ComponentSchemaEntry[];
+    const rawComponentSchema = field.options?.component_schema;
+    if (Array.isArray(rawComponentSchema)) {
+      return rawComponentSchema.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.key !== 'string') return [];
+        return [
+          {
+            key: entry.key,
+            label:
+              typeof entry.label === 'string' && entry.label
+                ? entry.label
+                : entry.key,
+            description:
+              typeof entry.description === 'string'
+                ? entry.description
+                : undefined
+          }
+        ];
+      });
     }
     if (Array.isArray(field.options?.components)) {
-      return (field.options.components as string[]).map((key) => ({
-        key,
-        label: key.charAt(0).toUpperCase() + key.slice(1)
-      }));
+      return field.options.components.flatMap((key) => {
+        if (typeof key !== 'string') return [];
+        return [
+          {
+            key,
+            label: key.charAt(0).toUpperCase() + key.slice(1)
+          }
+        ];
+      });
     }
     return [];
   }, [field.options?.component_schema, field.options?.components]);
 
   const isComposite = !!field.options?.composite && componentSchema.length > 0;
 
-  const normalizeValue = (incoming: any): MeasurementState => {
+  const normalizeValue = (incoming: unknown): MeasurementState => {
+    const incomingRecord = isRecord(incoming) ? incoming : null;
     if (isComposite) {
       const components: Record<string, ComponentValue> = {};
       componentSchema.forEach((component) => {
-        const existing = incoming?.components?.[component.key] ?? incoming?.[component.key];
+        const incomingComponents = isRecord(incomingRecord?.components)
+          ? incomingRecord.components
+          : null;
+        const existing = incomingComponents?.[component.key] ?? incomingRecord?.[component.key];
+        const existingRecord = isRecord(existing) ? existing : null;
         const amount =
-          typeof existing === 'object'
-            ? (existing.amount ?? existing.value ?? '')
+          existingRecord
+            ? (existingRecord.amount ?? existingRecord.value ?? '')
             : existing ?? '';
         const unit =
-          typeof existing === 'object'
-            ? existing.unit ?? defaultUnit
-            : incoming?.unit ?? defaultUnit;
+          existingRecord
+            ? existingRecord.unit ?? defaultUnit
+            : incomingRecord?.unit ?? defaultUnit;
 
         components[component.key] = {
           amount: amount === null || amount === undefined ? '' : String(amount),
@@ -113,12 +169,12 @@ export function MeasurementFieldComponent({
     }
 
     const amount =
-      incoming && typeof incoming === 'object'
-        ? incoming.amount ?? incoming.value ?? incoming.measurement ?? ''
+      incomingRecord
+        ? incomingRecord.amount ?? incomingRecord.value ?? incomingRecord.measurement ?? ''
         : incoming ?? '';
 
     const unit =
-      (incoming && typeof incoming === 'object' && (incoming.unit ?? incoming.default_unit)) ||
+      (incomingRecord && (incomingRecord.unit ?? incomingRecord.default_unit)) ||
       defaultUnit;
 
     return {
@@ -147,7 +203,7 @@ export function MeasurementFieldComponent({
       return;
     }
 
-    const payloadComponents: Record<string, any> = {};
+    const payloadComponents: Record<string, ComponentValue> = {};
     Object.entries(nextState.components).forEach(([key, component]) => {
       payloadComponents[key] = {
         amount: component.amount,
@@ -233,6 +289,7 @@ export function MeasurementFieldComponent({
           min={minValue}
           max={maxValue}
           step={step}
+          className="h-10"
         />
       </div>
 
@@ -286,6 +343,7 @@ export function MeasurementFieldComponent({
                   min={minValue}
                   max={maxValue}
                   step={step}
+                  className="h-10"
                 />
               </div>
 

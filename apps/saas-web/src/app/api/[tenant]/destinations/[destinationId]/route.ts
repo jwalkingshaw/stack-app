@@ -33,12 +33,7 @@ export async function PUT(
     const { tenant, destinationId } = await params;
     const selectedBrandSlug = new URL(request.url).searchParams.get("brand");
 
-    if (isCrossTenantWrite(tenant, selectedBrandSlug)) {
-      return NextResponse.json(
-        { error: "Cross-tenant writes are blocked in shared brand view." },
-        { status: 403 }
-      );
-    }
+    
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -51,6 +46,27 @@ export async function PUT(
 
     const targetOrganizationId = contextResult.context.targetOrganization.id;
     const body = await request.json();
+    const { data: existingDestination, error: existingDestinationError } = await supabase
+      .from("channel_destinations")
+      .select("id,channel_id,market_id")
+      .eq("id", destinationId)
+      .eq("organization_id", targetOrganizationId)
+      .maybeSingle();
+
+    if (existingDestinationError) {
+      if (existingDestinationError.code === MISSING_TABLE_ERROR) {
+        return NextResponse.json(
+          { error: "Destinations are not available until migrations are applied." },
+          { status: 409 }
+        );
+      }
+      console.error("Error loading destination before update:", existingDestinationError);
+      return NextResponse.json({ error: "Failed to update destination" }, { status: 500 });
+    }
+
+    if (!existingDestination) {
+      return NextResponse.json({ error: "Destination not found." }, { status: 404 });
+    }
 
     const updatePayload: Record<string, unknown> = {};
 
@@ -88,26 +104,30 @@ export async function PUT(
       updatePayload.is_active = body.is_active;
     }
 
-    if (typeof body?.channel_id !== "undefined") {
-      const channelId =
-        typeof body.channel_id === "string" && body.channel_id.trim().length > 0
+    const nextChannelId =
+      typeof body?.channel_id !== "undefined"
+        ? typeof body.channel_id === "string" && body.channel_id.trim().length > 0
           ? body.channel_id.trim()
-          : null;
+          : null
+        : existingDestination.channel_id;
 
-      if (channelId) {
-        const { data: channel, error: channelError } = await supabase
-          .from("channels")
-          .select("id")
-          .eq("organization_id", targetOrganizationId)
-          .eq("id", channelId)
-          .maybeSingle();
+    if (!nextChannelId) {
+      return NextResponse.json({ error: "Destination requires a channel." }, { status: 400 });
+    }
 
-        if (channelError || !channel) {
-          return NextResponse.json({ error: "Invalid channel selected." }, { status: 400 });
-        }
-      }
+    const { data: channel, error: channelError } = await supabase
+      .from("channels")
+      .select("id")
+      .eq("organization_id", targetOrganizationId)
+      .eq("id", nextChannelId)
+      .maybeSingle();
 
-      updatePayload.channel_id = channelId;
+    if (channelError || !channel) {
+      return NextResponse.json({ error: "Invalid channel selected." }, { status: 400 });
+    }
+
+    if (typeof body?.channel_id !== "undefined") {
+      updatePayload.channel_id = nextChannelId;
     }
 
     if (typeof body?.market_id !== "undefined") {
@@ -168,3 +188,4 @@ export async function PUT(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+

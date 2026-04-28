@@ -4,22 +4,21 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  UserPlus,
   Mail,
   Shield,
-  MoreVertical,
   Copy,
   Check,
   Clock,
-  Users as UsersIcon,
-  Trash2,
-  ChevronRight
+  Trash2
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PageHeader } from "@/components/ui/page-header";
+import { DeleteConfirmDialog } from "@/components/ui/modal-shells";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ItemList } from "@/components/ui/item-list";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { SettingsPageContent } from "../settings/components/settings-page-content";
 
 interface TeamMember {
   id: string;
@@ -165,7 +164,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
   const [sharingAvailable, setSharingAvailable] = useState<boolean | null>(null);
   const [sharingError, setSharingError] = useState("");
   const [shareMarkets, setShareMarkets] = useState<ShareContainer[]>([]);
-  const [shareChannels, setShareChannels] = useState<ShareContainer[]>([]);
+  const [, setShareChannels] = useState<ShareContainer[]>([]);
   const [shareCollections, setShareCollections] = useState<ShareContainer[]>([]);
   const [shareGrants, setShareGrants] = useState<ShareScopeGrant[]>([]);
   const [selectedMemberId, setSelectedMemberId] = useState("");
@@ -422,8 +421,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
 
       // Refresh team list to remove deleted invitation
       await fetchTeam();
-    } catch (error: any) {
-      alert(`Error: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to delete invitation";
+      alert(`Error: ${message}`);
     } finally {
       setDeletingInviteId(null);
       setInvitationToDelete(null);
@@ -491,8 +491,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       }
 
       await fetchSharing();
-    } catch (error: any) {
-      setSharingError(error.message || "Failed to apply permissions");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to apply permissions";
+      setSharingError(message);
     } finally {
       setSavingShare(false);
     }
@@ -571,8 +572,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       }
 
       await fetchSharing();
-    } catch (error: any) {
-      setSharingError(error.message || "Failed to apply collection permissions");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to apply collection permissions";
+      setSharingError(message);
     } finally {
       setSavingCollectionGrant(false);
     }
@@ -590,8 +592,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
         throw new Error(errorPayload?.error || "Failed to revoke sharing scope");
       }
       await fetchSharing();
-    } catch (error: any) {
-      setSharingError(error.message || "Failed to revoke sharing scope");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to revoke sharing scope";
+      setSharingError(message);
     } finally {
       setRemovingGrantId(null);
     }
@@ -643,8 +646,9 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       if (savedId) {
         setSelectedCollectionId(savedId);
       }
-    } catch (error: any) {
-      setSharingError(error.message || "Failed to save collection");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to save collection";
+      setSharingError(message);
     } finally {
       setCollectionSaving(false);
     }
@@ -665,25 +669,20 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       }
       handleNewCollection();
       await Promise.all([fetchCollections(), fetchSharing()]);
-    } catch (error: any) {
-      setSharingError(error.message || "Failed to delete collection");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to delete collection";
+      setSharingError(message);
     } finally {
       setCollectionDeleting(false);
     }
   };
 
-  const getRoleBadgeColor = (role: string) => {
+  const getRoleVariant = (role: string): "purple" | "info" | "success" | "neutral" => {
     switch (role) {
-      case "owner":
-        return "bg-purple-100 text-purple-700 border-purple-200";
-      case "admin":
-        return "bg-blue-100 text-blue-700 border-blue-200";
-      case "editor":
-        return "bg-green-100 text-green-700 border-green-200";
-      case "viewer":
-        return "bg-gray-100 text-gray-700 border-gray-200";
-      default:
-        return "bg-gray-100 text-gray-700 border-gray-200";
+      case "owner": return "purple";
+      case "admin": return "info";
+      case "editor": return "success";
+      default: return "neutral";
     }
   };
 
@@ -703,9 +702,10 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
   };
 
   const showInternal = view === "internal" || view === "members";
-  const showPartners = view === "partners";
+  const showPartners = organizationType === "brand" && view === "partners";
   const showPermissions = view === "permissions";
   const showAssetSets = view === "assetSets";
+  const activeTeamTab = showPartners ? "partners" : "internal";
   const canManagePartnerInvites = canManageInvites && organizationType === "brand";
   const canManageBrandSharing = canManageInvites && organizationType === "brand";
   const headerTitle = showPartners ? "Partners" : "Team";
@@ -718,122 +718,62 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
   const pendingPartnerInvitations = pendingInvitations.filter(
     (invitation) => invitation.invitation_type === "partner"
   );
+  const openTeamInvite = () =>
+    router.push(`/${tenantSlug}/settings/team/invite/team`);
+  const openPartnerInvite = () =>
+    router.push(`/${tenantSlug}/settings/team/invite/partner`);
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title={headerTitle}
-        description={headerDescription}
-        actions={[
-          ...(canManageInvites && showInternal
-            ? [
-                {
-                  label: "Invite Team Member",
-                  onClick: () => router.push(`/${tenantSlug}/settings/team/invite/team`),
-                  icon: UserPlus,
-                },
-              ]
-            : []),
-          ...(canManagePartnerInvites && showPartners
-            ? [
-                {
-                  label: "Invite Partner",
-                  onClick: () => router.push(`/${tenantSlug}/settings/team/invite/partner`),
-                  icon: UsersIcon,
-                },
-              ]
-            : []),
-        ]}
-      />
+    <SettingsPageContent page="team">
+      <div className="space-y-1">
+        <h2 className="text-2xl font-semibold text-foreground">{headerTitle}</h2>
+        <p className="text-sm text-muted-foreground">{headerDescription}</p>
+      </div>
 
       <div className="bg-background rounded-lg border border-border shadow-soft p-3">
-        <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
-          <Link href={`/${tenantSlug}/settings/team`}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={showInternal ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}
-            >
-              Internal
-            </Button>
-          </Link>
-          <Link href={`/${tenantSlug}/settings/team/partners`}>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={showPartners ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}
-            >
-              Partners
-            </Button>
-          </Link>
-        </div>
+        <Tabs value={activeTeamTab}>
+          <TabsList>
+            <TabsTrigger value="internal" asChild>
+              <Link href={`/${tenantSlug}/settings/team`}>Internal</Link>
+            </TabsTrigger>
+            {organizationType === "brand" ? (
+              <TabsTrigger value="partners" asChild>
+                <Link href={`/${tenantSlug}/settings/team/partners`}>Partners</Link>
+              </TabsTrigger>
+            ) : null}
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Team Members List */}
       {showInternal && (
-      <div className="bg-background rounded-lg border border-border shadow-soft">
-        {loading ? (
-          <div className="p-8 space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-16 bg-muted rounded animate-pulse" />
-            ))}
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {members.map((member) => (
-              <div
-                key={member.id}
-                className="p-4 hover:bg-muted/50 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 flex-1">
-                    <div className="w-10 h-10 bg-primary/10 text-primary rounded-full flex items-center justify-center text-sm font-medium">
-                      {member.email.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-medium text-foreground truncate">
-                          {member.email}
-                        </h3>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span
-                          className={`inline-block px-2 py-0.5 text-xs font-medium rounded border ${getRoleBadgeColor(
-                            member.role
-                          )}`}
-                        >
-                          {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {getRoleDescription(member.role)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs text-muted-foreground">
-                      Joined {new Date(member.joinedAt).toLocaleDateString()}
-                    </span>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!loading && members.length === 0 && (
-          <div className="p-12 text-center">
-            <UsersIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-60" />
-            <p className="text-muted-foreground">No team members yet</p>
-          </div>
-        )}
-      </div>
+        <ItemList
+          items={members}
+          getKey={(member) => member.id}
+          renderTitle={(member) => member.email}
+          renderSubtitle={(member) => (
+            <div className="flex items-center gap-2">
+              <Badge variant={getRoleVariant(member.role)}>
+                {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
+              </Badge>
+              <span>{getRoleDescription(member.role)}</span>
+            </div>
+          )}
+          onClickItem={
+            canManageInvites
+              ? (member) => router.push(`/${tenantSlug}/settings/team/members/${member.id}`)
+              : undefined
+          }
+          loading={loading}
+          loadingRows={4}
+          emptyMessage="No team members yet"
+          headerLabel="members"
+          onCreate={canManageInvites ? openTeamInvite : undefined}
+          createLabel={canManageInvites ? (organizationType === "partner" ? "Invite teammate" : "Invite user") : undefined}
+        />
       )}
 
-      {!canManageInvites && (
+      {!loading && !canManageInvites && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           You do not have permission to manage invitations in this workspace.
         </div>
@@ -842,13 +782,13 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       {/* Pending Invitations */}
       {showInternal && canManageInvites && pendingTeamInvitations.length > 0 && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
+          <div className="p-4 border-b border-gray-200">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
               <Clock className="h-4 w-4" />
               Pending Internal Invitations ({pendingTeamInvitations.length})
             </h3>
           </div>
-          <div className="divide-y divide-border">
+          <div className="divide-y divide-gray-200">
             {pendingTeamInvitations.map((invitation) => (
               <div
                 key={invitation.id}
@@ -867,18 +807,12 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                       </div>
                       <div className="flex items-center gap-2 mt-1">
                         {invitation.invitation_type === "partner" && (
-                          <span className="inline-block px-2 py-0.5 text-xs font-medium rounded border bg-purple-100 text-purple-700 border-purple-200">
-                            Partner
-                          </span>
+                          <Badge variant="purple">Partner</Badge>
                         )}
-                        <span
-                          className={`inline-block px-2 py-0.5 text-xs font-medium rounded border ${getRoleBadgeColor(
-                            invitation.role_or_access_level
-                          )}`}
-                        >
+                        <Badge variant={getRoleVariant(invitation.role_or_access_level)}>
                           {invitation.role_or_access_level.charAt(0).toUpperCase() +
                             invitation.role_or_access_level.slice(1)}
-                        </span>
+                        </Badge>
                         <span className="text-xs text-muted-foreground">
                           Expires{" "}
                           {new Date(invitation.expires_at).toLocaleDateString()}
@@ -924,50 +858,34 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
       )}
 
       {showPartners && (
-        <div className="bg-background rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
-            <h3 className="text-sm font-medium text-foreground">Partner Organizations</h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              Active partner relationships with current access scope.
-            </p>
-          </div>
-          {partnerRelationships.length === 0 ? (
-            <div className="p-12 text-center">
-              <UsersIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4 opacity-60" />
-              <p className="text-muted-foreground">No partner organizations connected yet</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {partnerRelationships.map((relationship) => (
-                <Link
-                  key={relationship.id}
-                  href={`/${tenantSlug}/settings/team/partners/${relationship.partner_organization_id}`}
-                  className="block p-4 hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {relationship.partner_organization?.name || relationship.partner_organization_id}
-                      </p>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
+        <ItemList
+          items={partnerRelationships}
+          getKey={(relationship) => relationship.id}
+          renderTitle={(relationship) =>
+            relationship.partner_organization?.name || relationship.partner_organization_id
+          }
+          renderSubtitle={() => "Active partner relationships with current access scope."}
+          onClickItem={(relationship) =>
+            router.push(`/${tenantSlug}/settings/team/partners/${relationship.partner_organization_id}`)
+          }
+          loading={loading}
+          loadingRows={4}
+          emptyMessage="No partner organizations connected yet"
+          headerLabel="partner relationships"
+          onCreate={canManagePartnerInvites ? openPartnerInvite : undefined}
+          createLabel={canManagePartnerInvites ? "Invite partner" : undefined}
+        />
       )}
 
       {showPartners && canManagePartnerInvites && pendingPartnerInvitations.length > 0 && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
+          <div className="p-4 border-b border-gray-200">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
               <Clock className="h-4 w-4" />
               Pending Partner Invitations ({pendingPartnerInvitations.length})
             </h3>
           </div>
-          <div className="divide-y divide-border">
+          <div className="divide-y divide-gray-200">
             {pendingPartnerInvitations.map((invitation) => (
               <div
                 key={invitation.id}
@@ -985,17 +903,10 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                         </h3>
                       </div>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="inline-block px-2 py-0.5 text-xs font-medium rounded border bg-purple-100 text-purple-700 border-purple-200">
-                          Partner
-                        </span>
-                        <span
-                          className={`inline-block px-2 py-0.5 text-xs font-medium rounded border ${getRoleBadgeColor(
-                            invitation.role_or_access_level
-                          )}`}
-                        >
-                          {invitation.role_or_access_level.charAt(0).toUpperCase() +
-                            invitation.role_or_access_level.slice(1)}
-                        </span>
+                        <Badge variant="purple">Portal</Badge>
+                        <Badge variant="neutral">
+                          Read-only
+                        </Badge>
                         <span className="text-xs text-muted-foreground">
                           Expires{" "}
                           {new Date(invitation.expires_at).toLocaleDateString()}
@@ -1042,7 +953,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
 
       {showPermissions && sharingAvailable !== false && canManageBrandSharing && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
+          <div className="p-4 border-b border-gray-200">
             <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
               <Shield className="h-4 w-4" />
               Member Permissions
@@ -1051,7 +962,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
               1) Invite user with baseline role. 2) Select member + market (global). 3) Configure Products + Assets actions together.
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Markets are a global scope for both DAM and PIM access. Use Shared Asset Sets for additional file/folder-level DAM sharing.
+              Markets are a global scope for both DAM and PIM access. Use Brand Libraries for additional file/folder-level DAM sharing.
             </p>
           </div>
           <div className="p-4 space-y-4">
@@ -1167,7 +1078,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                 <div className="h-10 bg-muted rounded animate-pulse" />
               </div>
             ) : (
-              <div className="divide-y divide-border border border-border rounded-lg">
+              <div className="divide-y divide-gray-200 border border-border rounded-lg">
                 {shareGrants
                   .filter(
                     (grant) =>
@@ -1182,13 +1093,13 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                       grant.scope_type === "market"
                         ? market?.name || grant.market_id || "Unknown market"
                         : grant.scope_type === "channel"
-                        ? channel?.name || grant.channel_id || "Unknown channel"
+                        ? channel?.name || grant.channel_id || "Unknown destination"
                         : collection?.name || grant.collection_id || "Unknown collection";
                     const moduleLabel =
                       grant.scope_type === "market"
                         ? "Market Content"
                         : grant.scope_type === "channel"
-                          ? "Products"
+                          ? "Destination Content"
                           : "Assets";
 
                     return (
@@ -1228,15 +1139,15 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
 
       {showAssetSets && sharingAvailable !== false && canManageBrandSharing && (
         <div className="bg-background rounded-lg border border-border shadow-soft">
-          <div className="p-4 border-b border-border">
-            <h3 className="text-sm font-medium text-foreground">Shared Asset Sets</h3>
+          <div className="p-4 border-b border-gray-200">
+            <h3 className="text-sm font-medium text-foreground">Brand Libraries</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Create named sets of folders/files for selective DAM sharing. Content outside sets remains private.
+              Create brand libraries of folders/files for selective DAM sharing. Content outside libraries remains private.
             </p>
           </div>
           <div className="p-4 space-y-4">
             <div className="rounded border border-border p-3 space-y-3">
-              <p className="text-sm font-medium text-foreground">Set Access to a Shared Asset Set</p>
+              <p className="text-sm font-medium text-foreground">Brand Library Access</p>
               <p className="text-xs text-muted-foreground">
                 Use this when you want folder/file-level sharing beyond market permissions.
               </p>
@@ -1255,7 +1166,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                 </Select>
                 <Select value={selectedCollectionGrantId} onValueChange={setSelectedCollectionGrantId}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select shared set" />
+                    <SelectValue placeholder="Select saved scope" />
                   </SelectTrigger>
                   <SelectContent>
                     {shareCollections.map((collection) => (
@@ -1300,12 +1211,12 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                     !selectedCollectionGrantId
                   }
                 >
-                  {savingCollectionGrant ? "Saving..." : "Apply Set Permissions"}
+                  {savingCollectionGrant ? "Saving..." : "Apply Saved Scope Permissions"}
                 </Button>
               </div>
             </div>
 
-            <div className="divide-y divide-border border border-border rounded-lg">
+            <div className="divide-y divide-gray-200 border border-border rounded-lg">
               {shareGrants
                 .filter(
                   (grant) =>
@@ -1318,7 +1229,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                     <div key={grant.id} className="p-3 flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">
-                          Shared Set: {collection?.name || grant.collection_id || "Unknown set"}
+                          Saved Scope: {collection?.name || grant.collection_id || "Unknown saved scope"}
                         </p>
                         <p className="text-xs text-muted-foreground truncate">{grant.permission_key}</p>
                       </div>
@@ -1339,7 +1250,7 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
                   (!selectedMemberId || grant.member_id === selectedMemberId) &&
                   grant.scope_type === "collection"
               ).length === 0 && (
-                <div className="p-4 text-sm text-muted-foreground">No shared set permissions for selected member.</div>
+                <div className="p-4 text-sm text-muted-foreground">No saved scope permissions for selected member.</div>
               )}
             </div>
 
@@ -1419,45 +1330,18 @@ export default function TeamClient({ tenantSlug, view = "members" }: TeamClientP
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Invitation</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete the invitation for{" "}
-              <span className="font-medium text-foreground">
-                {invitationToDelete?.email}
-              </span>
-              ?
-            </p>
-            <p className="text-sm text-muted-foreground">
-              This action cannot be undone. The user will no longer be able to accept this invitation.
-            </p>
-            <div className="flex gap-3 pt-4">
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1"
-                onClick={() => setDeleteConfirmOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                className="flex-1"
-                onClick={handleDeleteInvitation}
-              >
-                Delete
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <DeleteConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={(open) => {
+          setDeleteConfirmOpen(open);
+          if (!open) setInvitationToDelete(null);
+        }}
+        title="Delete Invitation"
+        description={`Delete the invitation for ${invitationToDelete?.email || "this user"}? This action cannot be undone.`}
+        onConfirm={handleDeleteInvitation}
+        confirmLabel="Delete"
+      />
 
-    </div>
+    </SettingsPageContent>
   );
 }

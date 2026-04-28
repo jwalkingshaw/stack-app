@@ -2,43 +2,43 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { AuthLayoutShell } from "@stack-app/ui";
 import { useAuth } from "@/hooks/useAuth";
-import { Loader2 } from "lucide-react";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 
 export default function LoginPage() {
+  const t = useTranslations("Login");
   const { isAuthenticated, isLoading } = useAuth();
   const [authLoading, setAuthLoading] = useState(false);
   const router = useRouter();
 
-  // Handle authenticated users
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.push('/');
+      router.push("/");
     }
   }, [isLoading, isAuthenticated, router]);
 
   const handleLogin = () => {
     if (authLoading) return;
     setAuthLoading(true);
-    window.location.href = '/api/auth/login';
+    window.location.href = "/api/auth/login";
   };
 
   const handleSignUp = () => {
     if (authLoading) return;
     setAuthLoading(true);
-    window.location.href = '/api/auth/register';
+    window.location.href = "/api/auth/register";
   };
 
   const handlePartnerSignUp = () => {
     if (authLoading) return;
     setAuthLoading(true);
-    const redirect = encodeURIComponent('/onboarding?type=partner&create=1');
+    const redirect = encodeURIComponent("/onboarding?type=partner&create=1");
     window.location.href = `/api/auth/register?post_login_redirect_url=${redirect}`;
   };
 
-  // Show loading state
   if (isLoading || authLoading) {
     return (
       <AuthLayoutShell
@@ -46,16 +46,16 @@ export default function LoginPage() {
         headerProps={{ className: "hidden" }}
         contentClassName="pt-0"
       >
-        <div className="flex items-center justify-center px-4 py-12 min-h-screen">
-          <div className="w-full max-w-[420px] rounded-2xl border border-muted/30 bg-white px-6 py-8 shadow-sm sm:px-8">
+        <div className="flex min-h-screen items-center justify-center px-4 py-12">
+          <div className="w-full max-w-[420px] rounded-2xl bg-white px-6 py-8 sm:px-8">
             <div className="space-y-6 text-left">
               <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">
                 STACKCESS
               </span>
               <div className="flex items-center gap-3">
-                <Loader2 className="h-5 w-5 animate-spin text-foreground" />
+                <LoadingSkeleton size="md" />
                 <p className="text-[var(--font-size-sm)] text-muted-foreground">
-                  {authLoading ? 'Redirecting to authentication...' : 'Preparing your workspace...'}
+                  {authLoading ? t("loadingRedirecting") : t("loadingPreparing")}
                 </p>
               </div>
             </div>
@@ -65,25 +65,24 @@ export default function LoginPage() {
     );
   }
 
-  // Show login form for unauthenticated users
   return (
     <AuthLayoutShell
       authContext={{ isAuthenticated: false }}
       headerProps={{ className: "hidden" }}
       contentClassName="pt-0"
     >
-      <div className="flex items-center justify-center px-4 py-12 min-h-screen">
-        <div className="w-full max-w-[420px] rounded-2xl border border-muted/30 bg-white px-6 py-8 shadow-sm sm:px-8">
+      <div className="flex min-h-screen items-center justify-center px-4 py-12">
+        <div className="w-full max-w-[420px] rounded-2xl bg-white px-6 py-8 sm:px-8">
           <div className="space-y-8 text-left">
             <div className="space-y-2">
               <span className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">
                 STACKCESS
               </span>
               <h1 className="text-[var(--font-size-2xl)] font-semibold leading-tight tracking-tight text-foreground">
-                Hey friend! Welcome back
+                {t("title")}
               </h1>
               <p className="text-[var(--font-size-sm)] text-muted-foreground">
-                Sign in to continue managing your digital assets with STACKCESS.
+                {t("subtitle")}
               </p>
             </div>
 
@@ -91,10 +90,10 @@ export default function LoginPage() {
               <Button
                 onClick={handleLogin}
                 disabled={authLoading}
-                className="w-full h-12 rounded-[0.5rem] text-[var(--font-size-base)] font-semibold"
+                className="h-12 w-full rounded-[0.5rem] text-[var(--font-size-base)] font-semibold"
                 size="lg"
               >
-                Sign In
+                {t("actions.signIn")}
               </Button>
 
               <div className="flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">
@@ -107,23 +106,24 @@ export default function LoginPage() {
                 onClick={handleSignUp}
                 variant="secondary"
                 disabled={authLoading}
-                className="w-full h-12 rounded-[0.5rem] text-[var(--font-size-base)] font-semibold"
+                className="h-12 w-full rounded-[0.5rem] text-[var(--font-size-base)] font-semibold"
                 size="lg"
               >
-                Create Account
+                {t("actions.createFreeAccount")}
               </Button>
+
               <Button
                 onClick={handlePartnerSignUp}
                 variant="outline"
                 disabled={authLoading}
-                className="w-full h-12 rounded-[0.5rem] text-[var(--font-size-base)] font-semibold"
+                className="h-12 w-full rounded-[0.5rem] text-[var(--font-size-base)] font-semibold"
                 size="lg"
               >
-                Partner Signup
+                {t("actions.joinAsPartner")}
               </Button>
+
               <p className="text-xs text-muted-foreground">
-                New to STACKCESS? Create an account to start inviting your team and organizing assets.
-                Retailers and distributors can use Partner Signup to create a paid partner workspace.
+                {t("helper")}
               </p>
             </div>
           </div>

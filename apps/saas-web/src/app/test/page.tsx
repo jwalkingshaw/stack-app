@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
 
 interface TestResult {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -14,8 +14,32 @@ interface TestResult {
     warnings: number;
     errors: number;
   };
-  environmentVariables: any;
-  services: any;
+  environmentVariables: {
+    validation: {
+      isValid: boolean;
+      missing: string[];
+      invalid: string[];
+    };
+    summary: {
+      supabase: Record<string, string>;
+      kinde: Record<string, string>;
+      aws: Record<string, string>;
+    };
+  };
+  services: Record<
+    string,
+    {
+      tested: boolean;
+      results?: Array<{
+        service: string;
+        status: 'success' | 'warning' | 'error';
+        message: string;
+        details?: unknown;
+      }>;
+      skipped?: boolean;
+      reason?: string;
+    }
+  >;
 }
 
 export default function TestPage() {
@@ -104,11 +128,11 @@ export default function TestPage() {
             <button
               onClick={runHealthCheck}
               disabled={isLoading}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+              className="bg-[var(--color-accent-black)] text-white px-6 py-2 rounded-lg hover:bg-[var(--color-accent-black-hover)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
             >
               {isLoading ? (
                 <>
-                  <LoadingSpinner size="sm" color="white" />
+                  <LoadingSkeleton size="sm" color="white" />
                   <span>Testing...</span>
                 </>
               ) : (
@@ -227,13 +251,13 @@ export default function TestPage() {
               <h3 className="text-lg font-semibold mb-4">Service Tests</h3>
               
               <div className="space-y-4">
-                {Object.entries(results.services).map(([serviceName, serviceData]: [string, any]) => (
+                {Object.entries(results.services).map(([serviceName, serviceData]) => (
                   <div key={serviceName} className="border rounded p-4">
                     <h4 className="font-medium mb-2 capitalize">{serviceName}</h4>
                     
-                    {serviceData.tested ? (
+                    {serviceData.tested && Array.isArray(serviceData.results) ? (
                       <div className="space-y-2">
-                        {serviceData.results.map((result: any, index: number) => (
+                        {serviceData.results.map((result, index: number) => (
                           <div
                             key={index}
                             className={`p-3 rounded border ${getStatusColor(result.status)}`}
@@ -248,7 +272,7 @@ export default function TestPage() {
                               </div>
                             </div>
                             
-                            {includeDetails && result.details && (
+                            {includeDetails && Boolean(result.details) && (
                               <details className="mt-2">
                                 <summary className="cursor-pointer text-sm font-medium">
                                   View Details
@@ -284,13 +308,13 @@ export default function TestPage() {
                 <strong>1. Set up your environment variables</strong> - Copy <code>.env.example</code> to <code>.env</code> and fill in your credentials.
               </p>
               <p>
-                <strong>2. Click "Run Health Check"</strong> - This will test all your environment variables and service connections.
+                <strong>2. Click &quot;Run Health Check&quot;</strong> - This will test all your environment variables and service connections.
               </p>
               <p>
                 <strong>3. Fix any issues</strong> - Follow the error messages to resolve configuration problems.
               </p>
               <p>
-                <strong>4. Once everything is green</strong> - You're ready to implement core Assets features!
+                <strong>4. Once everything is green</strong> - You&apos;re ready to implement core Assets features!
               </p>
             </div>
           </div>
@@ -299,3 +323,4 @@ export default function TestPage() {
     </div>
   );
 }
+

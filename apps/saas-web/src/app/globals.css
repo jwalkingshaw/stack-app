@@ -47,17 +47,19 @@
   --color-interactive-selected: hsl(217 91% 97%);
   --color-interactive-disabled: hsl(220 13% 91%);
   --color-interactive-focus: hsl(217 91% 94%);
+  --color-secondary-button-hover: hsl(0 0% 88%);
+  --color-secondary-button-active: hsl(0 0% 88%);
 
-  /* Blue accent system */
-  --color-accent-blue: hsl(216 100% 50%);        /* Muted blue-gray */
-  --color-accent-blue-foreground: hsl(0 0% 98%);
-  --color-accent-blue-hover: hsl(220 100% 50%);
-  --color-accent-blue-active: hsl(220 100% 45%);
-  --color-accent-blue-subtle: hsl(217 12% 97%);
+  /* Black accent system */
+  --color-accent-black: hsl(0 0% 0%);
+  --color-accent-black-foreground: hsl(0 0% 98%);
+  --color-accent-black-hover: hsl(0 0% 30%);
+  --color-accent-black-active: hsl(0 0% 30%);
+  --color-accent-black-subtle: hsl(217 12% 97%);
 
   /* Typography */
   --font-family-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --font-family-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-family-mono: var(--font-jetbrains-mono), 'JetBrains Mono', ui-monospace, monospace;
 
   /* Consistent font weights */
   --font-weight-normal: 400;
@@ -93,11 +95,18 @@
   --destructive-foreground: 0 0% 98%;
   --border: 220 13% 91%;
   --input: 220 13% 91%;
-  --ring: 217 100% 50%;
+  --ring: 223 92% 52%;
   --radius: 0.5rem;
 
+  /* Shell surfaces */
+  --app-shell-canvas: 42 28% 94%;
+  --app-shell-surface: 48 33.3% 97.1%;
+  --app-shell-muted: 44 28% 93.5%;
+  --app-shell-border: 42 18% 87%;
+  --app-shell-nav-active: 43 32% 92%;
+
   /* Sidebar colors for SaaS app */
-  --sidebar-background: #f5f5f5;
+  --sidebar-background: hsl(var(--app-shell-surface));
   --sidebar-foreground: hsl(220 9% 9%);
   --sidebar-primary: hsl(220 9% 9%);
   --sidebar-primary-foreground: hsl(0 0% 98%);
@@ -112,32 +121,22 @@
   box-sizing: border-box;
 }
 
-/* Force reload - modern borders */
+/* Default all borders to the app's light border tone.
+   Directional utilities like border-t/b without an explicit color
+   should not fall back to dark/currentColor. */
+*, *::before, *::after {
+  border-color: hsl(220 13% 91% / var(--tw-border-opacity, 1));
+}
 
-/* Override UI package borders with higher specificity */
+/* Normalise UI-package border utilities to app token */
 * {
   --tw-border-opacity: 1;
 }
 
+.border,
 .border-border,
-[class*="border-border"] {
-  border-color: hsl(220 13% 91% / var(--tw-border-opacity)) !important;
-}
-
-.border {
-  border-color: hsl(220 13% 91% / var(--tw-border-opacity)) !important;
-}
-
-/* Input specific overrides */
-.border-input,
-[class*="border-input"] {
-  border-color: hsl(220 13% 91% / var(--tw-border-opacity)) !important;
-}
-
-/* Card and component overrides */
-.bg-card,
-.border-border {
-  border-color: hsl(220 13% 91% / var(--tw-border-opacity)) !important;
+.border-input {
+  border-color: hsl(220 13% 91% / var(--tw-border-opacity, 1));
 }
 
 html {
@@ -197,29 +196,49 @@ optgroup {
 select {
   background-color: hsl(0 0% 100%);
   color: var(--color-foreground);
+  border-radius: calc(var(--radius) - 2px); /* rounded-md — matches button rounding */
+}
+
+/* Neutral text-entry focus styles (remove bright blue active outlines) */
+:where(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  textarea,
+  select,
+  [contenteditable="true"]
+):focus,
+:where(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  textarea,
+  select,
+  [contenteditable="true"]
+):focus-visible {
+  outline: none !important;
+  border-color: hsl(var(--input)) !important;
+  box-shadow: none !important;
 }
 
 /* Boolean controls: consistent tone and borders */
 input[type="checkbox"],
 input[type="radio"] {
-  accent-color: var(--color-accent-blue);
+  accent-color: var(--color-accent-black);
   border: 1px solid var(--color-border);
   transition: border-color 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
 }
 
 input[type="checkbox"]:hover,
 input[type="radio"]:hover {
-  border-color: var(--color-accent-blue-hover);
+  border-color: var(--color-accent-black-hover);
 }
 
 input[type="checkbox"]:checked,
 input[type="radio"]:checked {
-  border-color: var(--color-accent-blue);
+  border-color: var(--color-accent-black);
 }
 
 input[type="checkbox"]:active,
 input[type="radio"]:active {
-  filter: brightness(0.95);
+  accent-color: var(--color-accent-black-active);
+  border-color: var(--color-accent-black-active);
 }
 
 /* Number inputs: hide native spin buttons to reduce visual clutter */
@@ -233,10 +252,29 @@ input[type="number"]::-webkit-inner-spin-button {
   margin: 0;
 }
 
-/* Focus styles */
-*:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--color-border-focus);
+/* Date/time controls: normalize native browser UI to match app styling */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-sm);
+  border-radius: 0.5rem;
+}
+
+input[type="date"]::-webkit-datetime-edit,
+input[type="datetime-local"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit,
+input[type="date"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value {
+  font: inherit;
+  color: inherit;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  opacity: 0.7;
 }
 
 /* Menus: keep item focus behavior, remove container halo */
@@ -315,4 +353,84 @@ p {
   color: hsl(216 100% 40%) !important;
   border: 1px solid transparent !important;
   box-shadow: none !important;
+}
+
+/* Sheet / drawer slide animations */
+@keyframes sheet-slide-in-right {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+@keyframes sheet-slide-out-right {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+@keyframes sheet-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes sheet-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+.sheet-right[data-state="open"] {
+  animation: sheet-slide-in-right 0.35s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+.sheet-right[data-state="closed"] {
+  animation: sheet-slide-out-right 0.25s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+.sheet-overlay[data-state="open"] {
+  animation: sheet-fade-in 0.2s ease-out forwards;
+}
+.sheet-overlay[data-state="closed"] {
+  animation: sheet-fade-out 0.2s ease-in forwards;
+}
+
+/* Product detail horizontal nav strip — hide scrollbar while preserving scroll */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* AG Grid — PIM table overrides
+   The v35 Theming API handles core styles. These fill gaps for custom
+   selection state (managed by React, not AG Grid's built-in rowSelection). */
+.ag-row.pim-row-variant-expanded {
+  background-color: #f0f9ff !important; /* sky-50 */
+}
+/* Remove focus ring on rows and cells — navigation intent shown by row click only */
+.ag-row-focus,
+.ag-row.ag-row-focus {
+  border-color: var(--ag-border-color) !important;
+}
+.ag-cell:focus-within,
+.ag-cell.ag-cell-focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: var(--ag-border-color) !important;
+}
+/* Remove AG Grid's internal min-height so autoHeight shrinks to fit row count.
+   body-viewport and body must NOT be zeroed — that collapses the row container.
+   The column clipper/viewport/container are safe to zero and are what hold the
+   default min-height that creates the phantom space below rows. */
+.ag-layout-auto-height,
+.ag-layout-auto-height .ag-center-cols-clipper,
+.ag-layout-auto-height .ag-center-cols-viewport,
+.ag-layout-auto-height .ag-center-cols-container {
+  min-height: 0 !important;
+}
+/* AG Grid fills the container — ensure the root wrapper doesn't escape the border-radius clip */
+.ag-root-wrapper {
+  border-radius: inherit;
+}
+/* Remove the right-edge border on pinned left columns */
+.ag-pinned-left-header,
+.ag-cell.ag-cell-last-left-pinned {
+  border-right: none !important;
+}
+/* Ensure Radix portals (Select dropdowns, DropdownMenu) render above AG Grid */
+[data-radix-popper-content-wrapper] {
+  z-index: 9999 !important;
 }

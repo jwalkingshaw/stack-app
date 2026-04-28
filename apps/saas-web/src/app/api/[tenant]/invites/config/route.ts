@@ -32,11 +32,58 @@ type ShareContainer = {
   code?: string | null;
 };
 
-type ShareSetOption = {
+type SavedScopeOption = {
   id: string;
   name: string;
   module_key: ShareSetModule;
+  scope_kind: "product_scope" | "brand_library_scope";
 };
+
+type OutputProfileOption = {
+  id: string;
+  name: string;
+  code: string;
+  profile_type: string;
+  is_primary: boolean;
+};
+
+function isPortalLaunchProfile(profile: {
+  profile_type?: string | null;
+  code?: string | null;
+  name?: string | null;
+}): boolean {
+  const profileType = String(profile.profile_type || "").trim().toLowerCase();
+  const code = String(profile.code || "").trim().toLowerCase();
+  const name = String(profile.name || "").trim().toLowerCase();
+  if (profileType !== "portal") return false;
+  if (!code && !name) return true;
+  return (
+    code === "portal" ||
+    code === "portal-catalog" ||
+    code === "generic_portal" ||
+    name === "portal" ||
+    name === "portal catalog" ||
+    name === "partner portal"
+  );
+}
+
+function isLegacyGlobalScope(row: {
+  name?: string | null;
+  metadata?: Record<string, unknown> | null;
+}): boolean {
+  const metadata =
+    row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+      ? row.metadata
+      : null;
+  if (metadata?.global === true || metadata?.system_managed === true) {
+    return true;
+  }
+  const normalizedName = String(row.name || "").trim().toLowerCase();
+  return normalizedName === "global products" || normalizedName === "global assets";
+}
+
+type PermissionBundleRow = Omit<PermissionBundle, "rules">;
+type PermissionBundleRuleRow = PermissionBundle["rules"][number];
 
 function parseInvitationType(value: string | null): InvitationType | null {
   if (!value) return "team_member";
@@ -48,7 +95,9 @@ function toSubjectType(invitationType: InvitationType): SubjectType {
   return invitationType === "partner" ? "partner" : "team_member";
 }
 
-function isMissingShareSetFoundationError(error: any): boolean {
+function isMissingShareSetFoundationError(
+  error: { code?: string; message?: string } | null | undefined
+): boolean {
   if (!error) return false;
   if (isMissingTableError(error)) return true;
   if (error?.code === "PGRST205") return true;
@@ -60,7 +109,7 @@ async function queryPermissionBundles(
   organizationId: string,
   subjectType: SubjectType
 ): Promise<PermissionBundle[]> {
-  let bundleQuery = (supabaseServer as any)
+  const bundleQuery = supabaseServer
     .from("permission_bundles")
     .select("id, name, description, subject_type, is_default")
     .eq("organization_id", organizationId)
@@ -76,12 +125,13 @@ async function queryPermissionBundles(
     throw bundlesError;
   }
 
-  const bundleIds = (bundles || []).map((bundle: any) => bundle.id);
+  const bundleRows = (bundles || []) as PermissionBundleRow[];
+  const bundleIds = bundleRows.map((bundle) => bundle.id);
   if (bundleIds.length === 0) {
-    return (bundles || []).map((bundle: any) => ({ ...bundle, rules: [] }));
+    return bundleRows.map((bundle) => ({ ...bundle, rules: [] }));
   }
 
-  const { data: rules, error: rulesError } = await (supabaseServer as any)
+  const { data: rules, error: rulesError } = await (supabaseServer)
     .from("permission_bundle_rules")
     .select("id, permission_bundle_id, module_key, level, scope_defaults")
     .in("permission_bundle_id", bundleIds)
@@ -89,26 +139,26 @@ async function queryPermissionBundles(
 
   if (rulesError) {
     if (isMissingTableError(rulesError)) {
-      return (bundles || []).map((bundle: any) => ({ ...bundle, rules: [] }));
+      return bundleRows.map((bundle) => ({ ...bundle, rules: [] }));
     }
     throw rulesError;
   }
 
-  const rulesByBundleId = new Map<string, any[]>();
-  for (const rule of rules || []) {
+  const rulesByBundleId = new Map<string, PermissionBundleRuleRow[]>();
+  for (const rule of (rules || []) as PermissionBundleRuleRow[]) {
     const list = rulesByBundleId.get(rule.permission_bundle_id) || [];
     list.push(rule);
     rulesByBundleId.set(rule.permission_bundle_id, list);
   }
 
-  return (bundles || []).map((bundle: any) => ({
+  return bundleRows.map((bundle) => ({
     ...bundle,
     rules: rulesByBundleId.get(bundle.id) || [],
   }));
 }
 
 async function queryMarkets(organizationId: string): Promise<ShareContainer[]> {
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await (supabaseServer)
     .from("markets")
     .select("id,name,code,is_active")
     .eq("organization_id", organizationId)
@@ -125,22 +175,27 @@ async function queryMarkets(organizationId: string): Promise<ShareContainer[]> {
   return data || [];
 }
 
-async function queryShareSets(organizationId: string): Promise<ShareSetOption[]> {
-  const result = await (supabaseServer as any)
+async function querySavedScopes(organizationId: string): Promise<SavedScopeOption[]> {
+  const result = await (supabaseServer)
     .from("share_sets")
-    .select("id,name,module_key")
+    .select("id,name,module_key,metadata")
     .eq("organization_id", organizationId)
     .in("module_key", ["assets", "products"])
     .order("name", { ascending: true })
     .limit(200);
 
   if (!result.error) {
-    return ((result.data || []) as Array<any>)
+    return ((
+      result.data || []
+    ) as Array<{ id: string; name: string; module_key: string; metadata?: Record<string, unknown> | null }>)
+      .filter((row) => !isLegacyGlobalScope(row))
       .filter((row) => row.module_key === "assets" || row.module_key === "products")
       .map((row) => ({
         id: row.id,
         name: row.name,
         module_key: row.module_key as ShareSetModule,
+        scope_kind:
+          row.module_key === "assets" ? "brand_library_scope" : "product_scope",
       }));
   }
 
@@ -148,7 +203,7 @@ async function queryShareSets(organizationId: string): Promise<ShareSetOption[]>
     throw result.error;
   }
 
-  const legacyResult = await (supabaseServer as any)
+  const legacyResult = await (supabaseServer)
     .from("dam_collections")
     .select("id,name")
     .eq("organization_id", organizationId)
@@ -165,11 +220,42 @@ async function queryShareSets(organizationId: string): Promise<ShareSetOption[]>
     throw legacyResult.error;
   }
 
-  return ((legacyResult.data || []) as Array<any>).map((row) => ({
+  return ((legacyResult.data || []) as Array<{ id: string; name: string }>).map((row) => ({
     id: row.id,
     name: row.name,
     module_key: "assets",
+    scope_kind: "brand_library_scope",
   }));
+}
+
+async function queryOutputProfiles(organizationId: string): Promise<OutputProfileOption[]> {
+  const { data, error } = await supabaseServer
+    .from("output_channel_profiles")
+    .select("id,name,code,profile_type,is_primary")
+    .eq("organization_id", organizationId)
+    .eq("is_active", true)
+    .order("is_primary", { ascending: false })
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) {
+    if (isMissingTableError(error)) {
+      return [];
+    }
+    throw error;
+  }
+
+  const profiles = ((data || []) as OutputProfileOption[]).filter(isPortalLaunchProfile);
+  const selectedProfile = profiles[0] ?? null;
+  if (!selectedProfile) return [];
+
+  return [
+    {
+      ...selectedProfile,
+      name: "Portal",
+      code: "portal",
+    },
+  ];
 }
 
 // GET /api/[tenant]/invites/config
@@ -217,18 +303,25 @@ export async function GET(
     }
 
     const subjectType = toSubjectType(invitationType);
-    const [permissionBundles, markets, shareSets] = await Promise.all([
+    const [permissionBundles, markets, savedScopes, outputProfiles] = await Promise.all([
       queryPermissionBundles(organization.id, subjectType),
       queryMarkets(organization.id),
-      invitationType === "partner" ? queryShareSets(organization.id) : Promise.resolve([]),
+      invitationType === "partner" ? querySavedScopes(organization.id) : Promise.resolve([]),
+      invitationType === "partner" ? queryOutputProfiles(organization.id) : Promise.resolve([]),
     ]);
 
     return NextResponse.json({
       success: true,
       data: {
+        organization_type:
+          organization.organizationType === "partner" || organization.type === "partner"
+            ? "partner"
+            : "brand",
         permission_bundles: permissionBundles,
         markets,
-        share_sets: shareSets,
+        share_sets: savedScopes,
+        saved_scopes: savedScopes,
+        output_profiles: outputProfiles,
       },
     });
   } catch (error) {
@@ -236,3 +329,4 @@ export async function GET(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+

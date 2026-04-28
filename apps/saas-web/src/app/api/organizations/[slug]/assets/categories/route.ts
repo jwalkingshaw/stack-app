@@ -42,7 +42,7 @@ export async function GET(
     const searchParams = new URL(request.url).searchParams;
     const scopeCheck = await enforceMarketScopedAccess({
       authService: auth,
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetDownloadDerivative,
@@ -115,7 +115,7 @@ export async function POST(
       auth.canEditProducts(user.id, organization.id),
       enforceMarketScopedAccess({
         authService: auth,
-        supabase: supabaseServer as any,
+        supabase: supabaseServer,
         userId: user.id,
         organizationId: organization.id,
         permissionKey: ScopedPermission.AssetMetadataEdit,

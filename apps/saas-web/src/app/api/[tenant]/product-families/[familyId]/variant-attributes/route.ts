@@ -6,6 +6,7 @@ import {
   resolveVariantAttributeFamilyContext,
   setVariantAttributesCache,
   supabase,
+  type VariantAttributeRecord,
 } from "./_shared";
 
 const PRODUCT_FIELDS_SELECT = `
@@ -27,28 +28,50 @@ const PRODUCT_FIELDS_SELECT_LEGACY = `
   options
 `;
 
-function isMissingTableError(error: any): boolean {
+type PostgrestLikeError = { code?: string | null } | null | undefined;
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function toNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function isMissingTableError(error: PostgrestLikeError): boolean {
   return error?.code === "42P01" || error?.code === "PGRST205";
 }
 
-function isMissingColumnError(error: any): boolean {
+function isMissingColumnError(error: PostgrestLikeError): boolean {
   return error?.code === "42703";
 }
 
-function normalizeVariantAttributes(data: any[] | null): any[] {
-  return (data || []).map((item: any) => {
-    const field = item.product_fields || {};
+function normalizeVariantAttributes(data: unknown[] | null): VariantAttributeRecord[] {
+  return (data || []).map((row) => {
+    const item = asRecord(row);
+    const field = asRecord(item.product_fields);
     return {
-      id: item.id,
-      product_field_id: item.product_field_id,
-      field_code: field.code || "",
-      field_name: field.name || field.label || field.code || "Untitled field",
-      field_type: field.field_type || "text",
-      field_description: field.description || null,
-      sort_order: item.sort_order || 0,
+      id: typeof item.id === "string" ? item.id : "",
+      product_field_id: typeof item.product_field_id === "string" ? item.product_field_id : "",
+      field_code: typeof field.code === "string" ? field.code : "",
+      field_name:
+        typeof field.name === "string"
+          ? field.name
+          : typeof field.label === "string"
+            ? field.label
+            : typeof field.code === "string"
+              ? field.code
+              : "Untitled field",
+      field_type: typeof field.field_type === "string" ? field.field_type : "text",
+      field_description: typeof field.description === "string" ? field.description : null,
+      sort_order: toNumber(item.sort_order, 0),
       is_required: Boolean(item.is_required),
-      validation_rules: field.validation_rules || {},
-      options: field.options || {},
+      validation_rules: asRecord(field.validation_rules),
+      options: asRecord(field.options),
     };
   });
 }
@@ -187,7 +210,7 @@ export async function POST(
       );
     }
 
-    const body = await request.json().catch(() => ({}));
+    const body = asRecord(await request.json().catch(() => ({})));
     const productFieldId =
       typeof body?.product_field_id === "string" ? body.product_field_id.trim() : "";
     if (!productFieldId) {
@@ -266,7 +289,7 @@ export async function POST(
       data: normalized,
     });
 
-    const created = normalized.find((item: any) => item.product_field_id === productFieldId);
+    const created = normalized.find((item) => item.product_field_id === productFieldId);
     return NextResponse.json({ success: true, data: created || null }, { status: 201 });
   } catch (error) {
     console.error("Error in variant attributes POST:", error);
@@ -297,21 +320,24 @@ export async function PUT(
       );
     }
 
-    const body = await request.json().catch(() => ({}));
+    const body = asRecord(await request.json().catch(() => ({})));
     const attributes = Array.isArray(body?.attributes) ? body.attributes : [];
     if (attributes.length === 0) {
       return NextResponse.json({ error: "attributes must be a non-empty array." }, { status: 400 });
     }
 
     const updates: Array<{ id: string; sort_order: number; is_required?: boolean }> = attributes
-      .map((attribute: any, index: number) => ({
-        id: typeof attribute?.id === "string" ? attribute.id.trim() : "",
-        sort_order: Number.isFinite(Number(attribute?.sort_order))
-          ? Number(attribute.sort_order)
+      .map((attribute: unknown, index: number) => {
+        const row = asRecord(attribute);
+        return {
+        id: typeof row.id === "string" ? row.id.trim() : "",
+        sort_order: Number.isFinite(Number(row.sort_order))
+          ? Number(row.sort_order)
           : index,
         is_required:
-          typeof attribute?.is_required === "boolean" ? attribute.is_required : undefined,
-      }))
+          typeof row.is_required === "boolean" ? row.is_required : undefined,
+      };
+      })
       .filter((attribute: { id: string }) => attribute.id.length > 0);
 
     if (updates.length === 0) {
@@ -320,7 +346,7 @@ export async function PUT(
 
     const updateResults = await Promise.all(
       updates.map(async (attribute: { id: string; sort_order: number; is_required?: boolean }) => {
-        const payload: Record<string, any> = {
+        const payload: Record<string, unknown> = {
           sort_order: attribute.sort_order,
         };
         if (typeof attribute.is_required === "boolean") {

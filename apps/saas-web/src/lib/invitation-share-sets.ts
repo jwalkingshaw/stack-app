@@ -1,4 +1,7 @@
-type SupabaseLike = any;
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@stack-app/database";
+
+type SupabaseLike = SupabaseClient<Database>;
 
 type ResultOk<T> = { ok: true; data: T };
 type ResultErr = { ok: false; status: number; error: string };
@@ -15,10 +18,16 @@ export function normalizeShareSetIds(value: unknown): string[] {
   return Array.from(out);
 }
 
-function isMissingFoundationError(error: any): boolean {
-  if (!error) return false;
-  if (error?.code === "42P01" || error?.code === "PGRST205") return true;
-  const message = String(error?.message || "").toLowerCase();
+function isMissingFoundationError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const normalizedError = error as { code?: unknown; message?: unknown };
+  const code = typeof normalizedError.code === "string" ? normalizedError.code : "";
+  const message =
+    typeof normalizedError.message === "string"
+      ? normalizedError.message.toLowerCase()
+      : "";
+
+  if (code === "42P01" || code === "PGRST205") return true;
   return (
     message.includes("share_sets") ||
     message.includes("partner_share_set_grants") ||
@@ -26,10 +35,16 @@ function isMissingFoundationError(error: any): boolean {
   );
 }
 
-function isMissingColumnError(error: any): boolean {
-  if (!error) return false;
-  if (error?.code === "42703") return true;
-  const message = String(error?.message || "").toLowerCase();
+function isMissingColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const normalizedError = error as { code?: unknown; message?: unknown };
+  const code = typeof normalizedError.code === "string" ? normalizedError.code : "";
+  const message =
+    typeof normalizedError.message === "string"
+      ? normalizedError.message.toLowerCase()
+      : "";
+
+  if (code === "42703") return true;
   return message.includes("column");
 }
 
@@ -91,10 +106,10 @@ export async function validateShareSetIdsForOrganization(params: {
       return {
         ok: false,
         status: 503,
-        error: "Share set foundation tables are unavailable. Apply database migrations first.",
+        error: "Saved scope foundation tables are unavailable. Apply database migrations first.",
       };
     }
-    return { ok: false, status: 500, error: "Failed to validate selected sets" };
+    return { ok: false, status: 500, error: "Failed to validate selected saved scopes" };
   }
 
   const found = new Set(
@@ -106,7 +121,7 @@ export async function validateShareSetIdsForOrganization(params: {
     return {
       ok: false,
       status: 400,
-      error: "One or more selected sets are invalid for this organization",
+      error: "One or more selected saved scopes are invalid for this organization",
     };
   }
 
@@ -134,10 +149,10 @@ export async function replaceInvitationShareSetAssignments(params: {
         ok: false,
         status: 503,
         error:
-          "Invitation set assignment table is unavailable. Apply database migrations first.",
+          "Invitation saved scope assignment table is unavailable. Apply database migrations first.",
       };
     }
-    return { ok: false, status: 500, error: "Failed to update invitation set assignments" };
+    return { ok: false, status: 500, error: "Failed to update invitation saved scope assignments" };
   }
 
   if (shareSetIds.length === 0) {
@@ -162,10 +177,10 @@ export async function replaceInvitationShareSetAssignments(params: {
         ok: false,
         status: 503,
         error:
-          "Invitation set assignment table is unavailable. Apply database migrations first.",
+          "Invitation saved scope assignment table is unavailable. Apply database migrations first.",
       };
     }
-    return { ok: false, status: 500, error: "Failed to save invitation set assignments" };
+    return { ok: false, status: 500, error: "Failed to save invitation saved scope assignments" };
   }
 
   return { ok: true, data: { assignedCount: shareSetIds.length } };
@@ -187,7 +202,7 @@ export async function loadInvitationShareSetAssignments(params: {
     if (isMissingFoundationError(error)) {
       return { ok: true, data: { shareSetIds: [], foundationAvailable: false } };
     }
-    return { ok: false, status: 500, error: "Failed to load invitation set assignments" };
+    return { ok: false, status: 500, error: "Failed to load invitation saved scope assignments" };
   }
 
   const shareSetIds = Array.from(
@@ -263,7 +278,7 @@ export async function applyInvitationShareSetGrants(params: {
       if (isMissingFoundationError(existing.error)) {
         return { ok: true, data: { appliedCount, foundationAvailable: false } };
       }
-      return { ok: false, status: 500, error: "Failed to resolve existing set grants" };
+      return { ok: false, status: 500, error: "Failed to resolve existing saved scope grants" };
     }
 
     if (existing.data?.id) {
@@ -279,7 +294,7 @@ export async function applyInvitationShareSetGrants(params: {
         .eq("status", "active");
 
       if (updateResult.error) {
-        return { ok: false, status: 500, error: "Failed to update partner set grant" };
+        return { ok: false, status: 500, error: "Failed to update partner saved scope grant" };
       }
       appliedCount += 1;
       continue;
@@ -303,7 +318,7 @@ export async function applyInvitationShareSetGrants(params: {
         appliedCount += 1;
         continue;
       }
-      return { ok: false, status: 500, error: "Failed to create partner set grant" };
+      return { ok: false, status: 500, error: "Failed to create partner saved scope grant" };
     }
 
     appliedCount += 1;

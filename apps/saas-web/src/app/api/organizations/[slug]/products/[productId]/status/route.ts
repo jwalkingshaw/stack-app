@@ -18,8 +18,22 @@ const ALLOWED_STATUS = [
 
 type ProductStatus = (typeof ALLOWED_STATUS)[number];
 
+const supabase = supabaseServer;
+
 const isProductStatus = (value: string): value is ProductStatus =>
   (ALLOWED_STATUS as readonly string[]).includes(value);
+
+type DocumentRuleRow = {
+  product_field_id: string;
+  enforcement_level: string;
+  channel_id: string | null;
+  market_id: string | null;
+  destination_id: string | null;
+  locale_id: string | null;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
 
 const scopeSpecificity = (rule: {
   channel_id: string | null;
@@ -42,11 +56,11 @@ const enforcementRank = (value: string | null | undefined): number => {
   return 0;
 };
 
-const hasDocumentValue = (value: any): boolean => {
+const hasDocumentValue = (value: unknown): boolean => {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0;
-  if (typeof value !== "object") return true;
+  if (!isRecord(value)) return true;
 
   const assetId = value.assetId || value.id || value.asset_id;
   const url = value.url || value.s3Url || value.s3_url;
@@ -68,7 +82,7 @@ async function evaluateRequiredDocumentRules(params: {
     return { missingDocuments: [] as Array<{ code: string; label: string }> };
   }
 
-  const { data: rawRules, error: rulesError } = await (supabaseServer as any)
+  const { data: rawRules, error: rulesError } = await supabase
     .from("product_family_document_rules")
     .select(
       "product_field_id,enforcement_level,channel_id,market_id,destination_id,locale_id"
@@ -85,7 +99,7 @@ async function evaluateRequiredDocumentRules(params: {
     throw rulesError;
   }
 
-  const matchingRules = ((rawRules || []) as Array<any>).filter((rule) => {
+  const matchingRules = ((rawRules || []) as DocumentRuleRow[]).filter((rule) => {
     if (rule.channel_id && rule.channel_id !== params.channelId) return false;
     if (rule.market_id && rule.market_id !== params.marketId) return false;
     if (rule.destination_id && rule.destination_id !== params.destinationId) return false;
@@ -93,17 +107,7 @@ async function evaluateRequiredDocumentRules(params: {
     return true;
   });
 
-  const effectiveRules = new Map<
-    string,
-    {
-      product_field_id: string;
-      enforcement_level: string;
-      channel_id: string | null;
-      market_id: string | null;
-      destination_id: string | null;
-      locale_id: string | null;
-    }
-  >();
+  const effectiveRules = new Map<string, DocumentRuleRow>();
 
   for (const rule of matchingRules) {
     const key = String(rule.product_field_id || "");
@@ -138,7 +142,7 @@ async function evaluateRequiredDocumentRules(params: {
     return { missingDocuments: [] as Array<{ code: string; label: string }> };
   }
 
-  const { data: requiredFields, error: requiredFieldsError } = await (supabaseServer as any)
+  const { data: requiredFields, error: requiredFieldsError } = await supabase
     .from("product_fields")
     .select("id,code,name")
     .eq("organization_id", params.organizationId)
@@ -149,14 +153,14 @@ async function evaluateRequiredDocumentRules(params: {
   }
 
   const fieldMeta = new Map<string, { code: string; label: string }>();
-  (requiredFields || []).forEach((field: any) => {
+  (requiredFields || []).forEach((field: { id: string; code: string; name: string | null }) => {
     fieldMeta.set(String(field.id), {
       code: String(field.code || ""),
       label: String(field.name || field.code || "Document"),
     });
   });
 
-  const { data: rawValues, error: valuesError } = await (supabaseServer as any)
+  const { data: rawValues, error: valuesError } = await supabase
     .from("product_field_values")
     .select(
       "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json"
@@ -168,8 +172,16 @@ async function evaluateRequiredDocumentRules(params: {
     throw valuesError;
   }
 
-  const valueByFieldId = new Map<string, any[]>();
-  (rawValues || []).forEach((row: any) => {
+  const valueByFieldId = new Map<string, unknown[]>();
+  (rawValues || []).forEach((row: {
+    product_field_id: string;
+    value_json: unknown;
+    value_text: string | null;
+    value_number: number | null;
+    value_boolean: boolean | null;
+    value_date: string | null;
+    value_datetime: string | null;
+  }) => {
     const fieldId = String(row.product_field_id || "");
     if (!fieldId) return;
 
@@ -188,7 +200,7 @@ async function evaluateRequiredDocumentRules(params: {
 
   // DAM link fallback when product-field values are not yet persisted.
   try {
-    const { data: linkedDocs, error: linkedDocsError } = await (supabaseServer as any)
+    const { data: linkedDocs, error: linkedDocsError } = await supabase
       .from("product_asset_links")
       .select("product_field_id,asset_id")
       .eq("organization_id", params.organizationId)
@@ -197,7 +209,7 @@ async function evaluateRequiredDocumentRules(params: {
       .in("product_field_id", requiredFieldIds);
 
     if (!linkedDocsError) {
-      (linkedDocs || []).forEach((row: any) => {
+      (linkedDocs || []).forEach((row: { product_field_id: string | null; asset_id: string }) => {
         const fieldId = String(row.product_field_id || "");
         if (!fieldId) return;
         if (!row.asset_id) return;
@@ -278,7 +290,7 @@ export async function PATCH(
     if (channelId || !legacyCanEdit) {
       const channelScope = await resolveProductChannelScope({
         authService: auth,
-        supabase: supabaseServer as any,
+        supabase: supabaseServer,
         userId: user.id,
         organizationId: organization.id,
         permissionKey: ScopedPermission.ProductPublishState,
@@ -288,7 +300,7 @@ export async function PATCH(
         return channelScope.response;
       }
       channelProductIds = await getChannelScopedProductIds({
-        supabase: supabaseServer as any,
+        supabase: supabaseServer,
         organizationId: organization.id,
         channelId: channelScope.channelId,
       });
@@ -304,7 +316,7 @@ export async function PATCH(
     });
 
     if (channelProductIds) {
-      const { data: targetProduct, error: targetProductError } = await (supabaseServer as any)
+      const { data: targetProduct, error: targetProductError } = await supabase
         .from("products")
         .select("id")
         .eq("id", productId)
@@ -316,7 +328,7 @@ export async function PATCH(
       }
     }
 
-    const { data: existingProduct, error: existingProductError } = await (supabaseServer as any)
+    const { data: existingProduct, error: existingProductError } = await supabase
       .from("products")
       .select("id,type,status")
       .eq("id", productId)
@@ -350,7 +362,7 @@ export async function PATCH(
     }
 
     if (status === "Active") {
-      const { data: product, error: productError } = await (supabaseServer as any)
+      const { data: product, error: productError } = await supabase
         .from("products")
         .select("id, family_id, product_name, sku, barcode")
         .eq("id", productId)
@@ -361,7 +373,14 @@ export async function PATCH(
         return NextResponse.json({ error: "Product not found" }, { status: 404 });
       }
 
-      const { data: familyRules } = await (supabaseServer as any)
+      if (!product.family_id) {
+        return NextResponse.json(
+          { error: "Product family is required before activating a product." },
+          { status: 400 }
+        );
+      }
+
+      const { data: familyRules } = await supabase
         .from("product_families")
         .select("require_sku_on_active, require_barcode_on_active")
         .eq("id", product.family_id)
@@ -453,3 +472,8 @@ export async function PATCH(
     );
   }
 }
+
+
+
+
+

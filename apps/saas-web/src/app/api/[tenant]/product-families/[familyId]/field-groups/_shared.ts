@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
+import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 
 export const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,9 +10,6 @@ export const supabase = createClient(
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export const FIELD_GROUPS_CACHE_TTL_MS = 60_000;
-const fieldGroupsResponseCache = new Map<string, { expiresAt: number; data: any[] }>();
 
 export function isCrossTenantWrite(tenantSlug: string, selectedBrandSlug: string | null): boolean {
   const selected = (selectedBrandSlug || "").trim().toLowerCase();
@@ -28,34 +26,33 @@ function normalizeCode(value: string): string {
     .slice(0, 64);
 }
 
-export function getFamilyFieldGroupsCache(params: { organizationId: string; familyId: string }) {
-  const key = `${params.organizationId}:${params.familyId}`;
-  const cached = fieldGroupsResponseCache.get(key);
-  if (!cached || cached.expiresAt <= Date.now()) {
-    fieldGroupsResponseCache.delete(key);
-    return null;
-  }
-  return cached.data;
+// v2: added is_write_assist_enabled, is_translatable, is_locked, is_override_capable, scope_policy to SELECT
+const FIELD_GROUPS_CACHE_VERSION = "v2";
+
+function fieldGroupsCacheKey(params: { organizationId: string; familyId: string }): string {
+  return CacheKeys.apiResponse("family-field-groups", `${FIELD_GROUPS_CACHE_VERSION}:${params.organizationId}:${params.familyId}`);
 }
 
-export function setFamilyFieldGroupsCache(params: {
+export async function getFamilyFieldGroupsCache(params: {
   organizationId: string;
   familyId: string;
-  data: any[];
-}) {
-  const key = `${params.organizationId}:${params.familyId}`;
-  fieldGroupsResponseCache.set(key, {
-    expiresAt: Date.now() + FIELD_GROUPS_CACHE_TTL_MS,
-    data: params.data,
-  });
+}): Promise<unknown[] | null> {
+  return redisCache.get<unknown[]>(fieldGroupsCacheKey(params));
 }
 
-export function invalidateFamilyFieldGroupsCache(params: {
+export async function setFamilyFieldGroupsCache(params: {
   organizationId: string;
   familyId: string;
-}) {
-  const key = `${params.organizationId}:${params.familyId}`;
-  fieldGroupsResponseCache.delete(key);
+  data: unknown[];
+}): Promise<void> {
+  await redisCache.set(fieldGroupsCacheKey(params), params.data, CacheTTL.PRODUCT_FAMILIES);
+}
+
+export async function invalidateFamilyFieldGroupsCache(params: {
+  organizationId: string;
+  familyId: string;
+}): Promise<void> {
+  await redisCache.del(fieldGroupsCacheKey(params));
 }
 
 export async function resolveFamilyContext(params: {
@@ -95,6 +92,11 @@ export async function resolveFamilyContext(params: {
     organizationId,
     selectedBrandSlug,
     familyId,
+    mode: contextResult.context.mode,
+    partnerOrganizationId:
+      contextResult.context.tenantOrganization.organizationType === "partner"
+        ? contextResult.context.tenantOrganization.id
+        : null,
   };
 }
 

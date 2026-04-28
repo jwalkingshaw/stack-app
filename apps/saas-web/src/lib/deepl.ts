@@ -85,7 +85,7 @@ function countCharacters(input: string): number {
 
 function mapLocaleCodeForDeepL(value: string): string {
   const mapped = mapLocaleToTranslationCode(value, "deepl");
-  return mapped.replace("_", "-");
+  return mapped.replace(/_/g, "-");
 }
 
 export async function translateWithDeepL(params: {
@@ -106,9 +106,10 @@ export async function translateWithDeepL(params: {
     return [];
   }
 
-  const targetLang = mapLocaleToTranslationCode(params.targetLocaleCode, "deepl");
+  const targetLang = mapLocaleCodeForDeepL(params.targetLocaleCode);
+  // DeepL only accepts base language codes for source_lang (EN, DE, FR), not regional variants (EN-US)
   const sourceLang = params.sourceLocaleCode
-    ? mapLocaleToTranslationCode(params.sourceLocaleCode, "deepl")
+    ? mapLocaleCodeForDeepL(params.sourceLocaleCode).split("-")[0]
     : null;
 
   const payload = new URLSearchParams();

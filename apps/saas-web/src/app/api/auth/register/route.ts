@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const COOKIE_SECURE = process.env.NODE_ENV === 'production';
 const POST_LOGIN_REDIRECT_COOKIE = 'post_login_redirect';
 const PENDING_INVITE_COOKIE = 'pending_invitation_token';
+const ENDORSELY_REFERRER_COOKIE = 'endorsely_referrer_id';
 const TEN_MINUTES = 10 * 60;
 
 function isPrefetchRequest(request: NextRequest) {
@@ -45,6 +46,7 @@ export async function GET(request: NextRequest) {
     requestUrl.searchParams.get('post_login_redirect_url')
   );
   const invitationToken = requestUrl.searchParams.get('invitation_token');
+  const referrerId = requestUrl.searchParams.get('referrer_id');
 
   const handler = handleAuth();
   const response = (await handler(request, {
@@ -69,6 +71,19 @@ export async function GET(request: NextRequest) {
       path: '/',
       maxAge: TEN_MINUTES,
     });
+  }
+
+  if (referrerId) {
+    const sanitizedReferrerId = String(referrerId).trim().slice(0, 255);
+    if (sanitizedReferrerId.length > 0) {
+      response.cookies.set(ENDORSELY_REFERRER_COOKIE, sanitizedReferrerId, {
+        httpOnly: true,
+        secure: COOKIE_SECURE,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: TEN_MINUTES,
+      });
+    }
   }
 
   return response;

@@ -4,13 +4,19 @@ import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { evaluateScopedPermission } from "@/lib/security-permissions";
-import { S3Service } from "@stack-app/storage";
+import { S3Service, ThumbnailService } from "@stack-app/storage";
 import {
   createGlobalAuthoringScope,
   replaceAssetScopeAssignments,
   validateAuthoringScope,
 } from "@/lib/authoring-scope";
-import { getOrganizationBillingLimits } from "@/lib/billing-policy";
+import {
+  assertStorageCapacity,
+  getMaxUploadBytesForPlan,
+  getOrganizationBillingLimits,
+} from "@/lib/billing-policy";
+import { addResourceToGlobalCatalogSet } from "@/lib/market-catalog";
+import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,6 +25,7 @@ const supabase = createClient(
 
 type ProductLinkPayload = {
   productId?: string;
+  variantId?: string;
   linkContext?: string;
   confidence?: number;
   matchReason?: string;
@@ -41,6 +48,13 @@ type ProductForAssetFolder = {
   product_name: string | null;
   brand_line: string | null;
   family_id: string | null;
+};
+
+type VariantForAssetFolder = {
+  id: string;
+  product_name: string | null;
+  sku: string | null;
+  parent_id: string | null;
 };
 
 type UploadProductSelection = {
@@ -74,6 +88,38 @@ type UploadMetadata = {
   suggestedProductLinkReason: string | null;
   folderId: string | null;
   uploadProfileId: UploadProfileId | null;
+  // Compliance & approval
+  complianceStatus: string | null;
+  brandLegalApproval: string | null;
+  // Rights & talent
+  talentPresent: boolean | null;
+  releaseOnFile: boolean | null;
+  usageEnd: string | null;
+  usageTerritory: string | null;
+  licenseOwnership: string | null;
+  usagePlatforms: string[];
+  ftcDisclosureRequired: boolean | null;
+  athleteNames: string[];
+  talentContractEnd: string | null;
+  endorsementType: string | null;
+  expirationDate: string | null;
+  // Regulatory
+  regulatoryRegion: string[];
+  certifications: string[];
+  visibleClaims: string[];
+  claimsApprovedMarkets: string[];
+  wadaRiskLevel: string | null;
+  // Accessibility
+  altText: string | null;
+  // Label / artwork
+  artworkType: string | null;
+  colorProfile: string | null;
+  printVsDigital: string | null;
+  resolutionDpi: number | null;
+  labelVersion: string | null;
+  formulaVersion: string | null;
+  width: number | null;
+  height: number | null;
 };
 
 type ProductLinkCandidate = {
@@ -126,8 +172,7 @@ const EXTENSION_MIME_MAP: Record<string, string> = {
 };
 
 const DEFAULT_UPLOAD_PROFILE: UploadProfileId = "fast";
-const DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
-const FREE_PLAN_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const ASSET_OBJECT_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 const UPLOAD_PROFILE_REQUIREMENTS: Record<
   UploadProfileId,
@@ -177,7 +222,7 @@ async function ensureFolderPath(params: {
     const segment = sanitizeFolderSegment(rawSegment, "Untitled");
     currentPath = `${currentPath}/${segment}`;
 
-    let query = (supabase as any)
+    let query = (supabase)
       .from("dam_folders")
       .select("id")
       .eq("organization_id", params.organizationId)
@@ -193,7 +238,7 @@ async function ensureFolderPath(params: {
       continue;
     }
 
-    const { data: inserted, error: insertError } = await (supabase as any)
+    const { data: inserted, error: insertError } = await (supabase)
       .from("dam_folders")
       .insert({
         organization_id: params.organizationId,
@@ -471,6 +516,38 @@ function parseUploadMetadata(raw: FormDataEntryValue | null): {
     suggestedProductLinkReason,
     folderId: normalizeOptionalString(value.folderId),
     uploadProfileId,
+    // Compliance & approval
+    complianceStatus: normalizeOptionalString(value.complianceStatus),
+    brandLegalApproval: normalizeOptionalString(value.brandLegalApproval),
+    // Rights & talent
+    talentPresent: typeof value.talentPresent === "boolean" ? value.talentPresent : null,
+    releaseOnFile: typeof value.releaseOnFile === "boolean" ? value.releaseOnFile : null,
+    usageEnd: normalizeOptionalString(value.usageEnd),
+    usageTerritory: normalizeOptionalString(value.usageTerritory),
+    licenseOwnership: normalizeOptionalString(value.licenseOwnership),
+    usagePlatforms: normalizeStringArray(value.usagePlatforms),
+    ftcDisclosureRequired: typeof value.ftcDisclosureRequired === "boolean" ? value.ftcDisclosureRequired : null,
+    athleteNames: normalizeStringArray(value.athleteNames ?? value.talentNames),
+    talentContractEnd: normalizeOptionalString(value.talentContractEnd),
+    endorsementType: normalizeOptionalString(value.endorsementType),
+    expirationDate: normalizeOptionalString(value.expirationDate),
+    // Regulatory
+    regulatoryRegion: normalizeStringArray(value.regulatoryRegion),
+    certifications: normalizeStringArray(value.certifications),
+    visibleClaims: normalizeStringArray(value.visibleClaims),
+    claimsApprovedMarkets: normalizeStringArray(value.claimsApprovedMarkets),
+    wadaRiskLevel: normalizeOptionalString(value.wadaRiskLevel),
+    // Accessibility
+    altText: normalizeOptionalString(value.altText),
+    // Label / artwork
+    artworkType: normalizeOptionalString(value.artworkType),
+    colorProfile: normalizeOptionalString(value.colorProfile),
+    printVsDigital: normalizeOptionalString(value.printVsDigital),
+    resolutionDpi: typeof value.resolutionDpi === "number" && Number.isFinite(value.resolutionDpi) ? Math.round(value.resolutionDpi) : null,
+    labelVersion: normalizeOptionalString(value.labelVersion),
+    formulaVersion: normalizeOptionalString(value.formulaVersion),
+    width: typeof value.width === "number" && Number.isFinite(value.width) ? Math.round(value.width) : null,
+    height: typeof value.height === "number" && Number.isFinite(value.height) ? Math.round(value.height) : null,
   };
 
   return { metadata, error: null };
@@ -513,7 +590,9 @@ function normalizeStringIdArray(values: string[] | null | undefined): string[] {
   return Array.from(normalized);
 }
 
-function isMissingShareSetRuleFoundation(error: any): boolean {
+function isMissingShareSetRuleFoundation(
+  error: { code?: string; message?: string } | null | undefined
+): boolean {
   const code = String(error?.code || "");
   if (code === "42P01" || code === "PGRST205") return true;
   const message = String(error?.message || "").toLowerCase();
@@ -535,7 +614,7 @@ async function applyDynamicAssetSetRules(params: {
   const { organizationId, userId, assetId, tags, folderId, usageGroupId } = params;
   const emptySummary: DynamicSetMatchSummary = { count: 0, sets: [] };
 
-  const { data: rules, error: rulesError } = await (supabase as any)
+  const { data: rules, error: rulesError } = await (supabase)
     .from("share_set_dynamic_rules")
     .select(
       "id,share_set_id,include_tags,include_folder_ids,include_usage_group_ids,exclude_tags,exclude_folder_ids"
@@ -615,7 +694,7 @@ async function applyDynamicAssetSetRules(params: {
     created_by: userId,
   }));
 
-  const { error: upsertItemsError } = await (supabase as any)
+  const { error: upsertItemsError } = await (supabase)
     .from("share_set_items")
     .upsert(itemRows, {
       onConflict: "share_set_id,resource_type,resource_id",
@@ -629,7 +708,7 @@ async function applyDynamicAssetSetRules(params: {
     throw new Error("Failed to apply dynamic share set items");
   }
 
-  const { data: matchedSets, error: matchedSetsError } = await (supabase as any)
+  const { data: matchedSets, error: matchedSetsError } = await (supabase)
     .from("share_sets")
     .select("id,name")
     .eq("organization_id", organizationId)
@@ -671,12 +750,7 @@ export async function POST(
     const tenantSlug = resolvedParams.tenant;
     const selectedBrandSlug = new URL(request.url).searchParams.get("brand");
 
-    if (isCrossTenantWrite(tenantSlug, selectedBrandSlug)) {
-      return NextResponse.json(
-        { error: "Cross-tenant writes are blocked in shared brand view." },
-        { status: 403 }
-      );
-    }
+    
 
     const tenantAccess = await requireTenantAccess(request, tenantSlug);
     if (!tenantAccess.ok) {
@@ -689,10 +763,9 @@ export async function POST(
     }
 
     const { planId } = await getOrganizationBillingLimits(organization.id);
-    const maxUploadBytes =
-      planId === "free" ? FREE_PLAN_MAX_UPLOAD_BYTES : DEFAULT_MAX_UPLOAD_BYTES;
+    const maxUploadBytes = getMaxUploadBytesForPlan(planId);
 
-    const db = new DatabaseQueries(supabase as any);
+    const db = new DatabaseQueries(supabase);
     const authService = new AuthService(db);
     const canUpload = await evaluateScopedPermission({
       authService,
@@ -810,11 +883,31 @@ export async function POST(
       );
     }
 
+    const storageCapacity = await assertStorageCapacity({
+      organizationId: organization.id,
+      additionalBytes: file.size,
+    });
+    if (!storageCapacity.allowed) {
+      return NextResponse.json(
+        {
+          error: storageCapacity.message || "Storage limit exceeded",
+          code: "STORAGE_LIMIT_EXCEEDED",
+          limitBytes: storageCapacity.limitBytes,
+          usageBytes: storageCapacity.usageBytes,
+          projectedBytes: storageCapacity.projectedBytes,
+        },
+        { status: 403 }
+      );
+    }
+
     const s3Service = new S3Service();
     const s3Key = s3Service.generateAssetKey(organization.id, file.name);
+    const thumbnailService = new ThumbnailService(s3Service);
+    let uploadBuffer: Buffer | null = null;
 
     try {
       const fileBuffer = await file.arrayBuffer();
+      uploadBuffer = Buffer.from(fileBuffer);
       const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
       const s3Client = new S3Client({
         region: process.env.AWS_REGION || "ap-southeast-2",
@@ -826,10 +919,11 @@ export async function POST(
 
       await s3Client.send(
         new PutObjectCommand({
-          Bucket: process.env.AWS_S3_BUCKET!,
+          Bucket: process.env.AWS_S3_BUCKET_NAME!,
           Key: s3Key,
-          Body: Buffer.from(fileBuffer),
+          Body: uploadBuffer,
           ContentType: effectiveMimeType,
+          CacheControl: ASSET_OBJECT_CACHE_CONTROL,
         })
       );
     } catch (s3Error) {
@@ -846,15 +940,21 @@ export async function POST(
     else if (isDocumentMimeType(effectiveMimeType)) assetType = "document";
 
     const publicUrl = s3Service.getPublicUrl(s3Key);
+    const thumbnailUrls = await thumbnailService.generateThumbnails(
+      s3Key,
+      effectiveMimeType,
+      uploadBuffer || undefined
+    );
 
     let linkedProduct: ProductForAssetFolder | null = null;
+    let linkedVariant: VariantForAssetFolder | null = null;
     let linkedFamilyName: string | null = null;
     let resolvedFolderId: string | null = null;
     let metadataLinkedProducts: ProductLinkCandidate[] = [];
     const productIdentifiers = new Set<string>();
 
     if (productLinkData?.productId) {
-      const { data: productRow } = await (supabase as any)
+      const { data: productRow } = await (supabase)
         .from("products")
         .select("id,scin,sku,product_name,brand_line,family_id")
         .eq("organization_id", organization.id)
@@ -870,13 +970,48 @@ export async function POST(
           productIdentifiers.add(linkedProduct.sku.trim());
         }
         if (linkedProduct.family_id) {
-          const { data: familyRow } = await (supabase as any)
+          const { data: familyRow } = await (supabase)
             .from("product_families")
             .select("name")
             .eq("organization_id", organization.id)
             .eq("id", linkedProduct.family_id)
             .maybeSingle();
           linkedFamilyName = (familyRow?.name as string | undefined) || null;
+        }
+      }
+    }
+
+    // If a variantId is provided, fetch the variant and ensure we have the parent product
+    if (productLinkData?.variantId) {
+      const { data: variantRow } = await (supabase)
+        .from("products")
+        .select("id,product_name,sku,parent_id")
+        .eq("organization_id", organization.id)
+        .eq("id", productLinkData.variantId)
+        .maybeSingle();
+
+      if (variantRow) {
+        linkedVariant = variantRow as VariantForAssetFolder;
+        // If the parent product wasn't already fetched via productId, fetch it now
+        if (!linkedProduct && linkedVariant.parent_id) {
+          const { data: parentRow } = await (supabase)
+            .from("products")
+            .select("id,scin,sku,product_name,brand_line,family_id")
+            .eq("organization_id", organization.id)
+            .eq("id", linkedVariant.parent_id)
+            .maybeSingle();
+          if (parentRow) {
+            linkedProduct = parentRow as ProductForAssetFolder;
+            if (linkedProduct.family_id) {
+              const { data: familyRow } = await (supabase)
+                .from("product_families")
+                .select("name")
+                .eq("organization_id", organization.id)
+                .eq("id", linkedProduct.family_id)
+                .maybeSingle();
+              linkedFamilyName = (familyRow?.name as string | undefined) || null;
+            }
+          }
         }
       }
     }
@@ -892,7 +1027,7 @@ export async function POST(
         : null;
 
     if (explicitTargetFolderId) {
-      const { data: explicitFolder } = await (supabase as any)
+      const { data: explicitFolder } = await (supabase)
         .from("dam_folders")
         .select("id")
         .eq("organization_id", organization.id)
@@ -904,7 +1039,7 @@ export async function POST(
     }
 
     if (!resolvedFolderId && metadataFolderId) {
-      const { data: metadataFolder } = await (supabase as any)
+      const { data: metadataFolder } = await (supabase)
         .from("dam_folders")
         .select("id")
         .eq("organization_id", organization.id)
@@ -916,17 +1051,23 @@ export async function POST(
     }
 
     if (!resolvedFolderId && productLinkData?.autoOrganize && linkedProduct) {
-      const productLabel = sanitizeFolderSegment(linkedProduct.product_name, "Product");
-      const scinLabel = sanitizeFolderSegment(linkedProduct.scin || linkedProduct.id, "Unknown");
-      const productFolderName = `${productLabel} (${scinLabel})`;
-      const segments = [
-        "Product Assets",
-        sanitizeFolderSegment(linkedProduct.brand_line, "Unbranded"),
-      ];
+      const parentLabel = sanitizeFolderSegment(linkedProduct.product_name, "Product");
+      const parentScinLabel = sanitizeFolderSegment(linkedProduct.scin || linkedProduct.id, "Unknown");
+      const parentFolderName = `${parentLabel} (${parentScinLabel})`;
+
+      const segments = ["Product Assets"];
       if (linkedFamilyName) {
         segments.push(sanitizeFolderSegment(linkedFamilyName, "General"));
       }
-      segments.push(productFolderName);
+      segments.push(parentFolderName);
+
+      if (linkedVariant) {
+        // Variants nest inside the parent product folder under a "Variants" sub-folder
+        const variantLabel = sanitizeFolderSegment(linkedVariant.product_name || linkedVariant.sku, "Variant");
+        const variantSkuLabel = sanitizeFolderSegment(linkedVariant.sku || linkedVariant.id, "Unknown");
+        segments.push("Variants");
+        segments.push(`${variantLabel} (${variantSkuLabel})`);
+      }
 
       resolvedFolderId = await ensureFolderPath({
         organizationId: organization.id,
@@ -938,7 +1079,7 @@ export async function POST(
     if (uploadMetadata?.productLinks && !productLinkData?.productId) {
       const selection = uploadMetadata.productLinks;
       if (selection.all) {
-        const { data: allProducts, error: allProductsError } = await (supabase as any)
+        const { data: allProducts, error: allProductsError } = await (supabase)
           .from("products")
           .select("id,sku,scin,type,parent_id")
           .eq("organization_id", organization.id)
@@ -949,7 +1090,7 @@ export async function POST(
       } else {
         const explicitProductIds = buildMetadataProductIds(selection);
         if (explicitProductIds.length > 0) {
-          const { data: selectedProducts, error: selectedProductsError } = await (supabase as any)
+          const { data: selectedProducts, error: selectedProductsError } = await (supabase)
             .from("products")
             .select("id,sku,scin,type,parent_id")
             .eq("organization_id", organization.id)
@@ -969,7 +1110,7 @@ export async function POST(
           );
 
           if (parentIds.length > 0) {
-            const { data: descendantVariants, error: descendantError } = await (supabase as any)
+            const { data: descendantVariants, error: descendantError } = await (supabase)
               .from("products")
               .select("id,sku,scin,type,parent_id")
               .eq("organization_id", organization.id)
@@ -1015,7 +1156,7 @@ export async function POST(
     const filename = uploadMetadata?.name || file.name;
     const description = uploadMetadata?.description || null;
 
-    const { data: createdAsset, error: assetError } = await (supabase as any)
+    const { data: createdAsset, error: assetError } = await (supabase)
       .from("dam_assets")
       .insert({
         organization_id: organization.id,
@@ -1027,11 +1168,41 @@ export async function POST(
         mime_type: effectiveMimeType,
         s3_key: s3Key,
         s3_url: publicUrl,
+        thumbnail_urls: thumbnailUrls,
         product_identifiers: Array.from(productIdentifiers),
         metadata: metadataPayload,
         tags: uploadMetadata?.tags || [],
         description,
         created_by: userId,
+        // Structured fields — promoted from JSONB
+        asset_status: "active",
+        compliance_status: uploadMetadata?.complianceStatus ?? null,
+        brand_legal_approval: uploadMetadata?.brandLegalApproval ?? null,
+        talent_present: uploadMetadata?.talentPresent ?? null,
+        release_on_file: uploadMetadata?.releaseOnFile ?? null,
+        usage_end: uploadMetadata?.usageEnd ?? null,
+        usage_territory: uploadMetadata?.usageTerritory ?? null,
+        license_ownership: uploadMetadata?.licenseOwnership ?? null,
+        usage_platforms: uploadMetadata?.usagePlatforms ?? [],
+        ftc_disclosure_required: uploadMetadata?.ftcDisclosureRequired ?? null,
+        athlete_names: uploadMetadata?.athleteNames ?? [],
+        talent_contract_end: uploadMetadata?.talentContractEnd ?? null,
+        endorsement_type: uploadMetadata?.endorsementType ?? null,
+        expiration_date: uploadMetadata?.expirationDate ?? null,
+        regulatory_region: uploadMetadata?.regulatoryRegion ?? [],
+        certifications: uploadMetadata?.certifications ?? [],
+        visible_claims: uploadMetadata?.visibleClaims ?? [],
+        claims_approved_markets: uploadMetadata?.claimsApprovedMarkets ?? [],
+        wada_risk_level: uploadMetadata?.wadaRiskLevel ?? "none",
+        alt_text: uploadMetadata?.altText ?? null,
+        artwork_type: uploadMetadata?.artworkType ?? null,
+        color_profile: uploadMetadata?.colorProfile ?? null,
+        print_vs_digital: uploadMetadata?.printVsDigital ?? "digital",
+        resolution_dpi: uploadMetadata?.resolutionDpi ?? null,
+        label_version: uploadMetadata?.labelVersion ?? null,
+        formula_version: uploadMetadata?.formulaVersion ?? null,
+        width: uploadMetadata?.width ?? null,
+        height: uploadMetadata?.height ?? null,
       })
       .select()
       .single();
@@ -1053,7 +1224,7 @@ export async function POST(
 
     if (!scopeAssignmentResult.ok) {
       console.error("POST /assets/upload scope assignment failed:", scopeAssignmentResult.error);
-      await (supabase as any)
+      await (supabase)
         .from("dam_assets")
         .delete()
         .eq("organization_id", organization.id)
@@ -1070,7 +1241,7 @@ export async function POST(
           : null;
 
       if (cleanDocumentSlotCode && productLinkData.replaceExistingSlot !== false) {
-        let replaceQuery = (supabase as any)
+        let replaceQuery = (supabase)
           .from("product_asset_links")
           .update({
             is_active: false,
@@ -1117,7 +1288,7 @@ export async function POST(
         }
       }
 
-      const linkInsertPayload: Record<string, any> = {
+      const linkInsertPayload: Record<string, unknown> = {
         organization_id: organization.id,
         product_id: productLinkData.productId,
         asset_id: createdAsset.id,
@@ -1147,8 +1318,11 @@ export async function POST(
       if (typeof productLinkData.localeId === "string" && productLinkData.localeId.trim()) {
         linkInsertPayload.locale_id = productLinkData.localeId.trim();
       }
+      if (typeof productLinkData.variantId === "string" && productLinkData.variantId.trim()) {
+        linkInsertPayload.variant_id = productLinkData.variantId.trim();
+      }
 
-      const { error: linkError } = await (supabase as any)
+      const { error: linkError } = await (supabase)
         .from("product_asset_links")
         .insert(linkInsertPayload);
 
@@ -1187,7 +1361,7 @@ export async function POST(
       }));
 
       if (metadataLinkRows.length > 0) {
-        const { error: metadataLinksError } = await (supabase as any)
+        const { error: metadataLinksError } = await (supabase)
           .from("product_asset_links")
           .upsert(metadataLinkRows, {
             onConflict: "organization_id,product_id,asset_id,link_context",
@@ -1213,6 +1387,27 @@ export async function POST(
       console.error("POST /assets/upload dynamic set rule application failed:", dynamicRulesError);
     }
 
+    try {
+      await addResourceToGlobalCatalogSet({
+        organizationId: organization.id,
+        userId,
+        moduleKey: "assets",
+        resourceType: "asset",
+        resourceId: createdAsset.id,
+      });
+    } catch (globalSetError) {
+      console.error("POST /assets/upload global asset set auto-include failed:", globalSetError);
+    }
+
+    try {
+      await Promise.all([
+        redisCache.invalidatePattern(`${CacheKeys.assetsList(`${organization.id}:`)}*`),
+        redisCache.invalidatePattern(`${CacheKeys.apiResponse("assets", `${organization.id}:`)}*`),
+      ]);
+    } catch (cacheError) {
+      console.warn("POST /assets/upload cache invalidation failed:", cacheError);
+    }
+
     return NextResponse.json({
       data: createdAsset,
       message: "Asset uploaded successfully",
@@ -1225,3 +1420,5 @@ export async function POST(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
+

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { enforceCollectionScope } from "./collection-scope";
 
+type EnforceCollectionScopeInput = Parameters<typeof enforceCollectionScope>[0];
+
 function createSupabaseStub(config: {
   collectionExists?: boolean;
   assetIds?: string[];
@@ -12,16 +14,16 @@ function createSupabaseStub(config: {
 }) {
   return {
     from(table: string) {
-      const state: Record<string, any> = { table };
+      const state: Record<string, unknown> = { table };
       const chain = {
-        select(_value: string) {
+        select() {
           return chain;
         },
-        eq(key: string, value: any) {
+        eq(key: string, value: unknown) {
           state[key] = value;
           return chain;
         },
-        in(key: string, value: any[]) {
+        in(key: string, value: unknown[]) {
           state[key] = value;
           return chain;
         },
@@ -45,7 +47,7 @@ function createSupabaseStub(config: {
             error: null,
           };
         },
-        async then(resolve: any) {
+        async then(resolve: (value: { data: unknown; error: null }) => unknown) {
           if (table === "dam_folders") {
             if (Array.isArray(state.id)) {
               const ids = state.id as string[];
@@ -82,9 +84,13 @@ function createSupabaseStub(config: {
   };
 }
 
+function asSupabaseClient(stub: ReturnType<typeof createSupabaseStub>): EnforceCollectionScopeInput["supabase"] {
+  return stub as unknown as EnforceCollectionScopeInput["supabase"];
+}
+
 test("allows when no collection is provided", async () => {
   const result = await enforceCollectionScope({
-    supabase: createSupabaseStub({}) as any,
+    supabase: asSupabaseClient(createSupabaseStub({})),
     organizationId: "org_1",
     collectionId: null,
   });
@@ -97,7 +103,7 @@ test("allows when no collection is provided", async () => {
 
 test("denies when collection does not exist in organization", async () => {
   const result = await enforceCollectionScope({
-    supabase: createSupabaseStub({ collectionExists: false }) as any,
+    supabase: asSupabaseClient(createSupabaseStub({ collectionExists: false })),
     organizationId: "org_1",
     collectionId: "col_missing",
   });
@@ -110,7 +116,7 @@ test("denies when collection does not exist in organization", async () => {
 
 test("denies when asset is outside requested collection", async () => {
   const result = await enforceCollectionScope({
-    supabase: createSupabaseStub({ assetIds: ["asset_1"] }) as any,
+    supabase: asSupabaseClient(createSupabaseStub({ assetIds: ["asset_1"] })),
     organizationId: "org_1",
     collectionId: "col_1",
     assetId: "asset_2",
@@ -124,7 +130,7 @@ test("denies when asset is outside requested collection", async () => {
 
 test("allows when asset belongs to requested collection", async () => {
   const result = await enforceCollectionScope({
-    supabase: createSupabaseStub({ assetIds: ["asset_1", "asset_2"] }) as any,
+    supabase: asSupabaseClient(createSupabaseStub({ assetIds: ["asset_1", "asset_2"] })),
     organizationId: "org_1",
     collectionId: "col_1",
     assetId: "asset_2",
@@ -138,7 +144,7 @@ test("allows when asset belongs to requested collection", async () => {
 
 test("allows when asset belongs to a folder shared by collection", async () => {
   const result = await enforceCollectionScope({
-    supabase: createSupabaseStub({
+    supabase: asSupabaseClient(createSupabaseStub({
       assetIds: [],
       folderIds: ["folder_root"],
       foldersById: [{ id: "folder_root", path: "/Catalog" }],
@@ -147,7 +153,7 @@ test("allows when asset belongs to a folder shared by collection", async () => {
         folder_root: ["asset_root"],
         folder_child: ["asset_child"],
       },
-    }) as any,
+    })),
     organizationId: "org_1",
     collectionId: "col_1",
     assetId: "asset_child",

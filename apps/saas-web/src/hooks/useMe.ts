@@ -23,6 +23,7 @@ export type SafeOrganization = {
   slug: string;
   type: "brand" | "partner";
   partnerCategory: "retailer" | "distributor" | "wholesaler" | null;
+  logoUrl?: string | null;
   storageUsed: number;
   storageLimit: number;
 };

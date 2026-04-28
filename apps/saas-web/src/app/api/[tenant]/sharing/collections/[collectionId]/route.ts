@@ -6,8 +6,15 @@ import {
   requireSharingManagerContext,
 } from "../../_shared";
 
+type CollectionRow = {
+  id: string;
+  name: string;
+  asset_ids: string[] | null;
+  folder_ids?: string[] | null;
+};
+
 async function ensureCollectionBelongsToOrg(collectionId: string, organizationId: string) {
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("dam_collections")
     .select("id")
     .eq("id", collectionId)
@@ -26,7 +33,7 @@ async function validateScopedIds(params: {
   const { organizationId, folderIds, assetIds } = params;
 
   if (folderIds.length > 0) {
-    const { data: folders, error: folderError } = await (supabaseServer as any)
+    const { data: folders, error: folderError } = await supabaseServer
       .from("dam_folders")
       .select("id")
       .eq("organization_id", organizationId)
@@ -40,7 +47,7 @@ async function validateScopedIds(params: {
   }
 
   if (assetIds.length > 0) {
-    const { data: assets, error: assetError } = await (supabaseServer as any)
+    const { data: assets, error: assetError } = await supabaseServer
       .from("dam_assets")
       .select("id")
       .eq("organization_id", organizationId)
@@ -91,7 +98,7 @@ export async function PATCH(
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    let updateResult = await (supabaseServer as any)
+    let updateResult = await supabaseServer
       .from("dam_collections")
       .update({
         name,
@@ -104,7 +111,7 @@ export async function PATCH(
       .single();
 
     if (updateResult.error && isMissingColumnError(updateResult.error)) {
-      updateResult = await (supabaseServer as any)
+      updateResult = await supabaseServer
         .from("dam_collections")
         .update({
           name,
@@ -120,7 +127,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Failed to update shared set" }, { status: 500 });
     }
 
-    const row = updateResult.data as any;
+    const row = updateResult.data as CollectionRow;
     return NextResponse.json({
       success: true,
       data: {
@@ -153,7 +160,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Shared set not found" }, { status: 404 });
     }
 
-    const { error } = await (supabaseServer as any)
+    const { error } = await supabaseServer
       .from("dam_collections")
       .delete()
       .eq("id", collectionId)
@@ -169,4 +176,3 @@ export async function DELETE(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
-

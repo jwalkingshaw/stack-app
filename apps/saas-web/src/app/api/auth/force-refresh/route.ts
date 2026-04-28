@@ -1,40 +1,34 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { redirect } from 'next/navigation';
+import { NextRequest, NextResponse } from "next/server";
 
 // POST /api/auth/force-refresh
-// Forces a complete Kinde session refresh by redirecting through auth flow
+// Forces a complete Kinde session refresh by redirecting through auth flow.
 export async function POST(request: NextRequest) {
   try {
-    console.log('🔄 Forcing complete session refresh via Kinde redirect...');
-    
-    const body = await request.json();
-    const { returnUrl } = body;
-    
-    if (!returnUrl) {
-      return NextResponse.json(
-        { error: 'returnUrl is required' },
-        { status: 400 }
-      );
-    }
+    console.log("[auth/force-refresh] Forcing complete session refresh");
 
-    // Create auth URL that will force fresh token retrieval
-    // This uses Kinde's prompt=login parameter to force re-authentication
-    const authUrl = new URL('/api/auth/login', request.url);
-    authUrl.searchParams.set('post_login_redirect_url', returnUrl);
-    authUrl.searchParams.set('prompt', 'none'); // Try silent re-auth first
-    
-    console.log('🔗 Redirecting to force session refresh:', authUrl.toString());
-    
+    const body = (await request.json().catch(() => ({}))) as { returnUrl?: string };
+    const raw = typeof body.returnUrl === "string" ? body.returnUrl : "";
+
+    // Only allow relative paths to prevent open redirect attacks
+    if (!raw || !raw.startsWith("/") || raw.includes("://")) {
+      return NextResponse.json({ error: "Invalid returnUrl" }, { status: 400 });
+    }
+    const returnUrl = raw;
+
+    // Force a fresh auth path, attempt silent refresh first.
+    const authUrl = new URL("/api/auth/login", request.url);
+    authUrl.searchParams.set("post_login_redirect_url", returnUrl);
+    authUrl.searchParams.set("prompt", "none");
+
     return NextResponse.json({
       success: true,
       redirectUrl: authUrl.toString(),
-      message: 'Redirect to refresh session'
+      message: "Redirect to refresh session",
     });
-
   } catch (error) {
-    console.error('❌ Force session refresh failed:', error);
+    console.error("[auth/force-refresh] Failed", error);
     return NextResponse.json(
-      { error: 'Force session refresh failed', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: "Force session refresh failed" },
       { status: 500 }
     );
   }

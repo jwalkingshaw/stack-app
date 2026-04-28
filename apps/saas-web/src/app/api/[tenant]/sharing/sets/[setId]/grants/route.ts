@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
+import { logSecurityEvent } from "@/lib/security-audit";
 import { isMissingColumnError, requireSharingManagerContext } from "../../../_shared";
 
 type ShareSetModule = "assets" | "products";
@@ -8,6 +9,18 @@ type ShareSetRecord = {
   id: string;
   module_key: ShareSetModule;
   name: string;
+  output_profile_id: string | null;
+  destination_profile_id?: string | null;
+  output_profile: { id: string; name: string; profile_type: string } | null;
+  destination_profile?: { id: string; name: string; profile_type: string } | null;
+};
+
+type LegacyShareSetQueryRow = {
+  id: string;
+  module_key: ShareSetModule;
+  name: string;
+  output_profile_id: string | null;
+  output_profile: { id: string; name: string; profile_type: string } | null;
 };
 
 type PartnerGrantRow = {
@@ -28,10 +41,12 @@ type PartnerOrganizationRow = {
   organization_type?: string | null;
 };
 
-function isMissingShareSetFoundationError(error: any): boolean {
+function isMissingShareSetFoundationError(error: unknown): boolean {
   if (!error) return false;
-  if (error?.code === "42P01" || error?.code === "PGRST205") return true;
-  const message = String(error?.message || "").toLowerCase();
+  if (typeof error !== "object") return false;
+  const code = (error as { code?: string }).code;
+  if (code === "42P01" || code === "PGRST205") return true;
+  const message = String((error as { message?: string }).message || "").toLowerCase();
   return (
     message.includes("share_sets") ||
     message.includes("partner_share_set_grants")
@@ -52,29 +67,53 @@ async function getShareSet(params: {
 > {
   const { organizationId, setId } = params;
 
-  const { data, error } = await (supabaseServer as any)
-    .from("share_sets")
-    .select("id,module_key,name")
+  const query = (supabaseServer.from("share_sets") as unknown as {
+    select: (columns: string) => {
+      eq: (column: string, value: string) => {
+        eq: (column: string, value: string) => {
+          maybeSingle: () => Promise<{
+            data: LegacyShareSetQueryRow | null;
+            error: { code?: string; message?: string } | null;
+          }>;
+        };
+      };
+    };
+  })
+    .select("id,module_key,name,output_profile_id,output_profile:output_channel_profiles!output_profile_id(id,name,profile_type)")
     .eq("id", setId)
     .eq("organization_id", organizationId)
     .maybeSingle();
+
+  const { data, error } = await query;
 
   if (error) {
     if (isMissingShareSetFoundationError(error)) {
       return {
         ok: false,
         status: 503,
-        error: "Share set foundation tables are unavailable. Apply database migrations first.",
+        error: "Saved scope foundation tables are unavailable. Apply database migrations first.",
       };
     }
-    return { ok: false, status: 500, error: "Failed to resolve share set" };
+    return { ok: false, status: 500, error: "Failed to resolve saved scope" };
   }
 
   if (!data) {
-    return { ok: false, status: 404, error: "Share set not found" };
+    return { ok: false, status: 404, error: "Saved scope not found" };
   }
 
-  return { ok: true, data: data as ShareSetRecord };
+  const setData: ShareSetRecord = {
+    id: data.id,
+    module_key: data.module_key,
+    name: data.name,
+    output_profile_id: data.output_profile_id,
+    output_profile: data.output_profile,
+    destination_profile_id: data.output_profile_id,
+    destination_profile: data.output_profile,
+  };
+  return {
+    ok: true,
+    data: setData,
+  };
 }
 
 async function listActivePartnerOrganizationIds(params: {
@@ -85,7 +124,7 @@ async function listActivePartnerOrganizationIds(params: {
 > {
   const { brandOrganizationId } = params;
 
-  const v2 = await (supabaseServer as any)
+  const v2 = await supabaseServer
     .from("brand_partner_relationships")
     .select("partner_organization_id")
     .eq("brand_organization_id", brandOrganizationId)
@@ -106,7 +145,7 @@ async function listActivePartnerOrganizationIds(params: {
     return { ok: false, status: 500, error: "Failed to load partner relationships" };
   }
 
-  const v1 = await (supabaseServer as any)
+  const v1 = await supabaseServer
     .from("brand_partner_relationships")
     .select("partner_id")
     .eq("brand_id", brandOrganizationId)
@@ -118,7 +157,7 @@ async function listActivePartnerOrganizationIds(params: {
 
   const ids = Array.from(
     new Set(
-      ((v1.data || []) as Array<{ partner_id: string | null }>)
+      ((v1.data || []) as unknown as Array<{ partner_id: string | null }>)
         .map((row) => row.partner_id)
         .filter((id): id is string => Boolean(id))
     )
@@ -132,7 +171,7 @@ async function getOrganizationsByIds(ids: string[]) {
     return { data: [] as PartnerOrganizationRow[], error: null };
   }
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("organizations")
     .select("id,name,slug,partner_category,organization_type")
     .in("id", ids);
@@ -148,6 +187,7 @@ async function getOrganizationsByIds(ids: string[]) {
 }
 
 // GET /api/[tenant]/sharing/sets/[setId]/grants
+// Returns partner grants for a saved scope. Legacy route name is kept for compatibility.
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string; setId: string }> }
@@ -176,7 +216,7 @@ export async function GET(
       );
     }
 
-    const grantsResult = await (supabaseServer as any)
+    const grantsResult = await supabaseServer
       .from("partner_share_set_grants")
       .select(
         "id,partner_organization_id,access_level,status,expires_at,created_at,updated_at"
@@ -191,13 +231,13 @@ export async function GET(
         return NextResponse.json(
           {
             error:
-              "Share set foundation tables are unavailable. Apply database migrations first.",
+              "Saved scope foundation tables are unavailable. Apply database migrations first.",
           },
           { status: 503 }
         );
       }
       return NextResponse.json(
-        { error: "Failed to load set partner grants" },
+        { error: "Failed to load saved scope partner grants" },
         { status: 500 }
       );
     }
@@ -242,15 +282,16 @@ export async function GET(
       .filter((partner): partner is NonNullable<typeof partner> => Boolean(partner));
 
     return NextResponse.json({
-      success: true,
-      data: {
-        share_set: shareSet.data,
-        grants: mappedGrants,
-        available_partners: availablePartners,
-      },
+        success: true,
+        data: {
+          share_set: shareSet.data,
+          saved_scope: shareSet.data,
+          grants: mappedGrants,
+          available_partners: availablePartners,
+        },
     });
   } catch (error) {
-    console.error("Error in share set grants GET:", error);
+    console.error("Error in saved scope grants GET:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -310,7 +351,7 @@ export async function POST(
       );
     }
 
-    const existing = await (supabaseServer as any)
+    const existing = await supabaseServer
       .from("partner_share_set_grants")
       .select("id")
       .eq("organization_id", organization.id)
@@ -321,7 +362,7 @@ export async function POST(
 
     if (existing.error && !isMissingShareSetFoundationError(existing.error)) {
       return NextResponse.json(
-        { error: "Failed to resolve existing partner grant" },
+        { error: "Failed to resolve existing partner saved scope grant" },
         { status: 500 }
       );
     }
@@ -329,7 +370,7 @@ export async function POST(
       return NextResponse.json(
         {
           error:
-            "Share set foundation tables are unavailable. Apply database migrations first.",
+            "Saved scope foundation tables are unavailable. Apply database migrations first.",
         },
         { status: 503 }
       );
@@ -337,7 +378,7 @@ export async function POST(
 
     let writeResult;
     if (existing.data?.id) {
-      writeResult = await (supabaseServer as any)
+      writeResult = await supabaseServer
         .from("partner_share_set_grants")
         .update({
           access_level: accessLevel,
@@ -351,7 +392,7 @@ export async function POST(
         )
         .single();
     } else {
-      writeResult = await (supabaseServer as any)
+      writeResult = await supabaseServer
         .from("partner_share_set_grants")
         .insert({
           organization_id: organization.id,
@@ -371,10 +412,25 @@ export async function POST(
 
     if (writeResult.error || !writeResult.data) {
       return NextResponse.json(
-        { error: "Failed to apply partner share grant" },
+        { error: "Failed to apply partner saved scope grant" },
         { status: 500 }
       );
     }
+
+    await logSecurityEvent(supabaseServer, {
+      organizationId: organization.id,
+      actorUserId: userId,
+      action: "sharing.set.grant.upserted",
+      resourceType: "partner_share_set_grant",
+      resourceId: writeResult.data.id,
+      userAgent: request.headers.get("user-agent"),
+      metadata: {
+        share_set_id: shareSet.data.id,
+        partner_organization_id: partnerOrganizationId,
+        access_level: accessLevel,
+        expires_at: expiresAt ? expiresAt.toISOString() : null,
+      },
+    });
 
     return NextResponse.json(
       {
@@ -384,7 +440,7 @@ export async function POST(
       { status: existing.data?.id ? 200 : 201 }
     );
   } catch (error) {
-    console.error("Error in share set grants POST:", error);
+    console.error("Error in saved scope grants POST:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -399,7 +455,7 @@ export async function DELETE(
     const access = await requireSharingManagerContext(request, resolvedParams.tenant);
     if (!access.ok) return access.response;
 
-    const { organization } = access.context;
+    const { organization, userId } = access.context;
     const shareSet = await getShareSet({
       organizationId: organization.id,
       setId: resolvedParams.setId,
@@ -413,7 +469,7 @@ export async function DELETE(
       return NextResponse.json({ error: "grantId is required" }, { status: 400 });
     }
 
-    const { data: existing, error: existingError } = await (supabaseServer as any)
+    const { data: existing, error: existingError } = await supabaseServer
       .from("partner_share_set_grants")
       .select("id,status")
       .eq("id", grantId)
@@ -429,7 +485,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
 
-    const { error: revokeError } = await (supabaseServer as any)
+    const { error: revokeError } = await supabaseServer
       .from("partner_share_set_grants")
       .update({ status: "revoked" })
       .eq("id", grantId)
@@ -443,9 +499,21 @@ export async function DELETE(
       );
     }
 
+    await logSecurityEvent(supabaseServer, {
+      organizationId: organization.id,
+      actorUserId: userId,
+      action: "sharing.set.grant.revoked",
+      resourceType: "partner_share_set_grant",
+      resourceId: grantId,
+      userAgent: request.headers.get("user-agent"),
+      metadata: {
+        share_set_id: shareSet.data.id,
+      },
+    });
+
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error in share set grants DELETE:", error);
+    console.error("Error in saved scope grants DELETE:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

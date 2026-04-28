@@ -21,17 +21,22 @@ export interface ProductField {
   is_required: boolean;
   is_unique: boolean;
   description?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   options: Record<string, any>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   validation_rules?: Record<string, any>;
 }
 
 interface DynamicFieldRendererProps {
   field: ProductField;
-  value?: any;
-  onChange?: (fieldCode: string, value: any) => void;
+  value?: unknown;
+  onChange?: (fieldCode: string, value: unknown) => void;
   tenantSlug?: string;
   disabled?: boolean;
   className?: string;
+  productName?: string;
+  ingredients?: string;
+  otherIngredients?: string;
 }
 
 export function DynamicFieldRenderer({
@@ -40,61 +45,189 @@ export function DynamicFieldRenderer({
   onChange,
   tenantSlug,
   disabled = false,
-  className = ''
+  className = '',
+  productName,
+  ingredients,
+  otherIngredients,
 }: DynamicFieldRendererProps) {
-  const handleChange = (newValue: any) => {
+  const handleChange = (newValue: unknown) => {
     if (onChange) {
       onChange(field.code, newValue);
     }
   };
 
-  // Common props for all field components
-  const commonProps = {
-    field,
-    value,
-    onChange: handleChange,
-    disabled,
-    className
-  };
+  const asTextValue = typeof value === 'string' ? value : undefined;
+  const asBooleanValue = typeof value === 'boolean' ? value : undefined;
+  const asNumberValue =
+    typeof value === 'number' || typeof value === 'string' ? value : undefined;
+  const asStringArrayValue = Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : undefined;
+  const asPriceValue =
+    typeof value === 'number' ||
+    typeof value === 'string' ||
+    (value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      'amount' in value &&
+      'currency' in value)
+      ? (value as { amount: number | string; currency: string } | string | number)
+      : undefined;
+  const asFileValue =
+    value === null ||
+    (value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      'assetId' in value) ||
+    (Array.isArray(value) &&
+      value.every(
+        (entry) =>
+          entry && typeof entry === 'object' && !Array.isArray(entry) && 'assetId' in entry
+      ))
+      ? (value as
+          | import('./FileFieldComponent').FileAttributeValue
+          | import('./FileFieldComponent').FileAttributeValue[]
+          | null)
+      : undefined;
+  const asImageValue =
+    value === null ||
+    (value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      'assetId' in value) ||
+    (Array.isArray(value) &&
+      value.every(
+        (entry) =>
+          entry && typeof entry === 'object' && !Array.isArray(entry) && 'assetId' in entry
+      ))
+      ? (value as
+          | import('./ImageFieldComponent').ImageAttributeValue
+          | import('./ImageFieldComponent').ImageAttributeValue[]
+          | null)
+      : undefined;
 
   // Render the appropriate component based on field type
   switch (field.field_type) {
     case 'text':
-      return <TextFieldComponent {...commonProps} />;
+      return (
+        <TextFieldComponent
+          field={field}
+          value={asTextValue}
+          onChange={handleChange}
+          disabled={disabled}
+          className={className}
+        />
+      );
 
     case 'textarea':
-      return <TextAreaFieldComponent {...commonProps} />;
+      return (
+        <TextAreaFieldComponent
+          field={field}
+          value={asTextValue}
+          onChange={handleChange}
+          disabled={disabled}
+          className={className}
+        />
+      );
 
     case 'boolean':
-      return <BooleanFieldComponent {...commonProps} />;
+      return (
+        <BooleanFieldComponent
+          field={field}
+          value={asBooleanValue}
+          onChange={handleChange}
+          disabled={disabled}
+          className={className}
+        />
+      );
 
     case 'number':
-      return <NumberFieldComponent {...commonProps} />;
+      return (
+        <NumberFieldComponent
+          field={field}
+          value={asNumberValue}
+          onChange={handleChange}
+          disabled={disabled}
+          className={className}
+        />
+      );
 
     case 'date':
-      return <DateFieldComponent {...commonProps} />;
+      return (
+        <DateFieldComponent
+          field={field}
+          value={asTextValue}
+          onChange={handleChange}
+          disabled={disabled}
+          className={className}
+        />
+      );
 
     case 'select':
-      return <SelectFieldComponent {...commonProps} />;
+      return (
+        <SelectFieldComponent
+          field={field}
+          value={asTextValue}
+          onChange={handleChange}
+          disabled={disabled}
+          className={className}
+        />
+      );
 
     case 'multi_select':
     case 'multiselect':
-      return <MultiSelectFieldComponent {...commonProps} />;
+      return (
+        <MultiSelectFieldComponent
+          field={field}
+          value={asStringArrayValue}
+          onChange={handleChange}
+          disabled={disabled}
+          className={className}
+        />
+      );
 
     case 'measurement':
-      return <MeasurementFieldComponent {...commonProps} />;
+      return (
+        <MeasurementFieldComponent
+          field={field}
+          value={value}
+          onChange={handleChange}
+          disabled={disabled}
+          className={className}
+        />
+      );
 
     case 'price':
-      return <PriceFieldComponent {...commonProps} />;
+      return (
+        <PriceFieldComponent
+          field={field}
+          value={asPriceValue}
+          onChange={handleChange}
+          disabled={disabled}
+          className={className}
+        />
+      );
 
     case 'table':
-      return <TableFieldComponent {...commonProps} tenantSlug={tenantSlug} />;
+      return (
+        <TableFieldComponent
+          field={field}
+          value={value}
+          onChange={handleChange}
+          tenantSlug={tenantSlug}
+          disabled={disabled}
+          className={className}
+          productName={productName}
+          ingredients={ingredients}
+          otherIngredients={otherIngredients}
+        />
+      );
 
     case 'file':
       return (
         <FileFieldComponent
           field={field}
-          value={value}
+          value={asFileValue}
           onChange={(val) => handleChange(val)}
           tenantSlug={tenantSlug}
           disabled={disabled}
@@ -106,7 +239,7 @@ export function DynamicFieldRenderer({
       return (
         <ImageFieldComponent
           field={field}
-          value={value}
+          value={asImageValue}
           onChange={(val) => handleChange(val)}
           tenantSlug={tenantSlug}
           disabled={disabled}
@@ -116,6 +249,14 @@ export function DynamicFieldRenderer({
 
     default:
       // Fallback to text input for unknown field types
-      return <TextFieldComponent {...commonProps} />;
+      return (
+        <TextFieldComponent
+          field={field}
+          value={asTextValue}
+          onChange={handleChange}
+          disabled={disabled}
+          className={className}
+        />
+      );
   }
 }

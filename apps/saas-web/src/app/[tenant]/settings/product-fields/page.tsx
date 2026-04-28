@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import ProductFieldsSettings from '../components/ProductFieldsSettings';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 
 interface ProductFieldsPageProps {
   params: Promise<{ tenant: string }>;
@@ -11,9 +11,10 @@ export default async function ProductFieldsPage({ params }: ProductFieldsPagePro
 
   return (
     <Suspense fallback={
-      <PageLoader text="Loading attributes..." size="lg" />
+      <PageSkeleton text="Loading attributes..." size="lg" />
     }>
       <ProductFieldsSettings tenantSlug={tenant} />
     </Suspense>
   );
 }
+

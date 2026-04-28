@@ -242,6 +242,21 @@ export default function ImageField({ value, onChange }: ImageFieldProps) {
             Provide guidance to keep imagery consistent across product families and sales channels.
           </p>
         </div>
+
+        <div className="rounded-lg border border-border/60 bg-background px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preview</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-[120px_minmax(0,1fr)]">
+            <div className="flex h-24 items-center justify-center rounded-md border border-border/60 bg-muted/20 text-xs text-muted-foreground">
+              Image
+            </div>
+            <div className="space-y-1 text-xs text-muted-foreground">
+              <p>Selection: {allowMultiple ? 'Multiple images' : 'Single image'}</p>
+              <p>Alt text: {requireAltText ? 'Required' : 'Optional'}</p>
+              <p>Max size: {maxSize || 'Unlimited'} MB</p>
+              <p>Ratio hint: {aspectRatio === 'custom' ? customRatio || 'Custom' : aspectRatio || 'Not set'}</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

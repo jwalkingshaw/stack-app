@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
 
+const supabase = supabaseServer;
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string }> }
 ) {
   try {
-    const resolvedParams = await params;
-    const body = await request.json();
-    const { featureRequestId, voterIdentifier, voterName } = body;
+    await params;
+    const body = (await request.json()) as Record<string, unknown>;
+    const featureRequestId = typeof body.featureRequestId === "string" ? body.featureRequestId.trim() : "";
+    const voterIdentifier = typeof body.voterIdentifier === "string" ? body.voterIdentifier.trim() : "";
+    const voterName = typeof body.voterName === "string" ? body.voterName.trim() : null;
 
     // Validate required fields
     if (!featureRequestId || !voterIdentifier) {
@@ -19,7 +23,7 @@ export async function POST(
     }
 
     // Check if the feature request exists and is approved
-    const { data: featureRequest, error: featureError } = await supabaseServer
+    const { data: featureRequest, error: featureError } = await supabase
       .from('feature_requests')
       .select('id, status')
       .eq('id', featureRequestId)
@@ -34,7 +38,7 @@ export async function POST(
     }
 
     // Check if user has already voted
-    const { data: existingVote } = await supabaseServer
+    const { data: existingVote } = await supabase
       .from('feature_votes')
       .select('id')
       .eq('feature_request_id', featureRequestId)
@@ -49,15 +53,13 @@ export async function POST(
     }
 
     // Insert the vote
-    const { data: vote, error: voteError } = await supabaseServer
+    const { data: vote, error: voteError } = await supabase
       .from('feature_votes')
-      .insert([
-        {
-          feature_request_id: featureRequestId,
-          voter_identifier: voterIdentifier,
-          voter_name: voterName || null
-        }
-      ])
+      .insert({
+        feature_request_id: featureRequestId,
+        voter_identifier: voterIdentifier,
+        voter_name: voterName || null
+      })
       .select()
       .single();
 
@@ -70,11 +72,12 @@ export async function POST(
     }
 
     // Get updated vote count
-    const { data: updatedFeature } = await supabaseServer
+    const { data: updatedFeatureRaw } = await supabase
       .from('feature_requests')
       .select('vote_count')
       .eq('id', featureRequestId)
       .single();
+    const updatedFeature = updatedFeatureRaw as { vote_count?: number } | null;
 
     return NextResponse.json({
       success: true,
@@ -97,9 +100,10 @@ export async function DELETE(
   { params }: { params: Promise<{ tenant: string }> }
 ) {
   try {
-    const resolvedParams = await params;
-    const body = await request.json();
-    const { featureRequestId, voterIdentifier } = body;
+    await params;
+    const body = (await request.json()) as Record<string, unknown>;
+    const featureRequestId = typeof body.featureRequestId === "string" ? body.featureRequestId.trim() : "";
+    const voterIdentifier = typeof body.voterIdentifier === "string" ? body.voterIdentifier.trim() : "";
 
     // Validate required fields
     if (!featureRequestId || !voterIdentifier) {
@@ -110,7 +114,7 @@ export async function DELETE(
     }
 
     // Find and delete the vote
-    const { data: deletedVote, error: deleteError } = await supabaseServer
+    const { data: deletedVote, error: deleteError } = await supabase
       .from('feature_votes')
       .delete()
       .eq('feature_request_id', featureRequestId)
@@ -126,11 +130,12 @@ export async function DELETE(
     }
 
     // Get updated vote count
-    const { data: updatedFeature } = await supabaseServer
+    const { data: updatedFeatureRaw } = await supabase
       .from('feature_requests')
       .select('vote_count')
       .eq('id', featureRequestId)
       .single();
+    const updatedFeature = updatedFeatureRaw as { vote_count?: number } | null;
 
     return NextResponse.json({
       success: true,

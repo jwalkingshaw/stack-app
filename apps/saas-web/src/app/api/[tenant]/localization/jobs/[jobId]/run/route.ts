@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
 import { isMissingLocalizationFoundationError, requireLocalizationAccess } from "../../../_shared";
-import { executeLocalizationJobById } from "../../route";
+import { POST as createLocalizationJob } from "../../route";
 
 const RUNNABLE_STATUSES = new Set(["queued", "running", "review_required"]);
 
@@ -16,9 +16,11 @@ export async function POST(
     if (!access.ok) return access.response;
 
     const { organization } = access.context;
-    const { data: job, error: jobError } = await (supabaseServer as any)
+    const { data: job, error: jobError } = await supabaseServer
       .from("translation_jobs")
-      .select("id,status")
+      .select(
+        "id,status,job_type,source_locale_id,target_locale_ids,scope,field_selection,product_ids,provider_meta"
+      )
       .eq("organization_id", organization.id)
       .eq("id", resolved.jobId)
       .maybeSingle();
@@ -45,31 +47,43 @@ export async function POST(
       );
     }
 
-    const result = await executeLocalizationJobById({
-      organizationId: organization.id,
-      jobId: resolved.jobId,
+    const replayPayload = {
+      jobType: job.job_type,
+      sourceLocaleId: job.source_locale_id,
+      targetLocaleIds: Array.isArray(job.target_locale_ids) ? job.target_locale_ids : [],
+      productIds: Array.isArray(job.product_ids) ? job.product_ids : [],
+      fieldSelection: job.field_selection ?? {},
+      scope: job.scope ?? {},
+      providerMeta: job.provider_meta ?? {},
+      executionMode: "sync",
+    };
+
+    const replayHeaders = new Headers(request.headers);
+    replayHeaders.set("content-type", "application/json");
+
+    const replayRequest = new NextRequest(
+      new URL(`/api/${resolved.tenant}/localization/jobs`, request.url),
+      {
+        method: "POST",
+        headers: replayHeaders,
+        body: JSON.stringify(replayPayload),
+      }
+    );
+
+    const replayResponse = await createLocalizationJob(replayRequest, {
+      params: Promise.resolve({ tenant: resolved.tenant }),
     });
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        jobId: resolved.jobId,
-        status: result.status,
-        estimatedChars: result.estimatedChars,
-        actualChars: result.actualChars,
-        generatedItems: result.generatedItems,
-        failedItems: result.failedItems,
-      },
-    });
+    return replayResponse;
   } catch (error) {
     console.error("Error in localization job run POST:", error);
     const message = error instanceof Error ? error.message : "Internal server error";
     const status =
-      message.toLowerCase().includes("not found")
-        ? 404
-        : message.toLowerCase().includes("starter")
-          ? 403
-          : message.toLowerCase().includes("quota")
+        message.toLowerCase().includes("not found")
+          ? 404
+          : message.toLowerCase().includes("free (sandbox)") || message.toLowerCase().includes("plan")
+            ? 403
+            : message.toLowerCase().includes("quota")
             ? 402
             : 500;
     return NextResponse.json(

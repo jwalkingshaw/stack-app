@@ -4,19 +4,32 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ActionButton } from "@/components/ui/action-button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Package, X } from "lucide-react";
 import { generateProductUrl } from "@/lib/product-utils";
 import { useMarketContext } from "@/components/market-context";
-import {
-  AuthoringScopePicker,
-  AuthoringScopeValue,
-  createGlobalAuthoringScope,
-  getAuthoringScopeSummary,
-  normalizeAuthoringScope,
-} from "@/components/scope/authoring-scope-picker";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { FullscreenFormModal } from "@/components/ui/modal-shells";
+
+interface ProductFamily {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+interface ProductCreateErrorDetail {
+  field?: string;
+  message?: string;
+}
+
+interface ProductCreateResponse {
+  data?: {
+    id: string;
+    product_name?: string | null;
+    title?: string | null;
+    sku?: string | null;
+  };
+  error?: string;
+  details?: ProductCreateErrorDetail[] | unknown;
+}
 
 interface AddProductModalProps {
   isOpen: boolean;
@@ -26,7 +39,11 @@ interface AddProductModalProps {
 
 export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModalProps) {
   const router = useRouter();
-  const { selectedMarketId, selectedLocale, selectedChannel } = useMarketContext();
+  const {
+    selectedMarketId,
+    selectedLocaleId,
+    selectedLocale,
+  } = useMarketContext();
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     sku: '',
@@ -35,25 +52,20 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
     status: 'Draft'
   });
   const [errors, setErrors] = useState<{[key: string]: string}>({});
-  const [showInitialScope, setShowInitialScope] = useState(false);
-  const [initialScope, setInitialScope] = useState<AuthoringScopeValue>(createGlobalAuthoringScope());
 
   // Product models data from API
-  const [families, setFamilies] = useState([]);
+  const [families, setFamilies] = useState<ProductFamily[]>([]);
   const [familiesLoading, setFamiliesLoading] = useState(false);
-
-  const [selectedFamily, setSelectedFamily] = useState<any>(null);
 
   const buildScopedApiUrl = useCallback((basePath: string) => {
     const query = new URLSearchParams();
     if (selectedMarketId) query.set("marketId", selectedMarketId);
     if (selectedLocale?.code) query.set("locale", selectedLocale.code);
-    if (selectedChannel?.code) query.set("channel", selectedChannel.code);
 
     return query.toString()
       ? `${basePath}?${query.toString()}`
       : basePath;
-  }, [selectedMarketId, selectedLocale?.code, selectedChannel?.code]);
+  }, [selectedMarketId, selectedLocale?.code]);
 
   // Fetch families when modal opens
   const fetchFamilies = useCallback(async () => {
@@ -65,7 +77,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
       if (response.ok) {
         setFamilies(result.data || []);
       }
-    } catch (error) {
+    } catch {
       // Error fetching product models - continue with empty list
     } finally {
       setFamiliesLoading(false);
@@ -78,16 +90,6 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
       fetchFamilies();
     }
   }, [isOpen, fetchFamilies]);
-
-  // Handle family selection
-  useEffect(() => {
-    if (formData.family_id) {
-      const family = (families as any[]).find(f => f.id === formData.family_id);
-      setSelectedFamily(family);
-    } else {
-      setSelectedFamily(null);
-    }
-  }, [formData.family_id, families]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
@@ -112,15 +114,15 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
     }
 
     if (!formData.family_id.trim()) {
-      newErrors.family_id = 'Product model is required';
+      newErrors.family_id = 'Family is required';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     
     if (!validateForm()) {
       return;
@@ -137,14 +139,13 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
         body: JSON.stringify({
           ...formData,
           type: 'standalone', // Default to standalone product
-          initialScope: normalizeAuthoringScope(initialScope),
         }),
       });
 
-      let result;
+      let result: ProductCreateResponse;
       try {
         result = await response.json();
-      } catch (parseError) {
+      } catch {
         setErrors({ general: 'Invalid server response' });
         return;
       }
@@ -161,7 +162,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
           const validationErrors: {[key: string]: string} = {};
 
           if (Array.isArray(result.details)) {
-            result.details.forEach((detail: any) => {
+            result.details.forEach((detail) => {
               if (detail.field && detail.message) {
                 validationErrors[detail.field] = detail.message;
               }
@@ -183,6 +184,10 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
       }
       
       // Close modal and redirect to product detail page using SKU-based URL
+      if (!result.data) {
+        setErrors({ general: 'Product was created but response payload was incomplete' });
+        return;
+      }
       onClose();
       const productUrl = generateProductUrl(
         tenantSlug,
@@ -191,7 +196,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
       );
       router.push(productUrl);
       
-    } catch (error) {
+    } catch {
       setErrors({ general: 'An unexpected error occurred' });
     } finally {
       setIsLoading(false);
@@ -201,9 +206,6 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
   const handleClose = () => {
     if (!isLoading) {
       setFormData({ sku: '', product_name: '', family_id: '', status: 'Draft' });
-      setSelectedFamily(null);
-      setShowInitialScope(false);
-      setInitialScope(createGlobalAuthoringScope());
       setErrors({});
       onClose();
     }
@@ -214,34 +216,24 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
   if (!isOpen) return null;
 
   return (
-    <DialogPrimitive.Root open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-white" />
-        <DialogPrimitive.Content className="fixed inset-0 z-50 bg-white">
-          <div className="h-full flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <DialogPrimitive.Title className="text-lg font-semibold flex items-center gap-2">
-                <Package className="w-5 h-5" />
-                Add New Product
-              </DialogPrimitive.Title>
-              <button
-                onClick={handleClose}
-                disabled={isLoading}
-                className="p-1.5 hover:bg-muted rounded-md transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+    <FullscreenFormModal
+      open={isOpen}
+      title="Add New Product"
+      onOpenChange={(open) => !open && handleClose()}
+      onBack={handleClose}
+      headerContentClassName="max-w-2xl px-0 sm:px-0"
+      primaryActionLabel="Create Product"
+      onPrimaryAction={() => void handleSubmit()}
+      primaryActionDisabled={!isFormValid}
+      primaryActionLoading={isLoading}
+      primaryActionLoadingLabel="Creating..."
+      bodyClassName="mx-auto w-full max-w-2xl"
+    >
+      <p className="text-sm text-muted-foreground">
+        Select a family to define the product&apos;s schema. You&apos;ll fill in attributes on the product page.
+      </p>
 
-            {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto p-6">
-              <div className="max-w-2xl mx-auto space-y-6">
-                <p className="text-sm text-muted-foreground">
-                  Select a product model to define the product template. You'll configure attributes on the product page.
-                </p>
-
-                <form onSubmit={handleSubmit} className="space-y-4" id="add-product-form">
+      <form onSubmit={handleSubmit} className="space-y-4" id="add-product-form">
           <div className="space-y-2">
             <label htmlFor="sku" className="block text-sm font-medium text-gray-700">
               SKU (optional)
@@ -278,7 +270,7 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
 
           <div className="space-y-2">
             <label htmlFor="family_id" className="block text-sm font-medium text-gray-700">
-              Product Model *
+              Family *
             </label>
             <Select
               value={formData.family_id || ""}
@@ -291,15 +283,15 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
                 <SelectValue
                   placeholder={
                     familiesLoading
-                      ? "Loading product models..."
+                      ? "Loading families..."
                       : families.length === 0
-                      ? "No product models available - Create one in Settings"
-                      : "Select a product model..."
+                      ? "No families available — create one in Settings"
+                      : "Select a family..."
                   }
                 />
               </SelectTrigger>
               <SelectContent>
-                {(families as any[]).map((family) => (
+                {families.map((family) => (
                   <SelectItem key={family.id} value={family.id}>
                     {family.name}{family.description ? ` - ${family.description}` : ''}
                   </SelectItem>
@@ -334,36 +326,6 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
             </Select>
           </div>
 
-          <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">Initial Authoring Scope (optional)</p>
-                <p className="text-xs text-muted-foreground">
-                  Viewing context is not written automatically unless you apply it here.
-                </p>
-              </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setShowInitialScope((prev) => !prev)}
-              >
-                {showInitialScope ? "Hide" : "Set scope"}
-              </Button>
-            </div>
-
-            {showInitialScope ? (
-              <AuthoringScopePicker
-                showHeader={false}
-                value={initialScope}
-                onChange={(next) => setInitialScope(normalizeAuthoringScope(next))}
-              />
-            ) : (
-              <div className="text-xs text-muted-foreground">
-                Current: <span className="font-medium text-foreground">{getAuthoringScopeSummary(initialScope)}</span>
-              </div>
-            )}
-          </div>
 
                   {/* Display all validation errors */}
                   {Object.entries(errors).length > 0 && (
@@ -382,34 +344,6 @@ export function AddProductModal({ isOpen, onClose, tenantSlug }: AddProductModal
                     </div>
                   )}
                 </form>
-              </div>
-            </div>
-
-            {/* Fixed footer */}
-            <div className="border-t border-border p-6">
-              <div className="max-w-2xl mx-auto flex justify-end gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleClose}
-                  disabled={isLoading}
-                >
-                  Cancel
-                </Button>
-                <ActionButton
-                  type="submit"
-                  form="add-product-form"
-                  loading={isLoading}
-                  disabled={!isFormValid}
-                  variant="accent-blue"
-                >
-                  {isLoading ? 'Creating' : 'Create Product'}
-                </ActionButton>
-              </div>
-            </div>
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+    </FullscreenFormModal>
   );
 }

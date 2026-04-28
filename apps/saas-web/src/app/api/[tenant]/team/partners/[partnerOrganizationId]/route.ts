@@ -15,18 +15,127 @@ type PartnerRelationshipSummary = {
   updated_at: string | null;
 };
 
-function isMissingColumnError(error: any): boolean {
+type ContractGrantSummary = {
+  id: string;
+  output_profile_id: string;
+  destination_profile_id?: string;
+  access_level: "view" | "download" | "export";
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+  output_profile: {
+    id: string;
+    name: string;
+    code: string;
+    profile_type: string;
+  } | null;
+  destination_profile?: {
+    id: string;
+    name: string;
+    code: string;
+    profile_type: string;
+  } | null;
+};
+
+type PortalPublishSummary = {
+  id: string;
+  output_profile_id: string;
+  destination_profile_id?: string;
+  publish_state: string;
+  published_at: string | null;
+  output_profile: {
+    id: string;
+    name: string;
+    code: string;
+    profile_type: string;
+  } | null;
+  destination_profile?: {
+    id: string;
+    name: string;
+    code: string;
+    profile_type: string;
+  } | null;
+};
+
+function isPortalLaunchProfile(profile: {
+  profile_type?: string | null;
+  code?: string | null;
+  name?: string | null;
+} | null | undefined): boolean {
+  if (!profile) return false;
+  const profileType = String(profile.profile_type || "").trim().toLowerCase();
+  const code = String(profile.code || "").trim().toLowerCase();
+  const name = String(profile.name || "").trim().toLowerCase();
+  if (profileType === "portal") return true;
+  return code === "portal" || code === "portal-catalog" || code === "generic_portal" || name === "portal";
+}
+
+function normalizePortalProfile(profile: {
+  id: string;
+  name: string;
+  code: string;
+  profile_type: string;
+} | null): {
+  id: string;
+  name: string;
+  code: string;
+  profile_type: string;
+} | null {
+  if (!profile) return null;
+  return {
+    ...profile,
+    name: "Portal",
+    code: "portal",
+    profile_type: "portal",
+  };
+}
+
+function isLegacyGlobalScope(name: string | null | undefined): boolean {
+  const value = String(name || "").trim().toLowerCase();
+  return (
+    value === "global" ||
+    value === "global products" ||
+    value === "global assets" ||
+    value === "all products" ||
+    value === "all assets"
+  );
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
+
+function isMissingColumnError(error: { code?: string } | null | undefined): boolean {
   return error?.code === "42703";
 }
 
-function isMissingFoundationError(error: any): boolean {
+function isMissingFoundationError(
+  error: { code?: string; message?: string } | null | undefined
+): boolean {
   if (!error) return false;
   if (error?.code === "42P01" || error?.code === "PGRST205") return true;
   const message = String(error?.message || "").toLowerCase();
   return message.includes("share_sets") || message.includes("partner_share_set_grants");
 }
 
-function normalizeOrganizationType(organization: any): "brand" | "partner" {
+function isMissingSyndicationFoundationError(
+  error: { code?: string; message?: string } | null | undefined
+): boolean {
+  if (!error) return false;
+  if (error?.code === "42P01" || error?.code === "PGRST205") return true;
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("syndication_runs") ||
+    message.includes("portal_publishes") ||
+    message.includes("portal_publish_audiences")
+  );
+}
+
+function normalizeOrganizationType(
+  organization:
+    | { organizationType?: unknown; type?: unknown; organization_type?: unknown }
+    | null
+    | undefined
+): "brand" | "partner" {
   const raw =
     organization?.organizationType ??
     organization?.type ??
@@ -35,14 +144,14 @@ function normalizeOrganizationType(organization: any): "brand" | "partner" {
   return String(raw).toLowerCase() === "partner" ? "partner" : "brand";
 }
 
-function normalizeRelationshipAccessLevel(row: any): "view" | "edit" {
+function normalizeRelationshipAccessLevel(row: Record<string, unknown>): "view" | "edit" {
   const direct = typeof row?.access_level === "string" ? row.access_level.toLowerCase() : "";
   if (direct === "edit" || direct === "view") {
     return direct;
   }
 
-  const permissions = row?.permissions;
-  if (permissions && typeof permissions === "object") {
+  const permissions = isRecord(row?.permissions) ? row.permissions : null;
+  if (permissions) {
     const fromPermissions =
       typeof permissions.access_level === "string"
         ? permissions.access_level.toLowerCase()
@@ -58,12 +167,6 @@ function normalizeRelationshipAccessLevel(row: any): "view" | "edit" {
   return "view";
 }
 
-function normalizeLegacyStatus(status: string): string {
-  const value = status.toLowerCase();
-  if (value === "inactive") return "suspended";
-  return value;
-}
-
 async function loadPartnerRelationship(params: {
   organizationId: string;
   partnerOrganizationId: string;
@@ -74,37 +177,16 @@ async function loadPartnerRelationship(params: {
     select: string;
     brandColumn: string;
     partnerColumn: string;
-    isLegacy: boolean;
   }> = [
-    {
-      select:
-        "id,partner_organization_id,status,access_level,created_at,updated_at,status_updated_at,settings",
-      brandColumn: "brand_organization_id",
-      partnerColumn: "partner_organization_id",
-      isLegacy: false,
-    },
     {
       select: "id,partner_organization_id,status,access_level,created_at,status_updated_at,settings",
       brandColumn: "brand_organization_id",
       partnerColumn: "partner_organization_id",
-      isLegacy: false,
-    },
-    {
-      select: "id,partner_id,status,access_level,created_at,updated_at,permissions",
-      brandColumn: "brand_id",
-      partnerColumn: "partner_id",
-      isLegacy: true,
-    },
-    {
-      select: "id,partner_id,status,permissions,created_at,updated_at",
-      brandColumn: "brand_id",
-      partnerColumn: "partner_id",
-      isLegacy: true,
     },
   ];
 
   for (const attempt of attempts) {
-    const result = await (supabaseServer as any)
+    const result = await (supabaseServer)
       .from("brand_partner_relationships")
       .select(attempt.select)
       .eq(attempt.brandColumn, organizationId)
@@ -113,17 +195,23 @@ async function loadPartnerRelationship(params: {
       .limit(1);
 
     if (!result.error) {
-      const row = Array.isArray(result.data) ? result.data[0] : null;
-      if (!row) continue;
+      const rawRow = Array.isArray(result.data) ? result.data[0] : null;
+      if (!isRecord(rawRow)) continue;
+      const row = rawRow;
+      const partnerOrganizationIdRaw = row[attempt.partnerColumn];
+      if (typeof partnerOrganizationIdRaw !== "string" || partnerOrganizationIdRaw.length === 0) {
+        continue;
+      }
+
       return {
-        id: row.id,
-        partner_organization_id: row[attempt.partnerColumn],
-        status: attempt.isLegacy
-          ? normalizeLegacyStatus(String(row.status || "active"))
-          : String(row.status || "active"),
+        id: String(row.id),
+        partner_organization_id: partnerOrganizationIdRaw,
+        status: String(row.status || "active"),
         access_level: normalizeRelationshipAccessLevel(row),
-        created_at: row.created_at || null,
-        updated_at: row.updated_at || row.status_updated_at || row.created_at || null,
+        created_at: typeof row.created_at === "string" ? row.created_at : null,
+        updated_at:
+          (typeof row.status_updated_at === "string" ? row.status_updated_at : null) ||
+          (typeof row.created_at === "string" ? row.created_at : null),
       };
     }
 
@@ -133,27 +221,7 @@ async function loadPartnerRelationship(params: {
     }
   }
 
-  const rpc = await (supabaseServer as any).rpc("get_brand_partners", {
-    brand_org_id: organizationId,
-  });
-  if (rpc.error || !Array.isArray(rpc.data)) return null;
-
-  const row = (rpc.data as Array<any>).find(
-    (entry) => entry.partner_id === partnerOrganizationId
-  );
-  if (!row) return null;
-
-  return {
-    id: row.partner_id || crypto.randomUUID(),
-    partner_organization_id: row.partner_id,
-    status: String(row.relationship_status || "active"),
-    access_level: normalizeRelationshipAccessLevel({
-      access_level: row.access_level,
-      permissions: row.permissions,
-    }),
-    created_at: row.relationship_created_at || null,
-    updated_at: row.relationship_created_at || null,
-  };
+  return null;
 }
 
 function parseAction(raw: unknown): "suspend" | "restore" | "revoke" | null {
@@ -165,10 +233,10 @@ function parseAction(raw: unknown): "suspend" | "restore" | "revoke" | null {
   return null;
 }
 
-function parseAccessLevel(raw: unknown): "view" | "edit" | null {
+function parseAccessLevel(raw: unknown): "view" | null {
   if (typeof raw !== "string") return null;
   const value = raw.trim().toLowerCase();
-  if (value === "view" || value === "edit") {
+  if (value === "view") {
     return value;
   }
   return null;
@@ -177,7 +245,7 @@ function parseAccessLevel(raw: unknown): "view" | "edit" | null {
 async function updateRelationshipById(params: {
   relationshipId: string;
   action: "suspend" | "restore" | "revoke" | null;
-  accessLevel: "view" | "edit" | null;
+  accessLevel: "view" | null;
 }): Promise<boolean> {
   const { relationshipId, action, accessLevel } = params;
   const now = new Date().toISOString();
@@ -192,44 +260,19 @@ async function updateRelationshipById(params: {
   if (accessLevel) v2Payload.access_level = accessLevel;
   if (action) v2Payload.status = statusByAction[action];
 
-  const v2 = await (supabaseServer as any)
+  const v2 = await (supabaseServer)
     .from("brand_partner_relationships")
     .update(v2Payload)
     .eq("id", relationshipId)
     .select("id")
     .limit(1);
 
-  if (!v2.error) {
-    return Array.isArray(v2.data) && v2.data.length > 0;
-  }
-
-  if (!isMissingColumnError(v2.error)) {
+  if (v2.error) {
     console.error("Failed to update partner relationship:", v2.error);
     return false;
   }
 
-  // Legacy fallback (007 schema): status active/inactive, permissions jsonb.
-  const v1Payload: Record<string, unknown> = { updated_at: now };
-  if (accessLevel) {
-    v1Payload.permissions = { access_level: accessLevel };
-  }
-  if (action) {
-    v1Payload.status = action === "restore" ? "active" : "inactive";
-  }
-
-  const v1 = await (supabaseServer as any)
-    .from("brand_partner_relationships")
-    .update(v1Payload)
-    .eq("id", relationshipId)
-    .select("id")
-    .limit(1);
-
-  if (v1.error) {
-    console.error("Failed to update legacy partner relationship:", v1.error);
-    return false;
-  }
-
-  return Array.isArray(v1.data) && v1.data.length > 0;
+  return Array.isArray(v2.data) && v2.data.length > 0;
 }
 
 export async function GET(
@@ -273,17 +316,19 @@ export async function GET(
       return NextResponse.json({ error: "Partner relationship not found" }, { status: 404 });
     }
 
-    const { data: partnerOrganization } = await (supabaseServer as any)
+    const { data: partnerOrganization } = await (supabaseServer)
       .from("organizations")
       .select("id,name,slug,organization_type,partner_category")
       .eq("id", resolvedParams.partnerOrganizationId)
       .maybeSingle();
 
-    let grants: Array<any> = [];
-    let availableSets: Array<any> = [];
+    let grants: Array<Record<string, unknown>> = [];
+    let availableSets: Array<Record<string, unknown>> = [];
     let shareSetsEnabled = true;
+    let contractGrants: ContractGrantSummary[] = [];
+    let portalPublishes: PortalPublishSummary[] = [];
 
-    const grantsResult = await (supabaseServer as any)
+    const grantsResult = await (supabaseServer)
       .from("partner_share_set_grants")
       .select(
         "id,share_set_id,access_level,status,created_at,updated_at,share_sets(id,name,module_key)"
@@ -297,22 +342,35 @@ export async function GET(
       if (isMissingFoundationError(grantsResult.error)) {
         shareSetsEnabled = false;
       } else {
-        return NextResponse.json({ error: "Failed to load partner set grants" }, { status: 500 });
+        return NextResponse.json({ error: "Failed to load partner saved scope grants" }, { status: 500 });
       }
     } else {
-      grants = ((grantsResult.data || []) as Array<any>).map((row) => ({
+      grants = ((grantsResult.data || []) as Array<{
+        id: string;
+        share_set_id: string;
+        access_level: string;
+        status: string;
+        created_at: string;
+        updated_at: string;
+        share_sets:
+          | { id: string; name: string; module_key: string }
+          | Array<{ id: string; name: string; module_key: string }>
+          | null;
+      }>).map((row) => ({
         id: row.id,
         share_set_id: row.share_set_id,
+        saved_scope_id: row.share_set_id,
         access_level: row.access_level,
         status: row.status,
         created_at: row.created_at,
         updated_at: row.updated_at,
         share_set: Array.isArray(row.share_sets) ? row.share_sets[0] || null : row.share_sets || null,
-      }));
+        saved_scope: Array.isArray(row.share_sets) ? row.share_sets[0] || null : row.share_sets || null,
+      })).filter((row) => !isLegacyGlobalScope((row.share_set as { name?: string } | null)?.name));
     }
 
     if (shareSetsEnabled) {
-      const shareSetsResult = await (supabaseServer as any)
+      const shareSetsResult = await (supabaseServer)
         .from("share_sets")
         .select("id,name,module_key")
         .eq("organization_id", organization.id)
@@ -323,11 +381,125 @@ export async function GET(
         if (isMissingFoundationError(shareSetsResult.error)) {
           shareSetsEnabled = false;
         } else {
-          return NextResponse.json({ error: "Failed to load available sets" }, { status: 500 });
+          return NextResponse.json({ error: "Failed to load available saved scopes" }, { status: 500 });
         }
       } else {
-        availableSets = shareSetsResult.data || [];
+        availableSets = ((shareSetsResult.data || []) as Array<Record<string, unknown>>).filter(
+          (row) => !isLegacyGlobalScope(typeof row.name === "string" ? row.name : null)
+        );
       }
+    }
+
+    const contractGrantsResult = await (supabaseServer)
+      .from("partner_contract_grants" as never)
+      .select(
+        "id,output_profile_id,access_level,status,created_at,updated_at,output_channel_profiles!inner(id,name,code,profile_type)"
+      )
+      .eq("organization_id", organization.id)
+      .eq("partner_organization_id", resolvedParams.partnerOrganizationId)
+      .eq("status", "active")
+      .order("updated_at", { ascending: false });
+
+    if (!contractGrantsResult.error) {
+      const normalizedContractGrants = ((contractGrantsResult.data || []) as Array<{
+        id: string;
+        output_profile_id: string;
+        access_level: "view" | "download" | "export";
+        status: string;
+        created_at: string | null;
+        updated_at: string | null;
+        output_channel_profiles:
+          | { id: string; name: string; code: string; profile_type: string }
+          | Array<{ id: string; name: string; code: string; profile_type: string }>
+          | null;
+      }>)
+        .map((row): ContractGrantSummary | null => {
+          const profile = normalizePortalProfile(
+            Array.isArray(row.output_channel_profiles)
+              ? row.output_channel_profiles[0] || null
+              : row.output_channel_profiles || null
+          );
+          if (!isPortalLaunchProfile(profile)) return null;
+          return {
+            id: row.id,
+            output_profile_id: row.output_profile_id,
+            destination_profile_id: row.output_profile_id,
+            access_level: row.access_level,
+            status: row.status,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            output_profile: profile,
+            destination_profile: profile,
+          };
+        })
+        .filter((row): row is ContractGrantSummary => row !== null);
+      contractGrants = normalizedContractGrants;
+    }
+
+    const portalPublishesResult = await (supabaseServer)
+      .from("portal_publish_audiences" as never)
+      .select(
+        "portal_publishes!inner(id,output_profile_id,publish_state,published_at,output_channel_profiles!inner(id,name,code,profile_type))"
+      )
+      .eq("organization_id", organization.id)
+      .eq("partner_organization_id", resolvedParams.partnerOrganizationId)
+      .eq("is_active", true)
+      .limit(5);
+
+    if (portalPublishesResult.error) {
+      if (!isMissingSyndicationFoundationError(portalPublishesResult.error)) {
+        return NextResponse.json({ error: "Failed to load partner portal publishes" }, { status: 500 });
+      }
+    } else {
+      const normalizedPortalPublishes = ((portalPublishesResult.data || []) as Array<{
+        portal_publishes:
+          | {
+              id: string;
+              output_profile_id: string;
+              publish_state: string;
+              published_at: string | null;
+              output_channel_profiles:
+                | { id: string; name: string; code: string; profile_type: string }
+                | Array<{ id: string; name: string; code: string; profile_type: string }>
+                | null;
+            }
+          | Array<{
+              id: string;
+              output_profile_id: string;
+              publish_state: string;
+              published_at: string | null;
+              output_channel_profiles:
+                | { id: string; name: string; code: string; profile_type: string }
+                | Array<{ id: string; name: string; code: string; profile_type: string }>
+                | null;
+            }>
+          | null;
+      }>)
+        .map((row) =>
+          Array.isArray(row.portal_publishes)
+            ? row.portal_publishes[0] || null
+            : row.portal_publishes || null
+        )
+        .filter((row): row is NonNullable<typeof row> => Boolean(row))
+        .map((row): PortalPublishSummary | null => {
+          const profile = normalizePortalProfile(
+            Array.isArray(row.output_channel_profiles)
+              ? row.output_channel_profiles[0] || null
+              : row.output_channel_profiles || null
+          );
+          if (!isPortalLaunchProfile(profile)) return null;
+          return {
+            id: row.id,
+            output_profile_id: row.output_profile_id,
+            destination_profile_id: row.output_profile_id,
+            publish_state: row.publish_state,
+            published_at: row.published_at,
+            output_profile: profile,
+            destination_profile: profile,
+          };
+        })
+        .filter((row): row is PortalPublishSummary => row !== null);
+      portalPublishes = normalizedPortalPublishes;
     }
 
     return NextResponse.json({
@@ -348,8 +520,12 @@ export async function GET(
         },
         relationship,
         share_sets_enabled: shareSetsEnabled,
+        saved_scopes_enabled: shareSetsEnabled,
         grants,
+        contract_grants: contractGrants,
+        portal_publishes: portalPublishes,
         available_sets: availableSets,
+        available_saved_scopes: availableSets,
       },
     });
   } catch (error) {
@@ -402,10 +578,10 @@ export async function PATCH(
     const accessLevel = parseAccessLevel(body.accessLevel);
     if (!action && !accessLevel) {
       return NextResponse.json(
-        { error: "Provide action (suspend|restore|revoke) or accessLevel (view|edit)." },
-        { status: 400 }
-      );
-    }
+          { error: "Provide action (suspend|restore|revoke) or accessLevel (view)." },
+          { status: 400 }
+        );
+      }
 
     const relationship = await loadPartnerRelationship({
       organizationId: organization.id,
@@ -440,4 +616,5 @@ export async function PATCH(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+
 

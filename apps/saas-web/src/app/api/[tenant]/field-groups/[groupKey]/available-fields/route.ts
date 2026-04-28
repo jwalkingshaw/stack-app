@@ -1,10 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  normalizeField,
-  resolveFieldGroupByKey,
   resolveTargetOrganization,
   supabase,
 } from "../../_shared";
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function resolveFieldGroupIdByKey(
+  organizationId: string,
+  groupKey: string
+) {
+  const key = groupKey.trim();
+
+  if (UUID_PATTERN.test(key)) {
+    const byId = await supabase
+      .from("field_groups")
+      .select("id")
+      .eq("organization_id", organizationId)
+      .eq("id", key)
+      .maybeSingle();
+
+    if (byId.data || byId.error) {
+      return byId;
+    }
+  }
+
+  return supabase
+    .from("field_groups")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("code", key)
+    .maybeSingle();
+}
 
 // GET /api/[tenant]/field-groups/[groupKey]/available-fields
 export async function GET(
@@ -18,10 +46,7 @@ export async function GET(
       return context.response;
     }
 
-    const groupResult = await resolveFieldGroupByKey(
-      context.targetOrganizationId,
-      groupKey
-    );
+    const groupResult = await resolveFieldGroupIdByKey(context.targetOrganizationId, groupKey);
 
     if (groupResult.error) {
       console.error("Error fetching field group for available fields:", groupResult.error);
@@ -34,11 +59,12 @@ export async function GET(
     if (!groupResult.data) {
       return NextResponse.json({ error: "Field group not found" }, { status: 404 });
     }
+    const groupId = (groupResult.data as { id: string }).id;
 
     const { data: assignedRows, error: assignedError } = await supabase
       .from("product_field_group_assignments")
       .select("product_field_id")
-      .eq("field_group_id", groupResult.data.id);
+      .eq("field_group_id", groupId);
 
     if (assignedError) {
       console.error("Error fetching assigned fields:", assignedError);
@@ -56,10 +82,9 @@ export async function GET(
 
     const { data: allFields, error: fieldsError } = await supabase
       .from("product_fields")
-      .select("*")
+      .select("id, name, code, description, field_type")
       .eq("organization_id", context.targetOrganizationId)
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true });
+      .order("name", { ascending: true });
 
     if (fieldsError) {
       console.error("Error fetching organization fields:", fieldsError);
@@ -71,9 +96,14 @@ export async function GET(
 
     const available = (allFields || [])
       .filter((field) => !assignedFieldIds.has(field.id))
-      .map((field) => normalizeField(field))
-      .filter((field): field is any => Boolean(field))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .map((field) => ({
+        id: field.id,
+        name: field.name || field.code || "Untitled field",
+        code: field.code || "",
+        description: field.description,
+        field_type: field.field_type,
+        type: field.field_type,
+      }));
 
     return NextResponse.json(available);
   } catch (error) {

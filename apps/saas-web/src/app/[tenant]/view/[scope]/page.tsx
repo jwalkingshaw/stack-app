@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { PartnerHomeClient } from "./PartnerHomeClient";
 
 interface ScopedTenantHomePageProps {
   params: Promise<{ tenant: string; scope: string }>;
@@ -9,10 +10,15 @@ export default async function ScopedTenantHomePage({ params }: ScopedTenantHomeP
   const tenantSlug = resolvedParams.tenant;
   const normalizedScope = (resolvedParams.scope || "").trim().toLowerCase();
 
-  if (normalizedScope !== "all") {
-    redirect(`/${tenantSlug}/view/${resolvedParams.scope}/products`);
+  if (
+    !normalizedScope ||
+    normalizedScope === "self" ||
+    normalizedScope === tenantSlug.trim().toLowerCase()
+  ) {
+    redirect(`/${tenantSlug}`);
   }
 
-  // Intentionally blank for now.
-  return null;
+  return (
+    <PartnerHomeClient tenantSlug={tenantSlug} scope={resolvedParams.scope} />
+  );
 }

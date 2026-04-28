@@ -34,7 +34,7 @@ export async function GET(
     const collectionId = searchParams.get("collectionId");
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetDownloadDerivative,
@@ -48,7 +48,7 @@ export async function GET(
     }
 
     const collectionScope = await enforceCollectionScope({
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       organizationId: organization.id,
       collectionId,
     });
@@ -105,7 +105,7 @@ export async function PUT(
     const collectionId = searchParams.get("collectionId");
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetMetadataEdit,
@@ -119,7 +119,7 @@ export async function PUT(
     }
 
     const collectionScope = await enforceCollectionScope({
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       organizationId: organization.id,
       collectionId,
     });
@@ -186,7 +186,7 @@ export async function DELETE(
     const collectionId = searchParams.get("collectionId");
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetMetadataEdit,
@@ -200,7 +200,7 @@ export async function DELETE(
     }
 
     const collectionScope = await enforceCollectionScope({
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       organizationId: organization.id,
       collectionId,
     });

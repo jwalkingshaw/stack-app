@@ -1,4 +1,4 @@
-import { VariantDetailClient } from "../../../../../../products/[productId]/variants/[variantId]/VariantDetailClient";
+import { PublishedProductDetailClient } from "../../../PublishedProductDetailClient";
 
 interface ScopedVariantDetailPageProps {
   params: Promise<{
@@ -9,33 +9,15 @@ interface ScopedVariantDetailPageProps {
   }>;
 }
 
-function normalizeSelectedBrand(scope: string, tenant: string): string | null {
-  const normalizedScope = scope.trim().toLowerCase();
-  const normalizedTenant = tenant.trim().toLowerCase();
-  if (
-    !normalizedScope ||
-    normalizedScope === "self" ||
-    normalizedScope === "all" ||
-    normalizedScope === normalizedTenant
-  ) {
-    return null;
-  }
-  return normalizedScope;
-}
-
 export default async function ScopedVariantDetailPage({ params }: ScopedVariantDetailPageProps) {
   const resolvedParams = await params;
-  const selectedBrandSlug = normalizeSelectedBrand(
-    resolvedParams.scope,
-    resolvedParams.tenant
-  );
 
   return (
-    <VariantDetailClient
+    <PublishedProductDetailClient
       tenantSlug={resolvedParams.tenant}
-      productId={resolvedParams.productId}
-      variantId={resolvedParams.variantId}
-      selectedBrandSlug={selectedBrandSlug}
+      scope={resolvedParams.scope}
+      productKey={resolvedParams.variantId}
+      parentProductKey={resolvedParams.productId}
     />
   );
 }

@@ -1,7 +1,9 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import NextImage from 'next/image'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { Bell, LayoutGrid, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useWorkspaces, WorkspaceSummary } from '@/hooks/useWorkspaces'
@@ -15,6 +17,8 @@ import {
 interface WorkspaceRailProps {
   currentWorkspaceSlug: string
   currentWorkspaceName?: string
+  currentWorkspaceLogoUrl?: string | null
+  currentOrganizationType?: 'brand' | 'partner'
   currentPath?: string
   initialWorkspaces?: WorkspaceSummary[]
   className?: string
@@ -34,17 +38,25 @@ function getWorkspaceUnreadCount(workspace: WorkspaceSummary): number {
 export function WorkspaceRail({
   currentWorkspaceSlug,
   currentWorkspaceName,
+  currentWorkspaceLogoUrl,
+  currentOrganizationType,
   currentPath,
   initialWorkspaces,
   className,
 }: WorkspaceRailProps) {
+  const t = useTranslations("Shell.WorkspaceRail")
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [failedLogos, setFailedLogos] = useState<Record<string, true>>({})
   const fallbackBrandSlug = (searchParams.get('brand') || '').trim().toLowerCase()
   const { sortedWorkspaces } = useWorkspaces({
     currentWorkspaceSlug,
     initialWorkspaces,
   })
+
+  useEffect(() => {
+    setFailedLogos({})
+  }, [currentWorkspaceLogoUrl, sortedWorkspaces])
 
   const workspaceEntries = useMemo(() => {
     const bySlug = new Map<string, WorkspaceSummary>()
@@ -58,11 +70,12 @@ export function WorkspaceRail({
         slug: currentWorkspaceSlug,
         name: currentWorkspaceName || currentWorkspaceSlug,
         role: 'member',
+        logoUrl: currentWorkspaceLogoUrl ?? null,
       })
     }
 
     return Array.from(bySlug.values())
-  }, [currentWorkspaceName, currentWorkspaceSlug, sortedWorkspaces])
+  }, [currentWorkspaceLogoUrl, currentWorkspaceName, currentWorkspaceSlug, sortedWorkspaces])
 
   const totalUnreadCount = useMemo(() => {
     return workspaceEntries.reduce((sum, workspace) => sum + getWorkspaceUnreadCount(workspace), 0)
@@ -78,9 +91,11 @@ export function WorkspaceRail({
     organizationType: currentWorkspace?.organizationType,
   })
   const activeScope = pathScope || selectedBrandSlug
-  const isPartnerContext = currentWorkspace?.organizationType === 'partner'
+  const isPartnerContext =
+    currentOrganizationType === 'partner' || currentWorkspace?.organizationType === 'partner'
+  const showCreateWorkspaceButton = !isPartnerContext
   const partnerAllViewPath = `/${currentWorkspaceSlug}/view/all`
-  const overviewButtonLabel = isPartnerContext ? 'View all' : 'Home'
+  const overviewButtonLabel = isPartnerContext ? t("viewAll") : t("home")
 
   const isAllBrandsActive = Boolean(
     currentPath?.startsWith('/home') ||
@@ -107,7 +122,6 @@ export function WorkspaceRail({
     if (!suffix) return ''
     if (suffix.startsWith('/assets')) return '/assets'
     if (suffix.startsWith('/products')) return '/products'
-    if (suffix.startsWith('/folders')) return '/folders'
     return ''
   })()
 
@@ -117,7 +131,7 @@ export function WorkspaceRail({
         'h-full w-16 border-r border-muted/30 bg-[#ebebeb] flex flex-col items-center py-3',
         className
       )}
-      aria-label="Workspace switcher"
+      aria-label={t("workspaceSwitcher")}
     >
       <div className="flex w-full flex-col items-center gap-2">
         <button
@@ -155,12 +169,13 @@ export function WorkspaceRail({
             !(isPartnerContext && Boolean(activeScope) && workspace.organizationType === 'partner')
           const isActive = isBrandViewActive || isCurrentWorkspaceActive
           const unreadCount = getWorkspaceUnreadCount(workspace)
+          const hasLogo = Boolean(workspace.logoUrl && !failedLogos[workspace.slug])
 
           return (
             <button
               key={workspace.slug}
               type="button"
-              title={`${workspace.name}${unreadCount > 0 ? ` (${unreadCount} new)` : ''}`}
+              title={`${workspace.name}${unreadCount > 0 ? ` (${unreadCount} ${t("newCount")})` : ''}`}
               onClick={() => {
                 if (isPartnerContext && workspace.organizationType === 'brand') {
                   router.push(
@@ -191,7 +206,21 @@ export function WorkspaceRail({
               )}
               aria-current={isActive ? 'page' : undefined}
             >
-              {getWorkspaceInitial(workspace)}
+              {hasLogo ? (
+                <NextImage
+                  src={workspace.logoUrl!}
+                  alt={`${workspace.name} logo`}
+                  className="h-7 w-7 rounded-md object-cover"
+                  width={28}
+                  height={28}
+                  unoptimized
+                  onError={() => {
+                    setFailedLogos((current) => ({ ...current, [workspace.slug]: true }))
+                  }}
+                />
+              ) : (
+                getWorkspaceInitial(workspace)
+              )}
               {unreadCount > 0 && (
                 <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
                   {unreadCount > 99 ? '99+' : unreadCount}
@@ -202,21 +231,25 @@ export function WorkspaceRail({
         })}
       </div>
 
-      <div className="mt-3 h-px w-8 bg-border" />
+      {showCreateWorkspaceButton ? (
+        <>
+          <div className="mt-3 h-px w-8 bg-border" />
 
-      <button
-        type="button"
-        title="Create workspace"
-        onClick={() => router.push('/onboarding?create=1')}
-        className="mt-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <Plus className="h-5 w-5" />
-      </button>
+          <button
+            type="button"
+            title={t("createWorkspace")}
+            onClick={() => router.push('/onboarding?create=1')}
+            className="mt-3 flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
+        </>
+      ) : null}
 
       <div className="mt-auto">
         <button
           type="button"
-          title="Notifications"
+          title={t("notifications")}
           onClick={() => router.push('/notifications')}
           className={cn(
             'relative flex h-10 w-10 items-center justify-center rounded-xl hover:bg-muted',

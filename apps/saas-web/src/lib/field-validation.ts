@@ -8,8 +8,8 @@ export interface ProductField {
   field_type: string;
   is_required: boolean;
   is_unique: boolean;
-  options: Record<string, any>;
-  validation_rules?: Record<string, any>;
+  options: Record<string, unknown>;
+  validation_rules?: Record<string, unknown>;
 }
 
 export interface ValidationError {
@@ -23,13 +23,69 @@ export interface ValidationResult {
   errors: ValidationError[];
 }
 
+type UnknownRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): UnknownRecord | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  return value as UnknownRecord;
+}
+
+function getNumberOption(options: Record<string, unknown>, key: string): number | undefined {
+  const value = options[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function getBooleanOption(options: Record<string, unknown>, key: string): boolean | undefined {
+  const value = options[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function getStringOption(options: Record<string, unknown>, key: string): string | undefined {
+  const value = options[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getStringArrayOption(options: Record<string, unknown>, key: string): string[] {
+  const value = options[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
+function getOptionValues(options: Record<string, unknown>, key: string): string[] {
+  const rawOptions = options[key];
+  if (!Array.isArray(rawOptions)) {
+    return [];
+  }
+
+  return rawOptions
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        return entry;
+      }
+      const record = asRecord(entry);
+      const value = record?.value;
+      return typeof value === 'string' ? value : null;
+    })
+    .filter((entry): entry is string => typeof entry === 'string');
+}
+
+function toDateInput(value: unknown): string | number | Date | null {
+  if (value instanceof Date || typeof value === 'string' || typeof value === 'number') {
+    return value;
+  }
+  return null;
+}
+
 /**
  * Validates a single field value against its configuration
  */
 export function validateFieldValue(
-  value: any,
-  field: ProductField,
-  allValues?: Record<string, any>
+  value: unknown,
+  field: ProductField
 ): ValidationResult {
   const errors: ValidationError[] = [];
 
@@ -103,14 +159,14 @@ export function validateFieldValue(
  * Validates multiple field values at once
  */
 export function validateProductData(
-  data: Record<string, any>,
+  data: Record<string, unknown>,
   fields: ProductField[]
 ): ValidationResult {
   const allErrors: ValidationError[] = [];
 
   for (const field of fields) {
     const value = data[field.code];
-    const result = validateFieldValue(value, field, data);
+    const result = validateFieldValue(value, field);
     allErrors.push(...result.errors);
   }
 
@@ -120,7 +176,7 @@ export function validateProductData(
 /**
  * Text field validation
  */
-function validateTextField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateTextField(value: unknown, field: ProductField, errors: ValidationError[]) {
   if (typeof value !== 'string') {
     errors.push({
       field: field.code,
@@ -130,7 +186,7 @@ function validateTextField(value: any, field: ProductField, errors: ValidationEr
     return;
   }
 
-  const maxLength = field.options?.max_length || 255;
+  const maxLength = getNumberOption(field.options, 'max_length') ?? 255;
   if (value.length > maxLength) {
     errors.push({
       field: field.code,
@@ -139,7 +195,7 @@ function validateTextField(value: any, field: ProductField, errors: ValidationEr
     });
   }
 
-  const minLength = field.options?.min_length || 0;
+  const minLength = getNumberOption(field.options, 'min_length') ?? 0;
   if (value.length < minLength) {
     errors.push({
       field: field.code,
@@ -152,7 +208,7 @@ function validateTextField(value: any, field: ProductField, errors: ValidationEr
 /**
  * Text area field validation
  */
-function validateTextAreaField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateTextAreaField(value: unknown, field: ProductField, errors: ValidationError[]) {
   if (typeof value !== 'string') {
     errors.push({
       field: field.code,
@@ -162,7 +218,7 @@ function validateTextAreaField(value: any, field: ProductField, errors: Validati
     return;
   }
 
-  const maxLength = field.options?.max_length || 65535;
+  const maxLength = getNumberOption(field.options, 'max_length') ?? 65535;
   if (value.length > maxLength) {
     errors.push({
       field: field.code,
@@ -175,7 +231,7 @@ function validateTextAreaField(value: any, field: ProductField, errors: Validati
 /**
  * Number field validation
  */
-function validateNumberField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateNumberField(value: unknown, field: ProductField, errors: ValidationError[]) {
   const numValue = Number(value);
   if (isNaN(numValue)) {
     errors.push({
@@ -186,18 +242,32 @@ function validateNumberField(value: any, field: ProductField, errors: Validation
     return;
   }
 
-  if (field.options?.min !== undefined && numValue < field.options.min) {
+  const allowNegative =
+    getBooleanOption(field.options, 'allow_negative') ??
+    getBooleanOption(field.options, 'allowNegative') ??
+    true;
+  if (!allowNegative && numValue < 0) {
     errors.push({
       field: field.code,
-      message: `${field.name} must be at least ${field.options.min}`,
+      message: `${field.name} cannot be negative`,
+      code: 'NEGATIVE_NUMBER'
+    });
+  }
+
+  const minValue = getNumberOption(field.options, 'min_value') ?? getNumberOption(field.options, 'min');
+  if (minValue !== undefined && numValue < minValue) {
+    errors.push({
+      field: field.code,
+      message: `${field.name} must be at least ${minValue}`,
       code: 'MIN_VALUE_NOT_MET'
     });
   }
 
-  if (field.options?.max !== undefined && numValue > field.options.max) {
+  const maxValue = getNumberOption(field.options, 'max_value') ?? getNumberOption(field.options, 'max');
+  if (maxValue !== undefined && numValue > maxValue) {
     errors.push({
       field: field.code,
-      message: `${field.name} cannot exceed ${field.options.max}`,
+      message: `${field.name} cannot exceed ${maxValue}`,
       code: 'MAX_VALUE_EXCEEDED'
     });
   }
@@ -206,7 +276,7 @@ function validateNumberField(value: any, field: ProductField, errors: Validation
 /**
  * Identifier field validation
  */
-function validateIdentifierField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateIdentifierField(value: unknown, field: ProductField, errors: ValidationError[]) {
   if (typeof value !== 'string') {
     errors.push({
       field: field.code,
@@ -226,7 +296,7 @@ function validateIdentifierField(value: any, field: ProductField, errors: Valida
     });
   }
 
-  const maxLength = field.options?.max_length || 50;
+  const maxLength = getNumberOption(field.options, 'max_length') ?? 50;
   if (value.length > maxLength) {
     errors.push({
       field: field.code,
@@ -236,7 +306,7 @@ function validateIdentifierField(value: any, field: ProductField, errors: Valida
   }
 
   const isBarcodeIdentifier =
-    field.code === 'barcode' || field.options?.identifier_kind === 'barcode';
+    field.code === 'barcode' || getStringOption(field.options, 'identifier_kind') === 'barcode';
 
   if (isBarcodeIdentifier) {
     const barcodeResult = validateBarcode(value);
@@ -253,8 +323,9 @@ function validateIdentifierField(value: any, field: ProductField, errors: Valida
 /**
  * Measurement field validation
  */
-function validateMeasurementField(value: any, field: ProductField, errors: ValidationError[]) {
-  if (!value || typeof value !== 'object') {
+function validateMeasurementField(value: unknown, field: ProductField, errors: ValidationError[]) {
+  const valueRecord = asRecord(value);
+  if (!valueRecord) {
     errors.push({
       field: field.code,
       message: `${field.name} must be a valid measurement`,
@@ -263,21 +334,26 @@ function validateMeasurementField(value: any, field: ProductField, errors: Valid
     return;
   }
 
-  if (field.options?.composite) {
-    const componentSchema = Array.isArray(field.options.component_schema)
-      ? field.options.component_schema.map((entry: any) => entry?.key).filter(Boolean)
+  if (getBooleanOption(field.options, 'composite')) {
+    const componentSchemaRaw = field.options.component_schema;
+    const componentSchema = Array.isArray(componentSchemaRaw)
+      ? componentSchemaRaw
+          .map((entry: unknown) =>
+            typeof entry === 'object' && entry !== null
+              ? (entry as Record<string, unknown>).key
+              : null
+          )
+          .filter((key): key is string => typeof key === 'string' && key.length > 0)
       : Array.isArray(field.options.components)
-      ? field.options.components
+      ? field.options.components.filter((entry): entry is string => typeof entry === 'string')
       : [];
 
     if (componentSchema.length === 0) {
       return;
     }
 
-    const componentSource =
-      value && typeof value === 'object' && value.components && typeof value.components === 'object'
-        ? value.components
-        : value;
+    const valueComponents = valueRecord.components;
+    const componentSource = asRecord(valueComponents) ?? valueRecord;
 
     for (const componentKey of componentSchema) {
       const rawComponentValue = componentSource?.[componentKey];
@@ -287,10 +363,11 @@ function validateMeasurementField(value: any, field: ProductField, errors: Valid
 
       let numericValue: number | null = null;
       if (typeof rawComponentValue === 'object') {
+        const componentRecord = asRecord(rawComponentValue);
         const amount =
-          rawComponentValue.amount ??
-          rawComponentValue.value ??
-          rawComponentValue.measurement ??
+          componentRecord?.amount ??
+          componentRecord?.value ??
+          componentRecord?.measurement ??
           rawComponentValue;
         if (amount === undefined || amount === null || amount === '') {
           continue;
@@ -308,7 +385,7 @@ function validateMeasurementField(value: any, field: ProductField, errors: Valid
           message: `${field.name} ${componentKey} must be numeric`,
           code: 'INVALID_MEASUREMENT_COMPONENT'
         });
-      } else if (!field.options?.allow_negative && numericValue < 0) {
+      } else if (!(getBooleanOption(field.options, 'allow_negative') ?? false) && numericValue < 0) {
         errors.push({
           field: field.code,
           message: `${field.name} ${componentKey} cannot be negative`,
@@ -319,7 +396,7 @@ function validateMeasurementField(value: any, field: ProductField, errors: Valid
     return;
   }
 
-  const amount = value.amount ?? value.value ?? value.measurement;
+  const amount = valueRecord.amount ?? valueRecord.value ?? valueRecord.measurement;
   if (amount === undefined || amount === null || amount === '') {
     errors.push({
       field: field.code,
@@ -339,7 +416,7 @@ function validateMeasurementField(value: any, field: ProductField, errors: Valid
     return;
   }
 
-  if (!field.options?.allow_negative && numValue < 0) {
+  if (!(getBooleanOption(field.options, 'allow_negative') ?? false) && numValue < 0) {
     errors.push({
       field: field.code,
       message: `${field.name} cannot be negative`,
@@ -348,8 +425,9 @@ function validateMeasurementField(value: any, field: ProductField, errors: Valid
   }
 }
 
-function validatePriceField(value: any, field: ProductField, errors: ValidationError[]) {
-  if (!value || typeof value !== 'object') {
+function validatePriceField(value: unknown, field: ProductField, errors: ValidationError[]) {
+  const valueRecord = asRecord(value);
+  if (!valueRecord) {
     errors.push({
       field: field.code,
       message: `${field.name} must be a valid price`,
@@ -358,8 +436,9 @@ function validatePriceField(value: any, field: ProductField, errors: ValidationE
     return;
   }
 
-  const amount = value.amount ?? value.value ?? value.price;
-  const currency = value.currency ?? value.code ?? value.unit;
+  const amount = valueRecord.amount ?? valueRecord.value ?? valueRecord.price;
+  const currencyRaw = valueRecord.currency ?? valueRecord.code ?? valueRecord.unit;
+  const currency = typeof currencyRaw === 'string' ? currencyRaw : undefined;
 
   if (amount === undefined || amount === null || amount === '') {
     errors.push({
@@ -376,24 +455,26 @@ function validatePriceField(value: any, field: ProductField, errors: ValidationE
         code: 'INVALID_PRICE_AMOUNT'
       });
     } else {
-      if (!field.options?.allow_negative && numAmount < 0) {
+      if (!(getBooleanOption(field.options, 'allow_negative') ?? false) && numAmount < 0) {
         errors.push({
           field: field.code,
           message: `${field.name} cannot be negative`,
           code: 'NEGATIVE_PRICE_AMOUNT'
         });
       }
-      if (field.options?.min_value !== undefined && numAmount < field.options.min_value) {
+      const minValue = getNumberOption(field.options, 'min_value');
+      if (minValue !== undefined && numAmount < minValue) {
         errors.push({
           field: field.code,
-          message: `${field.name} must be at least ${field.options.min_value}`,
+          message: `${field.name} must be at least ${minValue}`,
           code: 'PRICE_BELOW_MIN'
         });
       }
-      if (field.options?.max_value !== undefined && numAmount > field.options.max_value) {
+      const maxValue = getNumberOption(field.options, 'max_value');
+      if (maxValue !== undefined && numAmount > maxValue) {
         errors.push({
           field: field.code,
-          message: `${field.name} must be less than or equal to ${field.options.max_value}`,
+          message: `${field.name} must be less than or equal to ${maxValue}`,
           code: 'PRICE_ABOVE_MAX'
         });
       }
@@ -407,9 +488,8 @@ function validatePriceField(value: any, field: ProductField, errors: ValidationE
       code: 'MISSING_PRICE_CURRENCY'
     });
   } else if (
-    Array.isArray(field.options?.allowed_currencies) &&
-    field.options.allowed_currencies.length > 0 &&
-    !field.options.allowed_currencies.includes(currency)
+    getStringArrayOption(field.options, 'allowed_currencies').length > 0 &&
+    !getStringArrayOption(field.options, 'allowed_currencies').includes(currency)
   ) {
     errors.push({
       field: field.code,
@@ -419,7 +499,7 @@ function validatePriceField(value: any, field: ProductField, errors: ValidationE
   }
 }
 
-function validateBooleanField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateBooleanField(value: unknown, field: ProductField, errors: ValidationError[]) {
   if (value === undefined || value === null) return;
   if (typeof value !== 'boolean') {
     errors.push({
@@ -430,9 +510,18 @@ function validateBooleanField(value: any, field: ProductField, errors: Validatio
   }
 }
 
-function validateDateField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateDateField(value: unknown, field: ProductField, errors: ValidationError[]) {
   if (!value) return;
-  const parsed = new Date(value);
+  const dateInput = toDateInput(value);
+  if (!dateInput) {
+    errors.push({
+      field: field.code,
+      message: `${field.name} must be a valid date`,
+      code: 'INVALID_DATE'
+    });
+    return;
+  }
+  const parsed = new Date(dateInput);
   if (Number.isNaN(parsed.getTime())) {
     errors.push({
       field: field.code,
@@ -442,9 +531,18 @@ function validateDateField(value: any, field: ProductField, errors: ValidationEr
   }
 }
 
-function validateDateTimeField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateDateTimeField(value: unknown, field: ProductField, errors: ValidationError[]) {
   if (!value) return;
-  const parsed = new Date(value);
+  const dateInput = toDateInput(value);
+  if (!dateInput) {
+    errors.push({
+      field: field.code,
+      message: `${field.name} must be a valid date/time`,
+      code: 'INVALID_DATETIME'
+    });
+    return;
+  }
+  const parsed = new Date(dateInput);
   if (Number.isNaN(parsed.getTime())) {
     errors.push({
       field: field.code,
@@ -454,9 +552,17 @@ function validateDateTimeField(value: any, field: ProductField, errors: Validati
   }
 }
 
-function validateSelectField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateSelectField(value: unknown, field: ProductField, errors: ValidationError[]) {
   if (value === undefined || value === null || value === '') return;
-  const options = field.options?.options?.map((opt: any) => opt.value) ?? [];
+  const options = getOptionValues(field.options, 'options');
+  if (typeof value !== 'string') {
+    errors.push({
+      field: field.code,
+      message: `${field.name} must be one of the available options`,
+      code: 'INVALID_SELECT_OPTION'
+    });
+    return;
+  }
   if (options.length > 0 && !options.includes(value)) {
     errors.push({
       field: field.code,
@@ -466,7 +572,7 @@ function validateSelectField(value: any, field: ProductField, errors: Validation
   }
 }
 
-function validateMultiSelectField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateMultiSelectField(value: unknown, field: ProductField, errors: ValidationError[]) {
   if (value === undefined || value === null) return;
   if (!Array.isArray(value)) {
     errors.push({
@@ -477,10 +583,10 @@ function validateMultiSelectField(value: any, field: ProductField, errors: Valid
     return;
   }
 
-  const options = field.options?.options?.map((opt: any) => opt.value) ?? [];
+  const options = getOptionValues(field.options, 'options');
   if (options.length === 0) return;
 
-  const invalidValues = value.filter((val) => !options.includes(val));
+  const invalidValues = value.filter((val) => typeof val !== 'string' || !options.includes(val));
   if (invalidValues.length > 0) {
     errors.push({
       field: field.code,
@@ -490,9 +596,9 @@ function validateMultiSelectField(value: any, field: ProductField, errors: Valid
   }
 }
 
-function validateFileField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateFileField(value: unknown, field: ProductField, errors: ValidationError[]) {
   if (value === null || value === undefined) return;
-  const allowMultiple = !!field.options?.allow_multiple;
+  const allowMultiple = getBooleanOption(field.options, 'allow_multiple') ?? false;
   const values = allowMultiple ? (Array.isArray(value) ? value : [value]) : [value];
 
   if (!Array.isArray(values)) {
@@ -505,7 +611,8 @@ function validateFileField(value: any, field: ProductField, errors: ValidationEr
   }
 
   values.forEach((fileValue) => {
-    if (!fileValue || typeof fileValue !== 'object') {
+    const fileRecord = asRecord(fileValue);
+    if (!fileRecord) {
       errors.push({
         field: field.code,
         message: `${field.name} contains an invalid file reference`,
@@ -514,7 +621,10 @@ function validateFileField(value: any, field: ProductField, errors: ValidationEr
       return;
     }
 
-    const { assetId, mimeType, size } = fileValue;
+    const assetId = fileRecord.assetId;
+    const mimeTypeRaw = fileRecord.mimeType;
+    const mimeType = typeof mimeTypeRaw === 'string' ? mimeTypeRaw : null;
+    const size = fileRecord.size;
     if (!assetId) {
       errors.push({
         field: field.code,
@@ -524,10 +634,9 @@ function validateFileField(value: any, field: ProductField, errors: ValidationEr
     }
     if (
       mimeType &&
-      Array.isArray(field.options?.allowed_mime_groups) &&
-      field.options.allowed_mime_groups.length > 0
+      getStringArrayOption(field.options, 'allowed_mime_groups').length > 0
     ) {
-      const allowed = field.options.allowed_mime_groups.some((group: string) => {
+      const allowed = getStringArrayOption(field.options, 'allowed_mime_groups').some((group) => {
         switch (group) {
           case 'image':
             return /^image\//i.test(mimeType);
@@ -562,12 +671,13 @@ function validateFileField(value: any, field: ProductField, errors: ValidationEr
       }
     }
 
-    if (size !== undefined && size !== null && field.options?.max_size_mb) {
-      const maxBytes = field.options.max_size_mb * 1024 * 1024;
+    const maxSizeMb = getNumberOption(field.options, 'max_size_mb');
+    if (size !== undefined && size !== null && maxSizeMb !== undefined) {
+      const maxBytes = maxSizeMb * 1024 * 1024;
       if (Number(size) > maxBytes) {
         errors.push({
           field: field.code,
-          message: `${field.name} exceeds the maximum size of ${field.options.max_size_mb}MB`,
+          message: `${field.name} exceeds the maximum size of ${maxSizeMb}MB`,
           code: 'FILE_SIZE_EXCEEDED'
         });
       }
@@ -575,22 +685,26 @@ function validateFileField(value: any, field: ProductField, errors: ValidationEr
   });
 }
 
-function validateImageField(value: any, field: ProductField, errors: ValidationError[]) {
+function validateImageField(value: unknown, field: ProductField, errors: ValidationError[]) {
   if (value === null || value === undefined) return;
-  const allowMultiple = !!field.options?.allow_multiple;
+  const allowMultiple = getBooleanOption(field.options, 'allow_multiple') ?? false;
   const values = allowMultiple ? (Array.isArray(value) ? value : [value]) : [value];
 
   values.forEach((image) => {
     validateFileField(image, field, errors);
-    if (!image || typeof image !== 'object') return;
-    if (!image.mimeType || !/^image\//i.test(image.mimeType)) {
+    const imageRecord = asRecord(image);
+    if (!imageRecord) return;
+    const mimeType = typeof imageRecord.mimeType === 'string' ? imageRecord.mimeType : '';
+    if (!mimeType || !/^image\//i.test(mimeType)) {
       errors.push({
         field: field.code,
         message: `${field.name} must reference an image file`,
         code: 'INVALID_IMAGE_TYPE'
       });
     }
-    if ((field.options?.require_alt_text ?? true) && !image.altText) {
+    const requireAltText = getBooleanOption(field.options, 'require_alt_text') ?? true;
+    const altText = typeof imageRecord.altText === 'string' ? imageRecord.altText : '';
+    if (requireAltText && !altText) {
       errors.push({
         field: field.code,
         message: `${field.name} requires alt text`,
@@ -609,13 +723,13 @@ export function getCharacterInfo(value: string, field: ProductField) {
 
   switch (field.field_type) {
     case 'text':
-      maxLength = field.options?.max_length || 255;
+      maxLength = getNumberOption(field.options, 'max_length') ?? 255;
       break;
     case 'textarea':
-      maxLength = field.options?.max_length || 65535;
+      maxLength = getNumberOption(field.options, 'max_length') ?? 65535;
       break;
     case 'identifier':
-      maxLength = field.options?.max_length || 50;
+      maxLength = getNumberOption(field.options, 'max_length') ?? 50;
       break;
     default:
       maxLength = 255;
@@ -654,21 +768,23 @@ export function getFieldValidationSummary(field: ProductField): string[] {
   switch (field.field_type) {
     case 'text':
     case 'identifier':
-      const maxLength = field.options?.max_length || (field.field_type === 'text' ? 255 : 50);
+      const maxLength = getNumberOption(field.options, 'max_length') ?? (field.field_type === 'text' ? 255 : 50);
       rules.push(`Max ${maxLength} characters`);
       break;
     case 'textarea':
-      const textAreaMax = field.options?.max_length || 65535;
+      const textAreaMax = getNumberOption(field.options, 'max_length') ?? 65535;
       if (textAreaMax < 65535) {
         rules.push(`Max ${textAreaMax} characters`);
       }
       break;
     case 'number':
-      if (field.options?.min !== undefined) {
-        rules.push(`Min value: ${field.options.min}`);
+      const minValue = getNumberOption(field.options, 'min');
+      if (minValue !== undefined) {
+        rules.push(`Min value: ${minValue}`);
       }
-      if (field.options?.max !== undefined) {
-        rules.push(`Max value: ${field.options.max}`);
+      const maxValue = getNumberOption(field.options, 'max');
+      if (maxValue !== undefined) {
+        rules.push(`Max value: ${maxValue}`);
       }
       break;
   }

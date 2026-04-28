@@ -1,30 +1,30 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
+import {
+  CanonicalBooleanFieldOptions,
+  normalizeBooleanFieldOptions,
+} from './field-option-schema';
 
-interface BooleanFieldOptions {
-  displayStyle?: 'checkbox' | 'toggle' | 'radio';
-  trueLabel?: string;
-  falseLabel?: string;
-  defaultValue?: boolean;
-}
+type BooleanFieldOptions = CanonicalBooleanFieldOptions;
 
 interface BooleanFieldProps {
-  value?: BooleanFieldOptions;
+  value?: Partial<BooleanFieldOptions> | Record<string, unknown>;
   onChange: (options: BooleanFieldOptions) => void;
 }
 
-export default function BooleanField({ value = {}, onChange }: BooleanFieldProps) {
-  const [options, setOptions] = useState<BooleanFieldOptions>({
-    displayStyle: 'checkbox',
-    trueLabel: 'Yes',
-    falseLabel: 'No',
-    defaultValue: false,
-    ...value
-  });
+export default function BooleanField({ value, onChange }: BooleanFieldProps) {
+  const [options, setOptions] = useState<BooleanFieldOptions>(() => normalizeBooleanFieldOptions(value));
 
-  const updateOption = (key: keyof BooleanFieldOptions, val: any) => {
+  useEffect(() => {
+    setOptions(normalizeBooleanFieldOptions(value));
+  }, [value]);
+
+  const updateOption = (
+    key: keyof BooleanFieldOptions,
+    val: BooleanFieldOptions[keyof BooleanFieldOptions]
+  ) => {
     const newOptions = { ...options, [key]: val };
     setOptions(newOptions);
     onChange(newOptions);
@@ -44,36 +44,36 @@ export default function BooleanField({ value = {}, onChange }: BooleanFieldProps
         <div className="space-y-3">
           <p className="text-sm font-medium text-foreground">Display style</p>
           <div className="space-y-2">
-            <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-[var(--color-accent-blue-hover)] hover:bg-muted/40">
+            <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-[var(--color-accent-black-hover)] hover:bg-muted/40">
               <input
                 type="radio"
                 name="displayStyle"
                 value="checkbox"
-                checked={options.displayStyle === 'checkbox'}
-                onChange={(e) => updateOption('displayStyle', e.target.value)}
-                className="h-4 w-4 rounded border-border text-[var(--color-accent-blue)] focus:ring-[var(--color-accent-blue)]"
+                checked={options.display_style === 'checkbox'}
+                onChange={(e) => updateOption('display_style', e.target.value as BooleanFieldOptions['display_style'])}
+                className="h-4 w-4 rounded border-border text-[var(--color-accent-black)] focus:ring-[var(--color-accent-black)]"
               />
               <span className="text-sm leading-6 text-foreground">Checkbox</span>
             </label>
-            <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-[var(--color-accent-blue-hover)] hover:bg-muted/40">
+            <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-[var(--color-accent-black-hover)] hover:bg-muted/40">
               <input
                 type="radio"
                 name="displayStyle"
                 value="toggle"
-                checked={options.displayStyle === 'toggle'}
-                onChange={(e) => updateOption('displayStyle', e.target.value)}
-                className="h-4 w-4 rounded border-border text-[var(--color-accent-blue)] focus:ring-[var(--color-accent-blue)]"
+                checked={options.display_style === 'toggle'}
+                onChange={(e) => updateOption('display_style', e.target.value as BooleanFieldOptions['display_style'])}
+                className="h-4 w-4 rounded border-border text-[var(--color-accent-black)] focus:ring-[var(--color-accent-black)]"
               />
               <span className="text-sm leading-6 text-foreground">Toggle switch</span>
             </label>
-            <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-[var(--color-accent-blue-hover)] hover:bg-muted/40">
+            <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-[var(--color-accent-black-hover)] hover:bg-muted/40">
               <input
                 type="radio"
                 name="displayStyle"
                 value="radio"
-                checked={options.displayStyle === 'radio'}
-                onChange={(e) => updateOption('displayStyle', e.target.value)}
-                className="h-4 w-4 rounded border-border text-[var(--color-accent-blue)] focus:ring-[var(--color-accent-blue)]"
+                checked={options.display_style === 'radio'}
+                onChange={(e) => updateOption('display_style', e.target.value as BooleanFieldOptions['display_style'])}
+                className="h-4 w-4 rounded border-border text-[var(--color-accent-black)] focus:ring-[var(--color-accent-black)]"
               />
               <span className="text-sm leading-6 text-foreground">Radio buttons</span>
             </label>
@@ -85,8 +85,8 @@ export default function BooleanField({ value = {}, onChange }: BooleanFieldProps
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium text-foreground">True label</label>
             <Input
-              value={options.trueLabel}
-              onChange={(e) => updateOption('trueLabel', e.target.value)}
+              value={options.true_label}
+              onChange={(e) => updateOption('true_label', e.target.value)}
               placeholder="Yes"
               className="h-11"
             />
@@ -94,8 +94,8 @@ export default function BooleanField({ value = {}, onChange }: BooleanFieldProps
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium text-foreground">False label</label>
             <Input
-              value={options.falseLabel}
-              onChange={(e) => updateOption('falseLabel', e.target.value)}
+              value={options.false_label}
+              onChange={(e) => updateOption('false_label', e.target.value)}
               placeholder="No"
               className="h-11"
             />
@@ -106,25 +106,25 @@ export default function BooleanField({ value = {}, onChange }: BooleanFieldProps
         <div className="space-y-3">
           <p className="text-sm font-medium text-foreground">Default value</p>
           <div className="space-y-2">
-            <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-[var(--color-accent-blue-hover)] hover:bg-muted/40">
+            <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-[var(--color-accent-black-hover)] hover:bg-muted/40">
               <input
                 type="radio"
                 name="defaultValue"
-                checked={options.defaultValue === true}
-                onChange={() => updateOption('defaultValue', true)}
-                className="h-4 w-4 rounded border-border text-[var(--color-accent-blue)] focus:ring-[var(--color-accent-blue)]"
+                checked={options.default_value === true}
+                onChange={() => updateOption('default_value', true)}
+                className="h-4 w-4 rounded border-border text-[var(--color-accent-black)] focus:ring-[var(--color-accent-black)]"
               />
-              <span className="text-sm leading-6 text-foreground">{options.trueLabel}</span>
+              <span className="text-sm leading-6 text-foreground">{options.true_label}</span>
             </label>
-            <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-[var(--color-accent-blue-hover)] hover:bg-muted/40">
+            <label className="flex cursor-pointer items-center gap-3 rounded-md border border-border/60 px-3 py-2 text-sm transition-colors hover:border-[var(--color-accent-black-hover)] hover:bg-muted/40">
               <input
                 type="radio"
                 name="defaultValue"
-                checked={options.defaultValue === false}
-                onChange={() => updateOption('defaultValue', false)}
-                className="h-4 w-4 rounded border-border text-[var(--color-accent-blue)] focus:ring-[var(--color-accent-blue)]"
+                checked={options.default_value === false}
+                onChange={() => updateOption('default_value', false)}
+                className="h-4 w-4 rounded border-border text-[var(--color-accent-black)] focus:ring-[var(--color-accent-black)]"
               />
-              <span className="text-sm leading-6 text-foreground">{options.falseLabel}</span>
+              <span className="text-sm leading-6 text-foreground">{options.false_label}</span>
             </label>
           </div>
         </div>
@@ -133,60 +133,60 @@ export default function BooleanField({ value = {}, onChange }: BooleanFieldProps
         <div className="rounded-md border border-border/60 bg-background px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preview</p>
           <div className="mt-3">
-            {options.displayStyle === 'checkbox' && (
+            {options.display_style === 'checkbox' && (
               <label className="flex cursor-default items-center gap-3">
                 <input
                   type="checkbox"
-                  checked={options.defaultValue}
+                  checked={options.default_value}
                   readOnly
-                  className="h-4 w-4 rounded border-border text-[var(--color-accent-blue)] focus:ring-[var(--color-accent-blue)]"
+                  className="h-4 w-4 rounded border-border text-[var(--color-accent-black)] focus:ring-[var(--color-accent-black)]"
                 />
                 <span className="text-sm leading-6 text-foreground">
-                  {options.defaultValue ? options.trueLabel : options.falseLabel}
+                  {options.default_value ? options.true_label : options.false_label}
                 </span>
               </label>
             )}
 
-            {options.displayStyle === 'toggle' && (
+            {options.display_style === 'toggle' && (
               <div className="flex items-center gap-3">
                 <div
                   className={`h-6 w-11 rounded-full border border-border/60 bg-muted transition-colors ${
-                    options.defaultValue ? 'border-[var(--color-accent-blue)] bg-[var(--color-accent-blue-subtle)]' : ''
+                    options.default_value ? 'border-[var(--color-accent-black)] bg-[var(--color-accent-black-subtle)]' : ''
                   }`}
                 >
                   <div
                     className={`h-5 w-5 translate-x-[2px] rounded-full bg-white shadow-sm transition-transform ${
-                      options.defaultValue ? 'translate-x-[26px] bg-[var(--color-accent-blue)]' : ''
+                      options.default_value ? 'translate-x-[26px] bg-[var(--color-accent-black)]' : ''
                     }`}
                   />
                 </div>
                 <span className="text-sm leading-6 text-foreground">
-                  {options.defaultValue ? options.trueLabel : options.falseLabel}
+                  {options.default_value ? options.true_label : options.false_label}
                 </span>
               </div>
             )}
 
-            {options.displayStyle === 'radio' && (
+            {options.display_style === 'radio' && (
               <div className="space-y-2">
                 <label className="flex cursor-default items-center gap-3">
                   <input
                     type="radio"
                     name="preview"
-                    checked={options.defaultValue === true}
+                    checked={options.default_value === true}
                     readOnly
-                    className="h-4 w-4 rounded-full border-border text-[var(--color-accent-blue)] focus:ring-[var(--color-accent-blue)]"
+                    className="h-4 w-4 rounded-full border-border text-[var(--color-accent-black)] focus:ring-[var(--color-accent-black)]"
                   />
-                  <span className="text-sm leading-6 text-foreground">{options.trueLabel}</span>
+                  <span className="text-sm leading-6 text-foreground">{options.true_label}</span>
                 </label>
                 <label className="flex cursor-default items-center gap-3">
                   <input
                     type="radio"
                     name="preview"
-                    checked={options.defaultValue === false}
+                    checked={options.default_value === false}
                     readOnly
-                    className="h-4 w-4 rounded-full border-border text-[var(--color-accent-blue)] focus:ring-[var(--color-accent-blue)]"
+                    className="h-4 w-4 rounded-full border-border text-[var(--color-accent-black)] focus:ring-[var(--color-accent-black)]"
                   />
-                  <span className="text-sm leading-6 text-foreground">{options.falseLabel}</span>
+                  <span className="text-sm leading-6 text-foreground">{options.false_label}</span>
                 </label>
               </div>
             )}

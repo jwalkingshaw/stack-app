@@ -11,7 +11,23 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const VARIANT_ATTRIBUTES_CACHE_TTL_MS = 60_000;
-const variantAttributesResponseCache = new Map<string, { expiresAt: number; data: any[] }>();
+export type VariantAttributeRecord = {
+  id: string;
+  product_field_id: string;
+  field_code: string;
+  field_name: string;
+  field_type: string;
+  field_description: string | null;
+  sort_order: number;
+  is_required: boolean;
+  validation_rules: Record<string, unknown>;
+  options: Record<string, unknown>;
+};
+
+const variantAttributesResponseCache = new Map<
+  string,
+  { expiresAt: number; data: VariantAttributeRecord[] }
+>();
 
 function normalizeCode(value: string): string {
   return value
@@ -41,7 +57,7 @@ export function getVariantAttributesCache(params: { organizationId: string; fami
 export function setVariantAttributesCache(params: {
   organizationId: string;
   familyId: string;
-  data: any[];
+  data: VariantAttributeRecord[];
 }) {
   const key = `${params.organizationId}:${params.familyId}`;
   variantAttributesResponseCache.set(key, {

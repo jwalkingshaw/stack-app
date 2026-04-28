@@ -3,6 +3,7 @@ export interface SubscriptionPlan {
   name: string;
   description: string;
   price: number;
+  monthlyPriceCents?: number;
   currency: string;
   interval: 'month' | 'year';
   features: string[];
@@ -12,6 +13,10 @@ export interface SubscriptionPlan {
   internalUserLimit?: number;
   userLimit?: number;
   partnerInviteLimit?: number;
+  deeplTotalCharLimit?: number;
+  agentRunLimit?: number;
+  maxUploadBytes?: number;
+  publicShareLinksEnabled?: boolean;
 }
 
 export interface Subscription {
@@ -38,7 +43,10 @@ export interface Usage {
   translationCharCount?: number;
   writeCharCount?: number;
   deliveryBandwidthGb?: number;
+  agentRunsCount?: number;
   assetsCount: number;
   downloadCount: number;
   uploadsCount: number;
 }
+
+export type BillingPlanId = "free" | "starter" | "growth" | "scale" | "enterprise";

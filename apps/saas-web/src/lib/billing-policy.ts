@@ -1,6 +1,11 @@
 import { supabaseServer } from "@/lib/supabase";
+import { bytesToBillingGb, getMonthlyDeliveryBandwidthUsage } from "@/lib/bandwidth-metering";
+import {
+  type BillingPlanId as PlanId,
+  type SubscriptionPlan,
+} from "@stack-app/types";
 
-type PlanId = "free" | "starter" | "growth" | "scale" | "enterprise";
+const supabase = supabaseServer;
 
 type LimitSet = {
   activeSkuCount: number;
@@ -9,6 +14,16 @@ type LimitSet = {
   internalUserCount: number;
   partnerInviteCount: number;
   deeplTotalCharCount: number;
+  agentRunsCount: number;
+};
+
+export type BillingPlan = SubscriptionPlan & {
+  id: PlanId;
+  monthlyPriceCents?: number;
+  deeplTotalCharLimit?: number;
+  agentRunLimit?: number;
+  maxUploadBytes?: number;
+  publicShareLinksEnabled?: boolean;
 };
 
 type AddonId =
@@ -23,89 +38,35 @@ type UsageSnapshot = {
   internalUserCount: number;
   partnerInviteCount: number;
   deeplTotalCharCount: number;
+  deliveryBandwidthGb: number;
+  agentRunsCount: number;
 };
 
 type MeterKey = keyof Pick<
   LimitSet,
   | "activeSkuCount"
+  | "deliveryBandwidthGb"
   | "internalUserCount"
   | "partnerInviteCount"
   | "deeplTotalCharCount"
+  | "agentRunsCount"
 >;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === "object" && !Array.isArray(value);
 
 const ACTIVE_SKU_STATUSES = new Set(["Draft", "Enrichment", "Review", "Active"]);
 const BILLABLE_SKU_TYPES = new Set(["variant", "standalone"]);
 
-const BASE_PLAN_LIMITS: Record<PlanId, LimitSet> = {
-  free: {
-    activeSkuCount: 10,
-    storageGb: 2,
-    deliveryBandwidthGb: 4,
-    internalUserCount: 1,
-    partnerInviteCount: 2,
-    deeplTotalCharCount: 0,
-  },
-  starter: {
-    activeSkuCount: 50,
-    storageGb: 15,
-    deliveryBandwidthGb: 25,
-    internalUserCount: 2,
-    partnerInviteCount: 10,
-    deeplTotalCharCount: 750_000,
-  },
-  growth: {
-    activeSkuCount: 500,
-    storageGb: 100,
-    deliveryBandwidthGb: 200,
-    internalUserCount: 8,
-    partnerInviteCount: 100,
-    deeplTotalCharCount: 3_000_000,
-  },
-  scale: {
-    activeSkuCount: 2500,
-    storageGb: 500,
-    deliveryBandwidthGb: 1000,
-    internalUserCount: Number.MAX_SAFE_INTEGER,
-    partnerInviteCount: Number.MAX_SAFE_INTEGER,
-    deeplTotalCharCount: 12_000_000,
-  },
-  enterprise: {
-    activeSkuCount: Number.MAX_SAFE_INTEGER,
-    storageGb: Number.MAX_SAFE_INTEGER,
-    deliveryBandwidthGb: Number.MAX_SAFE_INTEGER,
-    internalUserCount: Number.MAX_SAFE_INTEGER,
-    partnerInviteCount: Number.MAX_SAFE_INTEGER,
-    deeplTotalCharCount: Number.MAX_SAFE_INTEGER,
-  },
-};
-
-export const BILLING_PLAN_CATALOG: Array<{
-  id: PlanId;
-  name: string;
-  description: string;
-  price: number;
-  currency: string;
-  interval: "month";
-  activeSkuLimit: number;
-  storageLimitGb: number;
-  deliveryBandwidthLimitGb: number;
-  internalUserLimit: number;
-  partnerInviteLimit: number;
-  features: string[];
-  popular?: boolean;
-}> = [
+export const BILLING_PLAN_CATALOG: BillingPlan[] = [
   {
     id: "free",
     name: "Free (Sandbox)",
     description: "Ideal for product discovery",
     price: 0,
+    monthlyPriceCents: 0,
     currency: "USD",
     interval: "month",
-    activeSkuLimit: 10,
-    storageLimitGb: 2,
-    deliveryBandwidthLimitGb: 4,
-    internalUserLimit: 1,
-    partnerInviteLimit: 2,
     features: [
       "10 active SKUs",
       "2GB storage",
@@ -114,19 +75,24 @@ export const BILLING_PLAN_CATALOG: Array<{
       "2 external partner invites",
       "DeepL not included",
     ],
+    activeSkuLimit: 10,
+    storageLimitGb: 2,
+    deliveryBandwidthLimitGb: 4,
+    internalUserLimit: 1,
+    partnerInviteLimit: 2,
+    deeplTotalCharLimit: 0,
+    agentRunLimit: 0,
+    maxUploadBytes: 25 * 1024 * 1024,
+    publicShareLinksEnabled: false,
   },
   {
     id: "starter",
     name: "Starter",
     description: "Ideal for single-brand founders",
     price: 49,
+    monthlyPriceCents: 4900,
     currency: "USD",
     interval: "month",
-    activeSkuLimit: 50,
-    storageLimitGb: 15,
-    deliveryBandwidthLimitGb: 25,
-    internalUserLimit: 2,
-    partnerInviteLimit: 10,
     features: [
       "50 active SKUs",
       "15GB storage",
@@ -135,19 +101,24 @@ export const BILLING_PLAN_CATALOG: Array<{
       "10 external partner invites",
       "750,000 DeepL characters / month",
     ],
+    activeSkuLimit: 50,
+    storageLimitGb: 15,
+    deliveryBandwidthLimitGb: 25,
+    internalUserLimit: 2,
+    partnerInviteLimit: 10,
+    deeplTotalCharLimit: 750_000,
+    agentRunLimit: 25,
+    maxUploadBytes: 250 * 1024 * 1024,
+    publicShareLinksEnabled: true,
   },
   {
     id: "growth",
     name: "Growth",
     description: "Ideal for established teams",
     price: 129,
+    monthlyPriceCents: 12900,
     currency: "USD",
     interval: "month",
-    activeSkuLimit: 500,
-    storageLimitGb: 100,
-    deliveryBandwidthLimitGb: 200,
-    internalUserLimit: 8,
-    partnerInviteLimit: 100,
     features: [
       "500 active SKUs",
       "100GB storage",
@@ -156,20 +127,24 @@ export const BILLING_PLAN_CATALOG: Array<{
       "100 external partner invites",
       "3,000,000 DeepL characters / month",
     ],
-    popular: true,
+    activeSkuLimit: 500,
+    storageLimitGb: 100,
+    deliveryBandwidthLimitGb: 200,
+    internalUserLimit: 8,
+    partnerInviteLimit: 100,
+    deeplTotalCharLimit: 3_000_000,
+    agentRunLimit: 100,
+    maxUploadBytes: 1024 * 1024 * 1024,
+    publicShareLinksEnabled: true,
   },
   {
     id: "scale",
     name: "Scale",
     description: "Ideal for global brands and retailers",
     price: 299,
+    monthlyPriceCents: 29900,
     currency: "USD",
     interval: "month",
-    activeSkuLimit: 2500,
-    storageLimitGb: 500,
-    deliveryBandwidthLimitGb: 1000,
-    internalUserLimit: Number.MAX_SAFE_INTEGER,
-    partnerInviteLimit: Number.MAX_SAFE_INTEGER,
     features: [
       "2,500 active SKUs",
       "500GB storage",
@@ -178,22 +153,77 @@ export const BILLING_PLAN_CATALOG: Array<{
       "Unlimited external partner invites",
       "12,000,000 DeepL characters / month",
     ],
+    activeSkuLimit: 2500,
+    storageLimitGb: 500,
+    deliveryBandwidthLimitGb: 1000,
+    internalUserLimit: Number.MAX_SAFE_INTEGER,
+    partnerInviteLimit: Number.MAX_SAFE_INTEGER,
+    deeplTotalCharLimit: 12_000_000,
+    agentRunLimit: 500,
+    maxUploadBytes: 2 * 1024 * 1024 * 1024,
+    publicShareLinksEnabled: true,
   },
   {
     id: "enterprise",
     name: "Enterprise",
-    description: "Custom commercial and technical terms",
+    description: "Custom plan with unlimited scale and negotiated commercial terms.",
     price: 0,
+    monthlyPriceCents: 0,
     currency: "USD",
     interval: "month",
+    features: ["Unlimited scale", "Custom controls", "Premium support"],
     activeSkuLimit: Number.MAX_SAFE_INTEGER,
     storageLimitGb: Number.MAX_SAFE_INTEGER,
     deliveryBandwidthLimitGb: Number.MAX_SAFE_INTEGER,
     internalUserLimit: Number.MAX_SAFE_INTEGER,
     partnerInviteLimit: Number.MAX_SAFE_INTEGER,
-    features: ["Custom limits", "Custom support", "Custom controls"],
+    deeplTotalCharLimit: Number.MAX_SAFE_INTEGER,
+    agentRunLimit: Number.MAX_SAFE_INTEGER,
+    maxUploadBytes: Number.MAX_SAFE_INTEGER,
+    publicShareLinksEnabled: true,
   },
 ];
+
+export function isUnlimitedBillingLimit(value: number | null | undefined): boolean {
+  return value === Number.MAX_SAFE_INTEGER;
+}
+
+export function canUseDeepL(planId: PlanId | string | null | undefined): boolean {
+  const normalized = String(planId || "").trim().toLowerCase();
+  return (
+    normalized === "starter" ||
+    normalized === "growth" ||
+    normalized === "scale" ||
+    normalized === "enterprise"
+  );
+}
+
+export function canUsePublicShareLinks(planId: PlanId | string | null | undefined): boolean {
+  const normalized = String(planId || "").trim().toLowerCase();
+  const plan = BILLING_PLAN_CATALOG.find((entry) => entry.id === normalized);
+  return Boolean(plan?.publicShareLinksEnabled);
+}
+
+export function getMaxUploadBytesForPlan(planId: PlanId | string | null | undefined): number {
+  const normalized = String(planId || "").trim().toLowerCase();
+  const plan = BILLING_PLAN_CATALOG.find((entry) => entry.id === normalized);
+  return plan?.maxUploadBytes ?? 25 * 1024 * 1024;
+}
+
+const BASE_PLAN_LIMITS: Record<PlanId, LimitSet> = Object.fromEntries(
+  BILLING_PLAN_CATALOG.map((plan) => [
+    plan.id,
+    {
+      activeSkuCount: plan.activeSkuLimit,
+      storageGb: plan.storageLimitGb,
+      deliveryBandwidthGb: plan.deliveryBandwidthLimitGb,
+      internalUserCount: plan.internalUserLimit,
+      partnerInviteCount: plan.partnerInviteLimit,
+      deeplTotalCharCount: plan.deeplTotalCharLimit,
+      agentRunsCount: plan.agentRunLimit,
+    },
+  ])
+) as Record<PlanId, LimitSet>;
 
 const ADDON_DELTAS: Record<AddonId, Partial<LimitSet>> = {
   sku_pack_3000: { activeSkuCount: 3000 },
@@ -213,7 +243,7 @@ const LEGACY_PLAN_MAPPING: Record<string, PlanId> = {
   enterprise: "enterprise",
 };
 
-function isMissingSchemaError(error: any): boolean {
+function isMissingSchemaError(error: { code?: string } | null | undefined): boolean {
   return error?.code === "42P01" || error?.code === "42703";
 }
 
@@ -256,7 +286,7 @@ function applyAddonDeltas(base: LimitSet, addons: Array<{ addonId: string; quant
 
 async function resolvePlanIdForOrganization(organizationId: string): Promise<PlanId> {
   try {
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabase
       .from("organization_subscriptions")
       .select("plan_id,status,current_period_end")
       .eq("organization_id", organizationId)
@@ -275,22 +305,7 @@ async function resolvePlanIdForOrganization(organizationId: string): Promise<Pla
     console.error("Failed to read organization_subscriptions:", error);
   }
 
-  try {
-    const { data, error } = await (supabaseServer as any)
-      .from("organizations")
-      .select("subscription_tier")
-      .eq("id", organizationId)
-      .maybeSingle();
-
-    if (error && !isMissingSchemaError(error)) {
-      console.error("Failed to resolve legacy plan tier:", error);
-    }
-
-    return normalizePlanId(data?.subscription_tier);
-  } catch (error) {
-    console.error("Failed to read organization.subscription_tier:", error);
-    return "free";
-  }
+  return "free";
 }
 
 async function resolveActiveAddonsForOrganization(
@@ -298,7 +313,7 @@ async function resolveActiveAddonsForOrganization(
 ): Promise<Array<{ addonId: string; quantity: number }>> {
   const now = new Date();
   try {
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabase
       .from("organization_subscription_addons")
       .select("addon_id,quantity,status,expires_at")
       .eq("organization_id", organizationId)
@@ -311,7 +326,7 @@ async function resolveActiveAddonsForOrganization(
       return [];
     }
 
-    return ((data || []) as Array<any>)
+    return ((data || []) as Array<{ addon_id: string | null; quantity: number | null; expires_at: string | null }>)
       .filter((row) => {
         if (!row.expires_at) return true;
         const expiresAt = new Date(row.expires_at);
@@ -328,7 +343,7 @@ async function resolveActiveAddonsForOrganization(
 }
 
 async function countActiveSkus(organizationId: string): Promise<number> {
-  const { count, error } = await (supabaseServer as any)
+  const { count, error } = await supabase
     .from("products")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
@@ -343,7 +358,7 @@ async function countActiveSkus(organizationId: string): Promise<number> {
 }
 
 async function countInternalUsers(organizationId: string): Promise<number> {
-  const { count, error } = await (supabaseServer as any)
+  const { count, error } = await supabase
     .from("organization_members")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
@@ -358,30 +373,59 @@ async function countInternalUsers(organizationId: string): Promise<number> {
 
 async function countExternalPartnerInviteUsage(organizationId: string): Promise<number> {
   const now = new Date();
-  const nowIso = now.toISOString();
   const identityKeys = new Set<string>();
 
-  const baseQuery = (supabaseServer as any)
+  const baseQuery = supabase
     .from("invitations")
     .select("email,accepted_at,declined_at,revoked_at,expires_at,partner_organization_id")
     .eq("organization_id", organizationId)
     .eq("invitation_type", "partner");
 
-  let invitationsResult = await baseQuery;
+  const invitationsResult = await baseQuery;
+
+  let invitationRows: Array<{
+    email: string | null;
+    accepted_at: string | null;
+    declined_at: string | null;
+    revoked_at: string | null;
+    expires_at: string | null;
+    partner_organization_id: string | null;
+  }> = [];
+
   if (invitationsResult.error?.code === "42703") {
-    invitationsResult = await (supabaseServer as any)
+    const fallbackInvitationsResult = await supabase
       .from("invitations")
       .select("email,accepted_at,declined_at,expires_at,partner_organization_id")
       .eq("organization_id", organizationId)
       .eq("invitation_type", "partner");
-  }
 
-  if (invitationsResult.error) {
+    if (fallbackInvitationsResult.error) {
+      console.error("Failed to count external partner invite usage:", fallbackInvitationsResult.error);
+      return 0;
+    }
+
+    invitationRows = ((fallbackInvitationsResult.data || []) as Array<{
+      email: string | null;
+      accepted_at: string | null;
+      declined_at: string | null;
+      expires_at: string | null;
+      partner_organization_id: string | null;
+    }>).map((row) => ({ ...row, revoked_at: null }));
+  } else if (invitationsResult.error) {
     console.error("Failed to count external partner invite usage:", invitationsResult.error);
     return 0;
+  } else {
+    invitationRows = (invitationsResult.data || []) as Array<{
+      email: string | null;
+      accepted_at: string | null;
+      declined_at: string | null;
+      revoked_at: string | null;
+      expires_at: string | null;
+      partner_organization_id: string | null;
+    }>;
   }
 
-  for (const row of (invitationsResult.data || []) as Array<any>) {
+  for (const row of invitationRows) {
     const acceptedAt = row.accepted_at ? new Date(row.accepted_at) : null;
     const declinedAt = row.declined_at ? new Date(row.declined_at) : null;
     const revokedAt = row.revoked_at ? new Date(row.revoked_at) : null;
@@ -414,14 +458,15 @@ async function countExternalPartnerInviteUsage(organizationId: string): Promise<
   ];
 
   for (const attempt of relationshipAttempts) {
-    const relationshipsResult = await (supabaseServer as any)
+    const relationshipsResult = await supabase
       .from("brand_partner_relationships")
       .select(attempt.partnerColumn)
       .eq(attempt.brandColumn, organizationId)
       .eq("status", "active");
 
     if (!relationshipsResult.error) {
-      for (const row of (relationshipsResult.data || []) as Array<any>) {
+      const relationshipRows = (relationshipsResult.data || []) as unknown[];
+      for (const row of relationshipRows.filter(isRecord)) {
         const partnerId = row[attempt.partnerColumn];
         if (!partnerId) continue;
         identityKeys.add(`org:${String(partnerId)}`);
@@ -438,6 +483,31 @@ async function countExternalPartnerInviteUsage(organizationId: string): Promise<
   return identityKeys.size;
 }
 
+async function countMonthlyAgentRuns(organizationId: string): Promise<number> {
+  const now = new Date();
+  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    .toISOString()
+    .slice(0, 10);
+
+  const { data, error } = await supabase
+    .from("organization_usage_monthly_snapshots")
+    .select("ai_agent_runs_count")
+    .eq("organization_id", organizationId)
+    .eq("period_start", periodStart)
+    .maybeSingle();
+
+  if (error) {
+    if (!isMissingSchemaError(error)) {
+      console.error("Failed to count monthly agent runs:", error);
+    }
+    return 0;
+  }
+
+  const raw = (data as Record<string, unknown> | null)?.ai_agent_runs_count;
+  if (!Number.isFinite(raw)) return 0;
+  return Math.max(0, Number(raw));
+}
+
 async function countMonthlyLocalizationUsage(params: {
   organizationId: string;
   meter: "translation_chars" | "write_chars";
@@ -447,9 +517,9 @@ async function countMonthlyLocalizationUsage(params: {
     .toISOString()
     .slice(0, 10);
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabase
     .from("organization_usage_monthly_snapshots")
-    .select(params.meter)
+    .select("translation_chars,write_chars")
     .eq("organization_id", params.organizationId)
     .eq("period_start", periodStart)
     .maybeSingle();
@@ -461,7 +531,8 @@ async function countMonthlyLocalizationUsage(params: {
     return 0;
   }
 
-  const raw = data?.[params.meter];
+  const raw =
+    params.meter === "translation_chars" ? data?.translation_chars : data?.write_chars;
   if (!Number.isFinite(raw)) return 0;
   return Math.max(0, Number(raw));
 }
@@ -501,12 +572,15 @@ export async function getOrganizationUsageSnapshot(
     activeSkuCount,
     internalUserCount,
     partnerInviteCount,
+    deliveryBandwidthGb,
     translationCharCount,
     writeCharCount,
+    agentRunsCount,
   ] = await Promise.all([
     countActiveSkus(organizationId),
     countInternalUsers(organizationId),
     countExternalPartnerInviteUsage(organizationId),
+    getMonthlyDeliveryBandwidthUsage({ organizationId }),
     countMonthlyLocalizationUsage({
       organizationId,
       meter: "translation_chars",
@@ -515,21 +589,49 @@ export async function getOrganizationUsageSnapshot(
       organizationId,
       meter: "write_chars",
     }),
+    countMonthlyAgentRuns(organizationId),
   ]);
 
   return {
     activeSkuCount,
     internalUserCount,
     partnerInviteCount,
+    deliveryBandwidthGb,
     deeplTotalCharCount: translationCharCount + writeCharCount,
+    agentRunsCount,
   };
+}
+
+export async function getOrganizationStorageUsageBytes(organizationId: string): Promise<number> {
+  try {
+    const { data, error } = await supabase
+      .from("organizations")
+      .select("storage_used")
+      .eq("id", organizationId)
+      .maybeSingle();
+
+    if (error) {
+      if (!isMissingSchemaError(error)) {
+        console.error("Failed to resolve organization storage usage:", error);
+      }
+      return 0;
+    }
+
+    const usage = Number(data?.storage_used || 0);
+    return Number.isFinite(usage) ? Math.max(0, usage) : 0;
+  } catch (error) {
+    console.error("Failed to read organization storage usage:", error);
+    return 0;
+  }
 }
 
 const METER_LABELS: Record<MeterKey, string> = {
   activeSkuCount: "active SKU limit",
+  deliveryBandwidthGb: "monthly delivery bandwidth limit",
   internalUserCount: "internal user limit",
   partnerInviteCount: "partner invite limit",
-  deeplTotalCharCount: "DeepL character limit",
+  deeplTotalCharCount: "translation character limit",
+  agentRunsCount: "Agent task limit",
 };
 
 export async function assertBillingCapacity(params: {
@@ -553,7 +655,7 @@ export async function assertBillingCapacity(params: {
   const currentUsage = usage[params.meter];
   const projected = currentUsage + incrementBy;
 
-  if (limit >= Number.MAX_SAFE_INTEGER) {
+  if (isUnlimitedBillingLimit(limit)) {
     return { allowed: true, limit, usage: currentUsage, projected };
   }
 
@@ -569,3 +671,76 @@ export async function assertBillingCapacity(params: {
     message: `You have reached your ${METER_LABELS[params.meter]} (${currentUsage}/${limit}). Upgrade your plan or purchase an add-on to continue.`,
   };
 }
+
+export async function assertStorageCapacity(params: {
+  organizationId: string;
+  additionalBytes: number;
+}): Promise<{
+  allowed: boolean;
+  limitBytes: number;
+  usageBytes: number;
+  projectedBytes: number;
+  message?: string;
+}> {
+  const additionalBytes = Number.isFinite(params.additionalBytes)
+    ? Math.max(0, Math.ceil(params.additionalBytes))
+    : 0;
+  const [{ limits }, usageBytes] = await Promise.all([
+    getOrganizationBillingLimits(params.organizationId),
+    getOrganizationStorageUsageBytes(params.organizationId),
+  ]);
+
+  const limitBytes = Math.round(limits.storageGb * 1024 * 1024 * 1024);
+  const projectedBytes = usageBytes + additionalBytes;
+
+  if (limitBytes >= Number.MAX_SAFE_INTEGER || projectedBytes <= limitBytes) {
+    return { allowed: true, limitBytes, usageBytes, projectedBytes };
+  }
+
+  const formatGb = (bytes: number) => (bytes / (1024 * 1024 * 1024)).toFixed(2);
+  return {
+    allowed: false,
+    limitBytes,
+    usageBytes,
+    projectedBytes,
+    message: `This upload would exceed your storage limit (${formatGb(usageBytes)}GB/${limits.storageGb}GB). Upgrade your plan or free up storage to continue.`,
+  };
+}
+
+export async function assertDeliveryBandwidthCapacity(params: {
+  organizationId: string;
+  additionalBytes: number;
+}): Promise<{
+  allowed: boolean;
+  limitGb: number;
+  usageGb: number;
+  projectedGb: number;
+  message?: string;
+}> {
+  const additionalBytes = Number.isFinite(params.additionalBytes)
+    ? Math.max(0, Math.ceil(params.additionalBytes))
+    : 0;
+  const additionalGb = bytesToBillingGb(additionalBytes);
+  const [{ limits }, usageGb] = await Promise.all([
+    getOrganizationBillingLimits(params.organizationId),
+    getMonthlyDeliveryBandwidthUsage({ organizationId: params.organizationId }),
+  ]);
+
+  const limitGb = limits.deliveryBandwidthGb;
+  const projectedGb = usageGb + additionalGb;
+
+  if (isUnlimitedBillingLimit(limitGb) || projectedGb <= limitGb) {
+    return { allowed: true, limitGb, usageGb, projectedGb };
+  }
+
+  return {
+    allowed: false,
+    limitGb,
+    usageGb,
+    projectedGb,
+    message: `This download would exceed your monthly delivery bandwidth limit (${usageGb.toFixed(3)}GB/${limitGb}GB). Upgrade your plan to continue external delivery.`,
+  };
+}
+
+
+

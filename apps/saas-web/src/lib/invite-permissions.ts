@@ -8,6 +8,7 @@ export type InvitePermissionsSnapshot = {
   scopes?: {
     market_ids?: string[];
     collection_ids?: string[];
+    output_profile_ids?: string[];
   };
 };
 
@@ -50,6 +51,14 @@ const MODULE_PERMISSION_LEVEL_KEYS: Record<InviteModuleKey, Record<Exclude<Permi
 
 const VALID_MODULE_KEYS = new Set<InviteModuleKey>(['products', 'assets', 'share_links']);
 const VALID_LEVELS = new Set<PermissionLevel>(['none', 'view', 'edit', 'admin']);
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type SupabaseLike = SupabaseClient<any> | any;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
 
 function uniqueStrings(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
@@ -83,26 +92,30 @@ export function normalizeInvitePermissions(input: unknown): InvitePermissionsSna
     }
   }
 
-  const marketIds = uniqueStrings((rawScopes as any)?.market_ids);
-  const collectionIds = uniqueStrings((rawScopes as any)?.collection_ids);
+  const scopesRecord = asRecord(rawScopes);
+  const marketIds = uniqueStrings(scopesRecord?.market_ids);
+  const collectionIds = uniqueStrings(scopesRecord?.collection_ids);
+  const outputProfileIds = uniqueStrings(scopesRecord?.output_profile_ids);
 
   return {
     module_levels: moduleLevels,
     scopes: {
       market_ids: marketIds,
       collection_ids: collectionIds,
+      output_profile_ids: outputProfileIds,
     },
   };
 }
 
 export async function validateInvitePermissionsForOrganization(params: {
-  supabase: SupabaseClient<any> | any;
+  supabase: SupabaseLike;
   organizationId: string;
   permissions: InvitePermissionsSnapshot;
 }): Promise<{ valid: true } | { valid: false; error: string }> {
   const { supabase, organizationId, permissions } = params;
   const marketIds = permissions.scopes?.market_ids || [];
   const collectionIds = permissions.scopes?.collection_ids || [];
+  const outputProfileIds = permissions.scopes?.output_profile_ids || [];
 
   if (marketIds.length > 0) {
     const { data: markets, error: marketsError } = await supabase
@@ -128,11 +141,31 @@ export async function validateInvitePermissionsForOrganization(params: {
       .in('id', collectionIds);
 
     if (collectionsError) {
-      return { valid: false, error: 'Failed to validate selected shared asset sets.' };
+      return { valid: false, error: 'Failed to validate selected asset saved scopes.' };
     }
 
     if ((collections || []).length !== collectionIds.length) {
-      return { valid: false, error: 'One or more selected shared asset sets are invalid for this workspace.' };
+      return { valid: false, error: 'One or more selected asset saved scopes are invalid for this workspace.' };
+    }
+  }
+
+  if (outputProfileIds.length > 0) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from('output_channel_profiles')
+      .select('id')
+      .eq('organization_id', organizationId)
+      .in('id', outputProfileIds)
+      .eq('is_active', true);
+
+    if (profilesError) {
+      return { valid: false, error: 'Failed to validate selected output profiles.' };
+    }
+
+    if ((profiles || []).length !== outputProfileIds.length) {
+      return {
+        valid: false,
+        error: 'One or more selected output profiles are invalid for this workspace.',
+      };
     }
   }
 
@@ -162,7 +195,7 @@ function permissionKeysForModuleLevel(moduleKey: InviteModuleKey, level: Permiss
 }
 
 export async function applyInvitePermissions(params: {
-  supabase: SupabaseClient<any> | any;
+  supabase: SupabaseLike;
   organizationId: string;
   userId: string;
   userEmail: string;

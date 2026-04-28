@@ -1,7 +1,9 @@
 'use client';
 
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { ProductField } from './DynamicFieldRenderer';
+import { normalizeNumberFieldOptions } from './field-option-schema';
 
 interface NumberFieldComponentProps {
   field: ProductField;
@@ -18,12 +20,14 @@ export function NumberFieldComponent({
   disabled = false,
   className = ''
 }: NumberFieldComponentProps) {
+  const options = normalizeNumberFieldOptions(field.options);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (onChange) {
       const inputValue = e.target.value;
 
       // Handle decimal vs integer
-      if (field.options?.decimal_places !== undefined) {
+      if (options.decimal_places !== undefined && options.decimal_places > 0) {
         // Parse as float if decimal places are specified
         const numValue = parseFloat(inputValue);
         onChange(isNaN(numValue) ? inputValue : numValue);
@@ -35,11 +39,14 @@ export function NumberFieldComponent({
     }
   };
 
-  const min = field.options?.min_value;
-  const max = field.options?.max_value;
-  const step = field.options?.decimal_places !== undefined
-    ? Math.pow(10, -field.options.decimal_places)
-    : 1;
+  const min = options.allow_negative ? options.min_value : Math.max(0, options.min_value ?? 0);
+  const max = options.max_value;
+  const step =
+    options.step && options.step > 0
+      ? options.step
+      : options.decimal_places > 0
+      ? Math.pow(10, -options.decimal_places)
+      : 1;
 
   return (
     <div className="space-y-2">
@@ -53,11 +60,11 @@ export function NumberFieldComponent({
           min={min}
           max={max}
           step={step}
-          className={className}
+          className={cn('h-10', className)}
         />
-        {field.options?.unit && (
+        {options.unit && (
           <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">
-            {field.options.unit}
+            {options.unit}
           </div>
         )}
       </div>
@@ -70,7 +77,7 @@ export function NumberFieldComponent({
             ? `Minimum: ${min}`
             : `Maximum: ${max}`
           }
-          {field.options?.unit && ` ${field.options.unit}`}
+          {options.unit && ` ${options.unit}`}
         </div>
       )}
     </div>

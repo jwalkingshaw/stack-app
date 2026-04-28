@@ -8,8 +8,8 @@ import {
   isValidInvitationToken,
   normalizeEmail,
 } from '@/lib/invitation-security';
-import { applyInvitePermissions, normalizeInvitePermissions } from '@/lib/invite-permissions';
-import { applyInvitationShareSetGrants } from '@/lib/invitation-share-sets';
+import { normalizeInvitePermissions } from '@/lib/invite-permissions';
+import { applyPartnerInvitationWorkspaceGrants } from '@/lib/partner-invitation-grants';
 
 const db = new DatabaseQueries(supabaseServer);
 
@@ -81,21 +81,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate access level
-    if (!['view', 'edit'].includes(access_level)) {
+    if (!['view'].includes(access_level)) {
       return NextResponse.json(
-        { error: 'access_level must be "view" or "edit"' },
+        { error: 'Partner relationship onboarding is Portal-only. access_level must be "view".' },
         { status: 400 }
       );
     }
 
-    console.log('🤝 Creating brand-partner relationship:', {
+    console.log('ðŸ¤ Creating brand-partner relationship:', {
       brandOrgId: brand_organization_id,
       partnerOrgId: partner_organization_id,
       accessLevel: access_level,
       userId: user.id
     });
 
-    const { data: invitation, error: invitationError } = await (supabaseServer as any)
+    const { data: invitation, error: invitationError } = await supabaseServer
       .from('invitations')
       .select(`
         id,
@@ -140,12 +140,12 @@ export async function POST(request: NextRequest) {
       return invalidInvitationResponse();
     }
 
-    const resolvedAccessLevel =
-      invitation.role_or_access_level === 'edit' ? 'edit' : 'view';
+    const resolvedAccessLevel = 'view';
 
     if (access_level !== resolvedAccessLevel) {
       console.warn('Access level override ignored; using invitation-defined level:', resolvedAccessLevel);
     }
+    const invitePermissions = normalizeInvitePermissions(invitation.invite_permissions ?? {});
 
     // Verify user is a member of the partner organization
     const partnerMembership = await db.getOrganizationMember(user.id, partner_organization_id);
@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
         resolvedAccessLevel
       );
 
-      const { error: invitationUpdateError } = await (supabaseServer as any)
+      const { error: invitationUpdateError } = await supabaseServer
         .from('invitations')
         .update({
           partner_organization_id,
@@ -186,35 +186,18 @@ export async function POST(request: NextRequest) {
         return invalidInvitationResponse();
       }
 
-      const appliedPermissions = await applyInvitePermissions({
-        supabase: supabaseServer,
-        organizationId: brand_organization_id,
-        userId: user.id,
-        userEmail: user.email || invitation.email,
-        invitedBy: invitation.invited_by,
-        defaultRole: 'partner',
-        permissions: invitation.invite_permissions || {},
-      });
-
-      if (!appliedPermissions.applied) {
-        return NextResponse.json(
-          { error: appliedPermissions.error || 'Failed to apply invite permissions' },
-          { status: 500 }
-        );
-      }
-
-      const inviteSetGrants = await applyInvitationShareSetGrants({
+      const appliedPartnerGrants = await applyPartnerInvitationWorkspaceGrants({
         supabase: supabaseServer,
         organizationId: brand_organization_id,
         invitationId: invitation.id,
         partnerOrganizationId: partner_organization_id,
-        accessLevel: resolvedAccessLevel,
-        grantedBy: invitation.invited_by || user.id,
+        invitedBy: invitation.invited_by || user.id,
+        permissions: invitePermissions,
       });
-      if (!inviteSetGrants.ok) {
+      if (!appliedPartnerGrants.ok) {
         return NextResponse.json(
-          { error: inviteSetGrants.error },
-          { status: inviteSetGrants.status }
+          { error: appliedPartnerGrants.error },
+          { status: appliedPartnerGrants.status }
         );
       }
 
@@ -226,8 +209,10 @@ export async function POST(request: NextRequest) {
           access_level: resolvedAccessLevel,
           invitation_id: invitation.id,
           permission_bundle_id: invitation.permission_bundle_id ?? null,
-          invite_permissions: normalizeInvitePermissions(invitation.invite_permissions ?? {}),
-          applied_share_set_grants: inviteSetGrants.data.appliedCount,
+          invite_permissions: invitePermissions,
+          applied_profile_grants: appliedPartnerGrants.data.appliedProfileGrantCount,
+          applied_market_assignments: appliedPartnerGrants.data.appliedMarketAssignmentCount,
+          applied_share_set_grants: appliedPartnerGrants.data.appliedShareSetGrantCount,
         },
         message: 'Relationship already exists'
       });
@@ -251,7 +236,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { error: invitationUpdateError } = await (supabaseServer as any)
+    const { error: invitationUpdateError } = await supabaseServer
       .from('invitations')
       .update({
         partner_organization_id,
@@ -269,39 +254,22 @@ export async function POST(request: NextRequest) {
       console.error('Error updating invitation after relationship creation:', invitationUpdateError);
       throw new Error('Unable to update invitation status');
     }
-    const appliedPermissions = await applyInvitePermissions({
-      supabase: supabaseServer,
-      organizationId: brand_organization_id,
-      userId: user.id,
-      userEmail: user.email || invitation.email,
-      invitedBy: invitation.invited_by,
-      defaultRole: 'partner',
-      permissions: invitation.invite_permissions || {},
-    });
-
-    if (!appliedPermissions.applied) {
-      return NextResponse.json(
-        { error: appliedPermissions.error || 'Failed to apply invite permissions' },
-        { status: 500 }
-      );
-    }
-
-    const inviteSetGrants = await applyInvitationShareSetGrants({
+    const appliedPartnerGrants = await applyPartnerInvitationWorkspaceGrants({
       supabase: supabaseServer,
       organizationId: brand_organization_id,
       invitationId: invitation.id,
       partnerOrganizationId: partner_organization_id,
-      accessLevel: resolvedAccessLevel,
-      grantedBy: invitation.invited_by || user.id,
+      invitedBy: invitation.invited_by || user.id,
+      permissions: invitePermissions,
     });
-    if (!inviteSetGrants.ok) {
+    if (!appliedPartnerGrants.ok) {
       return NextResponse.json(
-        { error: inviteSetGrants.error },
-        { status: inviteSetGrants.status }
+        { error: appliedPartnerGrants.error },
+        { status: appliedPartnerGrants.status }
       );
     }
 
-    const { data: partnerOrg } = await (supabaseServer as any)
+    const { data: partnerOrg } = await supabaseServer
       .from('organizations')
       .select('id, name, slug')
       .eq('id', partner_organization_id)
@@ -317,8 +285,10 @@ export async function POST(request: NextRequest) {
         access_level: resolvedAccessLevel,
         invitation_id: invitation.id,
         permission_bundle_id: invitation.permission_bundle_id ?? null,
-        invite_permissions: normalizeInvitePermissions(invitation.invite_permissions ?? {}),
-        applied_share_set_grants: inviteSetGrants.data.appliedCount,
+        invite_permissions: invitePermissions,
+        applied_profile_grants: appliedPartnerGrants.data.appliedProfileGrantCount,
+        applied_market_assignments: appliedPartnerGrants.data.appliedMarketAssignmentCount,
+        applied_share_set_grants: appliedPartnerGrants.data.appliedShareSetGrantCount,
         partner_organization: partnerOrg,
         redirect_url: partnerOrg?.slug ? `/${partnerOrg.slug}` : undefined
       },

@@ -1,20 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import {
-  Layers,
-  Plus,
-  Edit,
-  Trash2,
-  Type
+  Search
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { DataTable, Column, createTableActions } from '@/components/ui/data-table';
-import { PageContentContainer } from '@/components/ui/page-content-container';
-import AttributeWorkflowChecklist from './AttributeWorkflowChecklist';
+import { ItemList } from '@/components/ui/item-list';
+import { CenteredFormModal } from '@/components/ui/modal-shells';
+import { isLockedFieldGroupCode } from '@/lib/field-group-codes';
+import { SettingsPageContent } from './settings-page-content';
 
 interface FieldGroup {
   id: string;
@@ -36,9 +31,8 @@ interface FieldGroupsSettingsProps {
   tenantSlug: string;
 }
 
-const LOCKED_GROUP_CODES = new Set(['basic_info', 'documentation']);
 const isLockedFieldGroup = (group: FieldGroup | null | undefined) =>
-  !!group && LOCKED_GROUP_CODES.has(group.code);
+  !!group && isLockedFieldGroupCode(group.code);
 
 // Auto-generate code from name
 const generateCode = (name: string): string => {
@@ -51,26 +45,22 @@ const generateCode = (name: string): string => {
 };
 
 export default function FieldGroupsSettings({ tenantSlug }: FieldGroupsSettingsProps) {
+  const router = useRouter();
   // State
   const [fieldGroups, setFieldGroups] = useState<FieldGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Dialog states
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [selectedGroup, setSelectedGroup] = useState<FieldGroup | null>(null);
 
   // Form states
   const [formData, setFormData] = useState({
     name: '',
-    code: '',
-    description: '',
-    sort_order: 1
+    description: ''
   });
   const [formLoading, setFormLoading] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState('');
 
   // Fetch field groups
   const fetchFieldGroups = useCallback(async () => {
@@ -93,30 +83,29 @@ export default function FieldGroupsSettings({ tenantSlug }: FieldGroupsSettingsP
     fetchFieldGroups();
   }, [fetchFieldGroups]);
 
-  // Auto-generate code when name changes
-  useEffect(() => {
-    if (formData.name && (!selectedGroup || !showEditDialog)) {
-      const autoCode = generateCode(formData.name);
-      setFormData(prev => ({ ...prev, code: autoCode }));
-    }
-  }, [formData.name, selectedGroup, showEditDialog]);
-
   // Reset form
   const resetForm = () => {
     setFormData({
       name: '',
-      code: '',
-      description: '',
-      sort_order: 1
+      description: ''
     });
-    setSelectedGroup(null);
     setError(null);
-    setDeleteConfirmation('');
   };
 
   // Create field group
   const handleCreate = async () => {
-    if (!formData.name.trim() || !formData.code.trim()) return;
+    const name = formData.name.trim();
+    const code = generateCode(name);
+
+    if (!name) {
+      setError('Group name is required');
+      return;
+    }
+
+    if (!code) {
+      setError('Group name must include letters or numbers');
+      return;
+    }
 
     try {
       setFormLoading(true);
@@ -125,7 +114,12 @@ export default function FieldGroupsSettings({ tenantSlug }: FieldGroupsSettingsP
       const response = await fetch(`/api/${tenantSlug}/field-groups`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          name,
+          code,
+          description: formData.description,
+          sort_order: fieldGroups.length + 1
+        })
       });
 
       if (!response.ok) {
@@ -143,352 +137,86 @@ export default function FieldGroupsSettings({ tenantSlug }: FieldGroupsSettingsP
     }
   };
 
-  // Update field group
-  const handleUpdate = async () => {
-    if (!selectedGroup || !formData.name.trim() || !formData.code.trim()) return;
-
-    try {
-      setFormLoading(true);
-      setError(null);
-
-      const response = await fetch(`/api/${tenantSlug}/field-groups/${selectedGroup.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to update field group');
-      }
-
-      await fetchFieldGroups(); // Refresh list
-      setShowEditDialog(false);
-      resetForm();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update field group');
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
-  // Delete field group
-  const handleDelete = async () => {
-    if (!selectedGroup) return;
-
-    try {
-      setFormLoading(true);
-      setError(null);
-
-      const response = await fetch(`/api/${tenantSlug}/field-groups/${selectedGroup.code}`, {
-        method: 'DELETE'
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete field group');
-      }
-
-      await fetchFieldGroups(); // Refresh list
-      setShowDeleteDialog(false);
-      resetForm();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete field group');
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
-  // Table columns
-  const columns: Column<FieldGroup>[] = [
-    {
-      key: 'name',
-      label: 'Group Name',
-      sortable: true,
-      width: '50%',
-      render: (value, group) => (
-        <div>
-          <a
-            href={`/${tenantSlug}/settings/field-groups/${group.code}`}
-            className="font-medium text-foreground hover:text-primary transition-colors cursor-pointer"
-          >
-            {value}
-          </a>
-          {isLockedFieldGroup(group) && (
-            <div className="mt-1">
-              <Badge variant="outline" className="text-xs">System Group</Badge>
-            </div>
-          )}
-          <div className="text-sm text-muted-foreground">{group.description}</div>
-        </div>
-      )
-    },
-    {
-      key: 'product_fields',
-      label: 'Attributes',
-      sortable: false,
-      width: '20%',
-      render: (value) => (
-        <span className="text-sm text-muted-foreground">
-          {value?.length || 0} attributes
-        </span>
-      )
-    },
-    {
-      key: 'sort_order',
-      label: 'Order',
-      sortable: true,
-      width: '15%',
-      render: (value) => (
-        <Badge variant="secondary">#{value}</Badge>
-      )
-    },
-    {
-      key: 'created_at',
-      label: 'Created',
-      sortable: true,
-      width: '15%',
-      render: (value) => (
-        <span className="text-sm text-muted-foreground">
-          {new Date(value).toLocaleDateString()}
-        </span>
-      )
-    }
-  ];
-
-  // Table actions
-  const actions = [
-    createTableActions.view((group: FieldGroup) => {
-      window.location.href = `/${tenantSlug}/settings/field-groups/${group.code}`;
-    }),
-    createTableActions.edit((group: FieldGroup) => {
-      if (isLockedFieldGroup(group)) return;
-      setSelectedGroup(group);
-      setFormData({
-        name: group.name,
-        code: group.code,
-        description: group.description,
-        sort_order: group.sort_order
-      });
-      setShowEditDialog(true);
-    }),
-    createTableActions.delete((group: FieldGroup) => {
-      if (isLockedFieldGroup(group)) return;
-      setSelectedGroup(group);
-      setShowDeleteDialog(true);
-    })
-  ];
+  const filteredGroups = useMemo(
+    () => fieldGroups.filter(g => g.name.toLowerCase().includes(searchQuery.toLowerCase())),
+    [fieldGroups, searchQuery]
+  );
 
   return (
-    <PageContentContainer mode="fluid" className="space-y-6">
+    <SettingsPageContent page="field-groups">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Attribute Groups</h2>
-        <p className="text-muted-foreground">
-          Organize attributes into logical groups for better data management
-        </p>
       </div>
 
-      <AttributeWorkflowChecklist tenantSlug={tenantSlug} />
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search groups..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9"
+        />
+      </div>
 
-      {/* Data Table */}
-      <DataTable
-        data={fieldGroups}
-        columns={columns}
+      <ItemList
+        items={filteredGroups}
+        getKey={(group) => group.id}
+        renderTitle={(group) => group.name}
+        renderSubtitle={(group) => group.description}
+        getStatus={(group) => (group.is_active ? 'active' : 'inactive')}
+        onClickItem={(group) => router.push(`/${tenantSlug}/settings/field-groups/${group.code}`)}
+        isLocked={(group) => isLockedFieldGroup(group)}
         loading={loading}
-        actions={actions}
-        hideActions={(group: FieldGroup) => isLockedFieldGroup(group)}
-        searchPlaceholder="Search attribute groups..."
-        onCreateNew={() => setShowCreateDialog(true)}
-        createNewLabel="Create Group"
-        emptyState={{
-          title: "No attribute groups found",
-          description: "Create your first group to organize your attributes.",
-          icon: <Layers className="w-8 h-8 text-muted-foreground" />
+        loadingRows={8}
+        emptyMessage={searchQuery ? 'No groups match your search.' : 'No attribute groups yet. Create your first group.'}
+        headerLabel="attribute groups"
+        onCreate={() => {
+          setError(null);
+          setShowCreateDialog(true);
         }}
+        createLabel="Add attribute group"
       />
 
-      {/* Create Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-          <DialogTitle>Create Attribute Group</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
-                Group Name *
-              </label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="e.g., Basic Information, Technical Specs"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
-                Code *
-              </label>
-              <Input
-                value={formData.code}
-                onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value }))}
-                placeholder="auto-generated"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
-                Description
-              </label>
-              <Input
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Brief description of this group..."
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
-                Sort Order
-              </label>
-              <Input
-                type="number"
-                value={formData.sort_order}
-                onChange={(e) => setFormData(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 1 }))}
-                min="1"
-              />
-            </div>
-            {error && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
-                {error}
-              </div>
-            )}
-            <div className="flex gap-2 pt-4">
-              <Button variant="outline" onClick={() => setShowCreateDialog(false)} className="flex-1">
-                Cancel
-              </Button>
-              <Button
-                onClick={handleCreate}
-                variant="accent-blue"
-                disabled={formLoading || !formData.name.trim() || !formData.code.trim()}
-                className="flex-1"
-              >
-                {formLoading ? 'Creating...' : 'Create Group'}
-              </Button>
-            </div>
+      <CenteredFormModal
+        open={showCreateDialog}
+        title="Create Attribute Group"
+        onOpenChange={setShowCreateDialog}
+        onCancel={() => setShowCreateDialog(false)}
+        onPrimaryAction={() => void handleCreate()}
+        primaryActionLabel="Create Group"
+        primaryActionDisabled={formLoading || !formData.name.trim()}
+        primaryActionLoading={formLoading}
+        primaryActionLoadingLabel="Creating..."
+      >
+        <div>
+          <label className="mb-2 block text-sm font-medium text-foreground">
+            Group Name *
+          </label>
+          <Input
+            value={formData.name}
+            onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+            placeholder="e.g., Basic Information, Technical Specs"
+          />
+        </div>
+        <div>
+          <label className="mb-2 block text-sm font-medium text-foreground">
+            Description
+          </label>
+          <Input
+            value={formData.description}
+            onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+            placeholder="Brief description of this group..."
+          />
+        </div>
+        {error && (
+          <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+            {error}
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+      </CenteredFormModal>
 
-      {/* Edit Dialog */}
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit Attribute Group</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
-                Group Name *
-              </label>
-              <Input
-                value={formData.name}
-                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="e.g., Basic Information, Technical Specs"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
-                Code *
-              </label>
-              <Input
-                value={formData.code}
-                onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value }))}
-                placeholder="auto-generated"
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
-                Description
-              </label>
-              <Input
-                value={formData.description}
-                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                placeholder="Brief description of this group..."
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">
-                Sort Order
-              </label>
-              <Input
-                type="number"
-                value={formData.sort_order}
-                onChange={(e) => setFormData(prev => ({ ...prev, sort_order: parseInt(e.target.value) || 1 }))}
-                min="1"
-              />
-            </div>
-            {error && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
-                {error}
-              </div>
-            )}
-            <div className="flex gap-2 pt-4">
-              <Button variant="outline" onClick={() => setShowEditDialog(false)} className="flex-1">
-                Cancel
-              </Button>
-              <Button
-                onClick={handleUpdate}
-                variant="accent-blue"
-                disabled={formLoading || !formData.name.trim() || !formData.code.trim()}
-                className="flex-1"
-              >
-                {formLoading ? 'Updating...' : 'Update Group'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Attribute Group</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Are you sure you want to delete "{selectedGroup?.name}"? This action cannot be undone.
-              All attributes in this group will be moved to "Uncategorized".
-            </p>
-            <p className="text-sm text-muted-foreground font-medium">
-              To confirm, type <span className="font-mono bg-muted px-1 rounded">delete</span> in the box below:
-            </p>
-            <Input
-              value={deleteConfirmation}
-              onChange={(e) => setDeleteConfirmation(e.target.value)}
-              placeholder="Type 'delete' to confirm"
-            />
-            {error && (
-              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
-                {error}
-              </div>
-            )}
-            <div className="flex gap-2 pt-4">
-              <Button variant="outline" onClick={() => setShowDeleteDialog(false)} className="flex-1">
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={formLoading || deleteConfirmation.toLowerCase() !== 'delete'}
-                className="flex-1"
-              >
-                {formLoading ? 'Deleting...' : 'Delete Group'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </PageContentContainer>
+    </SettingsPageContent>
   );
 }
 

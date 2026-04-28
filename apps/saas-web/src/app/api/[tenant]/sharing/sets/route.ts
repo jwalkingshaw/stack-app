@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Json } from "@stack-app/database";
 import { supabaseServer } from "@/lib/supabase";
+import { logSecurityEvent } from "@/lib/security-audit";
 import {
   isMissingColumnError,
   isMissingTableError,
@@ -23,6 +25,7 @@ type ShareSetItemRow = {
   market_ids?: string[] | null;
   channel_ids?: string[] | null;
   locale_ids?: string[] | null;
+  destination_ids?: string[] | null;
 };
 
 type PartnerShareSetGrantRow = {
@@ -58,6 +61,7 @@ type AssetSetSummary = {
   market_count: number;
   channel_count: number;
   locale_count: number;
+  destination_count: number;
   shared_with_member_count: number;
   grant_count: number;
   created_at: string | null;
@@ -76,6 +80,7 @@ type ProductSetSummary = {
   market_count: number;
   channel_count: number;
   locale_count: number;
+  destination_count: number;
   shared_with_member_count: number;
   grant_count: number;
   created_at: string | null;
@@ -110,16 +115,57 @@ function dedupeStringArray(values: unknown): string[] {
   return Array.from(out);
 }
 
-function isMissingShareSetFoundationError(error: any): boolean {
+function isMissingShareSetFoundationError(error: unknown): boolean {
   if (!error) return false;
+  if (typeof error !== "object") return false;
   if (isMissingTableError(error)) return true;
-  if (error?.code === "PGRST205") return true;
-  const message = String(error?.message || "").toLowerCase();
+  if ((error as { code?: string }).code === "PGRST205") return true;
+  const message = String((error as { message?: string }).message || "").toLowerCase();
   return (
     message.includes("share_sets") ||
     message.includes("share_set_items") ||
     message.includes("partner_share_set_grants")
   );
+}
+
+type ShareSetItemsSelectResult = {
+  data: ShareSetItemRow[] | null;
+  error: { code?: string; message?: string } | null;
+};
+
+async function queryShareSetItemsIncludingDestinations(params: {
+  organizationId: string;
+  setIds: string[];
+}): Promise<ShareSetItemsSelectResult> {
+  const dynamicSupabase = supabaseServer as unknown as {
+    from: (table: string) => {
+      select: (columns: string) => {
+        eq: (
+          column: string,
+          value: unknown
+        ) => {
+          in: (
+            column: string,
+            values: string[]
+          ) => Promise<{
+            data: unknown[] | null;
+            error: { code?: string; message?: string } | null;
+          }>;
+        };
+      };
+    };
+  };
+
+  const result = await dynamicSupabase
+    .from("share_set_items")
+    .select("share_set_id,resource_type,market_ids,channel_ids,locale_ids,destination_ids")
+    .eq("organization_id", params.organizationId)
+    .in("share_set_id", params.setIds);
+
+  return {
+    data: (result.data as ShareSetItemRow[] | null) || null,
+    error: result.error,
+  };
 }
 
 async function queryAssetSets(params: {
@@ -132,7 +178,7 @@ async function queryAssetSets(params: {
   const rangeFrom = (page - 1) * pageSize;
   const rangeTo = rangeFrom + pageSize - 1;
 
-  let withFolders = (supabaseServer as any)
+  let withFolders = supabaseServer
     .from("dam_collections")
     .select("id,name,asset_ids,folder_ids,created_at,updated_at", {
       count: "exact",
@@ -154,7 +200,7 @@ async function queryAssetSets(params: {
     return withFoldersResult;
   }
 
-  let withoutFolders = (supabaseServer as any)
+  let withoutFolders = supabaseServer
     .from("dam_collections")
     .select("id,name,asset_ids,created_at,updated_at", {
       count: "exact",
@@ -181,7 +227,7 @@ async function queryShareSetSummaries(params: {
   const rangeFrom = (page - 1) * pageSize;
   const rangeTo = rangeFrom + pageSize - 1;
 
-  let query = (supabaseServer as any)
+  let query = supabaseServer
     .from("share_sets")
     .select("id,module_key,name,description,created_at,updated_at", {
       count: "exact",
@@ -218,19 +264,36 @@ async function queryShareSetSummaries(params: {
 
   const setIds = setRows.map((row) => row.id);
 
-  const [itemResult, grantResult] = await Promise.all([
-    (supabaseServer as any)
-      .from("share_set_items")
-      .select("share_set_id,resource_type,market_ids,channel_ids,locale_ids")
-      .eq("organization_id", organizationId)
-      .in("share_set_id", setIds),
-    (supabaseServer as any)
+  const [itemResultWithDestination, grantResult] = await Promise.all([
+    queryShareSetItemsIncludingDestinations({
+      organizationId,
+      setIds,
+    }),
+    supabaseServer
       .from("partner_share_set_grants")
       .select("share_set_id,partner_organization_id,status")
       .eq("organization_id", organizationId)
       .eq("status", "active")
       .in("share_set_id", setIds),
   ]);
+
+  let itemResult = itemResultWithDestination;
+  if (itemResult.error && isMissingColumnError(itemResult.error)) {
+    const legacyItemResult = await supabaseServer
+      .from("share_set_items")
+      .select("share_set_id,resource_type,market_ids,channel_ids,locale_ids")
+      .eq("organization_id", organizationId)
+      .in("share_set_id", setIds);
+    itemResult = {
+      data: (legacyItemResult.data as unknown as ShareSetItemRow[] | null) || null,
+      error: legacyItemResult.error
+        ? {
+            code: legacyItemResult.error.code,
+            message: legacyItemResult.error.message,
+          }
+        : null,
+    };
+  }
 
   if (itemResult.error) {
     return { data: null, error: itemResult.error };
@@ -242,7 +305,7 @@ async function queryShareSetSummaries(params: {
   return {
     data: {
       rows: setRows,
-      itemRows: (itemResult.data || []) as ShareSetItemRow[],
+      itemRows: ((itemResult.data || []) as unknown) as ShareSetItemRow[],
       grantRows: (grantResult.data || []) as PartnerShareSetGrantRow[],
       total: setsResult.count || 0,
     },
@@ -287,7 +350,7 @@ async function countShareSetsByModule(
   organizationId: string,
   moduleKey: ShareSetModule
 ): Promise<number> {
-  const { count, error } = await (supabaseServer as any)
+  const { count, error } = await supabaseServer
     .from("share_sets")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
@@ -317,6 +380,7 @@ function summarizeShareSets(params: {
       marketIds: Set<string>;
       channelIds: Set<string>;
       localeIds: Set<string>;
+      destinationIds: Set<string>;
     }
   >();
 
@@ -332,23 +396,31 @@ function summarizeShareSets(params: {
         marketIds: new Set<string>(),
         channelIds: new Set<string>(),
         localeIds: new Set<string>(),
+        destinationIds: new Set<string>(),
       };
 
     const marketIds = dedupeStringArray(row.market_ids);
     const channelIds = dedupeStringArray(row.channel_ids);
     const localeIds = dedupeStringArray(row.locale_ids);
+    const destinationIds = dedupeStringArray(row.destination_ids);
 
     if (row.resource_type === "asset") current.asset += 1;
     if (row.resource_type === "folder") current.folder += 1;
     if (row.resource_type === "product") current.product += 1;
     if (row.resource_type === "variant") current.variant += 1;
     current.total += 1;
-    if (marketIds.length > 0 || channelIds.length > 0 || localeIds.length > 0) {
+    if (
+      marketIds.length > 0 ||
+      channelIds.length > 0 ||
+      localeIds.length > 0 ||
+      destinationIds.length > 0
+    ) {
       current.scoped += 1;
     }
     for (const id of marketIds) current.marketIds.add(id);
     for (const id of channelIds) current.channelIds.add(id);
     for (const id of localeIds) current.localeIds.add(id);
+    for (const id of destinationIds) current.destinationIds.add(id);
     itemCounts.set(row.share_set_id, current);
   }
 
@@ -380,6 +452,7 @@ function summarizeShareSets(params: {
       marketIds: new Set<string>(),
       channelIds: new Set<string>(),
       localeIds: new Set<string>(),
+      destinationIds: new Set<string>(),
     };
     const grants = grantCounts.get(row.id);
     const base = {
@@ -390,6 +463,7 @@ function summarizeShareSets(params: {
       market_count: counts.marketIds.size,
       channel_count: counts.channelIds.size,
       locale_count: counts.localeIds.size,
+      destination_count: counts.destinationIds.size,
       shared_with_member_count: grants?.partnerIds.size || 0,
       grant_count: grants?.total || 0,
       created_at: row.created_at || null,
@@ -442,7 +516,7 @@ async function buildLegacyAssetSetSummaries(params: {
   const grantCounts = new Map<string, { memberIds: Set<string>; permissionCount: number }>();
 
   if (ids.length > 0) {
-    const { data: grants, error: grantsError } = await (supabaseServer as any)
+    const { data: grants, error: grantsError } = await supabaseServer
       .from("member_scope_permissions")
       .select("collection_id,member_id,permission_key")
       .eq("organization_id", organizationId)
@@ -486,6 +560,7 @@ async function buildLegacyAssetSetSummaries(params: {
       market_count: 0,
       channel_count: 0,
       locale_count: 0,
+      destination_count: 0,
       shared_with_member_count: grants?.memberIds.size || 0,
       grant_count: grants?.permissionCount || 0,
       created_at: row.created_at || null,
@@ -502,8 +577,96 @@ async function buildLegacyAssetSetSummaries(params: {
   };
 }
 
+async function queryCompactShareSetOptions(params: {
+  organizationId: string;
+  searchTerm: string;
+  page: number;
+  pageSize: number;
+  moduleFilter: "all" | ShareSetModule;
+}) {
+  const { organizationId, searchTerm, page, pageSize, moduleFilter } = params;
+  const rangeFrom = (page - 1) * pageSize;
+  const rangeTo = rangeFrom + pageSize - 1;
+
+  let query = supabaseServer
+    .from("share_sets")
+    .select("id,module_key,name", {
+      count: "exact",
+    })
+    .eq("organization_id", organizationId)
+    .order("name", { ascending: true })
+    .range(rangeFrom, rangeTo);
+
+  if (moduleFilter !== "all") {
+    query = query.eq("module_key", moduleFilter);
+  }
+  if (searchTerm) {
+    query = query.ilike("name", `%${searchTerm}%`);
+  }
+
+  const result = await query;
+  if (!result.error) {
+    const rows = (result.data || []) as Array<{ id: string; module_key: ShareSetModule; name: string }>;
+    return {
+      success: true as const,
+      data: {
+        asset_sets: rows
+          .filter((row) => row.module_key === "assets")
+          .map((row) => ({ id: row.id, name: row.name })),
+        product_sets: rows
+          .filter((row) => row.module_key === "products")
+          .map((row) => ({ id: row.id, name: row.name })),
+      },
+      meta: {
+        page,
+        page_size: pageSize,
+        total_asset_sets:
+          moduleFilter === "assets" ? result.count || 0 : moduleFilter === "products" ? 0 : undefined,
+        total_product_sets:
+          moduleFilter === "products" ? result.count || 0 : moduleFilter === "assets" ? 0 : undefined,
+      },
+    };
+  }
+
+  if (!isMissingShareSetFoundationError(result.error) || moduleFilter === "products") {
+    return {
+      success: false as const,
+      error: result.error,
+    };
+  }
+
+  const legacyResult = await queryAssetSets({
+    organizationId,
+    searchTerm,
+    page,
+    pageSize,
+  });
+
+  if (legacyResult.error) {
+    return {
+      success: false as const,
+      error: legacyResult.error,
+    };
+  }
+
+  const rows = (legacyResult.data || []) as AssetSetRow[];
+  return {
+    success: true as const,
+    data: {
+      asset_sets: rows.map((row) => ({ id: row.id, name: row.name })),
+      product_sets: [],
+    },
+    meta: {
+      page,
+      page_size: pageSize,
+      total_asset_sets: legacyResult.count || 0,
+      total_product_sets: 0,
+    },
+  };
+}
+
 // GET /api/[tenant]/sharing/sets
-// Scalable "set catalog" endpoint: returns summary-only rows (counts, no full item payloads).
+// Scalable saved-scope catalog endpoint. Legacy route name is kept for compatibility.
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string }> }
@@ -516,6 +679,7 @@ export async function GET(
     const { organization } = access.context;
     const url = new URL(request.url);
     const moduleFilterRaw = (url.searchParams.get("module") || "all").toLowerCase();
+    const compact = url.searchParams.get("compact") === "1";
     const searchTerm = (url.searchParams.get("search") || "").trim();
     const page = parsePositiveInt(url.searchParams.get("page"), 1, 100000);
     const pageSize = parsePositiveInt(url.searchParams.get("pageSize"), 25, 100);
@@ -527,6 +691,40 @@ export async function GET(
       );
     }
     const moduleFilter = moduleFilterRaw as "all" | ShareSetModule;
+
+    if (compact) {
+      const compactResult = await queryCompactShareSetOptions({
+        organizationId: organization.id,
+        searchTerm,
+        page,
+        pageSize,
+        moduleFilter,
+      });
+
+      if (compactResult.success) {
+        return NextResponse.json({
+          success: true,
+          data: compactResult.data,
+          aliases: {
+            asset_saved_scopes: compactResult.data.asset_sets,
+            product_saved_scopes: compactResult.data.product_sets,
+          },
+          meta: compactResult.meta,
+          capabilities: {
+            product_sets_enabled: true,
+            share_sets_v2: true,
+            compact: true,
+          },
+        });
+      }
+
+      if (!isMissingShareSetFoundationError(compactResult.error)) {
+        return NextResponse.json(
+          { error: "Failed to load saved scope options" },
+          { status: 500 }
+        );
+      }
+    }
 
     const shareSetResult = await queryShareSetSummaries({
       organizationId: organization.id,
@@ -554,7 +752,7 @@ export async function GET(
           totalProductSets = totals.data.totalProductSets;
         }
       } catch (totalsError) {
-        console.error("Error counting share sets by module:", totalsError);
+        console.error("Error counting saved scopes by module:", totalsError);
       }
 
       const activeGrantCount = shareSetResult.data.grantRows.length;
@@ -569,6 +767,8 @@ export async function GET(
         data: {
           asset_sets: assetSets,
           product_sets: productSets,
+          asset_saved_scopes: assetSets,
+          product_saved_scopes: productSets,
         },
         meta: {
           page,
@@ -588,7 +788,7 @@ export async function GET(
 
     if (!isMissingShareSetFoundationError(shareSetResult.error)) {
       return NextResponse.json(
-        { error: "Failed to load share set summaries" },
+        { error: "Failed to load saved scope summaries" },
         { status: 500 }
       );
     }
@@ -599,6 +799,8 @@ export async function GET(
         data: {
           asset_sets: [],
           product_sets: [],
+          asset_saved_scopes: [],
+          product_saved_scopes: [],
         },
         meta: {
           page,
@@ -622,17 +824,19 @@ export async function GET(
 
     if (legacyResult.error || !legacyResult.data) {
       return NextResponse.json(
-        { error: "Failed to load asset share sets" },
+        { error: "Failed to load asset saved scopes" },
         { status: 500 }
       );
     }
 
     return NextResponse.json({
       success: true,
-      data: {
-        asset_sets: legacyResult.data.assetSets,
-        product_sets: [],
-      },
+        data: {
+          asset_sets: legacyResult.data.assetSets,
+          product_sets: [],
+          asset_saved_scopes: legacyResult.data.assetSets,
+          product_saved_scopes: [],
+        },
       meta: {
         page,
         page_size: pageSize,
@@ -651,7 +855,7 @@ export async function GET(
 }
 
 // POST /api/[tenant]/sharing/sets
-// Creates a new share set header. Item membership is handled by dedicated module APIs.
+// Creates a new saved scope header. Legacy route name is kept for compatibility.
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string }> }
@@ -689,14 +893,14 @@ export async function POST(
         ? body.metadata
         : {};
 
-    const insertResult = await (supabaseServer as any)
+    const insertResult = await supabaseServer
       .from("share_sets")
       .insert({
         organization_id: organization.id,
         module_key: moduleValue,
         name,
         description,
-        metadata,
+        metadata: metadata as Json,
         created_by: userId,
       })
       .select("id,module_key,name,description,created_at,updated_at")
@@ -704,7 +908,7 @@ export async function POST(
 
     if (insertResult.error) {
       if (isMissingShareSetFoundationError(insertResult.error) && moduleValue === "assets") {
-        const legacyInsert = await (supabaseServer as any)
+        const legacyInsert = await supabaseServer
           .from("dam_collections")
           .insert({
             organization_id: organization.id,
@@ -718,10 +922,24 @@ export async function POST(
 
         if (legacyInsert.error || !legacyInsert.data) {
           return NextResponse.json(
-            { error: "Failed to create asset share set" },
+            { error: "Failed to create asset saved scope" },
             { status: 500 }
           );
         }
+
+        await logSecurityEvent(supabaseServer, {
+          organizationId: organization.id,
+          actorUserId: userId,
+          action: "sharing.set.created",
+          resourceType: "share_set",
+          resourceId: legacyInsert.data.id,
+          userAgent: request.headers.get("user-agent"),
+          metadata: {
+            module_key: "assets",
+            legacy_collection_fallback: true,
+            name,
+          },
+        });
 
         return NextResponse.json(
           {
@@ -744,13 +962,26 @@ export async function POST(
 
       if (insertResult.error.code === "23505") {
         return NextResponse.json(
-          { error: "A share set with this name already exists for this module" },
+          { error: "A saved scope with this name already exists for this module" },
           { status: 409 }
         );
       }
 
-      return NextResponse.json({ error: "Failed to create share set" }, { status: 500 });
+      return NextResponse.json({ error: "Failed to create saved scope" }, { status: 500 });
     }
+
+    await logSecurityEvent(supabaseServer, {
+      organizationId: organization.id,
+      actorUserId: userId,
+      action: "sharing.set.created",
+      resourceType: "share_set",
+      resourceId: insertResult.data.id,
+      userAgent: request.headers.get("user-agent"),
+      metadata: {
+        module_key: moduleValue,
+        name,
+      },
+    });
 
     return NextResponse.json(
       {

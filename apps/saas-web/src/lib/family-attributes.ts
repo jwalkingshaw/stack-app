@@ -1,4 +1,5 @@
 import { supabaseServer } from '@/lib/supabase';
+import type { Database, Json } from '@stack-app/database';
 
 type FamilyAttributeSeed = {
   attribute_code: string;
@@ -6,8 +7,8 @@ type FamilyAttributeSeed = {
   attribute_type: string;
   is_required: boolean;
   is_unique: boolean;
-  validation_rules: Record<string, any>;
-  attribute_options: any[];
+  validation_rules: Json;
+  attribute_options: Json;
   help_text: string | null;
 };
 
@@ -27,6 +28,10 @@ type CompletenessScope = {
   destinationId?: string | null;
 };
 
+type CompletenessEvaluationOptions = {
+  syncFamilyAttributes?: boolean;
+};
+
 type FieldValueRow = {
   product_field_id: string;
   value_text: string | null;
@@ -34,7 +39,7 @@ type FieldValueRow = {
   value_boolean: boolean | null;
   value_date: string | null;
   value_datetime: string | null;
-  value_json: any;
+  value_json: unknown;
   locale: string | null;
   channel: string | null;
   locale_id: string | null;
@@ -42,6 +47,52 @@ type FieldValueRow = {
   market_id: string | null;
   destination_id: string | null;
 };
+
+type FamilyFieldGroupRow = {
+  field_group_id: string;
+  sort_order: number | null;
+  hidden_fields: string[] | null;
+};
+
+type ProductFieldDefinitionRow = {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  field_type: string;
+  is_required: boolean | null;
+  is_unique: boolean | null;
+  validation_rules: Record<string, unknown> | null;
+  options: unknown;
+};
+
+type FieldAssignmentRow = {
+  field_group_id: string;
+  sort_order: number | null;
+  product_fields: ProductFieldDefinitionRow | null;
+};
+
+type FamilyRow = {
+  id: string;
+  organization_id: string;
+};
+
+type RequiredAttributeRow = {
+  attribute_code: string;
+  attribute_label: string;
+  attribute_type: string;
+};
+
+type ProductFieldRow = {
+  id: string;
+  code: string;
+  field_type: string;
+  is_localizable: boolean | null;
+  is_channelable: boolean | null;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
 
 const normalizeScopeToken = (value: string | null | undefined): string | null => {
   if (typeof value !== 'string') return null;
@@ -161,13 +212,13 @@ const doesRowMatchScopedContext = (params: {
   return true;
 };
 
-const isValuePresent = (fieldType: string, value: any): boolean => {
+const isValuePresent = (fieldType: string, value: unknown): boolean => {
   if (value === null || value === undefined) return false;
 
-  const hasNonEmptyString = (val: any) => String(val).trim().length > 0;
-  const hasArrayItems = (val: any) => Array.isArray(val) && val.length > 0;
-  const hasObjectKeys = (val: any) =>
-    !!val && typeof val === 'object' && !Array.isArray(val) && Object.keys(val).length > 0;
+  const hasNonEmptyString = (val: unknown) => String(val).trim().length > 0;
+  const hasArrayItems = (val: unknown): val is unknown[] => Array.isArray(val) && val.length > 0;
+  const hasObjectKeys = (val: unknown): val is Record<string, unknown> =>
+    isRecord(val) && Object.keys(val).length > 0;
 
   switch (fieldType) {
     case 'text':
@@ -196,8 +247,8 @@ const isValuePresent = (fieldType: string, value: any): boolean => {
       if (fieldType === 'file' || fieldType === 'image') {
         if (hasArrayItems(value)) return true;
         if (hasObjectKeys(value)) {
-          const assetId = (value as any).assetId || (value as any).id || (value as any).asset_id;
-          const url = (value as any).url || (value as any).s3Url || (value as any).s3_url;
+          const assetId = value.assetId || value.id || value.asset_id;
+          const url = value.url || value.s3Url || value.s3_url;
           return Boolean(assetId || url);
         }
         return false;
@@ -205,7 +256,7 @@ const isValuePresent = (fieldType: string, value: any): boolean => {
 
       if (fieldType === 'price') {
         if (hasObjectKeys(value)) {
-          const amount = (value as any).amount ?? (value as any).value;
+          const amount = value.amount ?? value.value;
           return amount !== null && amount !== undefined && hasNonEmptyString(amount);
         }
         return hasNonEmptyString(value);
@@ -213,14 +264,16 @@ const isValuePresent = (fieldType: string, value: any): boolean => {
 
       if (fieldType === 'measurement') {
         if (hasObjectKeys(value)) {
-          const components = (value as any).components;
-          if (components && typeof components === 'object') {
-            return Object.values(components).some((component: any) => {
-              const amount = component?.amount ?? component?.value ?? component?.measurement;
+          const components = value.components;
+          if (isRecord(components)) {
+            return Object.values(components).some((component) => {
+              const componentRecord = isRecord(component) ? component : null;
+              const amount =
+                componentRecord?.amount ?? componentRecord?.value ?? componentRecord?.measurement;
               return amount !== null && amount !== undefined && hasNonEmptyString(amount);
             });
           }
-          const amount = (value as any).amount ?? (value as any).value ?? (value as any).measurement;
+          const amount = value.amount ?? value.value ?? value.measurement;
           return amount !== null && amount !== undefined && hasNonEmptyString(amount);
         }
         return hasNonEmptyString(value);
@@ -238,11 +291,11 @@ const isValuePresent = (fieldType: string, value: any): boolean => {
   }
 };
 
-const normalizeAttributeOptions = (fieldType: string, options: any): any[] => {
-  if (!options || typeof options !== 'object') return [];
+const normalizeAttributeOptions = (fieldType: string, options: unknown): Json => {
+  if (!isRecord(options)) return [];
 
   if (fieldType === 'select' || fieldType === 'multiselect') {
-    const { options: rawOptions } = options as { options?: any[] };
+    const rawOptions = options.options;
     return Array.isArray(rawOptions) ? rawOptions : [];
   }
 
@@ -250,10 +303,9 @@ const normalizeAttributeOptions = (fieldType: string, options: any): any[] => {
 };
 
 const buildFamilyAttributeSeeds = async (
-  familyId: string,
-  organizationId: string
+  familyId: string
 ): Promise<FamilyAttributeSeed[]> => {
-  const { data: familyGroups, error: familyGroupsError } = await (supabaseServer as any)
+  const { data: familyGroupsRaw, error: familyGroupsError } = await supabaseServer
     .from('product_family_field_groups')
     .select('field_group_id, sort_order, hidden_fields')
     .eq('product_family_id', familyId)
@@ -264,21 +316,22 @@ const buildFamilyAttributeSeeds = async (
     throw new Error('Failed to load family field groups');
   }
 
-  if (!familyGroups || familyGroups.length === 0) {
+  const familyGroups = (familyGroupsRaw || []) as FamilyFieldGroupRow[];
+  if (familyGroups.length === 0) {
     return [];
   }
 
   const groupOrder = new Map<string, number>();
   const hiddenByGroup = new Map<string, Set<string>>();
 
-  familyGroups.forEach((group: any) => {
+  familyGroups.forEach((group) => {
     groupOrder.set(group.field_group_id, group.sort_order ?? 0);
-    const hidden = Array.isArray(group.hidden_fields) ? group.hidden_fields : [];
+    const hidden = Array.isArray(group.hidden_fields) ? group.hidden_fields.map(String) : [];
     hiddenByGroup.set(group.field_group_id, new Set(hidden));
   });
 
-  const groupIds = familyGroups.map((group: any) => group.field_group_id);
-  const { data: assignments, error: assignmentsError } = await (supabaseServer as any)
+  const groupIds = familyGroups.map((group) => group.field_group_id);
+  const { data: assignmentsRaw, error: assignmentsError } = await supabaseServer
     .from('product_field_group_assignments')
     .select(`
       field_group_id,
@@ -302,7 +355,8 @@ const buildFamilyAttributeSeeds = async (
     throw new Error('Failed to load field group assignments');
   }
 
-  const sortedAssignments = (assignments || []).sort((a: any, b: any) => {
+  const assignments = (assignmentsRaw || []) as FieldAssignmentRow[];
+  const sortedAssignments = assignments.sort((a, b) => {
     const groupSortA = groupOrder.get(a.field_group_id) ?? 0;
     const groupSortB = groupOrder.get(b.field_group_id) ?? 0;
     if (groupSortA !== groupSortB) return groupSortA - groupSortB;
@@ -312,7 +366,7 @@ const buildFamilyAttributeSeeds = async (
   const seeds: FamilyAttributeSeed[] = [];
   const seenCodes = new Set<string>();
 
-  sortedAssignments.forEach((assignment: any) => {
+  sortedAssignments.forEach((assignment) => {
     const field = assignment.product_fields;
     if (!field) return;
 
@@ -328,7 +382,7 @@ const buildFamilyAttributeSeeds = async (
       attribute_type: field.field_type,
       is_required: Boolean(field.is_required),
       is_unique: Boolean(field.is_unique),
-      validation_rules: field.validation_rules || {},
+      validation_rules: (field.validation_rules || {}) as Json,
       attribute_options: normalizeAttributeOptions(field.field_type, field.options),
       help_text: field.description || null
     });
@@ -340,22 +394,23 @@ const buildFamilyAttributeSeeds = async (
 export async function ensureFamilyAttributesFromFieldGroups(
   familyId: string
 ): Promise<{ total: number; inserted: number; removed: number }> {
-  const { data: family, error: familyError } = await (supabaseServer as any)
+  const { data: familyRaw, error: familyError } = await supabaseServer
     .from('product_families')
     .select('id, organization_id')
     .eq('id', familyId)
     .single();
 
+  const family = familyRaw as FamilyRow | null;
   if (familyError || !family) {
     console.error('Error loading family for attribute sync:', familyError);
     throw new Error('Product family not found');
   }
 
-  const organizationId = (family as any).organization_id;
-  const seeds = await buildFamilyAttributeSeeds(familyId, organizationId);
+  const organizationId = family.organization_id;
+  const seeds = await buildFamilyAttributeSeeds(familyId);
 
   if (seeds.length === 0) {
-    const { error: deleteError } = await (supabaseServer as any)
+    const { error: deleteError } = await supabaseServer
       .from('family_attributes')
       .delete()
       .eq('family_id', familyId)
@@ -369,7 +424,7 @@ export async function ensureFamilyAttributesFromFieldGroups(
     return { total: 0, inserted: 0, removed: 0 };
   }
 
-  const upsertPayload = seeds.map((seed, index) => ({
+  const upsertPayload: Database['public']['Tables']['family_attributes']['Insert'][] = seeds.map((seed, index) => ({
     organization_id: organizationId,
     family_id: familyId,
     display_order: index,
@@ -379,7 +434,7 @@ export async function ensureFamilyAttributesFromFieldGroups(
     updated_at: new Date().toISOString()
   }));
 
-  const { data: upserted, error: upsertError } = await (supabaseServer as any)
+  const { data: upserted, error: upsertError } = await supabaseServer
     .from('family_attributes')
     .upsert(upsertPayload, {
       onConflict: 'organization_id,family_id,attribute_code'
@@ -392,7 +447,7 @@ export async function ensureFamilyAttributesFromFieldGroups(
   }
 
   const codeList = seeds.map((seed) => `"${seed.attribute_code}"`).join(',');
-  const { error: deleteError } = await (supabaseServer as any)
+  const { error: deleteError } = await supabaseServer
     .from('family_attributes')
     .delete()
     .eq('family_id', familyId)
@@ -414,8 +469,9 @@ export async function evaluateProductCompleteness(
   organizationId: string,
   productId: string,
   familyId?: string | null,
-  overrides: Record<string, any> = {},
-  scope: CompletenessScope = {}
+  overrides: Record<string, unknown> = {},
+  scope: CompletenessScope = {},
+  options: CompletenessEvaluationOptions = {}
 ): Promise<FamilyAttributeCompletion> {
   if (!familyId) {
     return {
@@ -426,9 +482,11 @@ export async function evaluateProductCompleteness(
     };
   }
 
-  await ensureFamilyAttributesFromFieldGroups(familyId);
+  if (options.syncFamilyAttributes !== false) {
+    await ensureFamilyAttributesFromFieldGroups(familyId);
+  }
 
-  const { data: requiredAttributes, error: requiredError } = await (supabaseServer as any)
+  const { data: requiredAttributesRaw, error: requiredError } = await supabaseServer
     .from('family_attributes')
     .select('attribute_code, attribute_label, attribute_type')
     .eq('family_id', familyId)
@@ -441,7 +499,8 @@ export async function evaluateProductCompleteness(
     throw new Error('Failed to load required attributes');
   }
 
-  if (!requiredAttributes || requiredAttributes.length === 0) {
+  const requiredAttributes = (requiredAttributesRaw || []) as RequiredAttributeRow[];
+  if (requiredAttributes.length === 0) {
     return {
       isComplete: true,
       requiredCount: 0,
@@ -450,8 +509,8 @@ export async function evaluateProductCompleteness(
     };
   }
 
-  const requiredCodes = requiredAttributes.map((attr: any) => attr.attribute_code);
-  const { data: fields, error: fieldsError } = await (supabaseServer as any)
+  const requiredCodes = requiredAttributes.map((attr) => attr.attribute_code);
+  const { data: fieldsRaw, error: fieldsError } = await supabaseServer
     .from('product_fields')
     .select('id, code, field_type, is_localizable, is_channelable')
     .eq('organization_id', organizationId)
@@ -466,7 +525,8 @@ export async function evaluateProductCompleteness(
     string,
     { id: string; type: string; isLocalizable: boolean; isChannelable: boolean }
   >();
-  (fields || []).forEach((field: any) => {
+  const fields = (fieldsRaw || []) as ProductFieldRow[];
+  fields.forEach((field) => {
     fieldMap.set(field.code, {
       id: field.id,
       type: field.field_type,
@@ -476,8 +536,8 @@ export async function evaluateProductCompleteness(
   });
 
   const fieldIds = Array.from(fieldMap.values()).map((field) => field.id);
-  const { data: fieldValues, error: valuesError } = fieldIds.length
-    ? await (supabaseServer as any)
+  const { data: fieldValuesRaw, error: valuesError } = fieldIds.length
+    ? await supabaseServer
         .from('product_field_values')
         .select(`
           product_field_id,
@@ -513,7 +573,8 @@ export async function evaluateProductCompleteness(
   };
 
   const valuesByFieldId = new Map<string, FieldValueRow[]>();
-  (fieldValues || []).forEach((valueRow: any) => {
+  const fieldValues = (fieldValuesRaw || []) as Array<Partial<FieldValueRow>>;
+  fieldValues.forEach((valueRow) => {
     const normalizedRow: FieldValueRow = {
       product_field_id: String(valueRow.product_field_id || ''),
       value_text: valueRow.value_text ?? null,
@@ -540,7 +601,7 @@ export async function evaluateProductCompleteness(
   const missingAttributes: Array<{ code: string; label: string }> = [];
   let completeCount = 0;
 
-  requiredAttributes.forEach((attr: any) => {
+  requiredAttributes.forEach((attr) => {
     const code = attr.attribute_code;
     const label = attr.attribute_label;
     const fieldInfo = fieldMap.get(code);

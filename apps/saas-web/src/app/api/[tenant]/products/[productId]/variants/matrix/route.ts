@@ -81,7 +81,14 @@ function buildCombinations(axes: Record<string, string[]>): Array<Record<string,
   return output;
 }
 
-function buildAttributeKey(attributes: Record<string, any>): string {
+function asAttributeRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return value as Record<string, unknown>;
+}
+
+function buildAttributeKey(attributes: Record<string, unknown>): string {
   return Object.keys(attributes)
     .sort()
     .map((key) => `${key.toLowerCase()}=${String(attributes[key] ?? "").trim().toLowerCase()}`)
@@ -166,8 +173,8 @@ type ExistingVariant = {
   sku: string | null;
   product_name: string | null;
   status: string | null;
-  variant_attributes: Record<string, any> | null;
-  variant_axis: Record<string, any> | null;
+  variant_attributes: Record<string, unknown> | null;
+  variant_axis: Record<string, unknown> | null;
 };
 
 async function resolveParentProduct(params: {
@@ -318,10 +325,10 @@ export async function POST(
         usedScins.add(variant.scin.trim().toUpperCase());
       }
 
+      const variantAttributes = asAttributeRecord(variant.variant_attributes);
+      const variantAxis = asAttributeRecord(variant.variant_axis);
       const attrs =
-        (variant.variant_attributes as Record<string, any> | null) ||
-        (variant.variant_axis as Record<string, any> | null) ||
-        {};
+        Object.keys(variantAttributes).length > 0 ? variantAttributes : variantAxis;
       const key = buildAttributeKey(attrs);
       if (key && !existingByAttributes.has(key)) {
         existingByAttributes.set(key, variant as ExistingVariant);

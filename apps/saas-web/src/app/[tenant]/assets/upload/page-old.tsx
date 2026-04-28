@@ -1,19 +1,18 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import NextImage from "next/image";
+import { useParams, useRouter } from "next/navigation";
 import {
   Upload,
   ArrowLeft,
   CheckCircle,
   AlertCircle,
-  AlertTriangle,
-  Download,
-  Save
+  AlertTriangle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FileUpload, AssetMetadataTable, AssetMetadata, validateAssetMetadata, ProductLinkSuggestions } from "@stack-app/ui";
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
 
 // Upload workflow steps
 type UploadStep = 'select' | 'metadata' | 'uploading' | 'complete';
@@ -29,7 +28,6 @@ const STORAGE_KEYS = {
 export default function UploadPage() {
   const params = useParams();
   const router = useRouter();
-  const searchParams = useSearchParams();
   
   const tenantSlug = params.tenant as string;
   
@@ -41,7 +39,7 @@ export default function UploadPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [productLinks, setProductLinks] = useState<Record<string, {productId: string, linkContext: string, confidence: number}>>({});
   const [availableProducts, setAvailableProducts] = useState<{id: string, sku: string, productName: string, brand: string}[]>([]);
-  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [, setIsLoadingProducts] = useState(true);
 
   // Load persisted state and products on mount
   useEffect(() => {
@@ -124,6 +122,7 @@ export default function UploadPage() {
         
         // Required baseline metadata with defaults
         assetScope: 'Product' as const, // Default to Product, user can change
+        assetStatus: 'draft' as const,
         folder: 'Main',
         tags: [],
         
@@ -337,7 +336,7 @@ export default function UploadPage() {
   return (
       <div className="min-h-screen bg-background flex flex-col">
         {/* Header */}
-        <div className="bg-card border-b border-border sticky top-0 z-10">
+        <div className="bg-card border-b border-gray-200 sticky top-0 z-10">
           <div className="max-w-7xl mx-auto px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
@@ -414,7 +413,7 @@ export default function UploadPage() {
               <FileUpload
                 onFilesSelected={handleFilesSelected}
                 maxFiles={50}
-                maxFileSize={100 * 1024 * 1024} // 100MB
+                maxFileSize={1024 * 1024 * 1024} // 1GB platform safety cap
               />
             </div>
           )}
@@ -466,10 +465,10 @@ export default function UploadPage() {
               />
 
               <div className="flex justify-center mt-4">
-                <Button 
+                <Button
                   variant="outline"
                   onClick={handleBackToSelect}
-                  className="mr-4"
+                  className="mr-4 border-0 shadow-none"
                 >
                   ← Back to File Selection
                 </Button>
@@ -482,7 +481,7 @@ export default function UploadPage() {
             <div className="max-w-2xl mx-auto">
               <div className="text-center mb-8">
                 <div className="w-16 h-16 mx-auto mb-4 bg-primary/10 rounded-full flex items-center justify-center">
-                  <LoadingSpinner size="lg" color="primary" />
+                  <LoadingSkeleton size="lg" color="primary" />
                 </div>
                 <h2 className="text-xl font-semibold mb-2">Processing Uploads</h2>
                 <p className="text-muted-foreground">
@@ -499,7 +498,14 @@ export default function UploadPage() {
                     <div key={fileData.id} className="flex items-center gap-4 p-3 bg-card rounded-lg border">
                       <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center flex-shrink-0">
                         {fileData.preview ? (
-                          <img src={fileData.preview} alt="" className="w-full h-full object-cover rounded-lg" />
+                          <NextImage
+                            src={fileData.preview}
+                            alt=""
+                            className="w-full h-full object-cover rounded-lg"
+                            width={48}
+                            height={48}
+                            unoptimized
+                          />
                         ) : (
                           <span className="text-lg">📄</span>
                         )}
@@ -564,3 +570,4 @@ export default function UploadPage() {
       </div>
   );
 }
+

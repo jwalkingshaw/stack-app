@@ -6,6 +6,12 @@ import {
   supabase,
 } from "../_shared";
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function parseHiddenFields(input: unknown): string[] {
   if (!Array.isArray(input)) return [];
   return input
@@ -60,14 +66,14 @@ export async function PATCH(
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
     }
 
-    const body = await request.json().catch(() => ({}));
-    const updates: Record<string, any> = {};
+    const body = asRecord(await request.json().catch(() => ({})));
+    const updates: Record<string, unknown> = {};
 
-    if (Object.prototype.hasOwnProperty.call(body || {}, "hidden_fields")) {
-      updates.hidden_fields = parseHiddenFields(body?.hidden_fields);
+    if (Object.prototype.hasOwnProperty.call(body, "hidden_fields")) {
+      updates.hidden_fields = parseHiddenFields(body.hidden_fields);
     }
 
-    if (Number.isFinite(Number(body?.sort_order))) {
+    if (Number.isFinite(Number(body.sort_order))) {
       updates.sort_order = Number(body.sort_order);
     }
 
@@ -88,14 +94,15 @@ export async function PATCH(
       return NextResponse.json({ error: "Failed to update assignment." }, { status: 500 });
     }
 
-    invalidateFamilyFieldGroupsCache({
+    await invalidateFamilyFieldGroupsCache({
       organizationId: familyContext.organizationId,
       familyId: familyContext.familyId,
     });
 
+    const dataRecord = asRecord(data);
     return NextResponse.json({
       ...data,
-      hidden_fields: parseHiddenFields((data as any).hidden_fields),
+      hidden_fields: parseHiddenFields(dataRecord.hidden_fields),
     });
   } catch (error) {
     console.error("Error in family field groups assignment PATCH:", error);
@@ -148,7 +155,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Failed to remove assignment." }, { status: 500 });
     }
 
-    invalidateFamilyFieldGroupsCache({
+    await invalidateFamilyFieldGroupsCache({
       organizationId: familyContext.organizationId,
       familyId: familyContext.familyId,
     });

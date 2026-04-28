@@ -13,8 +13,8 @@ interface VariantAttribute {
   field_description?: string;
   sort_order: number;
   is_required: boolean;
-  validation_rules?: any;
-  options?: any;
+  validation_rules?: Record<string, unknown>;
+  options?: Record<string, unknown>;
 }
 
 interface ProductVariant {
@@ -38,7 +38,7 @@ interface VariantManagementProps {
   onProductTypeChange: (newType: 'parent') => void;
 }
 
-async function parseJsonSafely(response: Response): Promise<any | null> {
+async function parseJsonSafely(response: Response): Promise<unknown | null> {
   const text = await response.text();
   if (!text) return null;
   try {
@@ -65,7 +65,7 @@ export function VariantManagement({
 
     try {
       const response = await fetch(`/api/${tenantSlug}/product-families/${productFamilyId}/variant-attributes`);
-      const data = await parseJsonSafely(response);
+      const data = await parseJsonSafely(response) as { data?: VariantAttribute[] } | null;
       if (response.ok) {
         setVariantAttributes(data?.data || []);
       }
@@ -77,7 +77,7 @@ export function VariantManagement({
   const loadExistingVariants = useCallback(async () => {
     try {
       const response = await fetch(`/api/${tenantSlug}/products/${productId}/variants`);
-      const data = await parseJsonSafely(response);
+      const data = await parseJsonSafely(response) as { data?: ProductVariant[] } | null;
       if (response.ok) {
         setExistingVariants(data?.data || []);
       }
@@ -104,20 +104,6 @@ export function VariantManagement({
 
     loadData();
   }, [productFamilyId, productType, loadVariantAttributes, loadExistingVariants]);
-
-  // Get parent SKU for URL generation
-  const getParentSku = async () => {
-    try {
-      const response = await fetch(`/api/${tenantSlug}/products/${productId}`);
-      const data = await parseJsonSafely(response);
-      if (response.ok) {
-        return data.data?.sku;
-      }
-    } catch (error) {
-      console.error('Error getting parent SKU:', error);
-    }
-    return null;
-  };
 
   if (productType === 'variant') {
     return (

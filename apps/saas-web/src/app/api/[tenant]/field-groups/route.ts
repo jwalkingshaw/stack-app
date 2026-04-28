@@ -45,7 +45,7 @@ export async function GET(
 
     const normalized = (data || [])
       .map((group) => normalizeFieldGroup(group))
-      .filter((group): group is any => Boolean(group));
+      .filter((group): group is NonNullable<typeof group> => Boolean(group));
 
     return NextResponse.json(normalized);
   } catch (error) {

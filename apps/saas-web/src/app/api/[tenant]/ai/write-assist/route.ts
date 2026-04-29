@@ -22,6 +22,32 @@ async function checkRateLimit(userId: string): Promise<{ allowed: boolean; reaso
   }
 }
 
+type RegulatoryRule = {
+  claim_type: string;
+  rule_action: string;
+  rule_description: string;
+  example_violations: string[];
+  example_compliant: string[];
+  regulatory_reference: string | null;
+  severity: string;
+};
+
+function buildRulesBlock(rules: RegulatoryRule[]): string {
+  if (rules.length === 0) return "";
+  return rules
+    .map((r) => {
+      const violations = r.example_violations?.length
+        ? `Prohibited phrases: ${r.example_violations.join(", ")}.`
+        : "";
+      const compliant = r.example_compliant?.length
+        ? `Compliant alternatives: ${r.example_compliant.join(", ")}.`
+        : "";
+      const ref = r.regulatory_reference ? ` (${r.regulatory_reference})` : "";
+      return `- [${r.severity.toUpperCase()}] ${r.rule_description}${ref} ${violations} ${compliant}`.trim();
+    })
+    .join("\n");
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string }> }
@@ -72,11 +98,20 @@ export async function POST(
     return NextResponse.json({ error: "fieldCode is required" }, { status: 400 });
   }
 
-  const { data: locSettings } = await supabaseServer
-    .from("organization_localization_settings")
-    .select("brand_instructions,preferred_tone")
-    .eq("organization_id", organization.id)
-    .maybeSingle();
+  // Fetch org localization settings and locale regulatory rules in parallel
+  const [{ data: locSettings }, { data: rulesData }] = await Promise.all([
+    supabaseServer
+      .from("organization_localization_settings")
+      .select("brand_instructions,preferred_tone")
+      .eq("organization_id", organization.id)
+      .maybeSingle(),
+    supabaseServer
+      .from("locale_regulatory_rules")
+      .select("claim_type,rule_action,rule_description,example_violations,example_compliant,regulatory_reference,severity")
+      .eq("active", true)
+      .or(`locale_code.eq.${defaultLocale},locale_code.eq.*`)
+      .order("severity", { ascending: true }),
+  ]);
 
   const brandInstructions = typeof locSettings?.brand_instructions === "string"
     ? locSettings.brand_instructions.trim()
@@ -84,6 +119,9 @@ export async function POST(
   const preferredTone = typeof locSettings?.preferred_tone === "string"
     ? locSettings.preferred_tone
     : "neutral";
+
+  const rules: RegulatoryRule[] = Array.isArray(rulesData) ? rulesData : [];
+  const rulesBlock = buildRulesBlock(rules);
 
   const otherFields = productContext.otherFields ?? {};
   const contextLines = Object.entries(otherFields)
@@ -93,11 +131,8 @@ export async function POST(
       if (typeof v === "number" || typeof v === "boolean") return [k, String(v)];
       if (typeof v === "object") {
         const obj = v as Record<string, unknown>;
-        // measurement: { value, unit }
         if (obj.value !== undefined && obj.unit !== undefined) return [k, `${obj.value} ${obj.unit}`];
-        // price: { amount, currency }
         if (obj.amount !== undefined && obj.currency !== undefined) return [k, `${obj.amount} ${obj.currency}`];
-        // text wrapper: { text }
         if (typeof obj.text === "string") return [k, obj.text.trim()];
         return [k, JSON.stringify(v)];
       }
@@ -114,15 +149,13 @@ export async function POST(
     brandInstructions ? `Brand voice: ${brandInstructions}` : null,
     preferredTone !== "neutral" ? `Tone: ${preferredTone}` : null,
     "",
-    "After drafting the content, check it against these universal regulatory rules for sports nutrition content:",
-    "1. PROHIBITED: Disease claims — words like 'treats', 'cures', 'prevents', 'heals', 'alleviates' applied to medical conditions.",
-    "2. CAUTION: Unqualified health claims — 'boosts immunity', 'improves brain function', 'reduces inflammation' require qualification or rephrasing.",
-    "3. CAUTION: Absolute claims — 'the best', 'clinically proven', 'scientifically tested' require substantiation.",
+    `The content will be published in the ${defaultLocale} market. You must write fully compliant copy.`,
+    "Apply your knowledge of supplement and sports nutrition regulations for this locale — including food supplement laws, health claim restrictions, and advertising standards.",
+    rulesBlock
+      ? `\nPlatform compliance rules that must be followed without exception:\n${rulesBlock}`
+      : null,
     "",
-    "Return a JSON object with this exact structure:",
-    '{ "suggestion": "<the drafted content>", "complianceFlags": [ { "phrase": "<flagged phrase>", "rule": "<rule description>", "severity": "error|warning", "suggestion": "<compliant alternative>" } ] }',
-    "complianceFlags is an empty array if no issues are found.",
-    "Return ONLY the JSON object, no other text.",
+    "Return ONLY the drafted content as a plain string. No JSON, no compliance notes, no commentary.",
   ].filter(Boolean).join("\n");
 
   const userMessage = [
@@ -144,23 +177,13 @@ export async function POST(
       messages: [{ role: "user", content: userMessage }],
     });
 
-    const rawText = response.content
+    const suggestion = response.content
       .filter((b) => b.type === "text")
       .map((b) => (b as { type: "text"; text: string }).text)
-      .join("");
+      .join("")
+      .trim();
 
-    let parsed: { suggestion: string; complianceFlags: Array<{ phrase: string; rule: string; severity: string; suggestion: string }> };
-    try {
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
-    } catch {
-      parsed = { suggestion: rawText.trim(), complianceFlags: [] };
-    }
-
-    return NextResponse.json({
-      suggestion: typeof parsed.suggestion === "string" ? parsed.suggestion : rawText.trim(),
-      complianceFlags: Array.isArray(parsed.complianceFlags) ? parsed.complianceFlags : [],
-    });
+    return NextResponse.json({ suggestion });
   } catch (err) {
     console.error("Write Assist API error:", err);
     return NextResponse.json({ error: "Failed to generate content" }, { status: 500 });

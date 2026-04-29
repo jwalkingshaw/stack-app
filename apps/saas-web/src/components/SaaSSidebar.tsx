@@ -10,7 +10,6 @@ import {
   Files,
   Package,
   Send,
-  Sparkles,
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -27,7 +26,6 @@ import {
   extractPartnerScopeFromPath,
   resolvePartnerSelectedBrandSlug,
 } from '@/lib/tenant-view-scope'
-import { AgentPanel } from './ai/AgentPanel'
 
 export interface Organization {
   id: string
@@ -75,7 +73,6 @@ export function SaaSSidebar({
   const searchParams = useSearchParams()
   const fallbackBrandSlug = (searchParams.get('brand') || '').trim().toLowerCase()
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false)
-  const [isAgentPanelOpen, setIsAgentPanelOpen] = useState(false)
   const [workspaceLogoFailed, setWorkspaceLogoFailed] = useState(false)
   const [workspaceLogoBySlug, setWorkspaceLogoBySlug] = useState<Record<string, string | null>>({})
 
@@ -302,23 +299,6 @@ export function SaaSSidebar({
 
         <nav className="mt-2 flex-1">
           <div className="flex flex-col gap-0.5">
-            {organization?.organizationType !== 'partner' ? (
-              <button
-                type="button"
-                onClick={() => setIsAgentPanelOpen(true)}
-                className="group flex w-full flex-col items-center gap-1.5 rounded-2xl px-2 py-2.5 text-center transition-colors hover:bg-white/50"
-                aria-label="Open AI Agent"
-                title="AI Agent"
-              >
-                <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/82 text-muted-foreground shadow-sm transition-colors group-hover:text-foreground">
-                  <Sparkles className="h-3.5 w-3.5" />
-                </div>
-                <span className="line-clamp-2 text-[10px] font-medium leading-3 text-muted-foreground group-hover:text-foreground">
-                  Agent
-                </span>
-              </button>
-            ) : null}
-
             {navItems.map((item) => {
               const Icon = item.icon
               const active = isActive(item.path)
@@ -351,13 +331,6 @@ export function SaaSSidebar({
 
         {children}
 
-        {organization?.organizationType !== 'partner' && currentWorkspaceSlug ? (
-          <AgentPanel
-            tenant={currentWorkspaceSlug}
-            open={isAgentPanelOpen}
-            onOpenChange={setIsAgentPanelOpen}
-          />
-        ) : null}
       </div>
     </div>
   )

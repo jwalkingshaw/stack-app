@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Package, Zap, FileText, Settings, ImageIcon, ExternalLink, Info, MoreHorizontal, Languages, Globe, Clock, Upload, Folder, FolderOpen, ChevronRight, Search, CircleMinus } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Package, Zap, FileText, Settings, ImageIcon, ExternalLink, Info, MoreHorizontal, Languages, Globe, Clock, Upload, Folder, FolderOpen, ChevronRight, ChevronDown, Search, CircleMinus, Check, Plus } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -140,7 +142,7 @@ type OutputProfileRef = {
   profile_type: string;
 };
 
-type AuthoringViewMode = "base" | "locale" | "output";
+// AuthoringViewMode removed — locale visibility is now per-locale via visibleLocaleIds
 
 type ScopedFieldValueRow = {
   fieldId: string;
@@ -767,7 +769,8 @@ export function ProductDetailClient({
   const [fieldSearchQuery, setFieldSearchQuery] = useState("");
   const [showOnlyMissingFields, setShowOnlyMissingFields] = useState(false);
   const [showOnlyCustomizedFields, setShowOnlyCustomizedFields] = useState(false);
-  const [authoringViewMode, setAuthoringViewMode] = useState<AuthoringViewMode>("locale");
+  const [selectedLocaleIds, setSelectedLocaleIds] = useState<string[]>([]);
+  const [showOutputOverrides, setShowOutputOverrides] = useState(false);
   const [outputProfiles, setOutputProfiles] = useState<OutputProfileRef[]>([]);
   const [loadingOutputProfiles, setLoadingOutputProfiles] = useState(false);
   const [selectedOutputProfileId, setSelectedOutputProfileId] = useState<string | null>(null);
@@ -1548,10 +1551,13 @@ export function ProductDetailClient({
         useScopedTarget ? (options?.localeId ?? selectedLocaleId) : null;
       const targetLocaleCode =
         useScopedTarget ? (options?.localeCode ?? selectedLocale?.code ?? null) : null;
+      // When saving a locale-variation (localeId explicitly set in options), do not inherit
+      // the UI's selected destination/channel — they require a matching market that isn't present.
+      const isExplicitLocaleSave = options != null && 'localeId' in options;
       const targetDestinationId =
-        useScopedTarget ? (options?.destinationId ?? selectedDestinationId) : null;
+        useScopedTarget ? (options?.destinationId ?? (isExplicitLocaleSave ? null : selectedDestinationId)) : null;
       const targetChannelId =
-        useScopedTarget ? (options?.channelId ?? selectedChannelId) : null;
+        useScopedTarget ? (options?.channelId ?? (isExplicitLocaleSave ? null : selectedChannelId)) : null;
 
       const query = new URLSearchParams();
       if (targetMarketId) query.set('marketId', targetMarketId);
@@ -2208,24 +2214,63 @@ export function ProductDetailClient({
 
   const canShowAuthoringModeControls =
     activeSection === "destination-content" || activeSection.startsWith("fieldgroup-");
-  const showLocaleVariations = authoringViewMode === "locale";
-  const showOutputOverrides = authoringViewMode === "output";
   const fallbackAuthoringSectionId = dynamicFieldGroupSections[0]?.id ?? "attributes-all";
 
-  const handleAuthoringModeChange = useCallback(
-    (nextMode: string) => {
-      if (nextMode !== "base" && nextMode !== "locale" && nextMode !== "output") return;
-      setAuthoringViewMode(nextMode);
+  const nonDefaultLocales = useMemo(
+    () => visibleLocales.filter((l) => l.id !== defaultOrganizationLocaleId),
+    [visibleLocales, defaultOrganizationLocaleId]
+  );
 
-      if (nextMode === "output") {
-        if (activeSection === "attributes-all" || activeSection === "attributes-required" || activeSection === "attributes-missing") {
+  const localeIsVisible = useCallback(
+    (localeId: string): boolean => selectedLocaleIds.includes(localeId),
+    [selectedLocaleIds]
+  );
+
+  // Locale IDs that have at least one saved or draft value anywhere in the product
+  const addedLocaleIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const rows of Object.values(scopedFieldValuesByCode)) {
+      for (const row of rows) {
+        if (row.localeId) ids.add(row.localeId);
+      }
+    }
+    for (const draftIds of Object.values(draftLocaleIdsByFieldCode)) {
+      for (const id of draftIds) ids.add(id);
+    }
+    return ids;
+  }, [scopedFieldValuesByCode, draftLocaleIdsByFieldCode]);
+
+  // Dropdown only lists locales that have been added to at least one field
+  const localeOptions = useMemo(
+    () =>
+      nonDefaultLocales
+        .filter((locale) => addedLocaleIds.has(locale.id))
+        .map((locale) => ({
+          value: locale.id,
+          label: `${String(locale.code || "").toUpperCase()} — ${formatLocaleName(locale)}`,
+          shortLabel: String(locale.code || "").toUpperCase(),
+        })),
+    [nonDefaultLocales, addedLocaleIds, formatLocaleName]
+  );
+
+  const handleOutputProfileChange = useCallback(
+    (value: string) => {
+      if (value === "__none__") {
+        setSelectedOutputProfileId(null);
+        setShowOutputOverrides(false);
+        if (activeSection === "destination-content") {
+          setActiveSection(fallbackAuthoringSectionId);
+        }
+      } else {
+        setSelectedOutputProfileId(value);
+        setShowOutputOverrides(true);
+        if (
+          activeSection === "attributes-all" ||
+          activeSection === "attributes-required" ||
+          activeSection === "attributes-missing"
+        ) {
           setActiveSection("destination-content");
         }
-        return;
-      }
-
-      if (activeSection === "destination-content") {
-        setActiveSection(fallbackAuthoringSectionId);
       }
     },
     [activeSection, fallbackAuthoringSectionId]
@@ -3893,31 +3938,34 @@ export function ProductDetailClient({
               </div>
 
               {canShowAuthoringModeControls ? (
-                <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-muted/15 p-3">
-                  <Tabs value={authoringViewMode} onValueChange={handleAuthoringModeChange}>
-                    <TabsList aria-label="Product detail authoring views">
-                      <TabsTrigger value="base">Base / Default</TabsTrigger>
-                      <TabsTrigger value="locale">Locale Variations</TabsTrigger>
-                      <TabsTrigger value="output" disabled={outputProfiles.length === 0}>
-                        Output Overrides
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
+                <div className="mb-4 flex items-center gap-2 rounded-lg border border-border/60 bg-muted/15 px-3 py-2">
+                  {/* Locale multi-select */}
+                  {localeSourceLoading ? (
+                    <p className="text-xs text-muted-foreground">Loading locales…</p>
+                  ) : (
+                    <MultiSelect
+                      options={localeOptions}
+                      value={selectedLocaleIds}
+                      onChange={setSelectedLocaleIds}
+                      placeholder="Locales"
+                      showSelectedChips={false}
+                      className="h-7 w-auto min-w-[110px] border-border/60 bg-background px-2.5 text-xs shadow-none"
+                      contentClassName="!w-auto min-w-[220px] whitespace-nowrap"
+                    />
+                  )}
 
-                  {authoringViewMode === "output" ? (
+                  {/* Output profile select */}
+                  {!localeSourceLoading && outputProfiles.length > 0 ? (
                     <Select
-                      value={selectedOutputProfileId ?? undefined}
-                      onValueChange={(value) => setSelectedOutputProfileId(value)}
-                      disabled={loadingOutputProfiles || outputProfiles.length === 0}
+                      value={selectedOutputProfileId ?? "__none__"}
+                      onValueChange={handleOutputProfileChange}
+                      disabled={loadingOutputProfiles}
                     >
-                      <SelectTrigger className="h-9 min-w-[240px] bg-background">
-                        <SelectValue
-                          placeholder={
-                            loadingOutputProfiles ? "Loading output profiles..." : "Select output profile"
-                          }
-                        />
+                      <SelectTrigger className="h-7 w-auto min-w-[130px] border-border/60 bg-background text-xs font-medium">
+                        <SelectValue placeholder={loadingOutputProfiles ? "Loading…" : "Output profile"} />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="__none__">No output profile</SelectItem>
                         {outputProfiles.map((profile) => (
                           <SelectItem key={profile.id} value={profile.id}>
                             {profile.name}
@@ -3927,18 +3975,26 @@ export function ProductDetailClient({
                     </Select>
                   ) : null}
 
-                  {authoringViewMode === "locale" ? (
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">
-                        {localeSourceLoading
-                          ? "Loading enabled locales..."
-                          : "Add or manage organization locales in Settings. Product Detail only assigns enabled locales to this product."}
-                      </p>
-                      {localeSourceError ? (
-                        <p className="text-xs text-destructive">{localeSourceError}</p>
-                      ) : null}
-                    </div>
-                  ) : null}
+                  <div className="ml-auto flex items-center gap-3">
+                    {localeSourceError ? (
+                      <p className="text-xs text-destructive">{localeSourceError}</p>
+                    ) : null}
+                    {!localeSourceLoading && nonDefaultLocales.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedLocaleIds(
+                            selectedLocaleIds.length === localeOptions.length
+                              ? []
+                              : localeOptions.map((o) => o.value)
+                          )
+                        }
+                        className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                      >
+                        {selectedLocaleIds.length === localeOptions.length ? "Collapse" : "Show all"}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 
@@ -4346,9 +4402,10 @@ export function ProductDetailClient({
                                           </span>
                                         ) : null}
                                         {isFieldValueFilled(resolvedFieldValue) ? (
-                                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                                            Complete
-                                          </span>
+                                          <span
+                                            className="inline-block h-2 w-2 rounded-full bg-emerald-500"
+                                            title="Base complete"
+                                          />
                                         ) : null}
                                       </div>
                                       {field.description ? (
@@ -4565,7 +4622,7 @@ export function ProductDetailClient({
                                           />
                                           <Button
                                             size="sm"
-                                            variant={isAssigned ? "outline" : "accent-blue"}
+                                            variant={isAssigned ? "outline" : "default"}
                                             className="h-6 flex-1 px-2 text-xs"
                                             onClick={() => slotFileInputRefs.current[slot.slotCode]?.click()}
                                             disabled={isMutatingLinks || uploadingSlotCode === slot.slotCode}
@@ -4720,11 +4777,22 @@ export function ProductDetailClient({
                                             System
                                           </span>
                                         )}
-                                        {isFieldValueFilled(resolvedFieldValue) && (
-                                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                                            Complete
-                                          </span>
-                                        )}
+                                        {(() => {
+                                          const baseOk = isFieldValueFilled(resolvedFieldValue);
+                                          if (!baseOk) return null;
+                                          const allLocalesDone = applicableLocales
+                                            .filter((l) => localeIsVisible(l.id))
+                                            .every((l) => {
+                                              const row = getPreferredScopedFieldValueRow(field.code, { localeId: l.id });
+                                              return isFieldValueFilled(row?.value ?? null);
+                                            });
+                                          return (
+                                            <span
+                                              className={`inline-block h-2 w-2 rounded-full ${allLocalesDone ? "bg-emerald-500" : "bg-amber-400"}`}
+                                              title={allLocalesDone ? "Complete" : "Base complete — some locale variations missing"}
+                                            />
+                                          );
+                                        })()}
                                       </div>
                                       {field.description && (
                                         <p className="text-xs text-muted-foreground">
@@ -4779,13 +4847,13 @@ export function ProductDetailClient({
                                       ) : (
                                         <div className="space-y-3">
                                           <div className="space-y-2">
-                                            {showLocaleVariations && localeEligible && defaultOrganizationLocale ? (
+                                            {localeEligible && defaultOrganizationLocale ? (
                                               <div className="flex flex-wrap items-center gap-2">
-                                                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground">
-                                                  Default locale
-                                                </span>
-                                                <span className="text-xs text-muted-foreground">
-                                                  {formatLocaleName(defaultOrganizationLocale)}
+                                                <span
+                                                  className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground"
+                                                  title={formatLocaleName(defaultOrganizationLocale)}
+                                                >
+                                                  BASE
                                                 </span>
                                               </div>
                                             ) : null}
@@ -4818,9 +4886,9 @@ export function ProductDetailClient({
                                             />
                                           </div>
 
-                                          {showLocaleVariations && applicableLocales.length > 0 ? (
-                                            <div className="space-y-4">
-                                              {applicableLocales.map((locale) => {
+                                          {applicableLocales.filter((l) => localeIsVisible(l.id)).length > 0 ? (
+                                            <div className="space-y-4 border-l-2 border-border/40 pl-4">
+                                              {applicableLocales.filter((l) => localeIsVisible(l.id)).map((locale) => {
                                                 const localeRow = getPreferredScopedFieldValueRow(field.code, {
                                                   localeId: locale.id,
                                                 });
@@ -4851,12 +4919,19 @@ export function ProductDetailClient({
                                                 return (
                                                   <div
                                                     key={locale.id}
-                                                    className="space-y-2"
+                                                    className="group/locale-row space-y-1.5"
                                                   >
                                                     <div className="min-w-0">
-                                                      <div className="text-xs font-semibold text-foreground/85">
-                                                        {formatLocaleName(locale)}
-                                                      </div>
+                                                      <span className="text-xs text-muted-foreground">
+                                                        <span className="font-medium text-foreground/80">{field.name}</span>
+                                                        {" – "}
+                                                        <span
+                                                          className="font-medium uppercase"
+                                                          title={formatLocaleName(locale)}
+                                                        >
+                                                          {String(locale.code || "").toUpperCase()}
+                                                        </span>
+                                                      </span>
                                                     </div>
 
                                                     <div className="flex items-center gap-3">
@@ -4867,6 +4942,15 @@ export function ProductDetailClient({
                                                           tenantSlug={tenantSlug}
                                                           canEdit={canEditLocaleVersion}
                                                           readonlyReasonOverride={getLocaleVersionReadonlyReason()}
+                                                          isMissingTranslation={!hasLocaleContent}
+                                                          adaptContext={locale.code && (field as unknown as Record<string, unknown>).is_translatable ? {
+                                                            tenant: tenantSlug,
+                                                            fieldCode: field.code,
+                                                            fieldName: field.name,
+                                                            sourceText: typeof resolvedFieldValue === "string" ? resolvedFieldValue : "",
+                                                            sourceLocale: defaultOrganizationLocale?.code ?? "en",
+                                                            targetLocale: locale.code,
+                                                          } : null}
                                                           onCommit={async (nextValue: unknown) => {
                                                             if (!isFieldValueFilled(nextValue)) {
                                                               if (localeRow) {
@@ -4912,7 +4996,7 @@ export function ProductDetailClient({
                                                           type="button"
                                                           size="icon"
                                                           variant="ghost"
-                                                          className="h-8 w-8 shrink-0 self-center rounded-full p-0 text-rose-500 hover:bg-rose-50 hover:text-rose-600"
+                                                          className="h-8 w-8 shrink-0 self-center rounded-full p-0 text-rose-400 opacity-0 transition-opacity duration-[120ms] group-hover/locale-row:opacity-100 hover:bg-rose-50 hover:text-rose-600"
                                                           disabled={!canEditLocaleVersion}
                                                           onClick={() => {
                                                             void (async () => {
@@ -5097,23 +5181,23 @@ export function ProductDetailClient({
                                             </div>
                                           ) : null}
 
-                                          {!isSharedBrandView && showLocaleVariations && localeEligible ? (
+                                          {!isSharedBrandView && localeEligible ? (
                                             <div className="space-y-2">
                                               {addableLocales.length > 0 ? (
-                                                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                                                <div className="flex flex-wrap gap-1">
                                                   {addableLocales.map((locale) => (
-                                                    <Button
+                                                    <button
                                                       key={`${field.id}:${locale.id}:quick-add`}
                                                       type="button"
-                                                      variant="outline"
-                                                      className="w-full justify-center"
                                                       disabled={!canEditLocaleVersion}
                                                       onClick={() => {
                                                         void addLocaleVersionEntry(field, locale);
                                                       }}
+                                                      className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                                                     >
+                                                      <Plus className="h-4 w-4" />
                                                       {formatLocaleName(locale)}
-                                                    </Button>
+                                                    </button>
                                                   ))}
                                                 </div>
                                               ) : null}
@@ -5353,7 +5437,7 @@ export function ProductDetailClient({
                       activeDestinationProfileId={selectedOutputProfileId}
                       onSelectDestinationProfile={(profileId) => {
                         setSelectedOutputProfileId(profileId);
-                        setAuthoringViewMode("output");
+                        setShowOutputOverrides(true);
                         setActiveSection("destination-content");
                       }}
                     />
@@ -5661,7 +5745,7 @@ export function ProductDetailClient({
                             Cancel
                           </Button>
                           <Button
-                            variant="accent-blue"
+                            variant="default"
                             onClick={() => void handleSubmitSlotVersionDialog()}
                             disabled={
                               isMutatingLinks ||
@@ -5919,7 +6003,7 @@ export function ProductDetailClient({
                           <Button variant="outline" onClick={() => { setIsLinkAssetDialogOpen(false); setChannelSlotCallback(null); }}>Cancel</Button>
                           {!channelSlotCallback && (
                             <Button
-                              variant="accent-blue"
+                              variant="default"
                               disabled={selectedAssetIdsToLink.size === 0 || isMutatingLinks}
                               onClick={handleLinkSelectedAssets}
                             >
@@ -5949,7 +6033,7 @@ export function ProductDetailClient({
                         return;
                       }
                       if (selectedOutputProfileId) {
-                        setAuthoringViewMode("output");
+                        setShowOutputOverrides(true);
                         setActiveSection("destination-content");
                       }
                     }}

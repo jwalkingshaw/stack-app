@@ -167,6 +167,7 @@ export function InlineDynamicFieldEditor({
               fieldType={fieldType}
               defaultLocale={writeAssistContext.defaultLocale}
               productContext={writeAssistContext.productContext}
+              currentValue={typeof editor.draftValue === "string" ? editor.draftValue : undefined}
               disabled={!editor.canEdit}
               onAccept={(text) => {
                 editor.setDraftValue(text);

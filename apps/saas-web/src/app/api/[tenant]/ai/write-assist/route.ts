@@ -62,6 +62,8 @@ export async function POST(
   const fieldName = typeof body.fieldName === "string" ? body.fieldName.trim() : fieldCode;
   const fieldType = typeof body.fieldType === "string" ? body.fieldType.trim() : "text";
   const defaultLocale = typeof body.defaultLocale === "string" ? body.defaultLocale.trim() : "en";
+  const currentValue = typeof body.currentValue === "string" ? body.currentValue.trim() : "";
+  const refinement = typeof body.refinement === "string" ? body.refinement.trim() : "";
   const productContext = body.productContext && typeof body.productContext === "object"
     ? (body.productContext as { productName?: string; familyName?: string; otherFields?: Record<string, unknown> })
     : {};
@@ -127,9 +129,11 @@ export async function POST(
     `Product: ${productContext.productName ?? "Unknown"}`,
     productContext.familyName ? `Family: ${productContext.familyName}` : null,
     contextLines ? `\nOther product details:\n${contextLines}` : null,
+    currentValue ? `\nExisting content for this field (improve or replace as needed):\n${currentValue}` : null,
     "",
     `Write the "${fieldName}" field (type: ${fieldType}).`,
     fieldType === "textarea" ? "Aim for 2-4 sentences, benefit-led." : "Keep it concise — one sentence or phrase.",
+    refinement ? `\nAdditional instructions: ${refinement}` : null,
   ].filter(Boolean).join("\n");
 
   try {

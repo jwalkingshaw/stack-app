@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 
 interface ComplianceFlag {
@@ -22,6 +23,7 @@ interface WriteAssistButtonProps {
   fieldName: string;
   fieldType: string;
   defaultLocale?: string;
+  currentValue?: string;
   productContext: {
     productName?: string;
     familyName?: string;
@@ -38,6 +40,7 @@ export function WriteAssistButton({
   fieldName,
   fieldType,
   defaultLocale = "en",
+  currentValue,
   productContext,
   onAccept,
   disabled,
@@ -47,6 +50,7 @@ export function WriteAssistButton({
   const [suggestion, setSuggestion] = useState("");
   const [complianceFlags, setComplianceFlags] = useState<ComplianceFlag[]>([]);
   const [editedSuggestion, setEditedSuggestion] = useState("");
+  const [refinement, setRefinement] = useState("");
 
   const generate = async () => {
     setLoading(true);
@@ -64,6 +68,8 @@ export function WriteAssistButton({
           fieldName,
           fieldType,
           defaultLocale,
+          currentValue: currentValue ?? "",
+          refinement,
           productContext,
         }),
       });
@@ -87,6 +93,7 @@ export function WriteAssistButton({
   };
 
   const handleOpen = () => {
+    setLoading(true);
     setOpen(true);
     void generate();
   };
@@ -132,15 +139,21 @@ export function WriteAssistButton({
           </div>
 
           {/* Body */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
             {loading ? (
-              <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                <Sparkles className="h-4 w-4 animate-pulse shrink-0" />
-                Drafting content…
+              <div className="space-y-2" role="status" aria-label="Drafting content">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Suggestion
+                </p>
+                <Skeleton className="h-5 w-full" />
+                <Skeleton className="h-5 w-4/5" />
+                <Skeleton className="h-5 w-3/5" />
+                <span className="sr-only">Drafting content…</span>
               </div>
             ) : suggestion ? (
               <>
-                <div className="space-y-1.5">
+                {/* Suggestion — primary focus */}
+                <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     Suggestion
                   </p>
@@ -148,20 +161,14 @@ export function WriteAssistButton({
                     value={editedSuggestion}
                     onChange={(e) => setEditedSuggestion(e.target.value)}
                     className="min-h-[120px] resize-none text-sm"
-                    placeholder="Generated content will appear here"
                   />
                 </div>
 
+                {/* Compliance — inline, no header */}
                 {complianceFlags.length > 0 ? (
                   <div className="space-y-2">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Compliance review
-                    </p>
                     {[...errorFlags, ...warningFlags].map((flag, i) => (
-                      <div
-                        key={i}
-                        className="rounded-md border px-3 py-2.5 text-xs space-y-1"
-                      >
+                      <div key={i} className="rounded-md border px-3 py-2.5 text-xs space-y-1">
                         <div className="flex items-center gap-2">
                           <AlertTriangle
                             className={`h-3.5 w-3.5 shrink-0 ${
@@ -193,27 +200,9 @@ export function WriteAssistButton({
                     No compliance issues found
                   </div>
                 )}
-              </>
-            ) : null}
-          </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between gap-2 border-t px-5 py-4 bg-muted/30 shrink-0">
-            {suggestion && !loading ? (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void generate()}
-                  className="gap-1.5"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Try again
-                </Button>
+                {/* Primary actions — directly below suggestion */}
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
-                    Dismiss
-                  </Button>
                   <Button
                     size="sm"
                     onClick={handleAccept}
@@ -221,14 +210,39 @@ export function WriteAssistButton({
                   >
                     Accept
                   </Button>
+                  <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
+                    Dismiss
+                  </Button>
+                </div>
+
+                {/* Divider */}
+                <hr className="border-border/60" />
+
+                {/* Refine + Try again — secondary */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Refine (optional)
+                  </p>
+                  <Textarea
+                    value={refinement}
+                    onChange={(e) => setRefinement(e.target.value)}
+                    placeholder="Direction, tone, or focus — e.g. shorter, highlight key benefits, more scientific…"
+                    className="min-h-[72px] resize-none text-sm"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void generate()}
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    {refinement.trim() ? "Generate" : "Regenerate"}
+                  </Button>
                 </div>
               </>
-            ) : (
-              <Button variant="outline" size="sm" onClick={() => setOpen(false)} className="ml-auto">
-                Cancel
-              </Button>
-            )}
+            ) : null}
           </div>
+
         </SheetContent>
       </Sheet>
     </>

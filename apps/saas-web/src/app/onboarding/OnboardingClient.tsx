@@ -294,7 +294,7 @@ export default function OnboardingPage() {
       if (isSelfServePartnerWorkspace) {
         router.push(`/${createdOrgSlug}/settings/billing?source=partner_signup`);
       } else {
-        router.push(`/${createdOrgSlug}`);
+        router.push(`/${createdOrgSlug}/settings/billing?source=signup`);
       }
     } catch (error) {
       console.error("Organization creation error:", error);

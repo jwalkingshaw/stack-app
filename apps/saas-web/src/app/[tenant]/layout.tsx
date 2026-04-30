@@ -61,7 +61,7 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
     const effectiveWorkspaces = accessibleWorkspaces
 
     try {
-      await supabase.rpc('update_workspace_access', {
+      await (supabase as any).rpc('update_workspace_access', {
         user_id: user.id,
         workspace_id: organization.id,
       })

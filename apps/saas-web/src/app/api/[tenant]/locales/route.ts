@@ -1,16 +1,9 @@
 ﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@stack-app/database";
 import { resolveOrganizationBaselineScope } from "@/lib/default-market-locale";
 import { DEFAULT_LOCALE_CATALOG } from "@/lib/locale-catalog";
 import { normalizeAndValidateLocaleCode } from "@/lib/locale-code";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
-
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UNIQUE_VIOLATION_ERROR = "23505";
 const MISSING_TABLE_ERROR = "42P01";

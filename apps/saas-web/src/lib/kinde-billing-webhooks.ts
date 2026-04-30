@@ -32,7 +32,7 @@ export type KindeBillingRefs = {
   canceledAt?: string;
 };
 
-let cachedJwksClient: any = null;
+let cachedJwksClient: ReturnType<typeof jwksClient.default> | null = null;
 let cachedPlanMapping: Record<string, "free" | "starter" | "growth" | "scale" | "enterprise"> | null = null;
 
 function getKindeIssuerUrl(): string | null {
@@ -41,7 +41,7 @@ function getKindeIssuerUrl(): string | null {
   return raw.replace(/\/+$/, "");
 }
 
-function getJwksClient(): any {
+function getJwksClient(): ReturnType<typeof jwksClient.default> {
   if (cachedJwksClient) return cachedJwksClient;
 
   const issuer = getKindeIssuerUrl();
@@ -73,18 +73,18 @@ function asString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function getAtPath(obj: Record<string, any>, path: string[]): unknown {
-  let cursor: any = obj;
+function getAtPath(obj: Record<string, unknown>, path: string[]): unknown {
+  let cursor: unknown = obj;
   for (const segment of path) {
     if (!cursor || typeof cursor !== "object" || Array.isArray(cursor)) {
       return undefined;
     }
-    cursor = cursor[segment];
+    cursor = (cursor as Record<string, unknown>)[segment];
   }
   return cursor;
 }
 
-function firstString(obj: Record<string, any>, paths: string[][]): string | undefined {
+function firstString(obj: Record<string, unknown>, paths: string[][]): string | undefined {
   for (const path of paths) {
     const value = getAtPath(obj, path);
     const normalized = asString(value);
@@ -93,7 +93,7 @@ function firstString(obj: Record<string, any>, paths: string[][]): string | unde
   return undefined;
 }
 
-function firstBoolean(obj: Record<string, any>, paths: string[][]): boolean | undefined {
+function firstBoolean(obj: Record<string, unknown>, paths: string[][]): boolean | undefined {
   for (const path of paths) {
     const value = getAtPath(obj, path);
     if (typeof value === "boolean") return value;
@@ -188,8 +188,8 @@ export async function verifyKindeWebhookJwt(
   }
 
   try {
-    const decodedHeader = jwt.decode(raw, { complete: true }) as any;
-    const kid = asString(decodedHeader?.header?.kid);
+    const decodedHeader = asObject(jwt.decode(raw, { complete: true }));
+    const kid = asString(asObject(decodedHeader.header).kid);
     if (!kid) {
       return { ok: false, error: "Webhook JWT is missing key id (kid)" };
     }
@@ -237,7 +237,7 @@ export function extractKindeBillingRefs(event: VerifiedKindeWebhookEvent): Kinde
 
   const organizationId =
     firstString(data, [["organization_id"], ["organizationId"], ["organization", "id"]]) ||
-    firstString(payload as Record<string, any>, [["organization_id"], ["organizationId"], ["organization", "id"]]);
+    firstString(payload, [["organization_id"], ["organizationId"], ["organization", "id"]]);
 
   const providerCustomerId =
     firstString(data, [
@@ -247,7 +247,7 @@ export function extractKindeBillingRefs(event: VerifiedKindeWebhookEvent): Kinde
       ["agreement", "customer_id"],
       ["agreement", "customer", "id"],
     ]) ||
-    firstString(payload as Record<string, any>, [["customer_id"], ["customerId"], ["customer", "id"]]);
+    firstString(payload, [["customer_id"], ["customerId"], ["customer", "id"]]);
 
   const providerSubscriptionId =
     firstString(data, [
@@ -257,16 +257,16 @@ export function extractKindeBillingRefs(event: VerifiedKindeWebhookEvent): Kinde
       ["agreement", "id"],
       ["subscription", "id"],
     ]) ||
-    firstString(payload as Record<string, any>, [["subscription_id"], ["agreement_id"], ["agreement", "id"]]);
+    firstString(payload, [["subscription_id"], ["agreement_id"], ["agreement", "id"]]);
 
   const planId = normalizeIncomingPlanId(
     firstString(data, [["plan_id"], ["planId"], ["plan", "id"], ["plan", "key"]]) ||
-      firstString(payload as Record<string, any>, [["plan_id"], ["planId"], ["plan", "id"], ["plan", "key"]])
+      firstString(payload, [["plan_id"], ["planId"], ["plan", "id"], ["plan", "key"]])
   );
 
   const status = normalizeIncomingStatus(
     firstString(data, [["status"], ["subscription", "status"], ["agreement", "status"]]) ||
-      firstString(payload as Record<string, any>, [["status"], ["agreement", "status"]])
+      firstString(payload, [["status"], ["agreement", "status"]])
   );
 
   const currentPeriodStart = firstString(data, [

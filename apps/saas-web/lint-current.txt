@@ -1,0 +1,825 @@
+
+> @stack-app/saas-web@0.1.0 lint
+> next lint
+
+node.exe : `next lint` is deprecated and will be removed in Next.js 16.
+At C:\Program Files\nodejs\npm.ps1:29 char:3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (`next lint` is ... in Next.js 16.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+For new projects, use create-next-app to choose your preferred linter.
+For existing projects, migrate to the ESLint CLI:
+npx @next/codemod@canary next-lint-to-eslint-cli .
+
+
+./src/app/api/organizations/[slug]/assets/assets/route.ts
+94:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+112:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+176:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/organizations/[slug]/assets/assets/[id]/download/route.ts
+74:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/organizations/[slug]/assets/categories/route.ts
+45:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+118:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/organizations/[slug]/assets/categories/[categoryId]/route.ts
+74:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+180:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/organizations/[slug]/assets/folders/route.ts
+68:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+119:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/organizations/[slug]/assets/tags/route.ts
+44:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+112:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/organizations/[slug]/assets/tags/[tagId]/route.ts
+69:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+147:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/organizations/[slug]/assets/upload/route.ts
+32:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+117:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+180:27  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/organizations/[slug]/storage/route.ts
+25:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/partner-relationships/create/route.ts
+98:83  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+170:73  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+254:71  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+304:59  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/webhooks/kinde/route.ts
+125:59  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+148:11  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+191:72  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+208:10  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+216:72  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+224:48  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+242:72  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/assets/bulk-update/route.ts
+61:48  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+86:81  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+107:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+108:27  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+148:50  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/assets/route.ts
+64:11  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+173:48  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+206:70  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+230:28  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+235:28  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+339:68  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+390:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+395:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/assets/[assetId]/preview/route.ts
+40:52  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+89:71  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/assets/[assetId]/product-context/route.ts
+133:51  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+133:71  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+133:82  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+144:53  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+144:71  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+160:24  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+160:46  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/assets/[assetId]/product-suggestions/route.ts
+145:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+247:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/assets/[assetId]/versions/restore/route.ts
+23:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+24:28  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+48:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+49:28  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+78:46  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+98:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+208:87  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+270:81  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+290:75  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+321:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/assets/[assetId]/versions/route.ts
+118:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+119:28  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+137:46  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+157:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+290:22  Warning: '_s3Key' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+290:45  Warning: '_thumbnailUrls' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+320:73  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+543:93  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+560:75  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+586:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/field-groups/route.ts
+48:33  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/invites/config/route.ts
+68:7  Warning: 'bundleQuery' is never reassigned. Use 'const' instead.  prefer-const
+
+./src/app/api/[tenant]/localization/glossaries/[glossaryId]/route.ts
+67:54  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+113:48  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/localization/jobs/route.ts
+1226:16  Warning: 'executeLocalizationJobById' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/app/api/[tenant]/localization/jobs/[jobId]/cancel/route.ts
+29:69  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+59:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/localization/jobs/[jobId]/route.ts
+69:69  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+91:73  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/localization/jobs/[jobId]/run/route.ts
+19:69  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/localization/_shared.ts
+21:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+55:52  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/market-context/route.ts
+90:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+91:24  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-families/[familyId]/field-groups/batch-save/route.ts
+23:13  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+35:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-families/[familyId]/field-groups/route.ts
+114:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+125:43  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+125:58  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+126:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+131:64  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+164:20  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+164:41  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+271:41  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+301:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-families/[familyId]/field-groups/[assignmentId]/route.ts
+64:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+98:49  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-families/[familyId]/field-groups/_shared.ts
+14:77  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+44:9  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-families/[familyId]/route.ts
+36:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+186:32  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+187:32  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts
+30:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+34:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+38:43  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+38:58  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+39:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+269:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+307:24  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+323:39  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-families/[familyId]/variant-attributes/[attributeId]/route.ts
+57:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-families/[familyId]/variant-attributes/_shared.ts
+14:83  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+44:9  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-fields/route.ts
+56:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+98:56  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-links/route.ts
+111:31  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+485:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-links/[linkId]/route.ts
+98:31  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+200:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+313:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/product-table-templates/route.ts
+28:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+67:51  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/products/basic/route.ts
+89:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/products/[productId]/completeness/route.ts
+56:31  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/products/[productId]/route.ts
+217:57  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+459:74  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+746:31  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+852:9  Warning: 'product' is never reassigned. Use 'const' instead.  prefer-const
+853:68  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+907:66  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1258:76  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1373:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1428:69  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1446:70  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/products/[productId]/variants/bulk/route.ts
+50:69  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+55:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+220:20  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+221:20  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+266:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+326:43  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/products/[productId]/variants/route.ts
+44:57  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+76:31  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+210:69  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/products/[productId]/variants/[variantId]/route.ts
+42:57  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+71:69  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+77:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+282:68  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+289:41  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+382:43  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+415:71  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/settings/organization/logo/route.ts
+81:82  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+106:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/settings/organization/route.ts
+65:71  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+165:82  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+214:79  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/sharing/containers/route.ts
+21:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+27:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+33:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/updates/route.ts
+45:36  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+146:54  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/updates/[updateId]/analytics/route.ts
+33:78  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+48:83  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+62:101  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/updates/[updateId]/publish/route.ts
+182:63  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/updates/[updateId]/remind/route.ts
+123:63  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/updates/[updateId]/route.ts
+30:54  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+143:54  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/updates/_shared.ts
+86:52  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/view/[scope]/updates/route.ts
+43:45  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+97:43  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+139:65  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/view/[scope]/updates/[updateId]/acknowledge/route.ts
+14:53  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+66:54  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/view/[scope]/updates/[updateId]/activate/route.ts
+14:53  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+63:54  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/view/[scope]/updates/[updateId]/events/route.ts
+73:32  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/api/[tenant]/view/[scope]/updates/_shared.ts
+101:52  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/invitations/accept/InvitationAcceptClient.tsx
+102:6  Warning: React Hook useEffect has a missing dependency: 'fetchInvitation'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+136:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+336:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+423:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+590:20  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+711:23  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+711:41  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+712:20  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+717:32  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+
+./src/app/notifications/NotificationsClient.tsx
+69:6  Warning: React Hook useEffect has a missing dependency: 'fetchNotifications'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+
+./src/app/onboarding/OnboardingClient.tsx
+386:97  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+537:79  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+
+./src/app/test/page.tsx
+17:25  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+18:13  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+230:93  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+236:59  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+287:34  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+287:51  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+293:67  Warning: `'` can be escaped with `&apos;`, `&lsquo;`, `&#39;`, `&rsquo;`.  react/no-unescaped-entities
+
+./src/app/u/[tenant]/[token]/page.tsx
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+421:13  Error: Do not use an `<a>` element to navigate to `/api/auth/login/`. Use `<Link />` from `next/link` instead. 
+See: https://nextjs.org/docs/messages/no-html-link-for-pages  @next/next/no-html-link-for-pages
+
+./src/app/[tenant]/assets/AssetsClient.tsx
+154:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+196:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+491:51  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+519:6  Warning: React Hook useEffect has missing dependencies: 'buildScopedQuery' and 'withPreviewUrls'. Either 
+include them or remove the dependency array.  react-hooks/exhaustive-deps
+541:49  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1494:68  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1727:31  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1885:6  Warning: React Hook useEffect has missing dependencies: 'handleBulkDelete' and 'handleSelectAll'. Either 
+include them or remove the dependency array.  react-hooks/exhaustive-deps
+2379:29  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+2440:29  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+2494:27  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/app/[tenant]/assets/upload/page-old.tsx
+499:27  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/app/[tenant]/assets/upload/page.tsx
+732:29  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+769:37  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+948:62  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1300:13  Warning: 'nextMetadata' is never reassigned. Use 'const' instead.  prefer-const
+1506:9  Warning: The 'handleFilesAdded' function makes the dependencies of useEffect Hook (at line 1573) change on 
+every render. To fix this, wrap the definition of 'handleFilesAdded' in its own useCallback() Hook.  
+react-hooks/exhaustive-deps
+1797:17  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/app/[tenant]/DashboardClient.tsx
+99:6  Warning: React Hook useEffect has a missing dependency: 'fetchData'. Either include it or remove the dependency 
+array.  react-hooks/exhaustive-deps
+
+./src/app/[tenant]/layout.tsx
+63:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/[tenant]/products/ProductsClient.tsx
+31:40  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/[tenant]/products/[productId]/ProductDetailClient.tsx
+156:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+173:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+268:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+293:41  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+332:43  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+336:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+361:42  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+365:50  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+367:50  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+368:65  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+369:81  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+370:52  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+374:58  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+529:42  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+534:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+538:56  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+562:25  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+577:9  Warning: The 'saveFieldValues' function makes the dependencies of useCallback Hook (at line 2177) change on 
+every render. To fix this, wrap the definition of 'saveFieldValues' in its own useCallback() Hook.  
+react-hooks/exhaustive-deps
+578:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+588:50  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+755:47  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+759:50  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+792:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+807:46  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+876:23  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+877:20  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+891:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+892:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+917:9  Warning: The 'sections' array makes the dependencies of useEffect Hook (at line 1028) change on every render. 
+To fix this, wrap the initialization of 'sections' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+917:9  Warning: The 'sections' array makes the dependencies of useEffect Hook (at line 1052) change on every render. 
+To fix this, wrap the initialization of 'sections' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+973:25  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+990:5  Warning: React Hook useCallback has a missing dependency: 'saveFieldValues'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+996:52  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+997:62  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1012:6  Warning: React Hook useMemo has a missing dependency: 'isScinSystemField'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+1087:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1105:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1206:42  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1206:59  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1256:59  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1287:42  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1535:20  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1832:55  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1835:31  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1837:23  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1837:31  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1840:58  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1993:51  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2098:6  Warning: React Hook useEffect has missing dependencies: 'selectedChannelId', 'selectedDestinationId', and 
+'selectedLocaleId'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+2164:25  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2170:27  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2776:45  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2848:43  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+2946:41  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2953:45  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2956:45  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3018:73  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3044:71  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+3293:37  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+3514:41  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+3618:41  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/app/[tenant]/products/[productId]/variants/[variantId]/VariantDetailClient.tsx
+44:9  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+47:16  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+90:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+107:36  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+108:43  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+115:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+147:42  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+148:54  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+152:50  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+153:65  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+154:81  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+156:71  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+163:42  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+168:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+306:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+313:27  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+313:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+321:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+329:50  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+373:34  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+417:9  Warning: The 'sections' array makes the dependencies of useEffect Hook (at line 424) change on every render. To 
+fix this, wrap the initialization of 'sections' in its own useMemo() Hook.  react-hooks/exhaustive-deps
+452:9  Warning: The 'saveFieldValues' function makes the dependencies of useCallback Hook (at line 986) change on 
+every render. To fix this, wrap the definition of 'saveFieldValues' in its own useCallback() Hook.  
+react-hooks/exhaustive-deps
+452:63  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+460:50  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+533:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+542:55  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+595:63  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+656:57  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+674:56  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+728:65  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+736:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+738:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+740:29  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+740:37  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+742:64  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+770:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+825:52  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+830:62  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+867:6  Warning: React Hook React.useMemo has missing dependencies: 'getParentFieldValue' and 'isScinSystemField'. 
+Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+902:47  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+906:50  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+973:25  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+979:27  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1369:47  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1370:41  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1370:49  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1371:44  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1543:79  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1582:77  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/[tenant]/settings/components/LocalizationSettings.tsx
+791:9  Warning: The 'selectedItems' logical expression could make the dependencies of useMemo Hook (at line 801) 
+change on every render. To fix this, wrap the initialization of 'selectedItems' in its own useMemo() Hook.  
+react-hooks/exhaustive-deps
+
+./src/app/[tenant]/settings/components/OrganizationSettings.tsx
+249:17  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/app/[tenant]/settings/components/SetsSettings.tsx
+336:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+378:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+407:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+541:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+576:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+610:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+699:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+736:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+880:88  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+880:109  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+930:90  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+930:111  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+992:122  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+992:143  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+
+./src/app/[tenant]/settings/field-groups/[groupCode]/edit/page.tsx
+29:48  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+35:6  Warning: React Hook useEffect has a missing dependency: 'fetchFieldGroup'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+
+./src/app/[tenant]/settings/field-groups/[groupCode]/page.tsx
+60:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+100:6  Warning: React Hook useEffect has a missing dependency: 'fetchFieldGroup'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+152:41  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+200:6  Warning: React Hook useEffect has a missing dependency: 'fetchAvailableFields'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+206:6  Warning: React Hook useEffect has a missing dependency: 'fetchAvailableFields'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+651:22  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+651:40  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+
+./src/app/[tenant]/settings/product-families/[familyCode]/page.tsx
+53:22  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+54:13  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+69:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+87:40  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+114:6  Warning: React Hook useEffect has missing dependencies: 'fetchAllFieldGroups', 'fetchAllProductFields', and 
+'fetchFamily'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+122:6  Warning: React Hook useEffect has missing dependencies: 'fetchFamilyAttributes' and 'fetchVariantAttributes'. 
+Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+227:41  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+233:45  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+924:22  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+924:36  Warning: `"` can be escaped with `&quot;`, `&ldquo;`, `&#34;`, `&rdquo;`.  react/no-unescaped-entities
+
+./src/app/[tenant]/settings/team/invite/InviteWizardClient.tsx
+213:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+333:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/[tenant]/team/PartnerRelationshipClient.tsx
+89:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+134:27  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+162:27  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+185:27  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/app/[tenant]/updates/UpdatesClient.tsx
+104:6  Warning: React Hook useEffect has a missing dependency: 'fetchUpdates'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+
+./src/app/[tenant]/updates/[updateId]/UpdateDetailClient.tsx
+706:6  Warning: React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency 
+array.  react-hooks/exhaustive-deps
+710:6  Warning: React Hook useEffect has a missing dependency: 'loadShareSettings'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+726:6  Warning: React Hook useEffect has a missing dependency: 'loadPartnerRecipientOptions'. Either include it or 
+remove the dependency array.  react-hooks/exhaustive-deps
+731:6  Warning: React Hook useEffect has a missing dependency: 'loadAssetsCatalog'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+966:9  Warning: The 'orderedSteps' conditional could make the dependencies of useEffect Hook (at line 1131) change on 
+every render. To fix this, wrap the initialization of 'orderedSteps' in its own useMemo() Hook.  
+react-hooks/exhaustive-deps
+1067:6  Warning: React Hook useEffect has a missing dependency: 'saveBuildAssetsTemplate'. Either include it or remove 
+the dependency array.  react-hooks/exhaustive-deps
+1111:6  Warning: React Hook useEffect has a missing dependency: 'saveAudienceSettings'. Either include it or remove 
+the dependency array.  react-hooks/exhaustive-deps
+1247:6  Warning: React Hook useEffect has missing dependencies: 'loadAssetsCatalog' and 'loadProductsCatalog'. Either 
+include them or remove the dependency array.  react-hooks/exhaustive-deps
+2204:41  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+2279:41  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+2425:41  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+2563:41  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+2708:33  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+2714:33  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+2871:41  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+3014:39  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+3083:35  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+3196:41  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+3235:37  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/app/[tenant]/view/[scope]/PartnerHomeClient.tsx
+127:6  Warning: React Hook useEffect has a missing dependency: 'fetchData'. Either include it or remove the dependency 
+array.  react-hooks/exhaustive-deps
+211:6  Warning: React Hook useMemo has a missing dependency: 'isOverdue'. Either include it or remove the dependency 
+array.  react-hooks/exhaustive-deps
+
+./src/app/[tenant]/view/[scope]/updates/PartnerUpdatesClient.tsx
+77:6  Warning: React Hook useEffect has a missing dependency: 'fetchRows'. Either include it or remove the dependency 
+array.  react-hooks/exhaustive-deps
+
+./src/app/[tenant]/view/[scope]/updates/[updateId]/PartnerUpdateDetailClient.tsx
+90:6  Warning: React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency 
+array.  react-hooks/exhaustive-deps
+
+./src/components/dam/asset-view-panel.tsx
+111:52  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+135:61  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+399:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+400:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+401:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+404:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+405:26  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+446:64  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+453:6  Warning: React Hook useCallback has a missing dependency: 'brandQuerySuffix'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+1125:19  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+1701:35  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/components/field-types/MeasurementField.tsx
+34:29  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+40:11  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+63:22  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+377:35  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/components/products/pim-table.tsx
+513:63  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+555:36  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1411:22  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+1505:22  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+2197:39  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/components/products/TranslationPanel.tsx
+270:17  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+281:6  Warning: React Hook useEffect has a missing dependency: 'productFamilyId'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+805:23  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+840:19  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/components/products/VariantNavigationHeader.tsx
+27:38  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+147:6  Warning: React Hook useCallback has a missing dependency: 'buildScopeQuery'. Either include it or remove the 
+dependency array.  react-hooks/exhaustive-deps
+
+./src/components/SaaSSidebar.tsx
+299:21  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+332:27  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/components/WorkspaceRail.tsx
+204:17  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from 
+`next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from 
+your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/lib/market-scope.ts
+7:28  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+64:67  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+102:81  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/lib/redis.ts
+43:52  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+67:33  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/lib/rls-context.ts
+26:40  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/lib/security-audit.ts
+13:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+36:19  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/lib/tenant-auth.ts
+88:87  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+./src/lib/user-context.ts
+98:60  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+110:21  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+111:18  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+137:58  Warning: Unexpected any. Specify a different type.  @typescript-eslint/no-explicit-any
+
+info  - Need to disable some ESLint rules? Learn more here: 
+https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+npm error Lifecycle script `lint` failed with error:
+npm error code 1
+npm error path C:\Users\jason\tradetool\apps\saas-web
+npm error workspace @stack-app/saas-web@0.1.0
+npm error location C:\Users\jason\tradetool\apps\saas-web
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c next lint

@@ -1,21 +1,28 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { CheckCircle2, Globe2, Languages, Loader2, RefreshCw, Sparkles, XCircle } from 'lucide-react';
+import { CheckCircle2, ChevronLeft, Languages, RefreshCw, XCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { PageLoader } from '@/components/ui/loading-spinner';
-import { MultiSelect, MultiSelectOption } from '@/components/ui/multi-select';
-import { PageContentContainer } from '@/components/ui/page-content-container';
+import { ItemList } from '@/components/ui/item-list';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
+import type { MultiSelectOption } from '@/components/ui/multi-select';
+import { SettingsContentBoundary, SettingsSecondLevelPage } from './settings-page-content';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { getLocaleShortName } from '@/lib/locale-utils';
 
 interface LocalizationSettingsProps {
   tenantSlug: string;
+  focusOverride?: 'locales' | 'adaptation' | 'glossaries' | 'jobs';
+  showBackLink?: boolean;
 }
 
 interface LocaleOption {
@@ -25,22 +32,32 @@ interface LocaleOption {
   is_active: boolean;
 }
 
+interface ManagedLocaleOption extends LocaleOption {
+  display_name?: string;
+  is_default?: boolean;
+  market_count?: number;
+  field_value_count?: number;
+  glossary_count?: number;
+  job_count?: number;
+  linked_to_market?: boolean;
+  used_in_product_content?: boolean;
+}
+
+interface LocaleCatalogEntry {
+  code: string;
+  name: string;
+  sort_order?: number;
+}
+
 interface LocalizationSettingsData {
   organization_id: string;
   translation_enabled: boolean;
   write_assist_enabled: boolean;
-  auto_create_pending_tasks_for_new_locale: boolean;
-  default_source_locale_id: string | null;
-  default_target_locale_ids: string[];
   deepl_glossary_id: string | null;
   brand_instructions: string;
   preferred_tone: 'neutral' | 'formal' | 'informal' | 'professional' | 'friendly';
+  default_locale_id?: string | null;
   metadata: Record<string, unknown>;
-}
-
-interface LocalizationProviderStatus {
-  key: string;
-  configured: boolean;
 }
 
 interface LocalizationSettingsResponse {
@@ -48,19 +65,11 @@ interface LocalizationSettingsResponse {
   data: {
     settings: LocalizationSettingsData;
     locales: LocaleOption[];
-    provider: LocalizationProviderStatus;
   };
 }
 
-interface LocalizationEligibilityResponse {
-  success: boolean;
-  data: {
-    planId: string;
-    canTranslateProduct: boolean;
-    restrictions?: {
-      translateProduct?: string | null;
-    };
-  };
+interface ReferenceDataResponse {
+  locale_catalog?: LocaleCatalogEntry[];
 }
 
 interface LocalizationJobSummary {
@@ -101,17 +110,6 @@ interface GlossariesResponse {
   data: {
     glossaries: GlossarySummary[];
   };
-}
-
-interface ProductOption {
-  id: string;
-  sku: string | null;
-  productName: string | null;
-}
-
-interface ProductsResponse {
-  success: boolean;
-  data: ProductOption[];
 }
 
 interface ProductFieldOption {
@@ -167,24 +165,6 @@ interface LocalizationJobDetailResponse {
   data: LocalizationJobDetail;
 }
 
-type JobType = 'translate' | 'write_assist';
-
-interface CreateJobState {
-  jobType: JobType;
-  executionMode: 'sync' | 'async';
-  sourceLocaleId: string;
-  targetLocaleIds: string[];
-  productIds: string[];
-  fieldCodes: string[];
-  productFieldIds: string[];
-  sourceMarketId: string;
-  sourceChannelId: string;
-  sourceDestinationId: string;
-  targetMarketId: string;
-  targetChannelId: string;
-  targetDestinationId: string;
-}
-
 const FIELD_CODE_OPTIONS: MultiSelectOption[] = [
   { value: 'product_name', label: 'Product Name' },
   { value: 'short_description', label: 'Short Description' },
@@ -215,15 +195,12 @@ function formatChars(value: number): string {
   return new Intl.NumberFormat('en-US').format(Math.max(0, Number(value || 0)));
 }
 
-function statusBadgeVariant(status: string): 'default' | 'secondary' | 'destructive' {
-  if (status === 'failed' || status === 'cancelled' || status === 'rejected') return 'destructive';
-  if (status === 'review_required' || status === 'running' || status === 'queued') return 'secondary';
-  return 'default';
-}
-
-function toOptionalString(value: string): string | undefined {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+function statusBadgeVariant(status: string): 'success' | 'warning' | 'error' | 'info' | 'neutral' {
+  if (status === 'failed' || status === 'cancelled' || status === 'rejected') return 'error';
+  if (status === 'review_required') return 'warning';
+  if (status === 'running' || status === 'queued') return 'info';
+  if (status === 'completed' || status === 'applied') return 'success';
+  return 'neutral';
 }
 
 function toTextValue(value: Record<string, unknown> | string | null | undefined): string {
@@ -269,16 +246,45 @@ function fieldLabelForItem(
   return fieldLabelFromCode(item.field_code);
 }
 
-export default function LocalizationSettings({ tenantSlug }: LocalizationSettingsProps) {
+function localeDisplayName(locale: Pick<ManagedLocaleOption, 'display_name' | 'name'>): string {
+  return locale.display_name || locale.name;
+}
+
+function localeUsageSummary(locale: ManagedLocaleOption): string {
+  const chunks: string[] = [];
+  if ((locale.field_value_count || 0) > 0) {
+    chunks.push(`${locale.field_value_count} field values`);
+  }
+  if ((locale.market_count || 0) > 0) {
+    chunks.push(`${locale.market_count} markets`);
+  }
+  if ((locale.glossary_count || 0) > 0) {
+    chunks.push(`${locale.glossary_count} glossaries`);
+  }
+  if ((locale.job_count || 0) > 0) {
+    chunks.push(`${locale.job_count} jobs`);
+  }
+  return chunks.join(' • ') || 'No active references';
+}
+
+export default function LocalizationSettings({
+  tenantSlug,
+  focusOverride,
+  showBackLink = true,
+}: LocalizationSettingsProps) {
   const searchParams = useSearchParams();
-  const prefillProductId = (searchParams.get('productId') || '').trim();
-  const prefillMode = (searchParams.get('mode') || '').trim().toLowerCase();
+  const queryFocus = (searchParams.get('focus') || '').trim().toLowerCase();
+  const focusSection = (focusOverride || queryFocus) as 'locales' | 'adaptation' | 'glossaries' | 'jobs' | '';
+  const isLocalesFocus = focusSection === 'locales';
+  const isAdaptationFocus = focusSection === 'adaptation';
+  const isGlossariesFocus = focusSection === 'glossaries';
+  const isJobsFocus = focusSection === 'jobs';
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [refreshingJobs, setRefreshingJobs] = useState(false);
   const [refreshingGlossaries, setRefreshingGlossaries] = useState(false);
-  const [creatingJob, setCreatingJob] = useState(false);
   const [creatingGlossary, setCreatingGlossary] = useState(false);
+  const [localeActionLoading, setLocaleActionLoading] = useState(false);
   const [loadingJobDetail, setLoadingJobDetail] = useState(false);
   const [refreshingJobDetail, setRefreshingJobDetail] = useState(false);
   const [jobActionLoading, setJobActionLoading] = useState(false);
@@ -288,33 +294,25 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const [locales, setLocales] = useState<LocaleOption[]>([]);
-  const [products, setProducts] = useState<ProductOption[]>([]);
-  const [productFields, setProductFields] = useState<ProductFieldOption[]>([]);
+  const [managedLocales, setManagedLocales] = useState<ManagedLocaleOption[]>([]);
+  const [localeCatalog, setLocaleCatalog] = useState<LocaleCatalogEntry[]>([]);
+  const [newLocaleCode, setNewLocaleCode] = useState('');
+  const [showAddLocaleDialog, setShowAddLocaleDialog] = useState(false);
   const [markets, setMarkets] = useState<ScopeOption[]>([]);
   const [channels, setChannels] = useState<ScopeOption[]>([]);
   const [destinations, setDestinations] = useState<ScopeOption[]>([]);
-  const [provider, setProvider] = useState<LocalizationProviderStatus>({
-    key: 'deepl',
-    configured: false,
-  });
   const [settings, setSettings] = useState<LocalizationSettingsData>({
     organization_id: '',
     translation_enabled: false,
     write_assist_enabled: false,
-    auto_create_pending_tasks_for_new_locale: false,
-    default_source_locale_id: null,
-    default_target_locale_ids: [],
     deepl_glossary_id: null,
     brand_instructions: '',
     preferred_tone: 'neutral',
+    default_locale_id: null,
     metadata: {},
   });
   const [jobs, setJobs] = useState<LocalizationJobSummary[]>([]);
   const [glossaries, setGlossaries] = useState<GlossarySummary[]>([]);
-  const [canTranslateProduct, setCanTranslateProduct] = useState(true);
-  const [planId, setPlanId] = useState<string>('free');
-  const [translateRestrictionMessage, setTranslateRestrictionMessage] = useState<string | null>(null);
-  const [queryPrefillApplied, setQueryPrefillApplied] = useState(false);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedJobDetail, setSelectedJobDetail] = useState<LocalizationJobDetail | null>(null);
   const [itemDrafts, setItemDrafts] = useState<Record<string, string>>({});
@@ -322,22 +320,10 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
   const [newGlossarySourceLocaleId, setNewGlossarySourceLocaleId] = useState('');
   const [newGlossaryTargetLocaleId, setNewGlossaryTargetLocaleId] = useState('');
   const [newGlossaryEntriesText, setNewGlossaryEntriesText] = useState('');
-  const [createProviderGlossary, setCreateProviderGlossary] = useState(true);
-  const [jobForm, setJobForm] = useState<CreateJobState>({
-    jobType: 'translate',
-    executionMode: 'sync',
-    sourceLocaleId: '',
-    targetLocaleIds: [],
-    productIds: [],
-    fieldCodes: FIELD_CODE_OPTIONS.map((option) => option.value),
-    productFieldIds: [],
-    sourceMarketId: '',
-    sourceChannelId: '',
-    sourceDestinationId: '',
-    targetMarketId: '',
-    targetChannelId: '',
-    targetDestinationId: '',
-  });
+  const [productFields, setProductFields] = useState<ProductFieldOption[]>([]);
+  const [jobMetadataLoading, setJobMetadataLoading] = useState(false);
+  const jobMetadataReadyRef = useRef(false);
+  const jobMetadataRequestRef = useRef<Promise<void> | null>(null);
 
   const localeById = useMemo(() => {
     const map = new Map<string, LocaleOption>();
@@ -347,13 +333,34 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
     return map;
   }, [locales]);
 
-  const productById = useMemo(() => {
-    const map = new Map<string, ProductOption>();
-    for (const product of products) {
-      map.set(product.id, product);
+  const localeCatalogByCode = useMemo(() => {
+    const map = new Map<string, LocaleCatalogEntry>();
+    for (const locale of localeCatalog) {
+      map.set(locale.code.toLowerCase(), locale);
     }
     return map;
-  }, [products]);
+  }, [localeCatalog]);
+
+  const availableLocaleCatalogEntries = useMemo(() => {
+    const activeCodes = new Set(
+      managedLocales.filter((locale) => locale.is_active).map((locale) => locale.code.toLowerCase())
+    );
+    return localeCatalog.filter((locale) => !activeCodes.has(locale.code.toLowerCase()));
+  }, [localeCatalog, managedLocales]);
+
+  const visibleManagedLocales = useMemo(() => {
+    return [...managedLocales].sort((left, right) => {
+      const leftDefault = left.is_default ? 1 : 0;
+      const rightDefault = right.is_default ? 1 : 0;
+      if (leftDefault !== rightDefault) return rightDefault - leftDefault;
+
+      const leftActive = left.is_active ? 1 : 0;
+      const rightActive = right.is_active ? 1 : 0;
+      if (leftActive !== rightActive) return rightActive - leftActive;
+
+      return localeDisplayName(left).localeCompare(localeDisplayName(right));
+    });
+  }, [managedLocales]);
 
   const marketById = useMemo(() => {
     const map = new Map<string, ScopeOption>();
@@ -387,40 +394,6 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
     return map;
   }, [productFields]);
 
-  const productOptions = useMemo<MultiSelectOption[]>(
-    () =>
-      products.map((product) => ({
-        value: product.id,
-        label: `${product.productName || 'Untitled product'}${product.sku ? ` (${product.sku})` : ''}`,
-      })),
-    [products]
-  );
-
-  const localeOptions = useMemo<MultiSelectOption[]>(
-    () =>
-      locales.map((locale) => ({
-        value: locale.id,
-        label: `${locale.name} (${locale.code})`,
-      })),
-    [locales]
-  );
-
-  const targetLocaleOptions = useMemo(
-    () => localeOptions.filter((locale) => locale.value !== jobForm.sourceLocaleId),
-    [jobForm.sourceLocaleId, localeOptions]
-  );
-
-  const customFieldOptions = useMemo<MultiSelectOption[]>(
-    () =>
-      productFields
-        .filter((field) => field.is_translatable || field.is_write_assist_enabled)
-        .map((field) => ({
-          value: field.id,
-          label: `${field.name} (${field.code})`,
-        })),
-    [productFields]
-  );
-
   const fetchSettings = useCallback(async () => {
     const response = await fetch(`/api/${tenantSlug}/localization/settings`);
     if (!response.ok) {
@@ -431,21 +404,28 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
     const payload = (await response.json()) as LocalizationSettingsResponse;
     setSettings(payload.data.settings);
     setLocales(payload.data.locales || []);
-    setProvider(payload.data.provider || { key: 'deepl', configured: false });
-    setJobForm((prev) => ({
-      ...prev,
-      sourceLocaleId:
-        prev.sourceLocaleId ||
-        payload.data.settings.default_source_locale_id ||
-        payload.data.locales[0]?.id ||
-        '',
-      targetLocaleIds:
-        prev.targetLocaleIds.length > 0
-          ? prev.targetLocaleIds
-          : (payload.data.settings.default_target_locale_ids || []).filter(
-              (localeId) => localeId !== payload.data.settings.default_source_locale_id
-            ),
-    }));
+  }, [tenantSlug]);
+
+  const fetchManagedLocales = useCallback(async () => {
+    const response = await fetch(`/api/${tenantSlug}/locales?includeInactive=1&includeUsage=1`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || 'Failed to load organization locales');
+    }
+
+    const payload = (await response.json()) as ManagedLocaleOption[];
+    setManagedLocales(Array.isArray(payload) ? payload : []);
+  }, [tenantSlug]);
+
+  const fetchLocaleCatalog = useCallback(async () => {
+    const response = await fetch(`/api/${tenantSlug}/settings/reference-data`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || 'Failed to load locale catalog');
+    }
+
+    const payload = (await response.json()) as ReferenceDataResponse;
+    setLocaleCatalog(Array.isArray(payload.locale_catalog) ? payload.locale_catalog : []);
   }, [tenantSlug]);
 
   const fetchJobs = useCallback(async () => {
@@ -470,17 +450,6 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
     setGlossaries(payload.data.glossaries || []);
   }, [tenantSlug]);
 
-  const fetchProducts = useCallback(async () => {
-    const response = await fetch(`/api/${tenantSlug}/products/basic`);
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.error || 'Failed to load products');
-    }
-
-    const payload = (await response.json()) as ProductsResponse;
-    setProducts(Array.isArray(payload.data) ? payload.data : []);
-  }, [tenantSlug]);
-
   const fetchProductFields = useCallback(async () => {
     const response = await fetch(`/api/${tenantSlug}/product-fields`);
     if (!response.ok) {
@@ -500,35 +469,44 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
   }, [tenantSlug]);
 
   const fetchScopeOptions = useCallback(async () => {
-    const [marketsResponse, channelsResponse, destinationsResponse] = await Promise.all([
-      fetch(`/api/${tenantSlug}/markets`),
-      fetch(`/api/${tenantSlug}/channels`),
-      fetch(`/api/${tenantSlug}/destinations`),
-    ]);
-
-    if (!marketsResponse.ok) {
-      const payload = await marketsResponse.json().catch(() => ({}));
-      throw new Error(payload.error || 'Failed to load markets');
-    }
-    if (!channelsResponse.ok) {
-      const payload = await channelsResponse.json().catch(() => ({}));
-      throw new Error(payload.error || 'Failed to load channels');
-    }
-    if (!destinationsResponse.ok) {
-      const payload = await destinationsResponse.json().catch(() => ({}));
-      throw new Error(payload.error || 'Failed to load destinations');
+    const response = await fetch(`/api/${tenantSlug}/market-context`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || 'Failed to load localization scope options');
     }
 
-    const [marketsPayload, channelsPayload, destinationsPayload] = (await Promise.all([
-      marketsResponse.json(),
-      channelsResponse.json(),
-      destinationsResponse.json(),
-    ])) as [ScopeOption[], ScopeOption[], ScopeOption[]];
-
-    setMarkets(Array.isArray(marketsPayload) ? marketsPayload : []);
-    setChannels(Array.isArray(channelsPayload) ? channelsPayload : []);
-    setDestinations(Array.isArray(destinationsPayload) ? destinationsPayload : []);
+    const payload = await response.json().catch(() => ({}));
+    setMarkets(Array.isArray(payload?.markets) ? payload.markets : []);
+    setChannels(Array.isArray(payload?.channels) ? payload.channels : []);
+    setDestinations(Array.isArray(payload?.destinations) ? payload.destinations : []);
   }, [tenantSlug]);
+
+  const ensureJobMetadata = useCallback(async () => {
+    if (jobMetadataReadyRef.current) return;
+    if (jobMetadataRequestRef.current) {
+      await jobMetadataRequestRef.current;
+      return;
+    }
+
+    const request = (async () => {
+      try {
+        setJobMetadataLoading(true);
+        await Promise.all([fetchProductFields(), fetchScopeOptions()]);
+        jobMetadataReadyRef.current = true;
+      } catch (metadataError) {
+        console.error('Failed to load localization job metadata:', metadataError);
+      } finally {
+        setJobMetadataLoading(false);
+      }
+    })();
+
+    jobMetadataRequestRef.current = request;
+    try {
+      await request;
+    } finally {
+      jobMetadataRequestRef.current = null;
+    }
+  }, [fetchProductFields, fetchScopeOptions]);
 
   const fetchJobDetail = useCallback(
     async (jobId: string) => {
@@ -554,102 +532,55 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
     [tenantSlug]
   );
 
-  const fetchEligibility = useCallback(async () => {
-    const response = await fetch(`/api/${tenantSlug}/localization/eligibility`);
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.error || 'Failed to load localization eligibility');
-    }
-
-    const payload = (await response.json()) as LocalizationEligibilityResponse;
-    setCanTranslateProduct(Boolean(payload.data.canTranslateProduct));
-    setPlanId(payload.data.planId || 'free');
-    setTranslateRestrictionMessage(payload.data.restrictions?.translateProduct || null);
-  }, [tenantSlug]);
-
   const refreshAll = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       setSaveNotice(null);
-      await Promise.all([
+
+      const tasks: Array<Promise<unknown>> = [
         fetchSettings(),
-        fetchJobs(),
-        fetchProducts(),
-        fetchProductFields(),
-        fetchScopeOptions(),
-        fetchEligibility(),
-      ]);
-      await fetchGlossaries();
+        fetchManagedLocales(),
+        fetchLocaleCatalog(),
+        fetchGlossaries(),
+      ];
+      if (!isGlossariesFocus) {
+        tasks.push(fetchJobs());
+      }
+      await Promise.all(tasks);
+      if (!isGlossariesFocus) {
+        void ensureJobMetadata();
+      }
     } catch (fetchError) {
       console.error('Failed to load localization settings page:', fetchError);
       setError(fetchError instanceof Error ? fetchError.message : 'Failed to load localization settings');
     } finally {
       setLoading(false);
     }
-  }, [fetchEligibility, fetchGlossaries, fetchJobs, fetchProductFields, fetchProducts, fetchScopeOptions, fetchSettings]);
+  }, [
+    fetchJobs,
+    fetchGlossaries,
+    fetchSettings,
+    fetchLocaleCatalog,
+    fetchManagedLocales,
+    ensureJobMetadata,
+    isGlossariesFocus,
+  ]);
 
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
 
   useEffect(() => {
-    if (queryPrefillApplied) return;
-    if (!prefillProductId && prefillMode !== 'translate') return;
-    if (!loading && prefillProductId && products.length > 0 && !products.some((product) => product.id === prefillProductId)) {
-      setQueryPrefillApplied(true);
-      return;
-    }
-    if (loading) return;
-
-    setJobForm((prev) => {
-      const nextProductIds =
-        prefillProductId && products.some((product) => product.id === prefillProductId)
-          ? Array.from(new Set([prefillProductId, ...prev.productIds]))
-          : prev.productIds;
-
-      const requestedTranslateMode = prefillMode === 'translate' && canTranslateProduct;
-      return {
-        ...prev,
-        jobType: requestedTranslateMode ? 'translate' : prev.jobType,
-        productIds: nextProductIds,
-      };
-    });
-
-    if (prefillMode === 'translate' && !canTranslateProduct && translateRestrictionMessage) {
-      setError(translateRestrictionMessage);
-    }
-    setQueryPrefillApplied(true);
-  }, [
-    canTranslateProduct,
-    loading,
-    prefillMode,
-    prefillProductId,
-    products,
-    queryPrefillApplied,
-    translateRestrictionMessage,
-  ]);
-
-  useEffect(() => {
-    if (canTranslateProduct) return;
-    setJobForm((prev) => (prev.jobType === 'translate' ? { ...prev, jobType: 'write_assist' } : prev));
-  }, [canTranslateProduct]);
-
-  const toggleTargetLocale = (localeId: string) => {
-    setSaveNotice(null);
-    setSettings((prev) => {
-      const existing = new Set(prev.default_target_locale_ids || []);
-      if (existing.has(localeId)) {
-        existing.delete(localeId);
-      } else {
-        existing.add(localeId);
-      }
-      return {
-        ...prev,
-        default_target_locale_ids: Array.from(existing),
-      };
-    });
-  };
+    jobMetadataReadyRef.current = false;
+    jobMetadataRequestRef.current = null;
+    setProductFields([]);
+    setManagedLocales([]);
+    setLocaleCatalog([]);
+    setMarkets([]);
+    setChannels([]);
+    setDestinations([]);
+  }, [tenantSlug]);
 
   const handleSave = async () => {
     try {
@@ -663,12 +594,10 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
         body: JSON.stringify({
           translationEnabled: settings.translation_enabled,
           writeAssistEnabled: settings.write_assist_enabled,
-          autoCreatePendingTasksForNewLocale: settings.auto_create_pending_tasks_for_new_locale,
-          defaultSourceLocaleId: settings.default_source_locale_id,
-          defaultTargetLocaleIds: settings.default_target_locale_ids,
           deeplGlossaryId: settings.deepl_glossary_id,
           brandInstructions: settings.brand_instructions,
           preferredTone: settings.preferred_tone,
+          defaultLocaleId: settings.default_locale_id,
           metadata: settings.metadata || {},
         }),
       });
@@ -678,7 +607,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
         throw new Error(payload.error || 'Failed to save localization settings');
       }
 
-      await fetchSettings();
+      await Promise.all([fetchSettings(), fetchManagedLocales()]);
       setSaveNotice('Localization settings saved.');
     } catch (saveError) {
       console.error('Failed to save localization settings:', saveError);
@@ -692,6 +621,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
     try {
       setRefreshingJobs(true);
       setError(null);
+      void ensureJobMetadata();
       await fetchJobs();
     } catch (jobsError) {
       console.error('Failed to refresh localization jobs:', jobsError);
@@ -713,6 +643,107 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
       setRefreshingGlossaries(false);
     }
   };
+
+  const handleActivateLocaleFromCatalog = useCallback(async () => {
+    if (!newLocaleCode) return;
+    const catalogEntry = localeCatalogByCode.get(newLocaleCode.toLowerCase());
+    const localeName = catalogEntry?.name || newLocaleCode;
+
+    try {
+      setLocaleActionLoading(true);
+      setError(null);
+      setSaveNotice(null);
+
+      const response = await fetch(`/api/${tenantSlug}/locales`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: newLocaleCode,
+          name: localeName,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to activate locale');
+      }
+
+      await Promise.all([fetchManagedLocales(), fetchSettings()]);
+      setNewLocaleCode('');
+      setShowAddLocaleDialog(false);
+      setSaveNotice(`${localeName} is now available for locale-first authoring.`);
+    } catch (localeError) {
+      console.error('Failed to activate locale:', localeError);
+      setError(localeError instanceof Error ? localeError.message : 'Failed to activate locale');
+    } finally {
+      setLocaleActionLoading(false);
+    }
+  }, [fetchManagedLocales, fetchSettings, localeCatalogByCode, newLocaleCode, tenantSlug]);
+
+  const handleLocaleStateChange = useCallback(
+    async (locale: ManagedLocaleOption, action: 'activate' | 'deactivate' | 'set-default') => {
+      try {
+        setLocaleActionLoading(true);
+        setError(null);
+        setSaveNotice(null);
+
+        if (action === 'deactivate') {
+          const warningChunks: string[] = [];
+          if ((locale.field_value_count || 0) > 0) {
+            warningChunks.push(`${locale.field_value_count} field values`);
+          }
+          if ((locale.market_count || 0) > 0) {
+            warningChunks.push(`${locale.market_count} markets`);
+          }
+          if ((locale.glossary_count || 0) > 0) {
+            warningChunks.push(`${locale.glossary_count} glossaries`);
+          }
+          if ((locale.job_count || 0) > 0) {
+            warningChunks.push(`${locale.job_count} jobs`);
+          }
+          if (warningChunks.length > 0) {
+            const confirmed = window.confirm(
+              `${localeDisplayName(locale)} is still referenced by ${warningChunks.join(', ')}. Deactivate it anyway?`
+            );
+            if (!confirmed) {
+              setLocaleActionLoading(false);
+              return;
+            }
+          }
+        }
+
+        const response = await fetch(`/api/${tenantSlug}/locales`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            action === 'set-default'
+              ? { localeId: locale.id, isDefault: true }
+              : { localeId: locale.id, isActive: action === 'activate' }
+          ),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error || 'Failed to update locale');
+        }
+
+        await Promise.all([fetchManagedLocales(), fetchSettings()]);
+        setSaveNotice(
+          action === 'set-default'
+            ? `${localeDisplayName(locale)} is now the default locale.`
+            : action === 'activate'
+              ? `${localeDisplayName(locale)} reactivated.`
+              : `${localeDisplayName(locale)} deactivated.`
+        );
+      } catch (localeError) {
+        console.error('Failed to update locale state:', localeError);
+        setError(localeError instanceof Error ? localeError.message : 'Failed to update locale');
+      } finally {
+        setLocaleActionLoading(false);
+      }
+    },
+    [fetchManagedLocales, fetchSettings, tenantSlug]
+  );
 
   const parseGlossaryEntries = (raw: string): Array<{ sourceTerm: string; targetTerm: string }> => {
     return raw
@@ -756,7 +787,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
           sourceLocaleId: newGlossarySourceLocaleId,
           targetLocaleId: newGlossaryTargetLocaleId,
           entries: parsedEntries,
-          createProviderGlossary,
+          createProviderGlossary: true,
         }),
       });
 
@@ -784,6 +815,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
       setSelectedJobId(jobId);
       setLoadingJobDetail(true);
       setError(null);
+      void ensureJobMetadata();
       await fetchJobDetail(jobId);
     } catch (jobError) {
       console.error('Failed to load localization job detail:', jobError);
@@ -804,93 +836,6 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
       setError(jobError instanceof Error ? jobError.message : 'Failed to refresh localization job detail');
     } finally {
       setRefreshingJobDetail(false);
-    }
-  };
-
-  const handleCreateJob = async () => {
-    if (!jobForm.sourceLocaleId) {
-      setError('Select a source locale before creating a job.');
-      return;
-    }
-    if (jobForm.jobType === 'translate' && !canTranslateProduct) {
-      setError(
-        translateRestrictionMessage ||
-          `Translate this product is disabled on ${planId}. Upgrade to continue.`
-      );
-      return;
-    }
-    if (jobForm.productIds.length === 0) {
-      setError('Select at least one product for the job.');
-      return;
-    }
-    if (jobForm.fieldCodes.length === 0 && jobForm.productFieldIds.length === 0) {
-      setError('Select at least one system field or custom field to generate localization content.');
-      return;
-    }
-    if (jobForm.jobType === 'translate' && jobForm.targetLocaleIds.length === 0) {
-      setError('Select at least one target locale for translation jobs.');
-      return;
-    }
-
-    try {
-      setCreatingJob(true);
-      setError(null);
-      setSaveNotice(null);
-
-      const response = await fetch(`/api/${tenantSlug}/localization/jobs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jobType: jobForm.jobType,
-          sourceLocaleId: jobForm.sourceLocaleId,
-          targetLocaleIds: jobForm.jobType === 'translate' ? jobForm.targetLocaleIds : [],
-          productIds: jobForm.productIds,
-          fieldCodes: jobForm.fieldCodes,
-          productFieldIds: jobForm.productFieldIds,
-          executionMode: jobForm.executionMode,
-          sourceMarketId: toOptionalString(jobForm.sourceMarketId),
-          sourceChannelId: toOptionalString(jobForm.sourceChannelId),
-          sourceDestinationId: toOptionalString(jobForm.sourceDestinationId),
-          targetMarketId: toOptionalString(jobForm.targetMarketId),
-          targetChannelId: toOptionalString(jobForm.targetChannelId),
-          targetDestinationId: toOptionalString(jobForm.targetDestinationId),
-        }),
-      });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error || 'Failed to create localization job');
-      }
-
-      const payload = (await response.json()) as {
-        success: boolean;
-        data?: {
-          jobId: string;
-          status?: string;
-          executionMode?: 'sync' | 'async';
-          generatedItems: number;
-          failedItems: number;
-        };
-      };
-
-      const createdJobId = payload.data?.jobId;
-      setSaveNotice(
-        createdJobId
-          ? payload.data?.status === 'queued'
-            ? 'Localization job queued. Click Run when ready.'
-            : `Localization job created (${payload.data?.generatedItems || 0} generated, ${payload.data?.failedItems || 0} failed).`
-          : 'Localization job created.'
-      );
-
-      await fetchJobs();
-      if (createdJobId) {
-        await handleSelectJob(createdJobId);
-      }
-    } catch (createError) {
-      console.error('Failed to create localization job:', createError);
-      setError(createError instanceof Error ? createError.message : 'Failed to create localization job');
-    } finally {
-      setCreatingJob(false);
     }
   };
 
@@ -1061,17 +1006,17 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
       const destination = destinationId ? destinationById.get(destinationId) : null;
 
       const chunks: string[] = [];
-      if (locale) chunks.push(`${locale.name} (${locale.code})`);
-      if (market) chunks.push(market.name);
-      if (channel) chunks.push(channel.name);
-      if (destination) chunks.push(destination.name);
+      if (localeId) chunks.push(locale ? getLocaleShortName(locale.name) : localeId);
+      if (marketId) chunks.push(market?.name || marketId);
+      if (channelId) chunks.push(channel?.name || channelId);
+      if (destinationId) chunks.push(destination?.name || destinationId);
       return chunks.length > 0 ? chunks.join(' • ') : 'Global';
     },
     [channelById, destinationById, localeById, marketById]
   );
 
   const selectedJob = selectedJobDetail?.job || null;
-  const selectedItems = selectedJobDetail?.items || [];
+  const selectedItems = useMemo(() => selectedJobDetail?.items ?? [], [selectedJobDetail?.items]);
   const selectedItemCounts = useMemo(
     () =>
       selectedItems.reduce(
@@ -1083,28 +1028,46 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
       ),
     [selectedItems]
   );
+  const showConfigSection = !focusSection || isLocalesFocus || isAdaptationFocus;
+  const showLocalesSection = !focusSection || isLocalesFocus;
+  const showAdaptationSection = !focusSection || isAdaptationFocus;
+  const showGlossariesSection = !focusSection || isGlossariesFocus;
+  const showJobsSection = !focusSection || isJobsFocus;
+  const visibleJobs = useMemo(
+    () => jobs.filter((job) => job.job_type === 'translate'),
+    [jobs]
+  );
 
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading localization..." size="lg" />
+        <PageSkeleton text="Loading localization..." size="lg" />
       </div>
     );
   }
 
   return (
-    <PageContentContainer mode="content" className="space-y-6">
+    <SettingsSecondLevelPage
+      page="localization"
+      backLink={
+        showBackLink ? (
+          <Link
+            href={`/${tenantSlug}/settings/localization`}
+            className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            <span>Localization</span>
+          </Link>
+        ) : null
+      }
+    >
+      <SettingsContentBoundary size="md" className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Localization</h1>
-          <p className="text-sm text-muted-foreground">
-            Configure translation defaults, Write Assist, and review recent localization jobs.
-          </p>
+          <h1 className="text-xl font-semibold text-foreground">
+            {isGlossariesFocus ? 'Glossaries' : isJobsFocus ? 'Translation Activity' : 'Localization'}
+          </h1>
         </div>
-        <Button variant="outline" size="sm" onClick={refreshAll} disabled={loading}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh
-        </Button>
       </div>
 
       {error && (
@@ -1118,240 +1081,225 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
         </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Provider</CardTitle>
-          <CardDescription>Current machine translation provider status for this workspace.</CardDescription>
-        </CardHeader>
-        <CardContent className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="rounded-md border border-border/60 p-2">
-              <Globe2 className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div>
-              <div className="text-sm font-medium uppercase tracking-wide">{provider.key}</div>
-              <div className="text-xs text-muted-foreground">Server-side only. API key is never exposed to clients.</div>
-            </div>
+      {showConfigSection ? (
+        <>
+          <div className="space-y-1">
+            <h2 className="text-base font-semibold text-foreground">Locale-First Setup</h2>
+            <p className="text-xs text-muted-foreground">Manage organization locales and the baseline content rules used across authoring and syndication.</p>
           </div>
-          <Badge variant={provider.configured ? 'default' : 'destructive'}>
-            {provider.configured ? 'Configured' : 'Not configured'}
-          </Badge>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Workspace Localization Defaults</CardTitle>
-          <CardDescription>These settings apply to new translation jobs and locale onboarding behavior.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
-              <div>
-                <div className="text-sm font-medium">Enable Translation</div>
-                <div className="text-xs text-muted-foreground">Allow translation job creation and DeepL generation.</div>
-              </div>
-              <Switch
-                checked={settings.translation_enabled}
-                onCheckedChange={(checked) =>
-                  setSettings((prev) => ({ ...prev, translation_enabled: Boolean(checked) }))
-                }
-              />
-            </div>
-
-            <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
-              <div>
-                <div className="text-sm font-medium">Enable Write Assist</div>
-                <div className="text-xs text-muted-foreground">
-                  Allow creation of field-level copy improvement suggestions.
+          {showLocalesSection ? (
+            <Card>
+              <CardHeader>
+                <div>
+                  <CardTitle>Locales</CardTitle>
+                  <CardDescription>
+                    Localization is the source of truth for active organization locales. Locales power adaptation, not just translation.
+                  </CardDescription>
                 </div>
-              </div>
-              <Switch
-                checked={settings.write_assist_enabled}
-                onCheckedChange={(checked) =>
-                  setSettings((prev) => ({ ...prev, write_assist_enabled: Boolean(checked) }))
-                }
-              />
-            </div>
-
-            <div className="flex items-center justify-between rounded-md border border-border/60 p-3">
-              <div>
-                <div className="text-sm font-medium">Auto-create pending tasks for new locales</div>
+              </CardHeader>
+              <CardContent className="space-y-5">
                 <div className="text-xs text-muted-foreground">
-                  Creates pending translation tasks when a new market locale is introduced.
+                  Add a locale once and it becomes reusable across Product Detail and Syndication.
                 </div>
-              </div>
-              <Switch
-                checked={settings.auto_create_pending_tasks_for_new_locale}
-                onCheckedChange={(checked) =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    auto_create_pending_tasks_for_new_locale: Boolean(checked),
-                  }))
-                }
-              />
-            </div>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Default Source Locale</div>
-              <Select
-                value={settings.default_source_locale_id || '__none__'}
-                onValueChange={(value) =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    default_source_locale_id: value === '__none__' ? null : value,
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select source locale" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">None</SelectItem>
-                  {locales.map((locale) => (
-                    <SelectItem key={locale.id} value={locale.id}>
-                      {locale.name} ({locale.code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                <ItemList
+                  items={visibleManagedLocales}
+                  getKey={(locale) => locale.id}
+                  renderTitle={(locale) => (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{localeDisplayName(locale)}</span>
+                      <span className="text-xs font-normal text-muted-foreground">{locale.code}</span>
+                    </div>
+                  )}
+                  renderSubtitle={(locale) => localeUsageSummary(locale)}
+                  renderRight={(locale) => {
+                    return (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {locale.is_default ? <Badge variant="success">Default</Badge> : null}
+                        {locale.is_active && !locale.is_default ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={localeActionLoading}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleLocaleStateChange(locale, 'set-default');
+                            }}
+                          >
+                            Set default
+                          </Button>
+                        ) : null}
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={locale.is_active}
+                            disabled={localeActionLoading || (locale.is_default && locale.is_active)}
+                            onCheckedChange={(checked) => {
+                              void handleLocaleStateChange(locale, checked ? 'activate' : 'deactivate');
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  }}
+                  emptyMessage="No locales match this filter."
+                  showIndicator={false}
+                  headerLabel="locale entries"
+                  onCreate={() => {
+                    setError(null);
+                    setSaveNotice(null);
+                    setShowAddLocaleDialog(true);
+                  }}
+                  createLabel="Add locale"
+                />
+              </CardContent>
+            </Card>
+          ) : null}
 
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Default Target Locales</div>
-              <div className="grid max-h-56 gap-2 overflow-auto rounded-md border border-border/60 p-2">
-                {locales.map((locale) => {
-                  const checked = settings.default_target_locale_ids.includes(locale.id);
-                  return (
-                    <label
-                      key={locale.id}
-                      className="flex cursor-pointer items-center justify-between rounded border border-border/50 px-3 py-2 text-sm hover:bg-muted/30"
-                    >
-                      <span className="truncate">
-                        {locale.name} ({locale.code})
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleTargetLocale(locale.id)}
-                        className="h-4 w-4 rounded border-input"
-                      />
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Preferred Brand Tone</div>
-              <Select
-                value={settings.preferred_tone}
-                onValueChange={(value) =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    preferred_tone:
-                      value === 'formal' ||
-                      value === 'informal' ||
-                      value === 'professional' ||
-                      value === 'friendly'
-                        ? value
-                        : 'neutral',
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select preferred tone" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="neutral">Neutral</SelectItem>
-                  <SelectItem value="formal">Formal</SelectItem>
-                  <SelectItem value="informal">Informal</SelectItem>
-                  <SelectItem value="professional">Professional</SelectItem>
-                  <SelectItem value="friendly">Friendly</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Default DeepL Glossary ID</div>
-              <Select
-                value={settings.deepl_glossary_id || '__none__'}
-                onValueChange={(value) =>
-                  setSettings((prev) => ({
-                    ...prev,
-                    deepl_glossary_id: value === '__none__' ? null : value,
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="None" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">None</SelectItem>
-                  {glossaries
-                    .filter((glossary) => glossary.provider_glossary_id)
-                    .map((glossary) => (
-                      <SelectItem
-                        key={glossary.id}
-                        value={glossary.provider_glossary_id || glossary.id}
-                      >
-                        {glossary.name} ({glossary.source_language_code}{" -> "}{glossary.target_language_code})
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-              <div className="text-xs text-muted-foreground">
-                Used as the default glossary for translation and Write Assist jobs.
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Brand Instructions</div>
-            <Textarea
-              value={settings.brand_instructions || ''}
-              onChange={(event) =>
-                setSettings((prev) => ({
-                  ...prev,
-                  brand_instructions: event.target.value,
-                }))
+          <Dialog
+            open={showAddLocaleDialog}
+            onOpenChange={(open) => {
+              if (localeActionLoading) return;
+              setShowAddLocaleDialog(open);
+              if (!open) {
+                setNewLocaleCode('');
               }
-              placeholder="Example: Keep tone premium and concise. Never use slang. Emphasize clinical efficacy and compliance-safe claims."
-              rows={5}
-            />
-            <div className="text-xs text-muted-foreground">
-              This guidance is injected into translation context and also used to infer DeepL Write tone/style.
-            </div>
+            }}
+          >
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Add Locale</DialogTitle>
+                <DialogDescription>
+                  Activate a locale for this organization. It will then be available anywhere locale versions can be added.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">Locale</div>
+                  <Select value={newLocaleCode || '__none__'} onValueChange={(value) => setNewLocaleCode(value === '__none__' ? '' : value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select locale from catalog" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Select...</SelectItem>
+                      {availableLocaleCatalogEntries.map((locale) => (
+                        <SelectItem key={locale.code} value={locale.code}>
+                          {locale.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowAddLocaleDialog(false);
+                      setNewLocaleCode('');
+                    }}
+                    disabled={localeActionLoading}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleActivateLocaleFromCatalog}
+                    disabled={localeActionLoading || !newLocaleCode || availableLocaleCatalogEntries.length === 0}
+                  >
+                    {localeActionLoading ? 'Adding...' : 'Add locale'}
+                  </Button>
+                </div>
+                {availableLocaleCatalogEntries.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">
+                    All catalog locales are already active for this organization.
+                  </div>
+                ) : null}
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {showAdaptationSection ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Adaptation Defaults</CardTitle>
+                <CardDescription>Shared defaults for locale adaptation across this workspace.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">Preferred Brand Tone</div>
+                  <Select
+                    value={settings.preferred_tone}
+                    onValueChange={(value) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        preferred_tone:
+                          value === 'formal' ||
+                          value === 'informal' ||
+                          value === 'professional' ||
+                          value === 'friendly'
+                            ? value
+                            : 'neutral',
+                      }))
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select preferred tone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="neutral">Neutral</SelectItem>
+                      <SelectItem value="formal">Formal</SelectItem>
+                      <SelectItem value="informal">Informal</SelectItem>
+                      <SelectItem value="professional">Professional</SelectItem>
+                      <SelectItem value="friendly">Friendly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">Brand Instructions</div>
+                  <Textarea
+                    value={settings.brand_instructions || ''}
+                    onChange={(event) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        brand_instructions: event.target.value,
+                      }))
+                    }
+                    placeholder="Example: Keep tone premium and concise. Never use slang. Emphasize clinical efficacy and compliance-safe claims."
+                    rows={5}
+                  />
+                  <div className="text-xs text-muted-foreground">
+                    This guidance is used to steer AI adaptation and rewrite behavior after translation.
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button onClick={handleSave} disabled={saving}>
+                    {saving ? 'Saving...' : 'Save Localization Settings'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+        </>
+      ) : null}
+
+      {showGlossariesSection ? (
+        <>
+          <div id="localization-glossaries" className="space-y-1">
+            <h2 className="text-base font-semibold text-foreground">Terminology</h2>
+            <p className="text-xs text-muted-foreground">Glossaries used to keep translated copy on brand.</p>
           </div>
 
-          <div className="flex justify-end">
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? 'Saving...' : 'Save Localization Settings'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <CardTitle>Glossaries</CardTitle>
-              <CardDescription>
-                Create and manage tenant glossaries for brand-safe terminology in translation and Write Assist.
-              </CardDescription>
-            </div>
-            <Button variant="outline" size="sm" onClick={handleRefreshGlossaries} disabled={refreshingGlossaries}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${refreshingGlossaries ? 'animate-spin' : ''}`} />
-              Refresh Glossaries
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Glossaries</CardTitle>
+                <CardDescription>
+                  Create and manage terminology by locale pair. In most cases you will have one glossary per source and target locale.
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
           <div className="grid gap-3 rounded-md border border-border/60 p-3 md:grid-cols-2">
             <div className="space-y-2">
               <div className="text-sm font-medium">Glossary Name</div>
@@ -1360,15 +1308,6 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                 onChange={(event) => setNewGlossaryName(event.target.value)}
                 placeholder="Brand terms EN -> ES"
               />
-            </div>
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Create DeepL Provider Glossary</div>
-              <div className="flex items-center justify-between rounded-md border border-border/60 p-2">
-                <span className="text-xs text-muted-foreground">
-                  If enabled, calls DeepL glossary API and stores `provider_glossary_id`.
-                </span>
-                <Switch checked={createProviderGlossary} onCheckedChange={(checked) => setCreateProviderGlossary(Boolean(checked))} />
-              </div>
             </div>
             <div className="space-y-2">
               <div className="text-sm font-medium">Source Locale</div>
@@ -1380,7 +1319,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                   <SelectItem value="__none__">Select...</SelectItem>
                   {locales.map((locale) => (
                     <SelectItem key={locale.id} value={locale.id}>
-                      {locale.name} ({locale.code})
+                      {getLocaleShortName(locale.name)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1398,7 +1337,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                     .filter((locale) => locale.id !== newGlossarySourceLocaleId)
                     .map((locale) => (
                       <SelectItem key={locale.id} value={locale.id}>
-                        {locale.name} ({locale.code})
+                        {getLocaleShortName(locale.name)}
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -1435,356 +1374,55 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                     <div>
                       <div className="text-sm font-medium">{glossary.name}</div>
                       <div className="text-xs text-muted-foreground">
-                        {glossary.source_language_code}{" -> "}{glossary.target_language_code} - {glossary.entry_count} terms
+                        {glossary.source_language_code}{" -> "}{glossary.target_language_code} · {glossary.entry_count} terms
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Badge variant={glossary.is_active ? 'default' : 'secondary'}>
+                      <Badge variant={glossary.is_active ? 'success' : 'neutral'}>
                         {glossary.is_active ? 'Active' : 'Inactive'}
                       </Badge>
-                      {glossary.provider_glossary_id ? (
-                        <Badge variant="secondary">DeepL linked</Badge>
-                      ) : (
-                        <Badge variant="destructive">No provider id</Badge>
-                      )}
                     </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Create Localization Job</CardTitle>
-          <CardDescription>
-            Queue translation or Write Assist generation for selected products and fields.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Job Type</div>
-              <Select
-                value={jobForm.jobType}
-                onValueChange={(value) =>
-                  setJobForm((prev) => ({
-                    ...prev,
-                    jobType:
-                      value === 'write_assist'
-                        ? 'write_assist'
-                        : canTranslateProduct
-                        ? 'translate'
-                        : 'write_assist',
-                    targetLocaleIds:
-                      value === 'write_assist' ? [] : prev.targetLocaleIds.filter((id) => id !== prev.sourceLocaleId),
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="translate" disabled={!canTranslateProduct}>
-                    Translation {!canTranslateProduct ? '(Not available on Starter)' : ''}
-                  </SelectItem>
-                  <SelectItem value="write_assist">Write Assist</SelectItem>
-                </SelectContent>
-              </Select>
-              {!canTranslateProduct && (
-                <div className="text-xs text-muted-foreground">
-                  {translateRestrictionMessage || 'Translation is unavailable on the Starter plan.'}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Execution</div>
-              <Select
-                value={jobForm.executionMode}
-                onValueChange={(value) =>
-                  setJobForm((prev) => ({
-                    ...prev,
-                    executionMode: value === 'async' ? 'async' : 'sync',
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="sync">Run now (sync)</SelectItem>
-                  <SelectItem value="async">Queue for worker (async)</SelectItem>
-                </SelectContent>
-              </Select>
-              <div className="text-xs text-muted-foreground">
-                Async queues job creation and requires Run to generate item suggestions.
-              </div>
-            </div>
+      {showJobsSection ? (
+        <>
+          <div id="localization-jobs" className="space-y-1">
+            <h2 className="text-base font-semibold text-foreground">Activity</h2>
+            <p className="text-xs text-muted-foreground">Track translation runs and review outputs.</p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Source Locale</div>
-              <Select
-                value={jobForm.sourceLocaleId || '__none__'}
-                onValueChange={(value) =>
-                  setJobForm((prev) => ({
-                    ...prev,
-                    sourceLocaleId: value === '__none__' ? '' : value,
-                    targetLocaleIds: prev.targetLocaleIds.filter((id) => id !== value),
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select source locale" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Select...</SelectItem>
-                  {locales.map((locale) => (
-                    <SelectItem key={locale.id} value={locale.id}>
-                      {locale.name} ({locale.code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Target Locales</div>
-              <MultiSelect
-                options={targetLocaleOptions}
-                value={jobForm.targetLocaleIds}
-                onChange={(value) => setJobForm((prev) => ({ ...prev, targetLocaleIds: value }))}
-                placeholder={
-                  jobForm.jobType === 'translate'
-                    ? 'Select target locales'
-                    : 'Write Assist uses source locale'
-                }
-                disabled={jobForm.jobType !== 'translate'}
-                maxVisibleChips={4}
-              />
-            </div>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Products</div>
-              <MultiSelect
-                options={productOptions}
-                value={jobForm.productIds}
-                onChange={(value) => setJobForm((prev) => ({ ...prev, productIds: value }))}
-                placeholder="Select products"
-                maxVisibleChips={5}
-              />
-              <div className="text-xs text-muted-foreground">
-                Selected {jobForm.productIds.length} of {products.length} active products.
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Fields</div>
-              <MultiSelect
-                options={FIELD_CODE_OPTIONS}
-                value={jobForm.fieldCodes}
-                onChange={(value) => setJobForm((prev) => ({ ...prev, fieldCodes: value }))}
-                placeholder="Select fields"
-                maxVisibleChips={6}
-              />
-            </div>
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Custom Fields</div>
-              <MultiSelect
-                options={customFieldOptions}
-                value={jobForm.productFieldIds}
-                onChange={(value) => setJobForm((prev) => ({ ...prev, productFieldIds: value }))}
-                placeholder="Select translatable custom fields"
-                maxVisibleChips={6}
-              />
-              <div className="text-xs text-muted-foreground">
-                {customFieldOptions.length} translatable custom fields available.
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-3 rounded-md border border-border/60 p-3">
-            <div className="text-sm font-medium">Optional Scope Mapping</div>
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <div className="text-xs font-medium uppercase text-muted-foreground">Source Market</div>
-                <Select
-                  value={jobForm.sourceMarketId || '__none__'}
-                  onValueChange={(value) =>
-                    setJobForm((prev) => ({ ...prev, sourceMarketId: value === '__none__' ? '' : value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
-                    {markets.map((market) => (
-                      <SelectItem key={market.id} value={market.id}>
-                        {market.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <div className="text-xs font-medium uppercase text-muted-foreground">Source Channel</div>
-                <Select
-                  value={jobForm.sourceChannelId || '__none__'}
-                  onValueChange={(value) =>
-                    setJobForm((prev) => ({ ...prev, sourceChannelId: value === '__none__' ? '' : value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
-                    {channels.map((channel) => (
-                      <SelectItem key={channel.id} value={channel.id}>
-                        {channel.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <div className="text-xs font-medium uppercase text-muted-foreground">Source Destination</div>
-                <Select
-                  value={jobForm.sourceDestinationId || '__none__'}
-                  onValueChange={(value) =>
-                    setJobForm((prev) => ({ ...prev, sourceDestinationId: value === '__none__' ? '' : value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
-                    {destinations.map((destination) => (
-                      <SelectItem key={destination.id} value={destination.id}>
-                        {destination.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <div className="text-xs font-medium uppercase text-muted-foreground">Target Market</div>
-                <Select
-                  value={jobForm.targetMarketId || '__none__'}
-                  onValueChange={(value) =>
-                    setJobForm((prev) => ({ ...prev, targetMarketId: value === '__none__' ? '' : value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
-                    {markets.map((market) => (
-                      <SelectItem key={market.id} value={market.id}>
-                        {market.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <div className="text-xs font-medium uppercase text-muted-foreground">Target Channel</div>
-                <Select
-                  value={jobForm.targetChannelId || '__none__'}
-                  onValueChange={(value) =>
-                    setJobForm((prev) => ({ ...prev, targetChannelId: value === '__none__' ? '' : value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
-                    {channels.map((channel) => (
-                      <SelectItem key={channel.id} value={channel.id}>
-                        {channel.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <div className="text-xs font-medium uppercase text-muted-foreground">Target Destination</div>
-                <Select
-                  value={jobForm.targetDestinationId || '__none__'}
-                  onValueChange={(value) =>
-                    setJobForm((prev) => ({ ...prev, targetDestinationId: value === '__none__' ? '' : value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
-                    {destinations.map((destination) => (
-                      <SelectItem key={destination.id} value={destination.id}>
-                        {destination.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs text-muted-foreground">
-              {jobForm.jobType === 'translate'
-                ? 'Translation generates suggestions per target locale and requires review/apply.'
-                : 'Write Assist improves source copy and keeps locale scoped to the source locale.'}
-            </div>
-            <Button onClick={handleCreateJob} disabled={creatingJob}>
-              {creatingJob ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                'Create Localization Job'
-              )}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
+          <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-4">
             <div>
-              <CardTitle>Recent Jobs</CardTitle>
-              <CardDescription>Latest translation and Write Assist jobs for this workspace.</CardDescription>
+              <CardTitle>Recent Runs</CardTitle>
+              <CardDescription>Latest translation runs for this workspace.</CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={handleRefreshJobs} disabled={refreshingJobs}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${refreshingJobs ? 'animate-spin' : ''}`} />
-              Refresh Jobs
+              {refreshingJobs ? <LoadingSkeleton size="sm" className="mr-2" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Refresh Runs
             </Button>
           </div>
         </CardHeader>
         <CardContent>
-          {jobs.length === 0 ? (
+          {jobMetadataLoading ? (
+            <div className="mb-3 text-xs text-muted-foreground">Loading field and scope labels...</div>
+          ) : null}
+          {visibleJobs.length === 0 ? (
             <div className="rounded-md border border-dashed border-border/70 p-6 text-center text-sm text-muted-foreground">
-              No localization jobs yet.
+              No translation runs yet.
             </div>
           ) : (
             <div className="space-y-2">
-              {jobs.map((job) => {
+              {visibleJobs.map((job) => {
                 const generatedCount = Number(job.item_counts?.generated || 0);
                 const failedCount = Number(job.item_counts?.failed || 0);
                 const isSelected = selectedJobId === job.id;
@@ -1798,17 +1436,10 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                         <div className="flex items-center gap-2">
                           <Badge variant={statusBadgeVariant(job.status)}>{job.status}</Badge>
                           <span className="text-sm font-medium">
-                            {job.job_type === 'translate' ? (
-                              <span className="inline-flex items-center gap-1">
-                                <Languages className="h-4 w-4" />
-                                Translation
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1">
-                                <Sparkles className="h-4 w-4" />
-                                Write Assist
-                              </span>
-                            )}
+                            <span className="inline-flex items-center gap-1">
+                              <Languages className="h-4 w-4" />
+                              Translation
+                            </span>
                           </span>
                         </div>
                         <div className="text-xs text-muted-foreground">
@@ -1872,10 +1503,10 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
             </div>
           )}
         </CardContent>
-      </Card>
+          </Card>
 
-      {selectedJobId && (
-        <Card>
+          {selectedJobId && (
+            <Card>
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -1885,7 +1516,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                 </CardDescription>
               </div>
               <Button variant="outline" size="sm" onClick={handleRefreshSelectedJob} disabled={refreshingJobDetail}>
-                <RefreshCw className={`mr-2 h-4 w-4 ${refreshingJobDetail ? 'animate-spin' : ''}`} />
+                {refreshingJobDetail ? <LoadingSkeleton size="sm" className="mr-2" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 Refresh Detail
               </Button>
             </div>
@@ -1893,7 +1524,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
           <CardContent className="space-y-4">
             {loadingJobDetail && !selectedJob ? (
               <div className="flex items-center gap-2 rounded-md border border-border/60 p-4 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <LoadingSkeleton size="sm" />
                 Loading job detail...
               </div>
             ) : selectedJob ? (
@@ -1901,27 +1532,25 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                 <div className="grid gap-3 rounded-md border border-border/60 p-3 text-xs md:grid-cols-5">
                   <div>
                     <div className="text-muted-foreground">Job Type</div>
-                    <div className="font-medium">
-                      {selectedJob.job_type === 'translate' ? 'Translation' : 'Write Assist'}
-                    </div>
+                    <div className="font-medium">Translation</div>
                   </div>
                   <div>
                     <div className="text-muted-foreground">Status</div>
                     <div className="font-medium">{selectedJob.status}</div>
                   </div>
                   <div>
-                    <div className="text-muted-foreground">Source Locale</div>
+                    <div className="text-muted-foreground">Source Language</div>
                     <div className="font-medium">
                       {selectedJob.source_locale_id
-                        ? `${localeById.get(selectedJob.source_locale_id)?.name || selectedJob.source_locale_id}`
+                        ? getLocaleShortName(localeById.get(selectedJob.source_locale_id)?.name || selectedJob.source_locale_id)
                         : 'N/A'}
                     </div>
                   </div>
                   <div>
-                    <div className="text-muted-foreground">Targets</div>
+                    <div className="text-muted-foreground">Target Languages</div>
                     <div className="font-medium">
                       {(selectedJob.target_locale_ids || [])
-                        .map((id) => localeById.get(id)?.name || id)
+                        .map((id) => getLocaleShortName(localeById.get(id)?.name || id))
                         .join(', ') || 'N/A'}
                     </div>
                   </div>
@@ -1962,7 +1591,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                     onClick={() => runBulkAction('approve')}
                     disabled={bulkActionLoading || selectedItems.length === 0}
                   >
-                    {bulkActionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {bulkActionLoading ? <LoadingSkeleton size="sm" className="mr-2" /> : null}
                     Bulk Approve
                   </Button>
                   <Button
@@ -2017,10 +1646,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                                 ) : null}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                Product:{' '}
-                                {productById.get(item.product_id)?.productName ||
-                                  productById.get(item.product_id)?.sku ||
-                                  item.product_id}
+                                Product: {item.product_id}
                               </div>
                               <div className="text-xs text-muted-foreground">
                                 Target Scope: {scopeLabelForItem(item.target_scope)}
@@ -2073,7 +1699,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                               onClick={() => runItemAction(item.id, 'edit')}
                               disabled={!canMutate || isLoadingItem}
                             >
-                              {isLoadingItem ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                              {isLoadingItem ? <LoadingSkeleton size="sm" className="mr-2" /> : null}
                               Save Edit
                             </Button>
                             <Button
@@ -2081,7 +1707,7 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
                               onClick={() => runItemAction(item.id, 'approve')}
                               disabled={!canMutate || isLoadingItem}
                             >
-                              {isLoadingItem ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                              {isLoadingItem ? <LoadingSkeleton size="sm" className="mr-2" /> : null}
                               Approve
                             </Button>
                             <Button
@@ -2108,14 +1734,12 @@ export default function LocalizationSettings({ tenantSlug }: LocalizationSetting
               </div>
             )}
           </CardContent>
-        </Card>
-      )}
-
-      {settings.default_source_locale_id && (
-        <div className="text-xs text-muted-foreground">
-          Source locale: {localeById.get(settings.default_source_locale_id)?.name || settings.default_source_locale_id}
-        </div>
-      )}
-    </PageContentContainer>
+            </Card>
+          )}
+        </>
+      ) : null}
+      </SettingsContentBoundary>
+    </SettingsSecondLevelPage>
   );
 }
+

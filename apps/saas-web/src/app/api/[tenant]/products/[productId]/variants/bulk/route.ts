@@ -47,12 +47,12 @@ function validateBarcode(barcode: string | null): string | null {
   return null;
 }
 
-function normalizeVariantAttributes(input: unknown): Record<string, any> {
+function normalizeVariantAttributes(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return {};
   }
   return Object.fromEntries(
-    Object.entries(input as Record<string, any>).map(([key, value]) => [key, value])
+    Object.entries(input as Record<string, unknown>).map(([key, value]) => [key, value])
   );
 }
 
@@ -217,8 +217,8 @@ export async function POST(
     const activeSkuLimit = limits.activeSkuCount;
     let projectedActiveSkuCount = usage.activeSkuCount;
 
-    const created: any[] = [];
-    const updated: any[] = [];
+    const created: unknown[] = [];
+    const updated: unknown[] = [];
     const errors: Array<{ index: number; error: string }> = [];
 
     for (let index = 0; index < variants.length; index += 1) {
@@ -263,7 +263,7 @@ export async function POST(
           ? row.scin.trim().toUpperCase()
           : null;
 
-      const payload: Record<string, any> = {
+      const payload: Record<string, unknown> = {
         product_name: productName,
         sku,
         barcode,
@@ -323,7 +323,7 @@ export async function POST(
         continue;
       }
 
-      const insertPayload: Record<string, any> = {
+      const insertPayload: Record<string, unknown> = {
         organization_id: organizationId,
         type: "variant",
         parent_id: parent.id,

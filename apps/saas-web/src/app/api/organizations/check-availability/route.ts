@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
-import { DatabaseQueries, createServerClient } from "@tradetool/database";
+import { DatabaseQueries, createServerClient } from "@stack-app/database";
 import { kindeAPI } from "@/lib/kinde-management";
 
 const supabase = createServerClient();

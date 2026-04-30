@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthService, ScopedPermission } from "@tradetool/auth";
-import { DatabaseQueries } from "@tradetool/database";
+import { AuthService, ScopedPermission } from "@stack-app/auth";
+import { DatabaseQueries } from "@stack-app/database";
 import { supabaseServer } from "@/lib/supabase";
 import { applyRLSContext } from "@/lib/rls-context";
 import { ensureSlug } from "@/lib/slug";
-import type { AssetCategory } from "@tradetool/types";
+import type { AssetCategory } from "@stack-app/types";
 import { enforceMarketScopedAccess } from "@/lib/market-scope";
 
 function uniqueSlug(base: string, excludeId: string, categories: AssetCategory[]) {
@@ -71,7 +71,7 @@ export async function PATCH(
       auth.canEditProducts(user.id, organization.id),
       enforceMarketScopedAccess({
         authService: auth,
-        supabase: supabaseServer as any,
+        supabase: supabaseServer,
         userId: user.id,
         organizationId: organization.id,
         permissionKey: ScopedPermission.AssetMetadataEdit,
@@ -177,7 +177,7 @@ export async function DELETE(
       auth.canEditProducts(user.id, organization.id),
       enforceMarketScopedAccess({
         authService: auth,
-        supabase: supabaseServer as any,
+        supabase: supabaseServer,
         userId: user.id,
         organizationId: organization.id,
         permissionKey: ScopedPermission.AssetMetadataEdit,

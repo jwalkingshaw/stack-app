@@ -1,14 +1,34 @@
 // Server-only utilities for Kinde authentication
 import "server-only";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
-import { DatabaseQueries, createServerClient } from "@tradetool/database";
-import type { User, Organization } from "@tradetool/types";
+import { DatabaseQueries, createServerClient } from "@stack-app/database";
+import type { Organization } from "@stack-app/types";
 import { cache } from 'react';
 import { cache as redisCache, CacheKeys, CacheTTL } from './redis';
 
 type KindeSessionSnapshot = {
   user: Awaited<ReturnType<ReturnType<typeof getKindeServerSession>["getUser"]>> | null;
   organization: Awaited<ReturnType<ReturnType<typeof getKindeServerSession>["getOrganization"]>> | null;
+};
+
+export type SafeUserData = {
+  id: string;
+  email: string;
+  given_name: string | null;
+  family_name: string | null;
+  picture: string | null;
+  name: string;
+};
+
+export type SafeOrganizationData = {
+  id: string;
+  name: string;
+  slug: string;
+  type: "brand" | "partner";
+  partnerCategory: string | null;
+  logoUrl: string | null;
+  storageUsed: number;
+  storageLimit: number;
 };
 
 const getSessionSnapshot = cache(async (): Promise<KindeSessionSnapshot> => {
@@ -22,8 +42,9 @@ const getSessionSnapshot = cache(async (): Promise<KindeSessionSnapshot> => {
 
     const organization = await getOrganization().catch(() => null);
     return { user, organization };
-  } catch (error: any) {
-    const isAbort = error?.name === "AbortError" || error?.code === 20;
+  } catch (error: unknown) {
+    const maybeError = error as { name?: unknown; code?: unknown };
+    const isAbort = maybeError?.name === "AbortError" || maybeError?.code === 20;
     if (isAbort) {
       console.warn("Auth snapshot aborted while resolving Kinde session.");
     } else {
@@ -96,7 +117,7 @@ export const getCurrentOrganization = cache(async () => {
     }
 
     return organization;
-  } catch (error) {
+  } catch {
     return null;
   }
 });
@@ -117,7 +138,7 @@ export async function hasAccessToTenant(tenantSlug: string): Promise<boolean> {
       : kindeOrg.orgCode;
     
     return orgCodeValue === tenantSlug;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -127,18 +148,18 @@ export async function hasAccessToTenant(tenantSlug: string): Promise<boolean> {
  * Cached with Redis for performance across requests
  * @returns Promise<SafeUser | null>
  */
-export const getSafeUserData = cache(async () => {
+export const getSafeUserData = cache(async (): Promise<SafeUserData | null> => {
   const user = await requireUser();
   if (!user) return null;
 
   // Check Redis cache first
   const cacheKey = CacheKeys.user(user.id);
-  const cached = await redisCache.get(cacheKey);
+  const cached = await redisCache.get<SafeUserData>(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const safeUser = {
+  const safeUser: SafeUserData = {
     id: user.id,
     email: user.email || '',
     given_name: user.given_name || null,
@@ -162,15 +183,18 @@ export const getSafeOrganizationData = cache(async () => {
   const organization = await getCurrentOrganization();
   if (!organization) return null;
 
-  return {
+  const safeOrganization: SafeOrganizationData = {
     id: organization.id,
     name: organization.name,
     slug: organization.slug,
     type: (organization.organizationType || organization.type || 'brand') as 'brand' | 'partner',
     partnerCategory: organization.partnerCategory ?? null,
+    logoUrl: organization.logoUrl ?? null,
     storageUsed: organization.storageUsed,
     storageLimit: organization.storageLimit,
   };
+
+  return safeOrganization;
 });
 
 /**

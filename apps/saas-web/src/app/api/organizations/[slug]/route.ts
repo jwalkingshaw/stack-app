@@ -4,9 +4,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
-  
-  const resolvedParams = await params;
-const { slug } = await params;
+  const { slug } = await params;
   
   const organization = {
     id: "demo-id",

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 export interface MultiSelectOption {
   value: string
   label: string
+  shortLabel?: string  // shown in trigger summary only; falls back to label
   disabled?: boolean
 }
 
@@ -29,7 +30,7 @@ export function MultiSelect({
   onChange,
   placeholder = "Select one or more options",
   className,
-  contentClassName,
+  contentClassName: contentClassNameProp,
   showSelectedChips = true,
   maxVisibleChips = 6,
   disabled = false
@@ -52,8 +53,15 @@ export function MultiSelect({
   }
 
   const selectedCount = value.length
+  const shortLabelByValue = React.useMemo(
+    () => new Map(options.map((option) => [option.value, option.shortLabel ?? option.label])),
+    [options]
+  )
   const selectedLabels = value
     .map((selectedValue) => labelByValue.get(selectedValue))
+    .filter((label): label is string => Boolean(label))
+  const selectedShortLabels = value
+    .map((selectedValue) => shortLabelByValue.get(selectedValue))
     .filter((label): label is string => Boolean(label))
   const selectedItems = value.map((selectedValue) => ({
     value: selectedValue,
@@ -64,11 +72,11 @@ export function MultiSelect({
   const selectedSummary =
     selectedCount === 0
       ? placeholder
-      : selectedLabels.length === 0
+      : selectedShortLabels.length === 0
         ? `${selectedCount} selected`
         : selectedCount <= 2
-          ? selectedLabels.join(", ")
-          : `${selectedLabels.slice(0, 2).join(", ")} +${selectedCount - 2}`
+          ? selectedShortLabels.join(", ")
+          : `${selectedShortLabels.slice(0, 2).join(", ")} +${selectedCount - 2}`
   const selectedTitle = selectedLabels.length > 0 ? selectedLabels.join(", ") : undefined
   const handleRemove = (optionValue: string) => {
     if (disabled) return
@@ -79,68 +87,69 @@ export function MultiSelect({
     onChange([])
   }
 
+  const triggerClassName = cn(
+    "flex h-10 w-full items-center justify-between rounded-md border border-muted/30 bg-white px-3 py-2 text-sm shadow-soft transition-colors",
+    "hover:border-muted/30 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus:border-muted/30 data-[state=open]:border-muted/30",
+    "disabled:cursor-not-allowed disabled:opacity-50",
+    className
+  )
+  const contentClassName = cn(
+    "z-50 w-[var(--radix-dropdown-menu-trigger-width)] min-w-[var(--radix-dropdown-menu-trigger-width)] max-h-[60vh] overflow-hidden rounded-lg border border-muted/30 bg-white p-1 shadow-lg text-sm",
+    contentClassNameProp
+  )
+  const itemClassName = cn(
+    "relative flex w-full cursor-default select-none items-center rounded-md py-2 pl-8 pr-2 text-sm outline-none",
+    "focus:bg-muted/50 focus:text-foreground focus:!shadow-none focus-visible:!shadow-none data-[highlighted]:bg-muted/50 data-[highlighted]:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+  )
+
   return (
     <div className="space-y-2">
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button
             type="button"
-            className={cn(
-              "flex h-8 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-soft transition-colors",
-              "hover:bg-muted/20 focus:outline-none focus:ring-2 focus:ring-muted/40 focus:border-muted/40",
-              "disabled:cursor-not-allowed disabled:opacity-60",
-              className
-            )}
+            className={triggerClassName}
             aria-label={selectedCount > 0 ? `${selectedCount} selected` : placeholder}
             title={selectedTitle}
             disabled={disabled}
           >
             <span className="truncate">{selectedSummary}</span>
             <span className="ml-2 flex items-center gap-2">
-              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Multi
-              </span>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </span>
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
           <DropdownMenu.Content
-            className={cn(
-              "z-50 min-w-[12rem] rounded-lg border border-muted/30 bg-white p-1 text-sm shadow-lg outline-none focus-visible:shadow-none",
-              contentClassName
-            )}
+            className={contentClassName}
             align="start"
             sideOffset={6}
           >
-            {options.length === 0 && (
-              <div className="px-3 py-2 text-xs text-muted-foreground">No options</div>
-            )}
-            {options.map((option) => (
-              <DropdownMenu.CheckboxItem
-                key={option.value}
-                checked={selected.has(option.value)}
-                onCheckedChange={(checked) => handleToggle(option.value, Boolean(checked))}
-                onSelect={(event) => event.preventDefault()}
-                disabled={disabled || option.disabled}
-                className={cn(
-                  "relative flex cursor-pointer select-none items-center rounded-md py-2 pl-8 pr-2 text-sm outline-none",
-                  "focus:bg-muted/50 focus:text-foreground focus:!shadow-none focus-visible:!shadow-none data-[highlighted]:bg-muted/50 data-[highlighted]:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed"
-                )}
-              >
-                <span
-                  className={cn(
-                    "absolute left-2 flex h-4 w-4 items-center justify-center rounded border",
-                    selected.has(option.value)
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-muted-foreground/40 bg-background text-transparent"
-                  )}
+            <div className="max-h-[60vh] overflow-y-auto p-0">
+              {options.length === 0 && (
+                <div className="px-3 py-2 text-xs text-muted-foreground">No options</div>
+              )}
+              {options.map((option) => (
+                <DropdownMenu.CheckboxItem
+                  key={option.value}
+                  checked={selected.has(option.value)}
+                  onCheckedChange={(checked) => handleToggle(option.value, Boolean(checked))}
+                  onSelect={(event) => event.preventDefault()}
+                  disabled={disabled || option.disabled}
+                  className={itemClassName}
                 >
-                  <Check className="h-3 w-3" />
-                </span>
-                {option.label}
-              </DropdownMenu.CheckboxItem>
-            ))}
+                  <span className="absolute left-2 flex h-4 w-4 items-center justify-center">
+                    <Check
+                      className={cn(
+                        "h-4 w-4",
+                        selected.has(option.value) ? "opacity-100" : "opacity-0"
+                      )}
+                    />
+                  </span>
+                  {option.label}
+                </DropdownMenu.CheckboxItem>
+              ))}
+            </div>
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>

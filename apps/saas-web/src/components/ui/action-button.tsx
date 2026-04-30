@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button } from './button';
 import { cn } from '@/lib/utils';
-import { Loader2 } from 'lucide-react';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
 
 export interface ActionButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -38,7 +38,7 @@ export const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProp
       >
         {loading ? (
           <>
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            <LoadingSkeleton size="sm" className="mr-2" />
             {typeof children === 'string' ?
               (children.includes('...') ? children : `${children}...`) :
               children
@@ -56,3 +56,4 @@ export const ActionButton = React.forwardRef<HTMLButtonElement, ActionButtonProp
 );
 
 ActionButton.displayName = "ActionButton";
+

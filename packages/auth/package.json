@@ -1,5 +1,5 @@
 {
-  "name": "@tradetool/auth",
+  "name": "@stack-app/auth",
   "version": "0.1.0",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@kinde-oss/kinde-auth-nextjs": "^2.3.5",
-    "@tradetool/types": "*",
-    "@tradetool/database": "*"
+    "@stack-app/types": "*",
+    "@stack-app/database": "*"
   },
   "devDependencies": {
     "typescript": "^5"

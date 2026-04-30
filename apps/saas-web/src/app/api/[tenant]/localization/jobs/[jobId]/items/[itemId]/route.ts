@@ -57,7 +57,7 @@ async function refreshJobStatus(params: {
   organizationId: string;
   jobId: string;
 }): Promise<void> {
-  const { data: itemRows, error: itemError } = await (supabaseServer as any)
+  const { data: itemRows, error: itemError } = await supabaseServer
     .from("translation_job_items")
     .select("status")
     .eq("organization_id", params.organizationId)
@@ -99,7 +99,7 @@ async function refreshJobStatus(params: {
   const completedAt =
     nextStatus === "completed" || nextStatus === "failed" ? new Date().toISOString() : null;
 
-  const { error: updateError } = await (supabaseServer as any)
+  const { error: updateError } = await supabaseServer
     .from("translation_jobs")
     .update({
       status: nextStatus,
@@ -143,7 +143,7 @@ export async function PATCH(
       );
     }
 
-    const { data: item, error: itemError } = await (supabaseServer as any)
+    const { data: item, error: itemError } = await supabaseServer
       .from("translation_job_items")
       .select(ITEM_SELECT)
       .eq("organization_id", organization.id)
@@ -173,7 +173,7 @@ export async function PATCH(
 
     if (action === "reject") {
       const rejectedAt = new Date().toISOString();
-      const { error: rejectError } = await (supabaseServer as any)
+      const { error: rejectError } = await supabaseServer
         .from("translation_job_items")
         .update({
           status: "rejected",
@@ -208,7 +208,7 @@ export async function PATCH(
     const reviewedAt = new Date().toISOString();
 
     if (action === "edit") {
-      const { error: editError } = await (supabaseServer as any)
+      const { error: editError } = await supabaseServer
         .from("translation_job_items")
         .update({
           status: "reviewed",
@@ -231,7 +231,7 @@ export async function PATCH(
       return NextResponse.json({ success: true });
     }
 
-    const { error: approveError } = await (supabaseServer as any)
+    const { error: approveError } = await supabaseServer
       .from("translation_job_items")
       .update({
         status: "approved",

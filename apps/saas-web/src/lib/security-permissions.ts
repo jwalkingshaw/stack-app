@@ -1,4 +1,4 @@
-import { AuthService, ScopedPermission, type ScopedPermissionKey } from "@tradetool/auth";
+import { AuthService, ScopedPermission, type ScopedPermissionKey } from "@stack-app/auth";
 
 type PermissionContext = {
   authService: AuthService;

@@ -1,23 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthService } from "@tradetool/auth";
-import { DatabaseQueries } from "@tradetool/database";
+import { AuthService } from "@stack-app/auth";
+import { DatabaseQueries } from "@stack-app/database";
+import type { Organization } from "@stack-app/types";
 import { supabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { canManageContainerSharing } from "@/lib/security-permissions";
 
 type SharingManagerContext = {
-  organization: any;
+  organization: Organization;
   userId: string;
   authService: AuthService;
   db: DatabaseQueries;
 };
 
-export function isMissingTableError(error: any): boolean {
-  return error?.code === "42P01";
+export function isMissingTableError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: string }).code === "42P01"
+  );
 }
 
-export function isMissingColumnError(error: any): boolean {
-  return error?.code === "42703";
+export function isMissingColumnError(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: string }).code === "42703"
+  );
 }
 
 export function normalizeUuidArray(value: unknown): string[] {
@@ -81,4 +90,3 @@ export async function requireSharingManagerContext(
     },
   };
 }
-

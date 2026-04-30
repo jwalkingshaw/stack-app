@@ -1,34 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { X, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 export function KeyboardShortcutsHelp() {
   const [isOpen, setIsOpen] = useState(false);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Show help with ? key
-      if (e.key === '?' && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        // Only show if not focused on an input
-        if (document.activeElement?.tagName !== 'INPUT' && 
-            document.activeElement?.tagName !== 'TEXTAREA') {
-          e.preventDefault();
-          setIsOpen(true);
-        }
-      }
-      
-      // Close help with Escape
-      if (e.key === 'Escape' && isOpen) {
-        setIsOpen(false);
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen]);
+  // Keyboard shortcuts intentionally disabled.
 
   const shortcuts = [
     {

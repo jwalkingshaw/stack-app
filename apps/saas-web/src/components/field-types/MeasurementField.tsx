@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { AlertTriangle, Loader2, Ruler } from 'lucide-react';
+import { AlertTriangle, Ruler } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
+import { fetchJsonWithDedupe } from '@/lib/client-request-cache';
 
 interface MeasurementUnit {
   id: string;
@@ -31,13 +33,13 @@ interface MeasurementFamily {
   component_schema: MeasurementComponentSchema[];
   default_decimal_precision?: number;
   allow_negative: boolean;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   standard_unit?: MeasurementUnit | null;
   measurement_units: MeasurementUnit[];
 }
 
 interface MeasurementFieldProps {
-  field?: any;
+  field?: unknown;
   value?: {
     measurement_family?: string;
     default_unit?: string;
@@ -60,13 +62,14 @@ interface MeasurementFieldProps {
       conversion_factor: number;
     }>;
   };
-  onChange?: (value: any) => void;
+  onChange?: (value: Record<string, unknown>) => void;
   tenantSlug?: string;
 }
 
 type LoadState = 'idle' | 'loading' | 'error';
 
 const MAX_DECIMAL_PLACES = 6;
+const MEASUREMENT_FAMILIES_TTL_MS = 5 * 60 * 1000;
 
 const arraysShallowEqual = (a: string[], b: string[]) => {
   if (a.length !== b.length) return false;
@@ -131,7 +134,7 @@ export default function MeasurementField({ value, onChange, tenantSlug }: Measur
     selectedComponentsRef.current = selectedComponents;
   }, [selectedComponents]);
 
-  const fetchMeasurementFamilies = useCallback(async () => {
+  const fetchMeasurementFamilies = useCallback(async (options?: { forceRefresh?: boolean }) => {
     if (!tenantSlug) {
       setMeasurementFamilies([]);
       setLoadState('idle');
@@ -141,12 +144,25 @@ export default function MeasurementField({ value, onChange, tenantSlug }: Measur
     try {
       setLoadState('loading');
       setErrorMessage(null);
-      const response = await fetch(`/api/${tenantSlug}/measurement-families`);
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload?.error || 'Unable to load measurement families.');
+      const result = await fetchJsonWithDedupe<MeasurementFamily[] | { error?: string }>(
+        `/api/${tenantSlug}/measurement-families`,
+        {
+          ttlMs: options?.forceRefresh ? 0 : MEASUREMENT_FAMILIES_TTL_MS,
+          cacheKey: `measurement-families:${tenantSlug}`,
+        }
+      );
+      if (!result.ok) {
+        const payload = result.data;
+        const message =
+          payload &&
+          typeof payload === 'object' &&
+          !Array.isArray(payload) &&
+          typeof (payload as { error?: unknown }).error === 'string'
+            ? (payload as { error: string }).error
+            : 'Unable to load measurement families.';
+        throw new Error(message);
       }
-      const families: MeasurementFamily[] = await response.json();
+      const families: MeasurementFamily[] = Array.isArray(result.data) ? result.data : [];
       setMeasurementFamilies(families);
       setLoadState('idle');
     } catch (error) {
@@ -374,7 +390,7 @@ export default function MeasurementField({ value, onChange, tenantSlug }: Measur
         conversion_factor: unit.conversion_factor
       }));
 
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
       measurement_family: family.code,
       default_unit: resolvedDefaultUnit,
       allowed_units: finalAllowedUnits,
@@ -489,7 +505,7 @@ export default function MeasurementField({ value, onChange, tenantSlug }: Measur
       <div className="rounded-lg border border-border/60 bg-muted/20 px-5 py-6 space-y-4">
         {renderHeading()}
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <LoadingSkeleton size="sm" />
           <span>Loading measurement families...</span>
         </div>
       </div>
@@ -506,7 +522,7 @@ export default function MeasurementField({ value, onChange, tenantSlug }: Measur
           <div className="flex-1 space-y-2">
             <p>{errorMessage || 'Unable to load measurement families.'}</p>
             {tenantSlug && (
-              <Button size="sm" variant="outline" onClick={fetchMeasurementFamilies}>
+              <Button size="sm" variant="outline" onClick={() => void fetchMeasurementFamilies({ forceRefresh: true })}>
                 Retry
               </Button>
             )}
@@ -555,7 +571,7 @@ export default function MeasurementField({ value, onChange, tenantSlug }: Measur
                 {selectedFamilyData.description && (
                   <p className="text-muted-foreground">{selectedFamilyData.description}</p>
                 )}
-                {selectedFamilyData.metadata?.conversion_note && (
+                {typeof selectedFamilyData.metadata?.conversion_note === 'string' && (
                   <p className="text-xs text-muted-foreground">
                     {selectedFamilyData.metadata.conversion_note}
                   </p>
@@ -688,3 +704,4 @@ export default function MeasurementField({ value, onChange, tenantSlug }: Measur
     </div>
   );
 }
+

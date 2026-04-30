@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@tradetool/database";
+import type { Database } from "@stack-app/database";
 
 type ContextParams = {
   userId: string;
@@ -23,7 +23,7 @@ export async function applyRLSContext(
 
   for (const setting of settings) {
     if (!setting.value) continue;
-    const { error } = await (client as any).rpc("set_rls_setting", {
+    const { error } = await client.rpc("set_rls_setting", {
       setting_name: setting.name,
       new_value: setting.value,
       is_local: true,

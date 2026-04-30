@@ -8,6 +8,7 @@ import { useWorkspaces, WorkspaceSummary } from "@/hooks/useWorkspaces";
 import { SaaSSidebar } from "@/components/SaaSSidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 
 interface AllBrandsClientProps {
   userName: string;
@@ -22,6 +23,7 @@ interface AllBrandsClientProps {
     slug: string;
     organizationType: "brand" | "partner";
     partnerCategory: "retailer" | "distributor" | "wholesaler" | null;
+    logoUrl?: string | null;
     storageUsed: number;
     storageLimit: number;
   };
@@ -29,7 +31,12 @@ interface AllBrandsClientProps {
 
 interface NotificationItem {
   id: string;
-  type: "asset_added" | "product_added" | "share_granted";
+  type:
+    | "asset_added"
+    | "product_added"
+    | "share_granted"
+    | "update_published"
+    | "update_reminder";
   organizationId: string;
   organizationName: string;
   organizationSlug: string;
@@ -146,7 +153,7 @@ export default function AllBrandsClient({
           disabled={refreshing}
           className="gap-2"
         >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+          {refreshing ? <LoadingSkeleton size="sm" /> : <RefreshCw className="h-4 w-4" />}
           Refresh
         </Button>
       </div>
@@ -257,14 +264,13 @@ export default function AllBrandsClient({
                     slug: sidebarOrganization.slug,
                     organizationType: sidebarOrganization.organizationType,
                     partnerCategory: sidebarOrganization.partnerCategory,
+                    logoUrl: sidebarOrganization.logoUrl ?? null,
                   }
                 : null
             }
             orgSlug={sidebarOrganization?.slug}
             currentPath={currentPath}
             workspaces={sortedWorkspaces}
-            storageUsed={sidebarOrganization?.storageUsed ?? 0}
-            storageLimit={sidebarOrganization?.storageLimit ?? 0}
             user={
               userEmail
                 ? {
@@ -289,3 +295,4 @@ export default function AllBrandsClient({
     </div>
   );
 }
+

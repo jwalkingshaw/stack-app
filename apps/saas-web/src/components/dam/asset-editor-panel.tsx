@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   X,
   Save,
-  Loader2,
   Tag as TagIcon,
   FileText,
   Link2,
@@ -14,9 +13,11 @@ import {
   Trash,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { DeleteConfirmDialog } from "@/components/ui/modal-shells";
 import { cn } from "@/lib/utils";
 import type {
   DamAsset,
@@ -24,7 +25,7 @@ import type {
   AssetCategory,
   AssetTagAssignment,
   AssetCategoryAssignment,
-} from "@tradetool/types";
+} from "@stack-app/types";
 
 type AssetWithAssignments = DamAsset & {
   tagAssignments: AssetTagAssignment[];
@@ -76,6 +77,7 @@ export function AssetEditorPanel({
   const [newTagName, setNewTagName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   const initialState = useMemo(() => {
     if (!asset) {
@@ -114,6 +116,7 @@ export function AssetEditorPanel({
       setTagFilter("");
       setNewTagName("");
       setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
     }
   }, [asset, initialState]);
 
@@ -203,8 +206,7 @@ export function AssetEditorPanel({
 
   const handleDelete = useCallback(async () => {
     if (!asset) return;
-    const confirmed = confirm("Delete this asset? This action cannot be undone.");
-    if (!confirmed) return;
+    setIsDeleteDialogOpen(false);
     setIsDeleting(true);
     try {
       await onDelete(asset.id);
@@ -318,7 +320,7 @@ export function AssetEditorPanel({
                         variant={isSelected ? "default" : "secondary"}
                         className={cn(
                           "cursor-pointer text-xs px-2 py-1 transition-colors",
-                          isSelected ? "bg-blue-600 hover:bg-blue-700 text-white" : ""
+                          isSelected ? "bg-[var(--color-accent-black)] hover:bg-[var(--color-accent-black-hover)] text-white" : ""
                         )}
                         onClick={() => toggleTag(tag.id)}
                       >
@@ -429,13 +431,13 @@ export function AssetEditorPanel({
           <div className="flex gap-3">
             <Button
               variant="destructive"
-              onClick={handleDelete}
+              onClick={() => setIsDeleteDialogOpen(true)}
               disabled={isDeleting || isSaving}
               className="flex-1"
             >
               {isDeleting ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <LoadingSkeleton size="sm" className="mr-2" />
                   Deleting...
                 </>
               ) : (
@@ -460,7 +462,7 @@ export function AssetEditorPanel({
             >
               {isSaving ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <LoadingSkeleton size="sm" className="mr-2" />
                   Saving...
                 </>
               ) : (
@@ -473,6 +475,18 @@ export function AssetEditorPanel({
           </div>
         </div>
       </div>
+      <DeleteConfirmDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={(open) => {
+          if (isDeleting) return;
+          setIsDeleteDialogOpen(open);
+        }}
+        title="Delete asset?"
+        description="This action cannot be undone."
+        onConfirm={() => void handleDelete()}
+        confirmLoading={isDeleting}
+      />
     </>
   );
 }
+

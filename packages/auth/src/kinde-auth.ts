@@ -1,7 +1,7 @@
 import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
-import { DatabaseQueries } from '@tradetool/database';
+import { DatabaseQueries } from '@stack-app/database';
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { User, Organization, OrganizationMember, UserPermissions } from '@tradetool/types';
+import type { User, Organization, OrganizationMember, UserPermissions } from '@stack-app/types';
 
 export class AuthService {
   constructor(private db: DatabaseQueries) {}

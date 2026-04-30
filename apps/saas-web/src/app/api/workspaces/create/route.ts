@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
-import { DatabaseQueries, createServerClient } from "@tradetool/database";
+import { DatabaseQueries, createServerClient, type Database } from "@stack-app/database";
 import { kindeAPI } from "@/lib/kinde-management";
 import { syncKindeBillingRoleForMember } from "@/lib/kinde-billing-role-sync";
 import { ensureCoreBasicInformationFields } from "@/lib/pim-bootstrap";
+import {
+  DEFAULT_UI_LOCALE,
+  UI_LOCALE_COOKIE_NAME,
+  normalizeUiLocale,
+} from "@/lib/ui-locales";
+import { DEFAULT_LOCALE_CATALOG } from "@/lib/locale-catalog";
 
 const supabase = createServerClient();
 const db = new DatabaseQueries(supabase);
@@ -47,10 +53,10 @@ async function ensureOrganizationLocale(params: {
   organizationId: string;
   localeCode: string;
   localeName: string;
-}) {
+}): Promise<{ id: string }> {
   const normalizedCode = params.localeCode.trim();
 
-  const { data: existingLocale, error: existingLocaleError } = await (supabase as any)
+  const { data: existingLocale, error: existingLocaleError } = await supabase
     .from("locales")
     .select("id")
     .eq("organization_id", params.organizationId)
@@ -62,10 +68,14 @@ async function ensureOrganizationLocale(params: {
   }
 
   if (existingLocale) {
-    return existingLocale;
+    const locale = existingLocale as { id: string };
+    if (!locale.id) {
+      throw new Error("Failed to verify default locale.");
+    }
+    return locale;
   }
 
-  const { data: createdLocale, error: createLocaleError } = await (supabase as any)
+  const { data: createdLocaleRaw, error: createLocaleError } = await supabase
     .from("locales")
     .insert({
       organization_id: params.organizationId,
@@ -75,24 +85,51 @@ async function ensureOrganizationLocale(params: {
     })
     .select("id")
     .single();
+  const createdLocale = createdLocaleRaw as { id: string } | null;
 
-  if (createLocaleError || !createdLocale) {
+  if (createLocaleError || !createdLocale?.id) {
     throw new Error("Failed to create default locale.");
   }
 
   return createdLocale;
 }
 
+async function resolveLocaleCatalogEntry(localeCode: string): Promise<{ code: string; name: string } | null> {
+  const normalizedCode = localeCode.trim();
+  if (!normalizedCode) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
+    .from("locale_catalog")
+    .select("code,name")
+    .eq("code", normalizedCode)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error && error.code !== "42P01") {
+    throw new Error("Failed to verify default content locale.");
+  }
+
+  if (data?.code && data?.name) {
+    return { code: data.code, name: data.name };
+  }
+
+  const fallback = DEFAULT_LOCALE_CATALOG.find((entry) => entry.code === normalizedCode);
+  return fallback ? { code: fallback.code, name: fallback.name } : null;
+}
+
 async function seedDefaultMarketForWorkspace(params: {
   organizationId: string;
   countryCode: string;
-}) {
+  defaultLocaleCode?: string | null;
+}): Promise<{ localeId: string | null }> {
   const normalizedCountryCode = params.countryCode.trim().toUpperCase();
-  const { data: country, error: countryError } = await (supabase as any)
+  const { data: countryRaw, error: countryError } = await supabase
     .from("countries")
     .select("code, name")
     .eq("code", normalizedCountryCode)
     .maybeSingle();
+  const country = countryRaw as { code: string; name: string } | null;
 
   if (countryError || !country) {
     throw new Error("Selected default market country is not supported.");
@@ -100,7 +137,7 @@ async function seedDefaultMarketForWorkspace(params: {
 
   const preset = MARKET_PRESETS[normalizedCountryCode] || { currencyCode: null, timezone: null };
 
-  const { data: market, error: marketError } = await (supabase as any)
+  const { data: marketRaw, error: marketError } = await supabase
     .from("markets")
     .insert({
       organization_id: params.organizationId,
@@ -113,34 +150,56 @@ async function seedDefaultMarketForWorkspace(params: {
     })
     .select("id")
     .single();
+  const market = marketRaw as { id: string } | null;
 
   if (marketError || !market) {
     throw new Error("Failed to create default market.");
   }
 
-  const { data: countryLocales, error: countryLocalesError } = await (supabase as any)
+  const { data: countryLocalesRaw, error: countryLocalesError } = await supabase
     .from("country_locales")
     .select("locale_code, locale_name, is_primary")
     .eq("country_code", normalizedCountryCode)
     .order("is_primary", { ascending: false })
     .order("locale_name", { ascending: true });
+  const countryLocales = (countryLocalesRaw || []) as Array<{
+    locale_code: string;
+    locale_name: string;
+    is_primary: boolean;
+  }>;
 
   if (countryLocalesError) {
     throw new Error("Failed to load primary locale for default market.");
   }
 
-  const primaryLocale = countryLocales?.[0];
-  if (!primaryLocale) {
-    return;
+  const explicitLocaleCode =
+    typeof params.defaultLocaleCode === "string" && params.defaultLocaleCode.trim().length > 0
+      ? params.defaultLocaleCode.trim()
+      : null;
+  const explicitLocale = explicitLocaleCode
+    ? await resolveLocaleCatalogEntry(explicitLocaleCode)
+    : null;
+
+  const primaryLocale = countryLocales?.[0] || null;
+  const seededLocale =
+    explicitLocale ||
+    (primaryLocale
+      ? {
+          code: primaryLocale.locale_code,
+          name: primaryLocale.locale_name,
+        }
+      : null);
+  if (!seededLocale) {
+    return { localeId: null };
   }
 
   const locale = await ensureOrganizationLocale({
     organizationId: params.organizationId,
-    localeCode: primaryLocale.locale_code,
-    localeName: primaryLocale.locale_name,
+    localeCode: seededLocale.code,
+    localeName: seededLocale.name,
   });
 
-  const { error: marketLocaleError } = await (supabase as any)
+  const { error: marketLocaleError } = await supabase
     .from("market_locales")
     .upsert(
       {
@@ -155,13 +214,47 @@ async function seedDefaultMarketForWorkspace(params: {
     throw new Error("Failed to assign default locale to default market.");
   }
 
-  const { error: updateMarketError } = await (supabase as any)
+  const { error: updateMarketError } = await supabase
     .from("markets")
     .update({ default_locale_id: locale.id })
     .eq("id", market.id);
 
   if (updateMarketError) {
     throw new Error("Failed to finalize default market locale settings.");
+  }
+
+  return { localeId: locale.id };
+}
+
+async function seedLocalizationDefaultsForWorkspace(params: {
+  organizationId: string;
+  defaultLocaleId: string | null;
+  userId: string;
+}) {
+  const metadata =
+    params.defaultLocaleId && params.defaultLocaleId.trim().length > 0
+      ? ({ default_locale_id: params.defaultLocaleId.trim() } as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+
+  const { error } = await supabase
+    .from("organization_localization_settings")
+    .upsert(
+      {
+        organization_id: params.organizationId,
+        translation_enabled: false,
+        write_assist_enabled: false,
+        deepl_glossary_id: null,
+        brand_instructions: "",
+        preferred_tone: "neutral",
+        metadata: metadata as unknown as Database["public"]["Tables"]["organization_localization_settings"]["Insert"]["metadata"],
+        created_by: params.userId,
+        updated_by: params.userId,
+      },
+      { onConflict: "organization_id" }
+    );
+
+  if (error) {
+    throw new Error("Failed to seed localization defaults.");
   }
 }
 
@@ -178,6 +271,15 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
+    const userId = typeof user.id === "string" ? user.id.trim() : "";
+    const userEmail = typeof user.email === "string" ? user.email : "";
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: "User ID is required" },
+        { status: 400 }
+      );
+    }
 
     const body = await request.json();
     const {
@@ -188,6 +290,8 @@ export async function POST(request: NextRequest) {
       organization_type = 'brand',
       partner_category = null,
       default_market_country_code,
+      default_content_locale_code,
+      default_ui_locale,
     } = body;
 
     if (!name || !slug) {
@@ -208,6 +312,35 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const normalizedDefaultContentLocaleCode =
+      typeof default_content_locale_code === "string" && default_content_locale_code.trim().length > 0
+        ? default_content_locale_code.trim()
+        : null;
+
+    if (!normalizedDefaultContentLocaleCode) {
+      return NextResponse.json(
+        { error: "default_content_locale_code is required." },
+        { status: 400 }
+      );
+    }
+
+    const defaultContentLocale = await resolveLocaleCatalogEntry(normalizedDefaultContentLocaleCode);
+    if (!defaultContentLocale) {
+      return NextResponse.json(
+        { error: "default_content_locale_code must be a valid locale catalog code." },
+        { status: 400 }
+      );
+    }
+
+    const normalizedDefaultUiLocaleCandidate = normalizeUiLocale(default_ui_locale);
+    if (default_ui_locale !== undefined && default_ui_locale !== null && !normalizedDefaultUiLocaleCandidate) {
+      return NextResponse.json(
+        { error: "default_ui_locale must be one of the supported UI locales." },
+        { status: 400 }
+      );
+    }
+    const normalizedDefaultUiLocale = normalizedDefaultUiLocaleCandidate ?? DEFAULT_UI_LOCALE;
 
     // Validate organization_type
     if (!['brand', 'partner'].includes(organization_type)) {
@@ -240,7 +373,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log('🏢 Creating workspace:', { name, slug, organization_type, userId: user.id });
+    console.log('🏢 Creating workspace:', { name, slug, organization_type, userId });
 
     let organization;
     let kindeOrgId;
@@ -268,6 +401,7 @@ export async function POST(request: NextRequest) {
         kindeOrgId,
         industry,
         teamSize,
+        defaultUiLocale: normalizedDefaultUiLocale,
         organizationType: organization_type,
         partnerCategory:
           organization_type === "partner"
@@ -280,17 +414,23 @@ export async function POST(request: NextRequest) {
       }
 
       console.log('✅ Supabase workspace created:', organization.id);
-      await ensureCoreBasicInformationFields(supabase as any, organization.id);
-      await seedDefaultMarketForWorkspace({
+      await ensureCoreBasicInformationFields(supabase, organization.id);
+      const baselineSeed = await seedDefaultMarketForWorkspace({
         organizationId: organization.id,
         countryCode: normalizedDefaultMarketCountryCode,
+        defaultLocaleCode: defaultContentLocale.code,
+      });
+      await seedLocalizationDefaultsForWorkspace({
+        organizationId: organization.id,
+        defaultLocaleId: baselineSeed.localeId,
+        userId,
       });
 
       // Step 3: Add user to organization in Kinde
-      if (user.id && kindeOrgId) {
+      if (kindeOrgId) {
         try {
           console.log('Adding user to organization in Kinde');
-          await kindeAPI.addUserToOrganization(kindeOrgId, user.id);
+          await kindeAPI.addUserToOrganization(kindeOrgId, userId);
           console.log('✅ User successfully added to organization in Kinde');
         } catch (error) {
           console.warn('❌ Failed to add user to organization in Kinde:', error);
@@ -301,34 +441,22 @@ export async function POST(request: NextRequest) {
       // Step 4: Add user to organization_members table as owner
       try {
         console.log('Adding user to organization_members table as workspace owner');
-        
-        // Set database context for RLS
-        await (supabase as any).rpc('set_config', {
-          setting_name: 'app.current_user_id',
-          new_value: (user as any).id,
-          is_local: true
-        });
-        
-        await (supabase as any).rpc('set_config', {
-          setting_name: 'app.current_org_code',
-          new_value: kindeOrgId,
-          is_local: true
-        });
 
-        const { data: memberData, error: memberError } = await (supabase as any)
+        const { data: memberDataRaw, error: memberError } = await supabase
           .from('organization_members')
           .insert({
             organization_id: organization.id,
-            kinde_user_id: (user as any).id,
-            email: (user as any).email,
+            kinde_user_id: userId,
+            email: userEmail,
             role: 'owner',
             status: 'active',
-            invited_by: (user as any).id  // Self-reference: workspace owner invited themselves
+            invited_by: userId  // Self-reference: workspace owner invited themselves
           })
           .select()
           .single();
+        const memberData = memberDataRaw as { id: string } | null;
 
-        if (memberError) {
+        if (memberError || !memberData) {
           console.error('Failed to add user to organization_members:', memberError);
           throw new Error('Failed to create workspace member record');
         }
@@ -336,7 +464,7 @@ export async function POST(request: NextRequest) {
         console.log('✅ User successfully added to organization_members as owner:', memberData.id);
         await syncKindeBillingRoleForMember({
           kindeOrgId,
-          kindeUserId: (user as any).id,
+          kindeUserId: userId,
           appRole: 'owner',
           status: 'active',
           context: 'workspace_create',
@@ -390,7 +518,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Return success response
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       data: {
         organization: {
@@ -400,10 +528,19 @@ export async function POST(request: NextRequest) {
           type: organization.type,
           organization_type: organization.organizationType || organization.type,
           partner_category: organization.partnerCategory ?? null,
+          default_ui_locale: organization.defaultUiLocale || normalizedDefaultUiLocale,
         }
       },
       message: "Workspace created successfully"
     });
+
+    response.cookies.set(UI_LOCALE_COOKIE_NAME, normalizedDefaultUiLocale, {
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+
+    return response;
 
   } catch (error) {
     console.error("Workspace creation error:", error);
@@ -413,3 +550,8 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+
+
+
+

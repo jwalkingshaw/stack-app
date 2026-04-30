@@ -19,11 +19,14 @@ export function MultiSelectFieldComponent({
   disabled = false,
   className = ''
 }: MultiSelectFieldComponentProps) {
-  // Ensure value is always an array
-  const normalizedValue = Array.isArray(value) ? value : [];
+  // Ensure value is always an array.
+  const normalizedValue = useMemo(() => (Array.isArray(value) ? value : []), [value]);
 
   // Support both formats: field.options.options (new) and field.options.choices (legacy).
-  const rawOptions = field.options?.options || field.options?.choices || [];
+  const rawOptions = useMemo(
+    () => field.options?.options ?? field.options?.choices ?? [],
+    [field.options]
+  );
   const parsedMaxSelections = Number(field.options?.max_selections);
   const hasMaxSelections = Number.isFinite(parsedMaxSelections) && parsedMaxSelections > 0;
   const maxSelections = hasMaxSelections ? parsedMaxSelections : 0;
@@ -33,9 +36,13 @@ export function MultiSelectFieldComponent({
   const normalizedOptions = useMemo(
     () =>
       (Array.isArray(rawOptions) ? rawOptions : [])
-        .map((option: any) => {
-          const optionValue = option?.value ?? option;
-          const optionLabel = option?.label ?? optionValue;
+        .map((option: unknown) => {
+          const optionRecord =
+            option && typeof option === 'object' && !Array.isArray(option)
+              ? (option as Record<string, unknown>)
+              : null;
+          const optionValue = optionRecord?.value ?? option;
+          const optionLabel = optionRecord?.label ?? optionValue;
           if (!optionValue) return null;
           return {
             value: String(optionValue),
@@ -69,7 +76,7 @@ export function MultiSelectFieldComponent({
         value={normalizedValue}
         onChange={handleChange}
         placeholder={placeholder}
-        className="h-8"
+        className="h-10"
         disabled={disabled}
       />
       <div className="flex justify-between text-xs text-muted-foreground">

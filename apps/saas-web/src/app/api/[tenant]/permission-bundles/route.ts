@@ -1,10 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@tradetool/auth';
-import { DatabaseQueries } from '@tradetool/database';
+import { AuthService } from '@stack-app/auth';
+import { DatabaseQueries } from '@stack-app/database';
 
 import { supabaseServer } from '@/lib/supabase';
 import { requireTenantAccess } from '@/lib/tenant-auth';
 import { canSendInvite } from '@/lib/security-permissions';
+
+type PermissionBundleRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  subject_type: string;
+  is_default: boolean;
+};
+
+type PermissionBundleRuleRow = {
+  id: string;
+  permission_bundle_id: string;
+  module_key: string;
+  level: string;
+  scope_defaults: unknown;
+};
 
 export async function GET(
   request: NextRequest,
@@ -46,7 +62,7 @@ export async function GET(
       );
     }
 
-    let bundleQuery = (supabaseServer as any)
+    let bundleQuery = supabaseServer
       .from('permission_bundles')
       .select('id, name, description, subject_type, is_default')
       .eq('organization_id', organization.id)
@@ -63,11 +79,11 @@ export async function GET(
       return NextResponse.json({ error: 'Failed to load permission bundles' }, { status: 500 });
     }
 
-    const bundleIds = (bundles || []).map((bundle: any) => bundle.id);
-    const rulesByBundleId = new Map<string, any[]>();
+    const bundleIds = ((bundles || []) as PermissionBundleRow[]).map((bundle) => bundle.id);
+    const rulesByBundleId = new Map<string, PermissionBundleRuleRow[]>();
 
     if (bundleIds.length > 0) {
-      const { data: rules, error: rulesError } = await (supabaseServer as any)
+      const { data: rules, error: rulesError } = await supabaseServer
         .from('permission_bundle_rules')
         .select('id, permission_bundle_id, module_key, level, scope_defaults')
         .in('permission_bundle_id', bundleIds)
@@ -85,7 +101,7 @@ export async function GET(
       }
     }
 
-    const payload = (bundles || []).map((bundle: any) => ({
+    const payload = ((bundles || []) as PermissionBundleRow[]).map((bundle) => ({
       ...bundle,
       rules: rulesByBundleId.get(bundle.id) || [],
     }));

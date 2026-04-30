@@ -1,2 +1,2 @@
-export { Button, buttonVariants } from "@tradetool/ui";
-export type { ButtonProps } from "@tradetool/ui";
+export { Button, buttonVariants } from "@stack-app/ui";
+export type { ButtonProps } from "@stack-app/ui";

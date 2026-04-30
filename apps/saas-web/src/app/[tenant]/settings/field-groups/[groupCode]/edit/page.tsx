@@ -1,19 +1,27 @@
 'use client';
 
-import { use, useState, useEffect } from 'react';
+import { use, useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  ArrowLeft,
+  ChevronLeft,
   Save,
   List
 } from 'lucide-react';
-import { PageLoader } from '@/components/ui/loading-spinner';
-import { PageContentContainer } from '@/components/ui/page-content-container';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
+import { isLockedFieldGroupCode } from '@/lib/field-group-codes';
+import { SettingsSecondLevelPage } from '../../../components/settings-page-content';
 
-const LOCKED_GROUP_CODES = new Set(['basic_info', 'documentation']);
+interface FieldGroup {
+  id: string;
+  name: string;
+  code: string;
+  description?: string | null;
+  sort_order: number;
+}
 
 // This will be the edit page for a specific field group
 export default function FieldGroupEditPage({
@@ -23,21 +31,17 @@ export default function FieldGroupEditPage({
 }) {
   const { tenant, groupCode } = use(params);
   const router = useRouter();
-  const isLockedGroup = LOCKED_GROUP_CODES.has(groupCode);
+  const isLockedGroup = isLockedFieldGroupCode(groupCode);
 
-  const [fieldGroup, setFieldGroup] = useState<any>(null);
+  const [fieldGroup, setFieldGroup] = useState<FieldGroup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchFieldGroup();
-  }, [tenant, groupCode]);
-
-  const fetchFieldGroup = async () => {
+  const fetchFieldGroup = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(`/api/${tenant}/field-groups/${groupCode}`);
-      const result = await response.json();
+      const result = (await response.json()) as FieldGroup & { error?: string };
 
       if (response.ok) {
         setFieldGroup(result);
@@ -56,7 +60,11 @@ export default function FieldGroupEditPage({
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenant, groupCode]);
+
+  useEffect(() => {
+    void fetchFieldGroup();
+  }, [fetchFieldGroup]);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -136,7 +144,7 @@ export default function FieldGroupEditPage({
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading field group..." size="lg" />
+        <PageSkeleton text="Loading field group..." size="lg" />
       </div>
     );
   }
@@ -163,47 +171,40 @@ export default function FieldGroupEditPage({
   }
 
   return (
-    <div className="h-full bg-background">
-      {/* Header with breadcrumb */}
-      <div className="border-b border-border bg-white">
-        <PageContentContainer mode="content" className="px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => router.push(`/${tenant}/settings/field-groups/${groupCode}`)}
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to Field Group
-              </Button>
-              <span className="text-muted-foreground">/</span>
-              <span className="font-medium">{fieldGroup.name}</span>
-              <span className="text-muted-foreground">/</span>
-              <span className="text-muted-foreground">Edit</span>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => router.push(`/${tenant}/settings/field-groups/${groupCode}`)}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSave}
-                variant="accent-blue"
-                disabled={isSaving || isLockedGroup}
-              >
-                <Save className="w-4 h-4" />
-                {isSaving ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </div>
-          </div>
-        </PageContentContainer>
+    <SettingsSecondLevelPage
+      page="field-group-edit"
+      backLink={
+        <Link
+          href={`/${tenant}/settings/field-groups/${groupCode}`}
+          className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          <span>Attribute Group</span>
+        </Link>
+      }
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold text-foreground">Edit {fieldGroup.name}</h2>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/${tenant}/settings/field-groups/${groupCode}`)}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="accent-blue"
+            onClick={handleSave}
+            disabled={isSaving || isLockedGroup}
+          >
+            <Save className="h-4 w-4" />
+            {isSaving ? "Saving..." : "Save Changes"}
+          </Button>
+        </div>
       </div>
 
-      {/* Main content */}
-      <PageContentContainer mode="content" className="px-6 py-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -304,9 +305,9 @@ export default function FieldGroupEditPage({
             )}
           </CardContent>
         </Card>
-      </PageContentContainer>
-    </div>
+    </SettingsSecondLevelPage>
   );
 }
+
 
 

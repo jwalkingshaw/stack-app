@@ -2,6 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
 import { requireSharingManagerContext } from "../_shared";
 
+type FolderOptionRow = {
+  id: string;
+  name: string;
+  path: string | null;
+};
+
+type AssetOptionRow = {
+  id: string;
+  filename: string;
+  folder_id: string | null;
+};
+
 // GET /api/[tenant]/sharing/collection-options
 export async function GET(
   request: NextRequest,
@@ -15,12 +27,12 @@ export async function GET(
     const { organization } = access.context;
 
     const [foldersResult, assetsResult] = await Promise.all([
-      (supabaseServer as any)
+      supabaseServer
         .from("dam_folders")
         .select("id,name,path")
         .eq("organization_id", organization.id)
         .order("path", { ascending: true }),
-      (supabaseServer as any)
+      supabaseServer
         .from("dam_assets")
         .select("id,filename,folder_id,created_at")
         .eq("organization_id", organization.id)
@@ -38,12 +50,12 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: {
-        folders: (foldersResult.data || []).map((folder: any) => ({
+        folders: ((foldersResult.data || []) as FolderOptionRow[]).map((folder) => ({
           id: folder.id,
           name: folder.name,
           path: folder.path || folder.name,
         })),
-        assets: (assetsResult.data || []).map((asset: any) => ({
+        assets: ((assetsResult.data || []) as AssetOptionRow[]).map((asset) => ({
           id: asset.id,
           filename: asset.filename,
           folder_id: asset.folder_id,
@@ -55,4 +67,3 @@ export async function GET(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
-

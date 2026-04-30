@@ -1,13 +1,29 @@
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
-import type { Organization } from "@tradetool/types";
+import type { Organization } from "@stack-app/types";
 import { verifyTenantAccess } from "@/lib/tenant-auth";
 import { supabaseServer } from "@/lib/supabase";
+import { blockPartnerBrandMutation } from "@/lib/partner-brand-mutation-guard";
 
 type ScopeType = "organization" | "market" | "channel" | "collection";
 type ShareSetModuleKey = "assets" | "products";
 type PartnerGrantedAssetIdsResult = { foundationAvailable: boolean; assetIds: string[] };
 type PartnerGrantedProductIdsResult = { foundationAvailable: boolean; productIds: string[] };
+type PartnerGrantScopeSelection = {
+  marketId?: string | null;
+  channelId?: string | null;
+  destinationProfileId?: string | null;
+  localeId?: string | null;
+  destinationId?: string | null;
+};
+
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+export type PartnerProductVisibilityPolicyResult = {
+  foundationAvailable: boolean;
+  allowAllGroups: boolean;
+  allowedGroupCodes: string[];
+  allowedFieldCodes: string[];
+};
 
 const parsedGrantCacheTtlMs = Number(process.env.PARTNER_GRANT_CACHE_TTL_MS);
 const PARTNER_GRANT_CACHE_TTL_MS =
@@ -37,12 +53,47 @@ const partnerGrantedProductIdsInFlight = new Map<
   Promise<PartnerGrantedProductIdsResult>
 >();
 
+export function invalidatePartnerGrantCachesForBrand(brandOrganizationId: string): void {
+  const productPrefix = `products:${brandOrganizationId}:`;
+  const assetPrefix = `assets:${brandOrganizationId}:`;
+
+  for (const key of partnerGrantedProductIdsCache.keys()) {
+    if (key.startsWith(productPrefix)) {
+      partnerGrantedProductIdsCache.delete(key);
+    }
+  }
+  for (const key of partnerGrantedProductIdsInFlight.keys()) {
+    if (key.startsWith(productPrefix)) {
+      partnerGrantedProductIdsInFlight.delete(key);
+    }
+  }
+  for (const key of partnerGrantedAssetIdsCache.keys()) {
+    if (key.startsWith(assetPrefix)) {
+      partnerGrantedAssetIdsCache.delete(key);
+    }
+  }
+  for (const key of partnerGrantedAssetIdsInFlight.keys()) {
+    if (key.startsWith(assetPrefix)) {
+      partnerGrantedAssetIdsInFlight.delete(key);
+    }
+  }
+}
+
 function buildPartnerGrantCacheKey(
   moduleKey: ShareSetModuleKey,
   brandOrganizationId: string,
-  partnerOrganizationId: string
+  partnerOrganizationId: string,
+  scope?: PartnerGrantScopeSelection
 ): string {
-  return `${moduleKey}:${brandOrganizationId}:${partnerOrganizationId}`;
+  const normalize = (value: string | null | undefined) => {
+    const token = typeof value === "string" ? value.trim() : "";
+    return token.length > 0 ? token : "_";
+  };
+  const destinationProfileId = scope?.destinationProfileId ?? scope?.channelId;
+  const scopeToken = scope
+    ? `m=${normalize(scope.marketId)}|p=${normalize(destinationProfileId)}|l=${normalize(scope.localeId)}|d=${normalize(scope.destinationId)}`
+    : "scope=all";
+  return `${moduleKey}:${brandOrganizationId}:${partnerOrganizationId}:${scopeToken}`;
 }
 
 function prunePartnerGrantCache<T>(
@@ -124,26 +175,36 @@ export type TenantBrandViewContext = {
   brandMemberId: string | null;
 };
 
+function isMutatingRequestMethod(method: string): boolean {
+  return MUTATING_METHODS.has(method.trim().toUpperCase());
+}
+
 function normalizeOrganizationType(raw: unknown): "brand" | "partner" {
   return raw === "partner" ? "partner" : "brand";
 }
 
 function toOrganizationSummary(raw: Organization): OrganizationSummary {
+  const organization = raw as Organization & {
+    organizationType?: unknown;
+    type?: unknown;
+  };
   return {
     id: raw.id,
     slug: raw.slug,
     name: raw.name,
     organizationType: normalizeOrganizationType(
-      (raw as any).organizationType ?? (raw as any).type
+      organization.organizationType ?? organization.type
     ),
   };
 }
 
-function isMissingColumnError(error: any): boolean {
+function isMissingColumnError(error: { code?: string } | null | undefined): boolean {
   return error?.code === "42703";
 }
 
-function isMissingShareSetFoundationError(error: any): boolean {
+function isMissingShareSetFoundationError(
+  error: { code?: string; message?: string } | null | undefined
+): boolean {
   if (!error) return false;
   if (error?.code === "42P01" || error?.code === "PGRST205") return true;
   const message = String(error?.message || "").toLowerCase();
@@ -162,9 +223,9 @@ async function resolveActivePartnerShareSetIds(params: {
   const { brandOrganizationId, partnerOrganizationId, moduleKey } = params;
   const now = Date.now();
 
-  const { data: grants, error: grantsError } = await (supabaseServer as any)
+  const { data: grants, error: grantsError } = await supabaseServer
     .from("partner_share_set_grants")
-    .select("share_set_id,expires_at")
+    .select("share_set_id,expires_at,valid_from")
     .eq("organization_id", brandOrganizationId)
     .eq("partner_organization_id", partnerOrganizationId)
     .eq("status", "active");
@@ -173,15 +234,20 @@ async function resolveActivePartnerShareSetIds(params: {
     if (isMissingShareSetFoundationError(grantsError)) {
       return { foundationAvailable: false, setIds: [] };
     }
-    console.error("Failed to resolve partner share set grants:", grantsError);
+    console.error("Failed to resolve partner saved scope grants:", grantsError);
     return { foundationAvailable: true, setIds: [] };
   }
 
   const unexpiredSetIds = Array.from(
     new Set(
-      ((grants || []) as Array<{ share_set_id: string | null; expires_at: string | null }>)
+      ((grants || []) as unknown as Array<{ share_set_id: string | null; expires_at: string | null; valid_from: string | null }>)
         .filter((grant) => {
           if (!grant.share_set_id) return false;
+          // Respect valid_from: grant is not active until this date
+          if (grant.valid_from) {
+            const validFrom = Date.parse(grant.valid_from);
+            if (Number.isFinite(validFrom) && validFrom > now) return false;
+          }
           if (!grant.expires_at) return true;
           const expiresAt = Date.parse(grant.expires_at);
           return Number.isFinite(expiresAt) && expiresAt > now;
@@ -195,7 +261,7 @@ async function resolveActivePartnerShareSetIds(params: {
     return { foundationAvailable: true, setIds: [] };
   }
 
-  const { data: sets, error: setsError } = await (supabaseServer as any)
+  const { data: sets, error: setsError } = await supabaseServer
     .from("share_sets")
     .select("id")
     .eq("organization_id", brandOrganizationId)
@@ -206,7 +272,7 @@ async function resolveActivePartnerShareSetIds(params: {
     if (isMissingShareSetFoundationError(setsError)) {
       return { foundationAvailable: false, setIds: [] };
     }
-    console.error("Failed to resolve share set headers:", setsError);
+    console.error("Failed to resolve saved scope headers:", setsError);
     return { foundationAvailable: true, setIds: [] };
   }
 
@@ -222,13 +288,170 @@ async function resolveActivePartnerShareSetIds(params: {
   };
 }
 
+function normalizeVisibilityCodeArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "string") continue;
+    const normalized = entry.trim().toLowerCase();
+    if (!normalized) continue;
+    out.add(normalized);
+  }
+  return Array.from(out);
+}
+
+function readProductVisibilityPolicyFromMetadata(metadata: unknown): {
+  configured: boolean;
+  allowAllGroups: boolean;
+  allowedGroupCodes: string[];
+  allowedFieldCodes: string[];
+} {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+    return {
+      configured: false,
+      allowAllGroups: false,
+      allowedGroupCodes: [],
+      allowedFieldCodes: [],
+    };
+  }
+
+  const metadataRecord = metadata as Record<string, unknown>;
+  const visibilityRaw =
+    metadataRecord.product_visibility ?? metadataRecord.productVisibility ?? null;
+
+  if (!visibilityRaw || typeof visibilityRaw !== "object" || Array.isArray(visibilityRaw)) {
+    return {
+      configured: false,
+      allowAllGroups: false,
+      allowedGroupCodes: [],
+      allowedFieldCodes: [],
+    };
+  }
+
+  const visibility = visibilityRaw as Record<string, unknown>;
+  const allowAllGroups =
+    visibility.allow_all_groups === true || visibility.allowAllGroups === true;
+  const allowedGroupCodes = normalizeVisibilityCodeArray(
+    visibility.allowed_group_codes ?? visibility.allowedGroupCodes
+  );
+  const allowedFieldCodes = normalizeVisibilityCodeArray(
+    visibility.allowed_field_codes ?? visibility.allowedFieldCodes
+  );
+
+  return {
+    configured: true,
+    allowAllGroups,
+    allowedGroupCodes,
+    allowedFieldCodes,
+  };
+}
+
+export async function resolvePartnerProductVisibilityPolicy(params: {
+  brandOrganizationId: string;
+  partnerOrganizationId: string;
+}): Promise<PartnerProductVisibilityPolicyResult> {
+  const activeSetIds = await resolveActivePartnerShareSetIds({
+    brandOrganizationId: params.brandOrganizationId,
+    partnerOrganizationId: params.partnerOrganizationId,
+    moduleKey: "products",
+  });
+
+  if (!activeSetIds.foundationAvailable) {
+    return {
+      foundationAvailable: false,
+      allowAllGroups: false,
+      allowedGroupCodes: [],
+      allowedFieldCodes: [],
+    };
+  }
+
+  if (activeSetIds.setIds.length === 0) {
+    return {
+      foundationAvailable: true,
+      allowAllGroups: false,
+      allowedGroupCodes: [],
+      allowedFieldCodes: [],
+    };
+  }
+
+  const { data: setRows, error: setRowsError } = await supabaseServer
+    .from("share_sets")
+    .select("id,metadata")
+    .eq("organization_id", params.brandOrganizationId)
+    .eq("module_key", "products")
+    .in("id", activeSetIds.setIds);
+
+  if (setRowsError) {
+    if (isMissingShareSetFoundationError(setRowsError)) {
+      return {
+        foundationAvailable: false,
+        allowAllGroups: false,
+        allowedGroupCodes: [],
+        allowedFieldCodes: [],
+      };
+    }
+    console.error("Failed to resolve product visibility metadata:", setRowsError);
+    return {
+      foundationAvailable: true,
+      allowAllGroups: false,
+      allowedGroupCodes: [],
+      allowedFieldCodes: [],
+    };
+  }
+
+  let hasConfiguredPolicy = false;
+  let allowAllGroups = false;
+  const allowedGroupCodes = new Set<string>();
+  const allowedFieldCodes = new Set<string>();
+
+  for (const row of (setRows || []) as Array<{ metadata: unknown }>) {
+    const policy = readProductVisibilityPolicyFromMetadata(row.metadata);
+    if (!policy.configured) continue;
+    hasConfiguredPolicy = true;
+    if (policy.allowAllGroups) {
+      allowAllGroups = true;
+    }
+    for (const code of policy.allowedGroupCodes) {
+      allowedGroupCodes.add(code);
+    }
+    for (const code of policy.allowedFieldCodes) {
+      allowedFieldCodes.add(code);
+    }
+  }
+
+  if (!hasConfiguredPolicy) {
+    return {
+      foundationAvailable: true,
+      allowAllGroups: true,
+      allowedGroupCodes: [],
+      allowedFieldCodes: [],
+    };
+  }
+
+  if (allowAllGroups) {
+    return {
+      foundationAvailable: true,
+      allowAllGroups: true,
+      allowedGroupCodes: [],
+      allowedFieldCodes: [],
+    };
+  }
+
+  return {
+    foundationAvailable: true,
+    allowAllGroups: false,
+    allowedGroupCodes: Array.from(allowedGroupCodes),
+    allowedFieldCodes: Array.from(allowedFieldCodes),
+  };
+}
+
 async function hasActiveBrandRelationship(params: {
   brandOrganizationId: string;
   partnerOrganizationId: string;
 }): Promise<boolean> {
   const { brandOrganizationId, partnerOrganizationId } = params;
 
-  const v2 = await (supabaseServer as any)
+  const v2 = await supabaseServer
     .from("brand_partner_relationships")
     .select("id")
     .eq("brand_organization_id", brandOrganizationId)
@@ -244,7 +467,7 @@ async function hasActiveBrandRelationship(params: {
     return false;
   }
 
-  const v1 = await (supabaseServer as any)
+  const v1 = await supabaseServer
     .from("brand_partner_relationships")
     .select("id")
     .eq("brand_id", brandOrganizationId)
@@ -264,7 +487,7 @@ export async function resolvePartnerSharedBrandOrganizationIds(params: {
 }): Promise<string[]> {
   const { partnerOrganizationId } = params;
 
-  const v2 = await (supabaseServer as any)
+  const v2 = await supabaseServer
     .from("brand_partner_relationships")
     .select("brand_organization_id")
     .eq("partner_organization_id", partnerOrganizationId)
@@ -282,27 +505,10 @@ export async function resolvePartnerSharedBrandOrganizationIds(params: {
 
   if (!isMissingColumnError(v2.error)) {
     console.error("Failed to resolve partner shared brands:", v2.error);
-    return [];
+  } else {
+    console.error("Failed to resolve partner shared brands due missing v2 columns:", v2.error);
   }
-
-  const v1 = await (supabaseServer as any)
-    .from("brand_partner_relationships")
-    .select("brand_id")
-    .eq("partner_id", partnerOrganizationId)
-    .eq("status", "active");
-
-  if (v1.error) {
-    console.error("Failed to resolve partner shared brands (legacy):", v1.error);
-    return [];
-  }
-
-  return Array.from(
-    new Set(
-      ((v1.data || []) as Array<{ brand_id: string | null }>)
-        .map((row) => row.brand_id)
-        .filter((id): id is string => Boolean(id))
-    )
-  );
+  return [];
 }
 
 async function resolveBrandMemberId(params: {
@@ -312,7 +518,7 @@ async function resolveBrandMemberId(params: {
 }): Promise<string | null> {
   const { organizationId, userId, userEmail } = params;
 
-  const byUser = await (supabaseServer as any)
+  const byUser = await supabaseServer
     .from("organization_members")
     .select("id")
     .eq("organization_id", organizationId)
@@ -329,7 +535,7 @@ async function resolveBrandMemberId(params: {
     return null;
   }
 
-  const byEmail = await (supabaseServer as any)
+  const byEmail = await supabaseServer
     .from("organization_members")
     .select("id,kinde_user_id")
     .eq("organization_id", organizationId)
@@ -343,7 +549,7 @@ async function resolveBrandMemberId(params: {
 
   const row = byEmail.data[0] as { id: string; kinde_user_id: string | null };
   if (row.kinde_user_id !== userId) {
-    await (supabaseServer as any)
+    await supabaseServer
       .from("organization_members")
       .update({
         kinde_user_id: userId,
@@ -398,7 +604,7 @@ export async function resolveTenantBrandViewContext(params: {
     };
   }
 
-  const { data: brandOrg, error: brandOrgError } = await (supabaseServer as any)
+  const { data: brandOrg, error: brandOrgError } = await supabaseServer
     .from("organizations")
     .select("id,name,slug,organization_type")
     .eq("slug", selectedBrandSlug)
@@ -436,22 +642,40 @@ export async function resolveTenantBrandViewContext(params: {
     userEmail,
   });
 
+  const context: TenantBrandViewContext = {
+    userId: tenantAccess.userId,
+    userEmail,
+    tenantOrganization,
+    targetOrganization: {
+      id: brandOrg.id,
+      slug: brandOrg.slug,
+      name: brandOrg.name,
+      organizationType: "brand",
+    },
+    selectedBrandSlug: brandOrg.slug,
+    mode: "partner_brand",
+    brandMemberId,
+  };
+
+  if (isMutatingRequestMethod(request.method)) {
+    const blocked = await blockPartnerBrandMutation({
+      request,
+      context,
+      action: "partner_brand.mutation",
+      resourceType: "organization",
+      resourceId: brandOrg.id,
+      metadata: {
+        selected_brand_slug: brandOrg.slug,
+      },
+    });
+    if (blocked) {
+      return { ok: false, response: blocked };
+    }
+  }
+
   return {
     ok: true,
-    context: {
-      userId: tenantAccess.userId,
-      userEmail,
-      tenantOrganization,
-      targetOrganization: {
-        id: brandOrg.id,
-        slug: brandOrg.slug,
-        name: brandOrg.name,
-        organizationType: "brand",
-      },
-      selectedBrandSlug: brandOrg.slug,
-      mode: "partner_brand",
-      brandMemberId,
-    },
+    context,
   };
 }
 
@@ -471,7 +695,7 @@ export async function getScopedPermissionSummary(params: {
   }
 
   const nowIso = new Date().toISOString();
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("member_scope_permissions")
     .select("scope_type,market_id,channel_id,collection_id,expires_at")
     .eq("organization_id", organizationId)
@@ -527,6 +751,110 @@ function dedupeStringArray(values: unknown): string[] {
   return Array.from(out);
 }
 
+function normalizeScopeId(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizePartnerGrantScope(
+  scope: PartnerGrantScopeSelection | null | undefined
+): Required<PartnerGrantScopeSelection> {
+  const destinationProfileId = normalizeScopeId(
+    scope?.destinationProfileId ?? scope?.channelId
+  );
+  return {
+    marketId: normalizeScopeId(scope?.marketId),
+    channelId: destinationProfileId,
+    destinationProfileId,
+    localeId: normalizeScopeId(scope?.localeId),
+    destinationId: normalizeScopeId(scope?.destinationId),
+  };
+}
+
+function matchesScopeConstraint(
+  allowedIds: unknown,
+  selectedId: string | null
+): boolean {
+  const scopedIds = dedupeStringArray(allowedIds);
+  if (scopedIds.length === 0) return true;
+  if (!selectedId) return true;
+  return scopedIds.includes(selectedId);
+}
+
+type PartnerShareSetItemRow = {
+  resource_type: string;
+  resource_id: string | null;
+  include_descendants: boolean | null;
+  market_ids?: string[] | null;
+  channel_ids?: string[] | null;
+  locale_ids?: string[] | null;
+  destination_ids?: string[] | null;
+};
+
+async function loadPartnerShareSetItems(params: {
+  organizationId: string;
+  setIds: string[];
+  resourceTypes: string[];
+}): Promise<{ foundationAvailable: boolean; items: PartnerShareSetItemRow[] }> {
+  const withDestinationIds = await supabaseServer
+    .from("share_set_items")
+    .select(
+    "resource_type,resource_id,include_descendants,market_ids,channel_ids,locale_ids,destination_ids"
+    )
+    .eq("organization_id", params.organizationId)
+    .in("share_set_id", params.setIds)
+    .in("resource_type", params.resourceTypes);
+
+  if (withDestinationIds.error && isMissingColumnError(withDestinationIds.error)) {
+    const withoutDestinationIds = await supabaseServer
+      .from("share_set_items")
+      .select("resource_type,resource_id,include_descendants,market_ids,channel_ids,locale_ids")
+      .eq("organization_id", params.organizationId)
+      .in("share_set_id", params.setIds)
+      .in("resource_type", params.resourceTypes);
+    if (withoutDestinationIds.error) {
+      if (isMissingShareSetFoundationError(withoutDestinationIds.error)) {
+        return { foundationAvailable: false, items: [] };
+      }
+      console.error("Failed to resolve saved scope items:", withoutDestinationIds.error);
+      return { foundationAvailable: true, items: [] };
+    }
+    return {
+      foundationAvailable: true,
+      items: (withoutDestinationIds.data || []) as PartnerShareSetItemRow[],
+    };
+  }
+
+  if (withDestinationIds.error) {
+    if (isMissingShareSetFoundationError(withDestinationIds.error)) {
+      return { foundationAvailable: false, items: [] };
+    }
+    console.error("Failed to resolve saved scope items:", withDestinationIds.error);
+    return { foundationAvailable: true, items: [] };
+  }
+
+  return {
+    foundationAvailable: true,
+    items: ((withDestinationIds.data || []) as unknown) as PartnerShareSetItemRow[],
+  };
+}
+
+function applyPartnerShareItemScopeFilter(params: {
+  items: PartnerShareSetItemRow[];
+  scope: PartnerGrantScopeSelection | null | undefined;
+}): PartnerShareSetItemRow[] {
+  const scope = normalizePartnerGrantScope(params.scope);
+  const destinationProfileId = scope.destinationProfileId ?? scope.channelId;
+  return params.items.filter((item) => {
+    if (!matchesScopeConstraint(item.market_ids, scope.marketId)) return false;
+    if (!matchesScopeConstraint(item.channel_ids, destinationProfileId)) return false;
+    if (!matchesScopeConstraint(item.locale_ids, scope.localeId)) return false;
+    if (!matchesScopeConstraint(item.destination_ids, scope.destinationId)) return false;
+    return true;
+  });
+}
+
 export async function resolveCollectionAssetIds(params: {
   organizationId: string;
   collectionIds: string[];
@@ -537,7 +865,7 @@ export async function resolveCollectionAssetIds(params: {
     return [];
   }
 
-  const { data: collections, error: collectionsError } = await (supabaseServer as any)
+  const { data: collections, error: collectionsError } = await supabaseServer
     .from("dam_collections")
     .select("id,asset_ids,folder_ids")
     .eq("organization_id", organizationId)
@@ -550,7 +878,7 @@ export async function resolveCollectionAssetIds(params: {
   const assetIds = new Set<string>();
   const rootFolderIds = new Set<string>();
 
-  for (const collection of collections as Array<any>) {
+  for (const collection of collections as Array<{ asset_ids?: unknown; folder_ids?: unknown }>) {
     for (const assetId of dedupeStringArray(collection.asset_ids)) {
       assetIds.add(assetId);
     }
@@ -563,7 +891,7 @@ export async function resolveCollectionAssetIds(params: {
     return Array.from(assetIds);
   }
 
-  const { data: rootFolders, error: rootFolderError } = await (supabaseServer as any)
+  const { data: rootFolders, error: rootFolderError } = await supabaseServer
     .from("dam_folders")
     .select("id,path")
     .eq("organization_id", organizationId)
@@ -582,7 +910,7 @@ export async function resolveCollectionAssetIds(params: {
   }
 
   for (const path of folderPaths) {
-    const { data: descendants } = await (supabaseServer as any)
+    const { data: descendants } = await supabaseServer
       .from("dam_folders")
       .select("id")
       .eq("organization_id", organizationId)
@@ -594,7 +922,7 @@ export async function resolveCollectionAssetIds(params: {
   }
 
   if (descendantFolderIds.size > 0) {
-    const { data: folderAssets } = await (supabaseServer as any)
+    const { data: folderAssets } = await supabaseServer
       .from("dam_assets")
       .select("id")
       .eq("organization_id", organizationId)
@@ -611,6 +939,7 @@ export async function resolveCollectionAssetIds(params: {
 async function resolvePartnerGrantedAssetIdsUncached(params: {
   brandOrganizationId: string;
   partnerOrganizationId: string;
+  scope?: PartnerGrantScopeSelection;
 }): Promise<PartnerGrantedAssetIdsResult> {
   const shareSets = await resolveActivePartnerShareSetIds({
     brandOrganizationId: params.brandOrganizationId,
@@ -621,34 +950,30 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
   if (!shareSets.foundationAvailable) {
     return { foundationAvailable: false, assetIds: [] };
   }
-  if (shareSets.setIds.length === 0) {
-    return { foundationAvailable: true, assetIds: [] };
-  }
-
-  const { data: items, error: itemsError } = await (supabaseServer as any)
-    .from("share_set_items")
-    .select("resource_type,resource_id,include_descendants")
-    .eq("organization_id", params.brandOrganizationId)
-    .in("share_set_id", shareSets.setIds)
-    .in("resource_type", ["asset", "folder"]);
-
-  if (itemsError) {
-    if (isMissingShareSetFoundationError(itemsError)) {
-      return { foundationAvailable: false, assetIds: [] };
-    }
-    console.error("Failed to resolve asset share set items:", itemsError);
-    return { foundationAvailable: true, assetIds: [] };
-  }
 
   const assetIds = new Set<string>();
+
+  if (shareSets.setIds.length === 0) {
+    return { foundationAvailable: true, assetIds: Array.from(assetIds) };
+  }
+
+  const loadedItems = await loadPartnerShareSetItems({
+    organizationId: params.brandOrganizationId,
+    setIds: shareSets.setIds,
+    resourceTypes: ["asset", "folder"],
+  });
+  if (!loadedItems.foundationAvailable) {
+    return { foundationAvailable: false, assetIds: [] };
+  }
+  const scopedItems = applyPartnerShareItemScopeFilter({
+    items: loadedItems.items,
+    scope: params.scope,
+  });
+
   const folderIdsDirect = new Set<string>();
   const folderIdsRecursive = new Set<string>();
 
-  for (const item of (items || []) as Array<{
-    resource_type: string;
-    resource_id: string | null;
-    include_descendants: boolean | null;
-  }>) {
+  for (const item of scopedItems) {
     if (!item.resource_id) continue;
     if (item.resource_type === "asset") {
       assetIds.add(item.resource_id);
@@ -664,7 +989,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
   }
 
   if (folderIdsDirect.size > 0) {
-    const { data: directAssets, error: directAssetsError } = await (supabaseServer as any)
+    const { data: directAssets, error: directAssetsError } = await supabaseServer
       .from("dam_assets")
       .select("id")
       .eq("organization_id", params.brandOrganizationId)
@@ -678,7 +1003,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
   }
 
   if (folderIdsRecursive.size > 0) {
-    const { data: rootFolders, error: rootFoldersError } = await (supabaseServer as any)
+    const { data: rootFolders, error: rootFoldersError } = await supabaseServer
       .from("dam_folders")
       .select("id,path")
       .eq("organization_id", params.brandOrganizationId)
@@ -694,7 +1019,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
       }
 
       for (const path of rootPaths) {
-        const { data: descendants } = await (supabaseServer as any)
+        const { data: descendants } = await supabaseServer
           .from("dam_folders")
           .select("id")
           .eq("organization_id", params.brandOrganizationId)
@@ -706,7 +1031,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
       }
 
       if (folderIds.size > 0) {
-        const { data: folderAssets } = await (supabaseServer as any)
+        const { data: folderAssets } = await supabaseServer
           .from("dam_assets")
           .select("id")
           .eq("organization_id", params.brandOrganizationId)
@@ -723,7 +1048,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
   // Older backfilled sets can carry metadata.legacy_collection_id while not yet
   // having explicit share_set_items rows. Include those assets so legacy data
   // remains visible during migration rollout.
-  const { data: setRows, error: setRowsError } = await (supabaseServer as any)
+  const { data: setRows, error: setRowsError } = await supabaseServer
     .from("share_sets")
     .select("id,metadata")
     .eq("organization_id", params.brandOrganizationId)
@@ -760,11 +1085,13 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
 export async function resolvePartnerGrantedAssetIds(params: {
   brandOrganizationId: string;
   partnerOrganizationId: string;
+  scope?: PartnerGrantScopeSelection;
 }): Promise<PartnerGrantedAssetIdsResult> {
   const cacheKey = buildPartnerGrantCacheKey(
     "assets",
     params.brandOrganizationId,
-    params.partnerOrganizationId
+    params.partnerOrganizationId,
+    params.scope
   );
   const now = Date.now();
   const cached = partnerGrantedAssetIdsCache.get(cacheKey);
@@ -794,9 +1121,71 @@ export async function resolvePartnerGrantedAssetIds(params: {
   return clonePartnerGrantedAssetIdsResult(await computePromise);
 }
 
+async function resolvePartnerMarketSetIds(params: {
+  brandOrganizationId: string;
+  partnerOrganizationId: string;
+  moduleKey: ShareSetModuleKey;
+  scopeMarketId?: string | null;
+}): Promise<string[]> {
+  // Resolve markets this partner is assigned to (Tier 2 access)
+  const { data: assignments, error } = await supabaseServer
+    .from("partner_market_assignments" as never)
+    .select("market_id,valid_from")
+    .eq("organization_id", params.brandOrganizationId)
+    .eq("partner_organization_id", params.partnerOrganizationId)
+    .eq("is_active", true);
+
+  if (error || !assignments) return [];
+
+  const now = Date.now();
+  const marketIds = (assignments as Array<{ market_id: string; valid_from: string | null }>)
+    .filter((row) => {
+      if (!row.market_id) return false;
+      if (row.valid_from) {
+        const validFrom = Date.parse(row.valid_from);
+        if (Number.isFinite(validFrom) && validFrom > now) return false;
+      }
+      return true;
+    })
+    .map((row) => row.market_id)
+    .filter(Boolean);
+
+  if (marketIds.length === 0) return [];
+
+  // If a specific market is requested via scope, only resolve that market
+  const marketsToResolve = params.scopeMarketId
+    ? marketIds.filter((id) => id === params.scopeMarketId)
+    : marketIds;
+
+  if (marketsToResolve.length === 0) return [];
+
+  const { resolveMarketCatalogProductIds, resolveMarketCatalogAssetIds } = await import(
+    "@/lib/market-catalog"
+  );
+
+  const resolver = params.moduleKey === "products"
+    ? resolveMarketCatalogProductIds
+    : resolveMarketCatalogAssetIds;
+
+  const results = await Promise.all(
+    marketsToResolve.map((marketId) =>
+      resolver({
+        organizationId: params.brandOrganizationId,
+        marketId,
+        ...(params.moduleKey === "products"
+          ? { applyGlobalEligibilityToGlobalSets: true }
+          : {}),
+      })
+    )
+  );
+
+  return Array.from(new Set(results.flatMap((r) => r.ids)));
+}
+
 async function resolvePartnerGrantedProductIdsUncached(params: {
   brandOrganizationId: string;
   partnerOrganizationId: string;
+  scope?: PartnerGrantScopeSelection;
 }): Promise<PartnerGrantedProductIdsResult> {
   const shareSets = await resolveActivePartnerShareSetIds({
     brandOrganizationId: params.brandOrganizationId,
@@ -807,50 +1196,60 @@ async function resolvePartnerGrantedProductIdsUncached(params: {
   if (!shareSets.foundationAvailable) {
     return { foundationAvailable: false, productIds: [] };
   }
-  if (shareSets.setIds.length === 0) {
-    return { foundationAvailable: true, productIds: [] };
-  }
-
-  const { data: items, error: itemsError } = await (supabaseServer as any)
-    .from("share_set_items")
-    .select("resource_type,resource_id,include_descendants")
-    .eq("organization_id", params.brandOrganizationId)
-    .in("share_set_id", shareSets.setIds)
-    .in("resource_type", ["product", "variant"]);
-
-  if (itemsError) {
-    if (isMissingShareSetFoundationError(itemsError)) {
-      return { foundationAvailable: false, productIds: [] };
-    }
-    console.error("Failed to resolve product share set items:", itemsError);
-    return { foundationAvailable: true, productIds: [] };
-  }
 
   const productIds = new Set<string>();
-  const parentIdsWithDescendants = new Set<string>();
 
-  for (const item of (items || []) as Array<{
-    resource_type: string;
-    resource_id: string | null;
-    include_descendants: boolean | null;
-  }>) {
-    if (!item.resource_id) continue;
+  if (shareSets.setIds.length > 0) {
+    const loadedItems = await loadPartnerShareSetItems({
+      organizationId: params.brandOrganizationId,
+      setIds: shareSets.setIds,
+      resourceTypes: ["product", "variant"],
+    });
+    if (!loadedItems.foundationAvailable) {
+      return { foundationAvailable: false, productIds: [] };
+    }
+    const scopedItems = applyPartnerShareItemScopeFilter({
+      items: loadedItems.items,
+      scope: params.scope,
+    });
 
-    productIds.add(item.resource_id);
-    if (item.resource_type === "product" && item.include_descendants) {
-      parentIdsWithDescendants.add(item.resource_id);
+    const parentIdsWithDescendants = new Set<string>();
+    for (const item of scopedItems) {
+      if (!item.resource_id) continue;
+      productIds.add(item.resource_id);
+      if (item.resource_type === "product" && item.include_descendants) {
+        parentIdsWithDescendants.add(item.resource_id);
+      }
+    }
+
+    if (parentIdsWithDescendants.size > 0) {
+      // Exclude restricted variants from auto-expansion
+      const { data: descendants } = await supabaseServer
+        .from("products")
+        .select("id")
+        .eq("organization_id", params.brandOrganizationId)
+        .in("parent_id", Array.from(parentIdsWithDescendants))
+        .neq("catalog_visibility", "restricted");
+
+      for (const row of (descendants || []) as Array<{ id: string | null }>) {
+        if (row.id) productIds.add(row.id);
+      }
     }
   }
 
-  if (parentIdsWithDescendants.size > 0) {
-    const { data: descendants } = await (supabaseServer as any)
+  // Enforce restricted: block at the explicit-grant level too.
+  // A restricted product must never be visible to a partner, even if explicitly in a set.
+  const allIds = Array.from(productIds);
+  if (allIds.length > 0) {
+    const { data: restrictedRows } = await supabaseServer
       .from("products")
       .select("id")
       .eq("organization_id", params.brandOrganizationId)
-      .in("parent_id", Array.from(parentIdsWithDescendants));
+      .in("id", allIds)
+      .eq("catalog_visibility", "restricted");
 
-    for (const row of (descendants || []) as Array<{ id: string | null }>) {
-      if (row.id) productIds.add(row.id);
+    for (const row of (restrictedRows || []) as Array<{ id: string | null }>) {
+      if (row.id) productIds.delete(row.id);
     }
   }
 
@@ -860,11 +1259,13 @@ async function resolvePartnerGrantedProductIdsUncached(params: {
 export async function resolvePartnerGrantedProductIds(params: {
   brandOrganizationId: string;
   partnerOrganizationId: string;
+  scope?: PartnerGrantScopeSelection;
 }): Promise<PartnerGrantedProductIdsResult> {
   const cacheKey = buildPartnerGrantCacheKey(
     "products",
     params.brandOrganizationId,
-    params.partnerOrganizationId
+    params.partnerOrganizationId,
+    params.scope
   );
   const now = Date.now();
   const cached = partnerGrantedProductIdsCache.get(cacheKey);
@@ -893,3 +1294,125 @@ export async function resolvePartnerGrantedProductIds(params: {
   partnerGrantedProductIdsInFlight.set(cacheKey, computePromise);
   return clonePartnerGrantedProductIdsResult(await computePromise);
 }
+
+/**
+ * Returns the legacy destination profile assigned to this partner for the given market.
+ * Used by the partner product view to determine which destination profile to score readiness against.
+ * Returns null if the partner has no assignment for this market, or if no profile is set.
+ */
+export async function resolvePartnerMarketOutputProfileId(params: {
+  brandOrganizationId: string;
+  partnerOrganizationId: string;
+  marketId: string | null | undefined;
+}): Promise<string | null> {
+  if (!params.marketId) return null;
+
+  const { data, error } = await supabaseServer
+    .from("partner_market_assignments" as never)
+    .select("output_profile_id")
+    .eq("organization_id", params.brandOrganizationId)
+    .eq("partner_organization_id", params.partnerOrganizationId)
+    .eq("market_id", params.marketId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return (data as { output_profile_id: string | null }).output_profile_id ?? null;
+}
+
+async function resolvePartnerShareSetOutputProfileId(params: {
+  brandOrganizationId: string;
+  partnerOrganizationId: string;
+}): Promise<string | null> {
+  const activeSetIds = await resolveActivePartnerShareSetIds({
+    brandOrganizationId: params.brandOrganizationId,
+    partnerOrganizationId: params.partnerOrganizationId,
+    moduleKey: "products",
+  });
+
+  if (!activeSetIds.foundationAvailable || activeSetIds.setIds.length === 0) {
+    return null;
+  }
+
+  const { data, error } = await supabaseServer
+    .from("share_sets")
+    .select("output_profile_id,updated_at")
+    .eq("organization_id", params.brandOrganizationId)
+    .eq("module_key", "products")
+    .in("id", activeSetIds.setIds)
+    .not("output_profile_id", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  if (error || !Array.isArray(data) || data.length === 0) {
+    return null;
+  }
+
+  const row = data[0] as { output_profile_id?: string | null };
+  return row.output_profile_id ?? null;
+}
+
+async function resolvePrimaryOutputProfileId(organizationId: string): Promise<string | null> {
+  const { data, error } = await supabaseServer
+    .from("output_channel_profiles" as never)
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("is_primary", true)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return (data as { id: string | null }).id ?? null;
+}
+
+export async function resolvePartnerEffectiveOutputProfileId(params: {
+  brandOrganizationId: string;
+  partnerOrganizationId: string;
+  marketId?: string | null;
+  destinationId?: string | null;
+}): Promise<string | null> {
+  if (params.destinationId) {
+    const { data: directGrant, error: directGrantError } = await supabaseServer
+      .from("partner_contract_grants" as never)
+      .select("output_profile_id")
+      .eq("organization_id", params.brandOrganizationId)
+      .eq("partner_organization_id", params.partnerOrganizationId)
+      .eq("output_profile_id", params.destinationId)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (!directGrantError && directGrant) {
+      return (directGrant as { output_profile_id: string | null }).output_profile_id ?? null;
+    }
+  }
+
+  const { data: contractGrants, error: contractGrantError } = await supabaseServer
+    .from("partner_contract_grants" as never)
+    .select("output_profile_id,updated_at")
+    .eq("organization_id", params.brandOrganizationId)
+    .eq("partner_organization_id", params.partnerOrganizationId)
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  if (!contractGrantError && Array.isArray(contractGrants) && contractGrants.length > 0) {
+    const row = contractGrants[0] as { output_profile_id?: string | null };
+    if (row.output_profile_id) return row.output_profile_id;
+  }
+
+  const shareSetProfileId = await resolvePartnerShareSetOutputProfileId({
+    brandOrganizationId: params.brandOrganizationId,
+    partnerOrganizationId: params.partnerOrganizationId,
+  });
+  if (shareSetProfileId) return shareSetProfileId;
+
+  const marketProfileId = await resolvePartnerMarketOutputProfileId({
+    brandOrganizationId: params.brandOrganizationId,
+    partnerOrganizationId: params.partnerOrganizationId,
+    marketId: params.marketId,
+  });
+  if (marketProfileId) return marketProfileId;
+
+  return resolvePrimaryOutputProfileId(params.brandOrganizationId);
+}
+

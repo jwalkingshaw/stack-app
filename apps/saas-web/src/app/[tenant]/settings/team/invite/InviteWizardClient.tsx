@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, Mail, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
-import { PageContentContainer } from "@/components/ui/page-content-container";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { defaultInviteModuleLevels, type PermissionLevel } from "@/lib/invite-permissions";
+import { SettingsPageContent } from "../../components/settings-page-content";
 
 type InviteModuleKey = "products" | "assets" | "share_links";
 type InvitationType = "team_member" | "partner";
@@ -40,21 +41,27 @@ type ShareSetOption = {
   id: string;
   name: string;
   module_key: "assets" | "products";
+  scope_kind?: "product_scope" | "brand_library_scope";
 };
 
 type InviteConfigPayload = {
   success: boolean;
   data?: {
+    organization_type?: "brand" | "partner";
     permission_bundles?: PermissionBundle[];
     markets?: ShareContainer[];
     share_sets?: ShareSetOption[];
+    saved_scopes?: ShareSetOption[];
+    output_profiles?: Array<{
+      id: string;
+      name: string;
+      code: string;
+      profile_type: string;
+      is_primary: boolean;
+    }>;
   };
   error?: string;
 };
-
-function getSetModuleLabel(moduleKey: ShareSetOption["module_key"]): "Assets" | "Products" {
-  return moduleKey === "assets" ? "Assets" : "Products";
-}
 
 type InviteWizardClientProps = {
   tenantSlug: string;
@@ -131,20 +138,24 @@ export default function InviteWizardClient({
 }: InviteWizardClientProps) {
   const router = useRouter();
   const isTeamInvite = invitationType === "team_member";
+  const [organizationType, setOrganizationType] = useState<"brand" | "partner">("brand");
 
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
   const [inviteRole, setInviteRole] = useState("viewer");
-  const [accessLevel, setAccessLevel] = useState<"view" | "edit">("view");
   const [inviteModuleLevels, setInviteModuleLevels] = useState<Record<InviteModuleKey, PermissionLevel>>({
     products: "view",
     assets: "view",
     share_links: "view",
   });
-  const [selectedMarketIds, setSelectedMarketIds] = useState<string[]>([]);
   const [shareMarkets, setShareMarkets] = useState<ShareContainer[]>([]);
   const [shareSets, setShareSets] = useState<ShareSetOption[]>([]);
-  const [selectedShareSetIds, setSelectedShareSetIds] = useState<string[]>([]);
+  const [outputProfiles, setOutputProfiles] = useState<
+    Array<{ id: string; name: string; code: string; profile_type: string; is_primary: boolean }>
+  >([]);
+  const [selectedOutputProfileIds, setSelectedOutputProfileIds] = useState<string[]>([]);
+  const [selectedProductScopeIds, setSelectedProductScopeIds] = useState<string[]>([]);
+  const [selectedBrandLibraryScopeIds, setSelectedBrandLibraryScopeIds] = useState<string[]>([]);
   const [permissionBundles, setPermissionBundles] = useState<PermissionBundle[]>([]);
   const [selectedPermissionBundleId, setSelectedPermissionBundleId] = useState("");
 
@@ -156,19 +167,35 @@ export default function InviteWizardClient({
   const [inviteLink, setInviteLink] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const title = isTeamInvite ? "Invite Team Member" : "Invite Partner";
+  const isPartnerWorkspace = organizationType === "partner";
+  const title = isTeamInvite
+    ? isPartnerWorkspace
+      ? "Invite Teammate"
+      : "Invite Team Member"
+    : "Invite Partner";
   const description = isTeamInvite
-    ? "Invite an internal team member and define module access and scope up front."
-    : "Invite an external partner and define exactly what they can access.";
+    ? isPartnerWorkspace
+      ? "Invite someone into this partner workspace with Admin, Editor, or Viewer access."
+      : "Invite an internal workspace member and define their role and optional scoped access."
+    : "Invite an external partner workspace to view published content in the Portal.";
 
-  const currentDefaults = useMemo(
-    () =>
-      defaultInviteModuleLevels({
+  const currentDefaults = useMemo<Record<InviteModuleKey, PermissionLevel>>(
+    () => {
+      if (!isTeamInvite) {
+        return { products: "none", assets: "none", share_links: "none" };
+      }
+      const defaults = defaultInviteModuleLevels({
         invitationType,
         role: inviteRole,
-        accessLevel,
-      }),
-    [invitationType, inviteRole, accessLevel]
+        accessLevel: "view",
+      });
+      return {
+        products: defaults.products ?? "none",
+        assets: defaults.assets ?? "none",
+        share_links: defaults.share_links ?? "none",
+      };
+    },
+    [invitationType, inviteRole, isTeamInvite]
   );
 
   useEffect(() => {
@@ -191,27 +218,40 @@ export default function InviteWizardClient({
       const markets = Array.isArray(configPayload?.data?.markets)
         ? configPayload.data.markets
         : [];
-      const sets = Array.isArray(configPayload?.data?.share_sets)
-        ? configPayload.data.share_sets
+      const savedScopes = Array.isArray(configPayload?.data?.saved_scopes)
+        ? configPayload.data.saved_scopes
+        : Array.isArray(configPayload?.data?.share_sets)
+          ? configPayload.data.share_sets
+          : [];
+      const profiles = Array.isArray(configPayload?.data?.output_profiles)
+        ? configPayload.data.output_profiles
         : [];
 
+      setOrganizationType(configPayload?.data?.organization_type === "partner" ? "partner" : "brand");
       setPermissionBundles(bundles);
       setShareMarkets(markets);
-      setSelectedMarketIds((current) => {
-        const valid = current.filter((id) =>
-          markets.some((market: ShareContainer) => market.id === id)
-        );
+      setOutputProfiles(profiles);
+      setSelectedOutputProfileIds((current) => {
+        const valid = current.filter((id) => profiles.some((profile) => profile.id === id));
         if (valid.length > 0) return valid;
-        return markets[0]?.id ? [markets[0].id] : [];
+        const primaryProfile = profiles.find((profile) => profile.is_primary);
+        return primaryProfile?.id ? [primaryProfile.id] : profiles[0]?.id ? [profiles[0].id] : [];
       });
 
-      const nextSets = isTeamInvite ? [] : sets;
+      const nextSets = isTeamInvite ? [] : savedScopes;
       setShareSets(nextSets);
-      setSelectedShareSetIds((current) =>
-        current.filter((id) => nextSets.some((set) => set.id === id))
+      setSelectedProductScopeIds((current) =>
+        current.filter((id) =>
+          nextSets.some((set) => set.id === id && set.module_key === "products")
+        )
       );
-    } catch (error: any) {
-      setConfigError(error?.message || "Failed to load invite configuration");
+      setSelectedBrandLibraryScopeIds((current) =>
+        current.filter((id) =>
+          nextSets.some((set) => set.id === id && set.module_key === "assets")
+        )
+      );
+    } catch (error: unknown) {
+      setConfigError(error instanceof Error ? error.message : "Failed to load invite configuration");
     } finally {
       setLoadingConfig(false);
     }
@@ -240,26 +280,14 @@ export default function InviteWizardClient({
       assets: "none",
       share_links: "none",
     };
-    const marketIds = new Set<string>();
 
     for (const rule of selectedBundle.rules || []) {
       if (rule.module_key in nextLevels) {
         nextLevels[rule.module_key] = rule.level;
       }
-      const scopedMarketIds = Array.isArray(rule.scope_defaults?.market_ids)
-        ? (rule.scope_defaults.market_ids as unknown[])
-        : [];
-      for (const marketId of scopedMarketIds) {
-        if (typeof marketId === "string" && marketId.trim()) {
-          marketIds.add(marketId);
-        }
-      }
     }
 
     setInviteModuleLevels(nextLevels);
-    if (marketIds.size > 0) {
-      setSelectedMarketIds(Array.from(marketIds));
-    }
   };
 
   const canContinueFromStepOne = useMemo(() => {
@@ -267,10 +295,11 @@ export default function InviteWizardClient({
     return true;
   }, [email]);
 
-  const canContinueFromStepThree = useMemo(() => {
-    if (shareMarkets.length === 0) return true;
-    return selectedMarketIds.length > 0;
-  }, [shareMarkets.length, selectedMarketIds.length]);
+  const canContinueFromStepTwo = useMemo(() => {
+    if (isTeamInvite) return true;
+    if (outputProfiles.length === 0) return true;
+    return selectedOutputProfileIds.length > 0;
+  }, [isTeamInvite, outputProfiles.length, selectedOutputProfileIds.length]);
 
   const handleNext = () => {
     setSubmitError("");
@@ -278,8 +307,8 @@ export default function InviteWizardClient({
       setSubmitError("Enter a valid email address to continue.");
       return;
     }
-    if (step === 3 && !canContinueFromStepThree) {
-      setSubmitError("Select at least one market scope to continue.");
+    if (step === 2 && !canContinueFromStepTwo) {
+      setSubmitError("Portal access is required to continue.");
       return;
     }
     setStep((current) => Math.min(current + 1, STEP_LABELS.length));
@@ -300,20 +329,33 @@ export default function InviteWizardClient({
 
       const requestBody: Record<string, unknown> = {
         email: email.trim(),
-        permission_bundle_id: selectedPermissionBundleId || null,
-        invite_permissions: {
-          module_levels: inviteModuleLevels,
-          scopes: {
-            market_ids: selectedMarketIds,
-            collection_ids: [],
-          },
-        },
       };
 
       if (isTeamInvite) {
+        requestBody.permission_bundle_id = selectedPermissionBundleId || null;
+        requestBody.invite_permissions = {
+          module_levels: inviteModuleLevels,
+          scopes: {
+            market_ids: [],
+            collection_ids: [],
+          },
+        };
         requestBody.role = inviteRole;
       } else {
-        requestBody.access_level = accessLevel;
+        const selectedShareSetIds = [
+          ...selectedProductScopeIds,
+          ...selectedBrandLibraryScopeIds,
+        ];
+        requestBody.permission_bundle_id = null;
+        requestBody.invite_permissions = {
+          module_levels: {},
+          scopes: {
+            market_ids: [],
+            collection_ids: [],
+            output_profile_ids: selectedOutputProfileIds,
+          },
+        };
+        requestBody.access_level = "view";
         requestBody.share_set_ids = selectedShareSetIds;
       }
 
@@ -330,8 +372,8 @@ export default function InviteWizardClient({
 
       setInviteSuccess(true);
       setInviteLink(payload?.data?.invitation?.invitation_link || "");
-    } catch (error: any) {
-      setSubmitError(error?.message || "Failed to send invitation");
+    } catch (error: unknown) {
+      setSubmitError(error instanceof Error ? error.message : "Failed to send invitation");
     } finally {
       setIsSubmitting(false);
     }
@@ -352,30 +394,49 @@ export default function InviteWizardClient({
     setStep(1);
     setEmail("");
     setInviteRole("viewer");
-    setAccessLevel("view");
     setSelectedPermissionBundleId("");
     setInviteModuleLevels({
       products: "view",
       assets: "view",
       share_links: "view",
     });
-    setSelectedShareSetIds([]);
+    setSelectedOutputProfileIds(
+      outputProfiles.find((profile) => profile.is_primary)?.id
+        ? [outputProfiles.find((profile) => profile.is_primary)!.id]
+        : outputProfiles[0]?.id
+          ? [outputProfiles[0].id]
+          : []
+    );
+    setSelectedProductScopeIds([]);
+    setSelectedBrandLibraryScopeIds([]);
     setInviteSuccess(false);
     setInviteLink("");
     setSubmitError("");
   };
 
+  const productScopeOptions = useMemo(
+    () => shareSets.filter((set) => set.module_key === "products"),
+    [shareSets]
+  );
+  const brandLibraryScopeOptions = useMemo(
+    () => shareSets.filter((set) => set.module_key === "assets"),
+    [shareSets]
+  );
+  const selectedPortalProfile = useMemo(
+    () =>
+      outputProfiles.find((profile) => selectedOutputProfileIds.includes(profile.id)) ??
+      outputProfiles[0] ??
+      null,
+    [outputProfiles, selectedOutputProfileIds]
+  );
+
   return (
-    <PageContentContainer mode="content" className="space-y-6">
+    <SettingsPageContent page="team-invite-wizard">
       <PageHeader
         title={title}
         description={description}
-        actions={[
-          {
-            label: "Back to Team",
-            onClick: () => router.push(`/${tenantSlug}/settings/team`),
-          },
-        ]}
+        backHref={`/${tenantSlug}/settings/team`}
+        backLabel="Back to Team"
       />
 
       <div className="rounded-lg border border-border bg-background p-4">
@@ -405,7 +466,13 @@ export default function InviteWizardClient({
 
       <div className="rounded-lg border border-border bg-background p-5 space-y-5">
         {loadingConfig ? (
-          <div className="text-sm text-muted-foreground">Loading invite configuration...</div>
+          <div className="space-y-4" aria-hidden="true">
+            <Skeleton className="h-5 w-40" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-28" />
+          </div>
         ) : (
           <>
             {step === 1 && (
@@ -423,7 +490,9 @@ export default function InviteWizardClient({
                 </div>
                 {isTeamInvite ? (
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">Team Role</label>
+                    <label className="mb-2 block text-sm font-medium text-foreground">
+                      {isPartnerWorkspace ? "Teammate Role" : "Team Role"}
+                    </label>
                     <Select value={inviteRole} onValueChange={setInviteRole}>
                       <SelectTrigger>
                         <SelectValue />
@@ -436,17 +505,8 @@ export default function InviteWizardClient({
                     </Select>
                   </div>
                 ) : (
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">Partner Access</label>
-                    <Select value={accessLevel} onValueChange={(value) => setAccessLevel(value as "view" | "edit")}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="view">View</SelectItem>
-                        <SelectItem value="edit">Edit</SelectItem>
-                      </SelectContent>
-                    </Select>
+                  <div className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                    Partner invites are Portal-only and read-only. Editing remains available only for the partner workspace's own content after upgrade.
                   </div>
                 )}
               </div>
@@ -454,96 +514,134 @@ export default function InviteWizardClient({
 
             {step === 2 && (
               <div className="space-y-4">
-                <h2 className="text-base font-medium text-foreground">Set module access</h2>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">Access Template (Optional)</label>
-                  <Select
-                    value={selectedPermissionBundleId || "__none__"}
-                    onValueChange={handleBundleSelect}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="No template" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">No template</SelectItem>
-                      {permissionBundles.map((bundle) => (
-                        <SelectItem key={bundle.id} value={bundle.id}>
-                          {bundle.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-3">
-                  {INVITE_MODULES.map((module) => (
-                    <div
-                      key={module.key}
-                      className="flex flex-col gap-2 rounded-md border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{module.label}</p>
-                        <p className="text-xs text-muted-foreground">{module.description}</p>
-                      </div>
+                <h2 className="text-base font-medium text-foreground">
+                  {isTeamInvite ? "Configure module access" : "Portal access"}
+                </h2>
+                {isTeamInvite ? (
+                  <>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-foreground">Access Template (Optional)</label>
                       <Select
-                        value={inviteModuleLevels[module.key]}
-                        onValueChange={(value) =>
-                          setInviteModuleLevels((current) => ({
-                            ...current,
-                            [module.key]: value as PermissionLevel,
-                          }))
-                        }
+                        value={selectedPermissionBundleId || "__none__"}
+                        onValueChange={handleBundleSelect}
                       >
-                        <SelectTrigger className="w-full sm:w-32">
-                          <SelectValue />
+                        <SelectTrigger>
+                          <SelectValue placeholder="No template" />
                         </SelectTrigger>
                         <SelectContent>
-                          {INVITE_LEVEL_OPTIONS.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
+                          <SelectItem value="__none__">No template</SelectItem>
+                          {permissionBundles.map((bundle) => (
+                            <SelectItem key={bundle.id} value={bundle.id}>
+                              {bundle.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </div>
-                  ))}
-                </div>
+                    <div className="space-y-3">
+                      {INVITE_MODULES.map((module) => (
+                        <div
+                          key={module.key}
+                          className="flex flex-col gap-2 rounded-md border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div>
+                            <p className="text-sm font-medium text-foreground">{module.label}</p>
+                            <p className="text-xs text-muted-foreground">{module.description}</p>
+                          </div>
+                          <Select
+                            value={inviteModuleLevels[module.key]}
+                            onValueChange={(value) =>
+                              setInviteModuleLevels((current) => ({
+                                ...current,
+                                [module.key]: value as PermissionLevel,
+                              }))
+                            }
+                          >
+                            <SelectTrigger className="w-full sm:w-32">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {INVITE_LEVEL_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-3 rounded-md border border-border bg-muted/20 p-4">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Portal</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        This invite grants read-only Portal access to published brand content. Markets are inherited from the selected scopes, and launch no longer exposes separate destination or marketplace profile choices.
+                      </p>
+                    </div>
+                    {selectedPortalProfile ? (
+                      <p className="text-xs text-muted-foreground">
+                        Active launch profile: {selectedPortalProfile.name}
+                      </p>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      If no product scope is selected in the next step, this partner will receive the full published Portal catalog.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
             {step === 3 && (
               <div className="space-y-4">
-                <h2 className="text-base font-medium text-foreground">Set global scope</h2>
-                <p className="text-sm text-muted-foreground">
-                  Markets apply across both Assets and Products for this invite.
-                </p>
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-foreground">Markets</label>
-                  <MultiSelect
-                    options={shareMarkets.map((market) => ({
-                      value: market.id,
-                      label: market.name,
-                    }))}
-                    value={selectedMarketIds}
-                    onChange={setSelectedMarketIds}
-                    placeholder="Select one or more markets"
-                  />
-                </div>
+                <h2 className="text-base font-medium text-foreground">Configure scope</h2>
+                {isTeamInvite ? (
+                  <p className="text-sm text-muted-foreground">
+                    Market-scoped access for team invites continues to be handled through internal permissions and advanced access templates.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Product Scopes decide which products this partner can view. Brand Library Scopes add standalone files and folders that are not already included through product visibility.
+                  </p>
+                )}
                 {!isTeamInvite ? (
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-foreground">Sets (Optional)</label>
-                    <MultiSelect
-                      options={shareSets.map((set) => ({
-                        value: set.id,
-                        label: `${set.name} (${getSetModuleLabel(set.module_key)})`,
-                      }))}
-                      value={selectedShareSetIds}
-                      onChange={setSelectedShareSetIds}
-                      placeholder="Select one or more sets to assign on invite acceptance"
-                    />
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Selected sets are granted to the partner automatically when the invite is accepted.
-                    </p>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-foreground">Product Scopes (Optional)</label>
+                      <MultiSelect
+                        options={productScopeOptions.map((set) => ({
+                          value: set.id,
+                          label: set.name,
+                        }))}
+                        value={selectedProductScopeIds}
+                        onChange={setSelectedProductScopeIds}
+                        placeholder="Select product scopes"
+                      />
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Leave blank to grant the full published Portal catalog. Product scope access automatically includes linked product assets and documents.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="mb-2 block text-sm font-medium text-foreground">Brand Library Scopes (Optional)</label>
+                      <MultiSelect
+                        options={brandLibraryScopeOptions.map((set) => ({
+                          value: set.id,
+                          label: set.name,
+                        }))}
+                        value={selectedBrandLibraryScopeIds}
+                        onChange={setSelectedBrandLibraryScopeIds}
+                        placeholder="Select brand library scopes"
+                      />
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Use Brand Library Scopes for standalone assets, folders, and files not already revealed through product scope access.
+                      </p>
+                    </div>
+                    {shareMarkets.length > 0 ? (
+                      <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                        Markets are configured on the scope definitions in Settings and are no longer granted separately in this invite flow.
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -560,40 +658,51 @@ export default function InviteWizardClient({
                   <div className="flex items-center gap-2 text-sm text-foreground">
                     <Shield className="h-4 w-4" />
                     <span>
-                      {isTeamInvite ? `Team role: ${inviteRole}` : `Partner access: ${accessLevel}`}
+                      {isTeamInvite
+                        ? `${isPartnerWorkspace ? "Teammate" : "Team"} role: ${inviteRole}`
+                        : "Partner access: portal viewer"}
                     </span>
                   </div>
-                  <div>
-                    <p className="text-xs font-medium text-foreground mb-2">Module levels</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                      {INVITE_MODULES.map((module) => (
-                        <div key={module.key} className="rounded border border-border px-3 py-2 text-xs">
-                          <div className="text-muted-foreground">{module.label}</div>
-                          <div className="font-medium text-foreground">
-                            {inviteModuleLevels[module.key]}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-foreground mb-2">Market scopes</p>
-                    <p className="text-sm text-muted-foreground">
-                      {selectedMarketIds.length > 0
-                        ? `${selectedMarketIds.length} market(s) selected`
-                        : "No markets selected"}
-                    </p>
-                  </div>
-                  {!isTeamInvite ? (
+                  {isTeamInvite ? (
                     <div>
-                      <p className="text-xs font-medium text-foreground mb-2">Assigned sets</p>
-                      <p className="text-sm text-muted-foreground">
-                        {selectedShareSetIds.length > 0
-                          ? `${selectedShareSetIds.length} set(s) selected`
-                          : "No sets selected"}
-                      </p>
+                      <p className="text-xs font-medium text-foreground mb-2">Module levels</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {INVITE_MODULES.map((module) => (
+                          <div key={module.key} className="rounded border border-border px-3 py-2 text-xs">
+                            <div className="text-muted-foreground">{module.label}</div>
+                            <div className="font-medium text-foreground">
+                              {inviteModuleLevels[module.key]}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ) : null}
+                  ) : (
+                    <>
+                      <div>
+                        <p className="text-xs font-medium text-foreground mb-2">Portal access</p>
+                        <p className="text-sm text-muted-foreground">
+                          {selectedPortalProfile?.name || "Portal"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-foreground mb-2">Product Scopes</p>
+                        <p className="text-sm text-muted-foreground">
+                          {selectedProductScopeIds.length > 0
+                            ? `${selectedProductScopeIds.length} selected`
+                            : "Full published Portal catalog"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-foreground mb-2">Brand Library Scopes</p>
+                        <p className="text-sm text-muted-foreground">
+                          {selectedBrandLibraryScopeIds.length > 0
+                            ? `${selectedBrandLibraryScopeIds.length} selected`
+                            : "None selected"}
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -639,7 +748,11 @@ export default function InviteWizardClient({
               </div>
             )}
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => router.push(`/${tenantSlug}/settings/team`)}>
+              <Button
+                variant="outline"
+                className="border-0 shadow-none"
+                onClick={() => router.push(`/${tenantSlug}/settings/team`)}
+              >
                 Back to Team
               </Button>
               <Button onClick={handleInviteAnother}>Invite Another</Button>
@@ -647,6 +760,6 @@ export default function InviteWizardClient({
           </div>
         )}
       </div>
-    </PageContentContainer>
+    </SettingsPageContent>
   );
 }

@@ -1,13 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CreditCard, HardDrive, Package, RefreshCw, Users } from 'lucide-react';
+import { CreditCard, HardDrive, Languages, Package, Sparkles, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PageLoader } from '@/components/ui/loading-spinner';
-import { PageContentContainer } from '@/components/ui/page-content-container';
-import type { Subscription, SubscriptionPlan, Usage } from '@tradetool/types';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
+import { SettingsPageContent } from './settings-page-content';
+import type { Subscription, SubscriptionPlan, Usage } from '@stack-app/types';
+import { isUnlimitedBillingLimit } from '@/lib/billing-policy';
 
 interface BillingSettingsProps {
   tenantSlug: string;
@@ -32,6 +33,14 @@ type MeterCard = {
   usage: number;
   limit: number | null;
   unit: string;
+};
+
+const PLAN_RANK: Record<string, number> = {
+  free: 0,
+  starter: 1,
+  growth: 2,
+  scale: 3,
+  enterprise: 4,
 };
 
 function formatNumber(value: number): string {
@@ -63,62 +72,78 @@ function toGb(bytes: number | undefined): number {
 }
 
 function meterPercent(usage: number, limit: number | null): number {
-  if (!limit || limit <= 0 || limit >= Number.MAX_SAFE_INTEGER) return 0;
+  if (!limit || limit <= 0 || isUnlimitedBillingLimit(limit)) return 0;
   return Math.min(100, Math.max(0, (usage / limit) * 100));
 }
 
-function meterTone(percent: number): 'default' | 'secondary' | 'destructive' {
-  if (percent >= 100) return 'destructive';
-  if (percent >= 80) return 'secondary';
-  return 'default';
+function meterTone(percent: number): 'success' | 'warning' | 'error' {
+  if (percent >= 100) return 'error';
+  if (percent >= 80) return 'warning';
+  return 'success';
 }
 
 export default function BillingSettings({ tenantSlug, source }: BillingSettingsProps) {
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [plansLoading, setPlansLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [openingPortal, setOpeningPortal] = useState<string | null>(null);
   const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [subscriptionPlan, setSubscriptionPlan] = useState<SubscriptionPlan | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
 
-  const fetchBillingData = useCallback(async (isRefresh = false) => {
+  const fetchPlansData = useCallback(async () => {
+    setPlansLoading(true);
     try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
+      const plansResponse = await fetch(`/api/organizations/${tenantSlug}/billing/plans`);
+      if (!plansResponse.ok) {
+        throw new Error('Failed to load billing plans');
       }
-      setError(null);
+      const plansPayload = (await plansResponse.json()) as PlansResponse;
+      setPlans(plansPayload.plans || []);
+      setCurrentPlanId((current) => plansPayload.currentPlanId || current);
+    } catch (fetchError) {
+      console.error('Failed to load billing plans:', fetchError);
+      setError((current) =>
+        current || (fetchError instanceof Error ? fetchError.message : 'Failed to load billing plans')
+      );
+    } finally {
+      setPlansLoading(false);
+    }
+  }, [tenantSlug]);
 
-      const [subscriptionResponse, plansResponse] = await Promise.all([
-        fetch(`/api/organizations/${tenantSlug}/billing/subscription`),
-        fetch(`/api/organizations/${tenantSlug}/billing/plans`),
-      ]);
+  const fetchBillingData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      setSubscription(null);
+      setSubscriptionPlan(null);
+      setUsage(null);
+      setCurrentPlanId(null);
+      setPlans([]);
+
+      void fetchPlansData();
+
+      const subscriptionResponse = await fetch(`/api/organizations/${tenantSlug}/billing/subscription`);
 
       if (!subscriptionResponse.ok) {
         throw new Error('Failed to load subscription');
       }
-      if (!plansResponse.ok) {
-        throw new Error('Failed to load billing plans');
-      }
 
       const subscriptionPayload = (await subscriptionResponse.json()) as SubscriptionResponse;
-      const plansPayload = (await plansResponse.json()) as PlansResponse;
 
       setSubscription(subscriptionPayload.subscription);
+      setSubscriptionPlan(subscriptionPayload.plan || null);
       setUsage(subscriptionPayload.usage);
-      setPlans(plansPayload.plans || []);
-      setCurrentPlanId(plansPayload.currentPlanId || subscriptionPayload.subscription?.planId || null);
+      setCurrentPlanId(subscriptionPayload.subscription?.planId || null);
     } catch (fetchError) {
       console.error('Failed to load billing settings:', fetchError);
       setError(fetchError instanceof Error ? fetchError.message : 'Failed to load billing settings');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
-  }, [tenantSlug]);
+  }, [fetchPlansData, tenantSlug]);
 
   useEffect(() => {
     fetchBillingData();
@@ -149,10 +174,17 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
     }
   };
 
+  const handleContactSales = () => {
+    window.location.href = 'mailto:sales@stackcess.com?subject=Enterprise%20Plan%20Inquiry';
+  };
+
   const activePlan = useMemo(() => {
-    if (!plans.length) return null;
+    if (!plans.length) return subscriptionPlan;
     return plans.find((plan) => plan.id === currentPlanId) || plans[0] || null;
-  }, [plans, currentPlanId]);
+  }, [plans, currentPlanId, subscriptionPlan]);
+
+  const currentPlanRank = currentPlanId ? (PLAN_RANK[currentPlanId] ?? -1) : -1;
+  const nextDateLabel = subscription?.cancelAtPeriodEnd ? 'Ends on' : 'Next bill date';
 
   const meterCards = useMemo<MeterCard[]>(() => {
     const storageUsageGb = Number(toGb(usage?.storageUsed).toFixed(3));
@@ -197,19 +229,35 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
         limit: activePlan?.partnerInviteLimit ?? null,
         unit: '',
       },
+      {
+        key: 'translation_char_count',
+        label: 'Translation characters',
+        icon: <Languages className="h-4 w-4" />,
+        usage: Number(usage?.translationCharCount || 0),
+        limit: activePlan?.deeplTotalCharLimit ?? null,
+        unit: '',
+      },
+      {
+        key: 'agent_runs_count',
+        label: 'Agent tasks',
+        icon: <Sparkles className="h-4 w-4" />,
+        usage: Number(usage?.agentRunsCount || 0),
+        limit: activePlan?.agentRunLimit ?? null,
+        unit: '',
+      },
     ];
   }, [activePlan, usage]);
 
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageLoader text="Loading billing..." size="lg" />
+        <PageSkeleton text="Loading billing..." size="lg" />
       </div>
     );
   }
 
   return (
-    <PageContentContainer mode="content" className="space-y-6">
+    <SettingsPageContent page="billing">
       {source === 'partner_signup' && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -238,18 +286,13 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
             Manage plans, track usage caps, and control subscription status.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center">
           <Button
             variant="default"
-            size="sm"
             onClick={() => handleOpenPortal()}
             disabled={Boolean(openingPortal)}
           >
-            {openingPortal === 'manage' ? 'Opening...' : 'Manage Plan'}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => fetchBillingData(true)} disabled={refreshing}>
-            <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
+            {openingPortal === 'manage' ? 'Opening...' : 'Open Billing Portal'}
           </Button>
         </div>
       </div>
@@ -263,27 +306,15 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
       <Card>
         <CardHeader>
           <CardTitle>Current Subscription</CardTitle>
-          <CardDescription>Core subscription status for this workspace.</CardDescription>
+          <CardDescription>Plan and billing date for this workspace.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2">
           <div className="rounded-md border border-border/60 p-3">
             <div className="text-xs text-muted-foreground">Plan</div>
             <div className="mt-1 text-base font-semibold">{activePlan?.name || '-'}</div>
           </div>
           <div className="rounded-md border border-border/60 p-3">
-            <div className="text-xs text-muted-foreground">Status</div>
-            <div className="mt-1">
-              <Badge variant={subscription?.status === 'past_due' ? 'destructive' : 'default'}>
-                {subscription?.status || 'active'}
-              </Badge>
-            </div>
-          </div>
-          <div className="rounded-md border border-border/60 p-3">
-            <div className="text-xs text-muted-foreground">Current period start</div>
-            <div className="mt-1 text-sm font-medium">{formatDate(subscription?.currentPeriodStart)}</div>
-          </div>
-          <div className="rounded-md border border-border/60 p-3">
-            <div className="text-xs text-muted-foreground">Current period end</div>
+            <div className="text-xs text-muted-foreground">{nextDateLabel}</div>
             <div className="mt-1 text-sm font-medium">{formatDate(subscription?.currentPeriodEnd)}</div>
           </div>
         </CardContent>
@@ -295,7 +326,7 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           {meterCards.map((meter) => {
-            const limit = meter.limit && meter.limit >= Number.MAX_SAFE_INTEGER ? null : meter.limit;
+            const limit = meter.limit && isUnlimitedBillingLimit(meter.limit) ? null : meter.limit;
             const percent = meterPercent(meter.usage, limit);
             const formattedUsage =
               meter.unit === 'GB' ? meter.usage.toFixed(2) : formatNumber(meter.usage);
@@ -346,9 +377,29 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
           <CardTitle>Plan Options</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 lg:grid-cols-2">
-          {plans.map((plan) => {
+          {plansLoading ? (
+            <div className="rounded-md border border-border/60 p-4 text-sm text-muted-foreground">
+              Loading plans...
+            </div>
+          ) : plans.length === 0 ? (
+            <div className="rounded-md border border-border/60 p-4 text-sm text-muted-foreground">
+              No plans available right now.
+            </div>
+          ) : plans.map((plan) => {
             const isCurrent = plan.id === currentPlanId;
             const isOpening = openingPortal === plan.id;
+            const isEnterprise = plan.id === 'enterprise';
+            const planRank = PLAN_RANK[plan.id] ?? -1;
+            const isDowngrade = !isCurrent && currentPlanRank >= 0 && planRank >= 0 && planRank < currentPlanRank;
+            const buttonLabel = isEnterprise
+              ? 'Contact Sales'
+              : isCurrent
+                ? 'Manage Plan'
+                : isDowngrade
+                  ? 'Downgrade'
+                  : 'Upgrade';
+            const buttonVariant: 'default' | 'secondary' =
+              isEnterprise ? 'default' : isCurrent || isDowngrade ? 'secondary' : 'default';
 
             return (
               <div
@@ -374,16 +425,12 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
                 </ul>
                 <div className="mt-4">
                   <Button
-                    variant={isCurrent ? 'secondary' : 'default'}
-                    size="sm"
-                    disabled={Boolean(openingPortal)}
-                    onClick={() => handleOpenPortal(plan.id)}
+                    variant={buttonVariant}
+                    className="w-full"
+                    disabled={isEnterprise ? false : Boolean(openingPortal)}
+                    onClick={isEnterprise ? handleContactSales : () => handleOpenPortal(plan.id)}
                   >
-                    {isOpening
-                      ? 'Opening...'
-                      : isCurrent
-                        ? 'Manage in Portal'
-                        : `Upgrade in Portal`}
+                    {isEnterprise ? buttonLabel : isOpening ? 'Opening...' : buttonLabel}
                   </Button>
                 </div>
               </div>
@@ -391,6 +438,7 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
           })}
         </CardContent>
       </Card>
-    </PageContentContainer>
+    </SettingsPageContent>
   );
 }
+

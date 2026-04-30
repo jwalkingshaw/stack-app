@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { AuthService } from "@tradetool/auth";
+import type { AuthService } from "@stack-app/auth";
+import type { Database } from "@stack-app/database";
 
 type ResolveChannelScopeParams = {
   authService: AuthService;
-  supabase: SupabaseClient<any>;
+  supabase: SupabaseClient<Database>;
   userId: string;
   organizationId: string;
   permissionKey: string;
@@ -39,7 +40,7 @@ export async function resolveProductChannelScope(
     return { ok: true, channelId: null };
   }
 
-  const { data: channel, error } = await (supabase as any)
+  const { data: channel, error } = await supabase
     .from("channels")
     .select("id")
     .eq("id", channelId)
@@ -77,7 +78,7 @@ export async function resolveProductChannelScope(
 }
 
 export async function getChannelScopedProductIds(params: {
-  supabase: SupabaseClient<any>;
+  supabase: SupabaseClient<Database>;
   organizationId: string;
   channelId: string | null;
 }): Promise<string[] | null> {
@@ -85,11 +86,11 @@ export async function getChannelScopedProductIds(params: {
     return null;
   }
 
-  const { data, error } = await (params.supabase as any)
+  const { data, error } = await params.supabase
     .from("product_field_values")
     .select("product_id")
     .eq("organization_id", params.organizationId)
-    .eq("channel", params.channelId);
+    .eq("channel_id", params.channelId);
 
   if (error || !data) {
     return [];
@@ -97,10 +98,9 @@ export async function getChannelScopedProductIds(params: {
 
   return Array.from(
     new Set(
-      (data as any[])
+      (data as Array<{ product_id: string | null }>)
         .map((row) => row.product_id)
         .filter((id: unknown): id is string => typeof id === "string")
     )
   );
 }
-

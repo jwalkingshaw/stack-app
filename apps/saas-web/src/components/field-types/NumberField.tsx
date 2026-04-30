@@ -1,34 +1,30 @@
-'use client';
+﻿'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Input } from '@/components/ui/input';
+import {
+  CanonicalNumberFieldOptions,
+  normalizeNumberFieldOptions,
+} from './field-option-schema';
 
-interface NumberFieldOptions {
-  min?: number;
-  max?: number;
-  step?: number;
-  decimals?: number;
-  allowNegative?: boolean;
-  unit?: string;
-}
+type NumberFieldOptions = CanonicalNumberFieldOptions;
 
 interface NumberFieldProps {
-  value?: NumberFieldOptions;
+  value?: Partial<NumberFieldOptions> | Record<string, unknown>;
   onChange: (options: NumberFieldOptions) => void;
 }
 
-export default function NumberField({ value = {}, onChange }: NumberFieldProps) {
-  const [options, setOptions] = useState<NumberFieldOptions>({
-    min: undefined,
-    max: undefined,
-    step: 1,
-    decimals: 0,
-    allowNegative: true,
-    unit: '',
-    ...value
-  });
+export default function NumberField({ value, onChange }: NumberFieldProps) {
+  const [options, setOptions] = useState<NumberFieldOptions>(() => normalizeNumberFieldOptions(value));
 
-  const updateOption = (key: keyof NumberFieldOptions, val: any) => {
+  useEffect(() => {
+    setOptions(normalizeNumberFieldOptions(value));
+  }, [value]);
+
+  const updateOption = (
+    key: keyof NumberFieldOptions,
+    val: NumberFieldOptions[keyof NumberFieldOptions]
+  ) => {
     const next = { ...options, [key]: val };
     setOptions(next);
     onChange(next);
@@ -36,22 +32,22 @@ export default function NumberField({ value = {}, onChange }: NumberFieldProps) 
 
   const previewHint = useMemo(() => {
     const parts: string[] = [];
-    if (options.min !== undefined) {
-      parts.push(`Min ${options.min}`);
+    if (options.min_value !== undefined) {
+      parts.push(`Min ${options.min_value}`);
     }
-    if (options.max !== undefined) {
-      parts.push(`Max ${options.max}`);
+    if (options.max_value !== undefined) {
+      parts.push(`Max ${options.max_value}`);
     }
-    if ((options.decimals ?? 0) > 0) {
-      parts.push(`${options.decimals} decimal place${options.decimals === 1 ? '' : 's'}`);
+    if ((options.decimal_places ?? 0) > 0) {
+      parts.push(`${options.decimal_places} decimal place${options.decimal_places === 1 ? '' : 's'}`);
     } else {
       parts.push('Whole numbers only');
     }
-    if (options.allowNegative === false) {
+    if (options.allow_negative === false) {
       parts.push('Positive values only');
     }
-    return parts.join(' • ');
-  }, [options.min, options.max, options.decimals, options.allowNegative]);
+    return parts.join(' | ');
+  }, [options.min_value, options.max_value, options.decimal_places, options.allow_negative]);
 
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20 px-5 py-6">
@@ -68,9 +64,9 @@ export default function NumberField({ value = {}, onChange }: NumberFieldProps) 
             <label className="text-sm font-medium text-foreground">Minimum value</label>
             <Input
               type="number"
-              value={options.min ?? ''}
+              value={options.min_value ?? ''}
               onChange={(e) =>
-                updateOption('min', e.target.value === '' ? undefined : Number(e.target.value))
+                updateOption('min_value', e.target.value === '' ? undefined : Number(e.target.value))
               }
               placeholder="No minimum"
               className="h-11"
@@ -80,9 +76,9 @@ export default function NumberField({ value = {}, onChange }: NumberFieldProps) 
             <label className="text-sm font-medium text-foreground">Maximum value</label>
             <Input
               type="number"
-              value={options.max ?? ''}
+              value={options.max_value ?? ''}
               onChange={(e) =>
-                updateOption('max', e.target.value === '' ? undefined : Number(e.target.value))
+                updateOption('max_value', e.target.value === '' ? undefined : Number(e.target.value))
               }
               placeholder="No maximum"
               className="h-11"
@@ -107,8 +103,8 @@ export default function NumberField({ value = {}, onChange }: NumberFieldProps) 
             <label className="text-sm font-medium text-foreground">Decimal places</label>
             <Input
               type="number"
-              value={options.decimals ?? 0}
-              onChange={(e) => updateOption('decimals', e.target.value === '' ? 0 : Number(e.target.value))}
+              value={options.decimal_places ?? 0}
+              onChange={(e) => updateOption('decimal_places', e.target.value === '' ? 0 : Number(e.target.value))}
               min="0"
               max="10"
               className="h-11"
@@ -131,8 +127,8 @@ export default function NumberField({ value = {}, onChange }: NumberFieldProps) 
         <label className="flex cursor-pointer items-center gap-3 rounded-md border border-transparent px-3 py-3 text-sm transition-colors hover:bg-muted/40">
           <input
             type="checkbox"
-            checked={options.allowNegative ?? true}
-            onChange={(e) => updateOption('allowNegative', e.target.checked)}
+            checked={options.allow_negative}
+            onChange={(e) => updateOption('allow_negative', e.target.checked)}
             className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
           />
           <span className="text-sm leading-6 text-foreground">Allow negative values</span>
@@ -143,8 +139,8 @@ export default function NumberField({ value = {}, onChange }: NumberFieldProps) 
           <div className="mt-3 flex items-center gap-3">
             <Input
               type="number"
-              min={options.min}
-              max={options.max}
+              min={options.allow_negative ? options.min_value : Math.max(0, options.min_value ?? 0)}
+              max={options.max_value}
               step={options.step}
               placeholder="Enter number"
               className="h-11 w-40"
@@ -159,3 +155,5 @@ export default function NumberField({ value = {}, onChange }: NumberFieldProps) 
     </div>
   );
 }
+
+

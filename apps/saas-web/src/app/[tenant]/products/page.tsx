@@ -20,6 +20,7 @@ export default function ProductsPage() {
       ? pathScope
       : ""
     : (searchParams.get("brand") || "").trim().toLowerCase();
+  const initialSearchQuery = (searchParams.get("q") || "").trim();
 
   return (
     <>
@@ -27,6 +28,7 @@ export default function ProductsPage() {
         tenantSlug={tenantSlug}
         selectedBrandSlug={selectedBrandSlug || null}
         isPartnerAllView={isPartnerAllView}
+        initialSearchQuery={initialSearchQuery}
       />
     </>
   );

@@ -27,6 +27,17 @@ type ChannelRow = {
   is_active: boolean;
 };
 
+type MarketRow = {
+  id: string;
+};
+
+type MarketLocaleRow = {
+  id: string;
+  market_id: string;
+  locale_id: string;
+  is_active: boolean;
+};
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string }> }
@@ -85,10 +96,10 @@ export async function GET(
 
     const channels = (channelsResult.data || []) as ChannelRow[];
     const locales = localesResult.data || [];
-    const markets = marketsResult.data || [];
+    const markets = (marketsResult.data || []) as MarketRow[];
 
-    const marketIds = markets.map((market: any) => market.id).filter(Boolean);
-    let marketLocales: any[] = [];
+    const marketIds = markets.map((market) => market.id).filter(Boolean);
+    let marketLocales: MarketLocaleRow[] = [];
     if (marketIds.length > 0) {
       const marketLocalesResult = await supabase
         .from("market_locales")
@@ -99,7 +110,7 @@ export async function GET(
         console.error("Error fetching market-locales for market-context:", marketLocalesResult.error);
         return NextResponse.json({ error: "Failed to fetch market context" }, { status: 500 });
       }
-      marketLocales = marketLocalesResult.data || [];
+      marketLocales = (marketLocalesResult.data || []) as MarketLocaleRow[];
     }
 
     let destinations: DestinationRow[] = [];

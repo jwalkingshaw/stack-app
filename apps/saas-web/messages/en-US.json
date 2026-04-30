@@ -1,0 +1,215 @@
+{
+  "Onboarding": {
+    "slug": {
+      "checking": "Checking availability...",
+      "available": "Available.",
+      "findingAlternatives": "Finding alternatives...",
+      "suggestAlternatives": "Suggest alternatives",
+      "alternatives": "Available alternatives:"
+    },
+    "hero": {
+      "welcome": "Welcome!",
+      "welcomeWithName": "Welcome, {name}!",
+      "subtitleBrand": "Create your workspace in under a minute. No credit card required.",
+      "subtitlePartner": "Create your free partner workspace. Any brand on Stackcess can share product content directly to it.",
+      "subtitlePartnerInvite": "Create your free partner workspace to accept brand content, launch kits, and compliance docs."
+    },
+    "actions": {
+      "loading": "Loading...",
+      "creatingWorkspace": "Creating workspace...",
+      "continue": "Continue",
+      "createOrganization": "Create Organization",
+      "backToEdit": "Back to edit",
+      "createWorkspace": "Create workspace",
+      "createPartnerWorkspace": "Create partner workspace"
+    },
+    "fields": {
+      "organizationName": "Organization name",
+      "workspaceName": "Workspace name",
+      "partnerOrganizationName": "Partner organization name",
+      "workspaceUrl": "Workspace URL",
+      "workspaceUrlHint": "This becomes your workspace URL and cannot be reused by another team.",
+      "partnerUrl": "Partner URL",
+      "businessType": "Business type",
+      "partnerBusinessType": "Partner business type",
+      "selectBusinessType": "Select business type",
+      "industry": "Industry",
+      "selectIndustry": "Select industry",
+      "teamSize": "Team size",
+      "selectTeamSize": "Select team size",
+      "primaryMarket": "Primary Market",
+      "loadingMarkets": "Loading markets...",
+      "selectPrimaryMarket": "Select primary market",
+      "primaryMarketHint": "We will create this as your default market for routing and grouping. It no longer defines your content locale.",
+      "workspaceLanguage": "Workspace language",
+      "selectWorkspaceLanguage": "Select workspace language",
+      "workspaceLanguageHint": "This controls the default UI language for users in this workspace."
+    },
+    "placeholders": {
+      "workspaceName": "Acme Corporation",
+      "partnerOrganizationName": "GNC"
+    },
+    "businessTypeOptions": {
+      "brand": "Brand (recommended)",
+      "retailer": "Retailer",
+      "distributor": "Distributor",
+      "wholesaler": "Wholesaler"
+    },
+    "industryOptions": {
+      "supplements": "Supplements and Nutrition",
+      "sports": "Sports and Fitness",
+      "wellness": "Health and Wellness",
+      "retail": "Retail and Distribution",
+      "other": "Other"
+    },
+    "teamSizeOptions": {
+      "1-5": "1-5 people",
+      "6-20": "6-20 people",
+      "21-50": "21-50 people",
+      "51-200": "51-200 people",
+      "200+": "200+ people"
+    },
+    "optionalDefaults": {
+      "title": "Optional workspace defaults",
+      "hint": "Set these now or change them later in Settings."
+    },
+    "errors": {
+      "failedToConnectPartner": "Failed to connect partner to brand.",
+      "workspaceCreateFailed": "Organization creation failed. Please try again."
+    },
+    "footer": {
+      "noCreditCardHint": "No credit card required. You can update workspace details any time."
+    },
+    "kitFlow": {
+      "title": "Set up your workspace",
+      "subtitle": "Just your organization name. You can fill in details later.",
+      "organizationPlaceholder": "e.g. GNC or Acme Retail",
+      "createAndAccess": "Create workspace and access kit",
+      "freeHint": "Your workspace is free forever. No credit card required."
+    },
+    "confirm": {
+      "title": "Ready to create {name}?",
+      "subtitle": "We'll set up your digital asset management workspace.",
+      "workspaceUrl": "Your workspace URL",
+      "organizationName": "Organization name",
+      "partnerBusinessType": "Partner business type",
+      "businessType": "Business type",
+      "defaultMarket": "Default market",
+      "workspaceLanguage": "Workspace language"
+    }
+  },
+  "Login": {
+    "loadingRedirecting": "Redirecting to authentication...",
+    "loadingPreparing": "Preparing your workspace...",
+    "title": "Welcome back",
+    "subtitle": "Sign in to manage products, assets, and partner distribution.",
+    "actions": {
+      "signIn": "Sign in",
+      "createFreeAccount": "Create free account",
+      "joinAsPartner": "Join as a partner (retailer / distributor)"
+    },
+    "helper": "New to Stackcess? Create a free account in under a minute. No credit card required. Retailers and distributors can use one free partner workspace to receive content from all brand partners in one place."
+  },
+  "Shell": {
+    "Header": {
+      "back": "Back"
+    },
+    "Sidebar": {
+      "dashboard": "Dashboard",
+      "catalog": "Catalog",
+      "assets": "Assets",
+      "brandLibrary": "Brand Library",
+      "products": "Products",
+      "syndication": "Syndication",
+      "updates": "Updates",
+      "expandSidebar": "Expand navigation sidebar",
+      "collapseSidebar": "Collapse navigation sidebar",
+      "openAccountMenu": "Open account menu",
+      "workspace": "Workspace",
+      "signedInAs": "Signed in as {user}",
+      "settings": "Settings",
+      "inviteManageMembers": "Invite and manage members",
+      "helpCenter": "Help center",
+      "logOut": "Log out"
+    },
+    "WorkspaceRail": {
+      "workspaceSwitcher": "Workspace switcher",
+      "viewAll": "View all",
+      "home": "Home",
+      "newCount": "new",
+      "createWorkspace": "Create workspace",
+      "notifications": "Notifications"
+    }
+  },
+  "Settings": {
+    "Navigation": {
+      "backToApp": "Back to app",
+      "sections": {
+        "organization": "Organization",
+        "product-families": "Product Models",
+        "field-groups": "Attribute Groups",
+        "product-fields": "Attributes",
+        "markets": "Markets",
+        "localization": "Localization",
+        "output-profiles": "Syndication",
+        "team": "Team",
+        "sets": "Saved Scopes",
+        "billing": "Billing"
+      }
+    },
+    "Organization": {
+      "toasts": {
+        "loadError": "Failed to load organization settings",
+        "saveSuccess": "Organization settings saved",
+        "saveError": "Failed to save organization settings",
+        "logoTypeError": "Please upload a PNG or JPG file",
+        "logoSizeError": "Logo must be 2MB or smaller",
+        "logoUploaded": "Logo uploaded",
+        "logoUploadError": "Failed to upload logo"
+      },
+      "cards": {
+        "organization": {
+          "title": "Organization Details",
+          "description": "Manage your workspace information and branding"
+        },
+        "branding": {
+          "title": "Branding",
+          "description": "Upload your organization logo and customize branding",
+          "logoAlt": "{workspace} logo",
+          "workspaceFallback": "Workspace",
+          "uploading": "Uploading...",
+          "upload": "Upload Logo",
+          "hint": "PNG, JPG up to 2MB. Recommended: 200x200px"
+        },
+        "language": {
+          "title": "Language Preferences",
+          "description": "Configure workspace default language and your personal override.",
+          "workspaceDefault": "Workspace default language",
+          "workspaceDefaultLocked": "Only owners and admins can update the workspace default language.",
+          "userOverride": "My language preference",
+          "useWorkspaceDefault": "Use workspace default",
+          "effectiveLabel": "Effective language: {locale}"
+        }
+      },
+      "fields": {
+        "name": "Organization Name",
+        "website": "Website",
+        "description": "Description",
+        "descriptionPlaceholder": "Brief description of your organization..."
+      },
+      "footer": {
+        "hint": "Changes are saved automatically for this workspace.",
+        "status": {
+          "saving": "Saving...",
+          "saved": "Saved",
+          "unsaved": "Unsaved changes",
+          "error": "Autosave failed"
+        }
+      },
+      "actions": {
+        "saving": "Saving...",
+        "save": "Save Changes"
+      }
+    }
+  }
+}

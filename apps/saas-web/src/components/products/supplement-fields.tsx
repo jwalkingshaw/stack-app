@@ -1,7 +1,5 @@
 "use client";
 
-import { Input } from "@/components/ui/input";
-
 // Supplement category definitions
 export type SupplementCategory = 'protein' | 'pre-workout' | 'hydration' | 'creatine' | 'general';
 

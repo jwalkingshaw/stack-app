@@ -1,24 +1,53 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { PIMTable } from "@/components/products/pim-table";
 import { AddProductModal } from "@/components/products/add-product-modal";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContentContainer } from "@/components/ui/page-content-container";
 import { getProductUrl } from "@/lib/product-utils";
 import { buildTenantPathForScope } from "@/lib/tenant-view-scope";
+
+// AG Grid uses window — SSR must be disabled
+const PIMGridTable = dynamic(
+  () => import("@/components/products/PIMGridTable"),
+  { ssr: false }
+);
 
 interface ProductsClientProps {
   tenantSlug: string;
   selectedBrandSlug?: string | null;
   isPartnerAllView?: boolean;
+  initialSearchQuery?: string;
 }
+
+type ProductClickRow = {
+  id?: string | null;
+  sku?: string | null;
+  type?: string | null;
+  title?: string | null;
+  product_name?: string | null;
+  parent_id?: string | null;
+  parentId?: string | null;
+  parent_sku?: string | null;
+  parentSku?: string | null;
+  parent_product_name?: string | null;
+  parentProductName?: string | null;
+  parent_product?: {
+    id?: string | null;
+    product_name?: string | null;
+  } | null;
+  organizationSlug?: string | null;
+  organization_slug?: string | null;
+};
 
 
 export function ProductsClient({
   tenantSlug,
   selectedBrandSlug,
   isPartnerAllView = false,
+  initialSearchQuery = "",
 }: ProductsClientProps) {
   const router = useRouter();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -27,7 +56,13 @@ export function ProductsClient({
   const isSharedBrandView =
     Boolean(normalizedSelectedBrand) && normalizedSelectedBrand !== normalizedTenantSlug;
 
-  const handleProductClick = (product: any) => {
+  const handleProductClick = (product: ProductClickRow, options?: { section?: string }) => {
+    const appendSectionParam = (url: string) => {
+      if (!options?.section) return url;
+      const separator = url.includes("?") ? "&" : "?";
+      return `${url}${separator}section=${encodeURIComponent(options.section)}`;
+    };
+
     const unscopedUrl = getProductUrl(product, tenantSlug);
     const rowOrganizationSlug = String(
       product?.organizationSlug ?? product?.organization_slug ?? ""
@@ -42,7 +77,7 @@ export function ProductsClient({
           : "";
 
     if (!rowScope) {
-      router.push(unscopedUrl);
+      router.push(appendSectionParam(unscopedUrl));
       return;
     }
     const scopeRoot = buildTenantPathForScope({
@@ -53,7 +88,7 @@ export function ProductsClient({
     const scopedUrl = unscopedUrl.startsWith(tenantPrefix)
       ? `${scopeRoot}${unscopedUrl.slice(tenantPrefix.length)}`
       : unscopedUrl;
-    router.push(scopedUrl);
+    router.push(appendSectionParam(scopedUrl));
   };
 
   const handleAddProduct = () => {
@@ -62,24 +97,27 @@ export function ProductsClient({
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Products" />
-      {isSharedBrandView ? (
-        <div className="mx-6 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          Viewing shared products from <span className="font-medium text-foreground">{selectedBrandSlug}</span>.
-          Creating products is disabled in shared view.
-        </div>
-      ) : isPartnerAllView ? (
-        <div className="mx-6 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          Viewing your products plus brand-shared products in one workspace.
-          Shared brand records are read-only.
-        </div>
-      ) : null}
+      <PageHeader
+        title="Products"
+      />
+      <PageContentContainer mode="fluid" padding="page" className="space-y-4">
+        {isSharedBrandView ? (
+          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Viewing shared products from <span className="font-medium text-foreground">{selectedBrandSlug}</span>.
+            Creating products is disabled in shared view.
+          </div>
+        ) : isPartnerAllView ? (
+          <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            Viewing your products plus brand-shared products in one workspace.
+            Shared brand records are read-only.
+          </div>
+        ) : null}
 
-      <div className="p-6">
-        <PIMTable
+        <PIMGridTable
           tenantSlug={tenantSlug}
           selectedBrandSlug={selectedBrandSlug}
           isPartnerAllView={isPartnerAllView}
+          initialSearchQuery={initialSearchQuery}
           onProductClick={handleProductClick}
           onCreateProduct={isSharedBrandView ? undefined : handleAddProduct}
         />
@@ -91,7 +129,7 @@ export function ProductsClient({
             tenantSlug={tenantSlug}
           />
         ) : null}
-      </div>
+      </PageContentContainer>
     </div>
   );
 }

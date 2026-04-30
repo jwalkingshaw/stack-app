@@ -14,7 +14,7 @@ export interface FileAttributeValue {
   size: number;
   url?: string;
   uploadedAt?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 interface FileFieldComponentProps {

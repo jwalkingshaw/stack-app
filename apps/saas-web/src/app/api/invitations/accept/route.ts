@@ -16,9 +16,9 @@ import {
 } from '@/lib/invite-permissions';
 import { assertBillingCapacity } from '@/lib/billing-policy';
 import {
-  applyInvitationShareSetGrants,
   loadInvitationShareSetAssignments,
 } from '@/lib/invitation-share-sets';
+import { applyPartnerInvitationWorkspaceGrants } from '@/lib/partner-invitation-grants';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -73,36 +73,6 @@ type InvitationRow = {
     slug: string;
   } | null;
 };
-
-async function applyInvitationSetsOrFail(params: {
-  invitation: InvitationRow;
-  partnerOrganizationId: string;
-  userId: string;
-}) {
-  const { invitation, partnerOrganizationId, userId } = params;
-  const accessLevel = invitation.role_or_access_level === 'edit' ? 'edit' : 'view';
-
-  const grantResult = await applyInvitationShareSetGrants({
-    supabase,
-    organizationId: invitation.organization_id,
-    invitationId: invitation.id,
-    partnerOrganizationId,
-    accessLevel,
-    grantedBy: invitation.invited_by || userId,
-  });
-
-  if (!grantResult.ok) {
-    return {
-      ok: false as const,
-      response: NextResponse.json({ error: grantResult.error }, { status: grantResult.status }),
-    };
-  }
-
-  return {
-    ok: true as const,
-    appliedCount: grantResult.data.appliedCount,
-  };
-}
 
 function persistPendingInvitation(response: NextResponse, token: string) {
   response.cookies.set(
@@ -234,20 +204,25 @@ export async function POST(request: NextRequest) {
       return invalidInvitationResponse();
     }
 
-    const raw = rawInvitation as any;
-    const invitation: InvitationRow = {
+    const raw = rawInvitation as Record<string, unknown>;
+    const invitation = {
       ...raw,
-      partner_organization_id: raw.partner_organization_id ?? null,
-      invited_by: raw.invited_by ?? null,
-      permission_bundle_id: raw.permission_bundle_id ?? null,
-      invite_permissions: raw.invite_permissions ?? {},
+      partner_organization_id:
+        typeof raw.partner_organization_id === 'string' ? raw.partner_organization_id : null,
+      invited_by: typeof raw.invited_by === 'string' ? raw.invited_by : null,
+      permission_bundle_id:
+        typeof raw.permission_bundle_id === 'string' ? raw.permission_bundle_id : null,
+      invite_permissions:
+        raw.invite_permissions && typeof raw.invite_permissions === 'object'
+          ? (raw.invite_permissions as Record<string, unknown>)
+          : {},
       partner_org: Array.isArray(raw.partner_org)
-        ? raw.partner_org[0] ?? null
-        : raw.partner_org ?? null,
+        ? ((raw.partner_org[0] ?? null) as InvitationRow['partner_org'])
+        : ((raw.partner_org ?? null) as InvitationRow['partner_org']),
       brand_org: Array.isArray(raw.brand_org)
-        ? raw.brand_org[0] ?? null
-        : raw.brand_org ?? null,
-    };
+        ? ((raw.brand_org[0] ?? null) as InvitationRow['brand_org'])
+        : ((raw.brand_org ?? null) as InvitationRow['brand_org']),
+    } as InvitationRow;
 
     const invitationShareSetSnapshot = await loadInvitationShareSetAssignments({
       supabase,
@@ -424,7 +399,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Accept invitation in Supabase
-    const { data: acceptResult, error: acceptError } = await supabase.rpc(
+    const { error: acceptError } = await supabase.rpc(
       'accept_invitation',
       {
         invitation_token_param: invitationToken,
@@ -485,16 +460,13 @@ export async function POST(request: NextRequest) {
       name?: string | null;
       slug?: string | null;
     }) => {
-      const resolvedAccessLevel =
-        invitation.role_or_access_level === 'edit' ? 'edit' : 'view';
-
       const { error: relationshipError } = await supabase
         .from('brand_partner_relationships')
         .upsert(
           {
             brand_organization_id: invitation.organization_id,
             partner_organization_id: partnerOrg.id,
-            access_level: resolvedAccessLevel,
+            access_level: 'view',
             invited_by: invitation.invited_by || user.id,
             status: 'active',
             status_updated_at: new Date().toISOString(),
@@ -536,30 +508,20 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const appliedPartnerPermissions = await applyInvitePermissions({
+      const appliedPartnerGrants = await applyPartnerInvitationWorkspaceGrants({
         supabase,
         organizationId: invitation.organization_id,
-        userId: user.id,
-        userEmail: user.email || invitation.email,
-        invitedBy: invitation.invited_by,
-        defaultRole: 'partner',
+        invitationId: invitation.id,
+        partnerOrganizationId: partnerOrg.id,
+        invitedBy: invitation.invited_by || user.id,
         permissions: invitation.invite_permissions || {},
       });
 
-      if (!appliedPartnerPermissions.applied) {
+      if (!appliedPartnerGrants.ok) {
         return NextResponse.json(
-          { error: appliedPartnerPermissions.error || 'Failed to apply invite permissions' },
-          { status: 500 }
+          { error: appliedPartnerGrants.error || 'Failed to apply partner access grants' },
+          { status: appliedPartnerGrants.status || 500 }
         );
-      }
-
-      const shareSetGrantResult = await applyInvitationSetsOrFail({
-        invitation,
-        partnerOrganizationId: partnerOrg.id,
-        userId: user.id,
-      });
-      if (!shareSetGrantResult.ok) {
-        return shareSetGrantResult.response;
       }
 
       const partnerProfileRedirect = buildWelcomeRedirect(partnerOrg.slug);
@@ -574,19 +536,21 @@ export async function POST(request: NextRequest) {
           permission_bundle_id: invitation.permission_bundle_id,
           invite_permissions: normalizeInvitePermissions(invitation.invite_permissions),
           invite_share_set_count: invitationShareSetSnapshot.data.shareSetIds.length,
-          applied_share_set_grants: shareSetGrantResult.appliedCount,
+          applied_profile_grants: appliedPartnerGrants.data.appliedProfileGrantCount,
+          applied_market_assignments: appliedPartnerGrants.data.appliedMarketAssignmentCount,
+          applied_share_set_grants: appliedPartnerGrants.data.appliedShareSetGrantCount,
           brand_organization_id: invitation.organization_id,
           partner_organization: {
             id: partnerOrg.id,
             name: partnerOrg.name,
             slug: partnerOrg.slug,
           },
-          access_level: invitation.role_or_access_level,
+          access_level: 'view',
           needs_profile: userNeedsProfile,
           profile_redirect_url: partnerProfileRedirect,
           redirect_url: partnerOrg.slug ? `/${partnerOrg.slug}/products` : undefined,
         },
-        message: `You can now access this brand's content from your ${partnerOrg.name ?? 'partner'} dashboard.`,
+        message: `You can now view this brand's published content from your ${partnerOrg.name ?? 'partner'} workspace.`,
       });
     };
 
@@ -611,8 +575,8 @@ export async function POST(request: NextRequest) {
 
       const candidateOrgIds = Array.from(
         new Set(
-          (membershipRows || [])
-            .map((row: any) => row.organization_id)
+          ((membershipRows || []) as Array<{ organization_id: string | null }>)
+            .map((row) => row.organization_id)
             .filter((orgId: unknown): orgId is string => typeof orgId === 'string')
         )
       );
@@ -637,7 +601,7 @@ export async function POST(request: NextRequest) {
         }
 
         partnerOrgs = Array.isArray(partnerOrgRows)
-          ? partnerOrgRows.map((org: any) => ({
+          ? (partnerOrgRows as Array<{ id: string; name: string | null; slug: string | null }>).map((org) => ({
               id: org.id,
               name: org.name ?? null,
               slug: org.slug ?? null,
@@ -729,34 +693,27 @@ export async function POST(request: NextRequest) {
         partnerData = fetchedPartner as typeof partnerOrg;
       }
 
-      const appliedPartnerPermissions = await applyInvitePermissions({
-        supabase,
-        organizationId: invitation.organization_id,
-        userId: user.id,
-        userEmail: user.email || invitation.email,
-        invitedBy: invitation.invited_by,
-        defaultRole: 'partner',
-        permissions: invitation.invite_permissions || {},
-      });
-
-      if (!appliedPartnerPermissions.applied) {
+      if (!partnerData?.id) {
         return NextResponse.json(
-          { error: appliedPartnerPermissions.error || 'Failed to apply invite permissions' },
+          { error: 'Unable to resolve the invited partner workspace.' },
           { status: 500 }
         );
       }
 
-      let appliedShareSetGrants = 0;
-      if (partnerData?.id) {
-        const shareSetGrantResult = await applyInvitationSetsOrFail({
-          invitation,
-          partnerOrganizationId: partnerData.id,
-          userId: user.id,
-        });
-        if (!shareSetGrantResult.ok) {
-          return shareSetGrantResult.response;
-        }
-        appliedShareSetGrants = shareSetGrantResult.appliedCount;
+      const appliedPartnerGrants = await applyPartnerInvitationWorkspaceGrants({
+        supabase,
+        organizationId: invitation.organization_id,
+        invitationId: invitation.id,
+        partnerOrganizationId: partnerData.id,
+        invitedBy: invitation.invited_by || user.id,
+        permissions: invitation.invite_permissions || {},
+      });
+
+      if (!appliedPartnerGrants.ok) {
+        return NextResponse.json(
+          { error: appliedPartnerGrants.error || 'Failed to apply partner access grants' },
+          { status: appliedPartnerGrants.status || 500 }
+        );
       }
 
       const partnerProfileRedirect = buildWelcomeRedirect(partnerData?.slug);
@@ -771,17 +728,19 @@ export async function POST(request: NextRequest) {
           permission_bundle_id: invitation.permission_bundle_id,
           invite_permissions: normalizeInvitePermissions(invitation.invite_permissions),
           invite_share_set_count: invitationShareSetSnapshot.data.shareSetIds.length,
-          applied_share_set_grants: appliedShareSetGrants,
+          applied_profile_grants: appliedPartnerGrants.data.appliedProfileGrantCount,
+          applied_market_assignments: appliedPartnerGrants.data.appliedMarketAssignmentCount,
+          applied_share_set_grants: appliedPartnerGrants.data.appliedShareSetGrantCount,
           brand_organization_id: invitation.organization_id,
           partner_organization: partnerData,
-          access_level: invitation.role_or_access_level,
+          access_level: 'view',
           needs_profile: userNeedsProfile,
           profile_redirect_url: partnerProfileRedirect,
           redirect_url: partnerData?.slug
             ? `/${partnerData.slug}/products`
             : undefined,
         },
-        message: `You can now access this brand's content from your ${partnerData?.name ?? 'partner'} dashboard.`,
+        message: `You can now view this brand's published content from your ${partnerData?.name ?? 'partner'} workspace.`,
       });
     }
 
@@ -951,17 +910,18 @@ export async function GET(request: NextRequest) {
       return invalidInvitationResponse();
     }
 
-    const raw = rawInvitation as any;
-    const invitation: InvitationRow = {
+    const raw = rawInvitation as Record<string, unknown>;
+    const invitation = {
       ...raw,
-      partner_organization_id: raw.partner_organization_id ?? null,
+      partner_organization_id:
+        typeof raw.partner_organization_id === 'string' ? raw.partner_organization_id : null,
       partner_org: Array.isArray(raw.partner_org)
-        ? raw.partner_org[0] ?? null
-        : raw.partner_org ?? null,
+        ? ((raw.partner_org[0] ?? null) as InvitationRow['partner_org'])
+        : ((raw.partner_org ?? null) as InvitationRow['partner_org']),
       brand_org: Array.isArray(raw.brand_org)
-        ? raw.brand_org[0] ?? null
-        : raw.brand_org ?? null,
-    };
+        ? ((raw.brand_org[0] ?? null) as InvitationRow['brand_org'])
+        : ((raw.brand_org ?? null) as InvitationRow['brand_org']),
+    } as InvitationRow;
 
     if (!isInvitationActionable(invitation)) {
       return invalidInvitationResponse();

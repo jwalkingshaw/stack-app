@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Json } from "@stack-app/database";
 import { supabaseServer } from "@/lib/supabase";
 import {
   extractKindeBillingRefs,
@@ -6,6 +7,8 @@ import {
   verifyKindeWebhookJwt,
   VerifiedKindeWebhookEvent,
 } from "@/lib/kinde-billing-webhooks";
+
+const supabase = supabaseServer;
 
 const PROVIDER = "kinde";
 const RETRYABLE_EVENT_STATUSES = new Set(["received", "failed"]);
@@ -57,7 +60,7 @@ function shouldTouchSubscription(eventType: string): boolean {
 
 async function resolveOrganizationId(refs: KindeBillingRefs): Promise<string | null> {
   if (refs.organizationId && !isUuid(refs.organizationId)) {
-    const byKindeOrgId = await (supabaseServer as any)
+    const byKindeOrgId = await supabase
       .from("organizations")
       .select("id")
       .eq("kinde_org_id", refs.organizationId)
@@ -69,7 +72,7 @@ async function resolveOrganizationId(refs: KindeBillingRefs): Promise<string | n
   }
 
   if (isUuid(refs.organizationId)) {
-    const orgLookup = await (supabaseServer as any)
+    const orgLookup = await supabase
       .from("organizations")
       .select("id")
       .eq("id", refs.organizationId)
@@ -81,7 +84,7 @@ async function resolveOrganizationId(refs: KindeBillingRefs): Promise<string | n
   }
 
   if (refs.providerSubscriptionId) {
-    const bySubscription = await (supabaseServer as any)
+    const bySubscription = await supabase
       .from("organization_subscriptions")
       .select("organization_id")
       .eq("provider", PROVIDER)
@@ -96,7 +99,7 @@ async function resolveOrganizationId(refs: KindeBillingRefs): Promise<string | n
   }
 
   if (refs.providerCustomerId) {
-    const byCustomer = await (supabaseServer as any)
+    const byCustomer = await supabase
       .from("organization_subscriptions")
       .select("organization_id")
       .eq("provider", PROVIDER)
@@ -114,7 +117,7 @@ async function resolveOrganizationId(refs: KindeBillingRefs): Promise<string | n
 }
 
 async function findExistingReceipt(eventId: string): Promise<ReceiptRow | null> {
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabase
     .from("billing_webhook_receipts")
     .select("id,status,attempt_count,organization_id")
     .eq("provider", PROVIDER)
@@ -140,12 +143,12 @@ async function reserveReceipt(event: VerifiedKindeWebhookEvent): Promise<{
   const nowIso = new Date().toISOString();
 
   if (existing) {
-    const { error } = await (supabaseServer as any)
+    const { error } = await supabase
       .from("billing_webhook_receipts")
       .update({
         status: "received",
         event_type: event.eventType,
-        payload: event.payload,
+        payload: event.payload as Json,
         error_message: null,
         attempt_count: Number(existing.attempt_count || 1) + 1,
         last_attempt_at: nowIso,
@@ -161,14 +164,14 @@ async function reserveReceipt(event: VerifiedKindeWebhookEvent): Promise<{
     return { duplicate: false, receiptId: existing.id };
   }
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabase
     .from("billing_webhook_receipts")
     .insert({
       provider: PROVIDER,
       event_id: event.eventId,
       event_type: event.eventType,
       status: "received",
-      payload: event.payload,
+      payload: event.payload as Json,
       last_attempt_at: nowIso,
     })
     .select("id")
@@ -207,7 +210,7 @@ async function completeReceipt(params: {
     payload.error_message = params.errorMessage;
   }
 
-  const { error } = await (supabaseServer as any)
+  const { error } = await supabase
     .from("billing_webhook_receipts")
     .update(payload)
     .eq("id", params.receiptId);
@@ -222,13 +225,13 @@ async function writeBillingEventLog(params: {
   eventType: string;
   payload: Record<string, unknown>;
 }) {
-  const { error } = await (supabaseServer as any)
+  const { error } = await supabase
     .from("organization_billing_events")
     .insert({
       organization_id: params.organizationId,
       event_type: `kinde.${params.eventType}`,
       actor_user_id: "system:kinde_webhook",
-      payload: params.payload,
+      payload: params.payload as Json,
     });
 
   if (error) {
@@ -246,7 +249,7 @@ async function upsertOrganizationSubscription(params: {
 
   const existingByProviderSub =
     params.refs.providerSubscriptionId
-      ? await (supabaseServer as any)
+      ? await supabase
           .from("organization_subscriptions")
           .select("id,plan_id")
           .eq("provider", PROVIDER)
@@ -263,7 +266,7 @@ async function upsertOrganizationSubscription(params: {
   let existingSubscription = existingByProviderSub.data as { id: string; plan_id: string | null } | null;
 
   if (!existingSubscription && params.refs.providerCustomerId) {
-    const existingByCustomer = await (supabaseServer as any)
+    const existingByCustomer = await supabase
       .from("organization_subscriptions")
       .select("id,plan_id")
       .eq("provider", PROVIDER)
@@ -311,7 +314,7 @@ async function upsertOrganizationSubscription(params: {
   };
 
   if (subscriptionId) {
-    const { error } = await (supabaseServer as any)
+    const { error } = await supabase
       .from("organization_subscriptions")
       .update(writePayload)
       .eq("id", subscriptionId);
@@ -322,7 +325,7 @@ async function upsertOrganizationSubscription(params: {
     return;
   }
 
-  const { error } = await (supabaseServer as any)
+  const { error } = await supabase
     .from("organization_subscriptions")
     .insert(writePayload);
 
@@ -412,3 +415,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+
+

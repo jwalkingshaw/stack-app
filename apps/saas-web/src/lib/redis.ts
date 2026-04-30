@@ -1,5 +1,11 @@
 import { createClient } from 'redis'
 
+export const REDIS_KEY_PREFIX_SAAS = process.env.REDIS_KEY_PREFIX_SAAS || 'saas'
+
+function withPrefix(key: string): string {
+  return `${REDIS_KEY_PREFIX_SAAS}:${key}`
+}
+
 // Create Redis client with fallback handling for SAAS caching
 const redis = process.env.REDIS_URL_SAAS ? createClient({
   url: process.env.REDIS_URL_SAAS,
@@ -18,10 +24,14 @@ if (redis) {
 
 // Connect to Redis with fallback
 let isConnected = false
+let hasWarnedNoRedisConfig = false
 
 const connectRedis = async () => {
   if (!redis) {
-    console.warn('SAAS Redis not configured, using in-memory fallback')
+    if (!hasWarnedNoRedisConfig) {
+      console.warn('SAAS Redis not configured, using in-memory fallback')
+      hasWarnedNoRedisConfig = true
+    }
     return null
   }
 
@@ -40,7 +50,7 @@ const connectRedis = async () => {
 
 // Cache utilities with fallback
 class CacheService {
-  private inMemoryCache = new Map<string, { value: any; expires: number }>()
+  private inMemoryCache = new Map<string, { value: unknown; expires: number }>()
 
   async get<T>(key: string): Promise<T | null> {
     try {
@@ -56,7 +66,7 @@ class CacheService {
     // Fallback to in-memory cache
     const cached = this.inMemoryCache.get(key)
     if (cached && cached.expires > Date.now()) {
-      return cached.value
+      return cached.value as T
     }
     if (cached && cached.expires <= Date.now()) {
       this.inMemoryCache.delete(key)
@@ -64,7 +74,7 @@ class CacheService {
     return null
   }
 
-  async set(key: string, value: any, ttlSeconds: number): Promise<void> {
+  async set(key: string, value: unknown, ttlSeconds: number): Promise<void> {
     try {
       const client = await connectRedis()
       if (client) {
@@ -80,6 +90,35 @@ class CacheService {
       value,
       expires: Date.now() + (ttlSeconds * 1000)
     })
+  }
+
+  /**
+   * Atomically increment a counter and set its TTL on first use.
+   * Returns the post-increment value.
+   * Falls back to the in-memory cache with a non-atomic simulation when Redis is unavailable.
+   */
+  async incr(key: string, ttlSeconds: number): Promise<number> {
+    try {
+      const client = await connectRedis()
+      if (client) {
+        const count = await client.incr(key)
+        if (count === 1) {
+          // Key was just created — set TTL atomically on first use
+          await client.expire(key, ttlSeconds)
+        }
+        return count
+      }
+    } catch (error) {
+      console.warn('Redis incr failed, using in-memory fallback:', error)
+    }
+
+    // In-memory fallback (not atomic across multiple processes, but fine for dev)
+    const now = Date.now()
+    const cached = this.inMemoryCache.get(key)
+    const existing = cached && cached.expires > now ? (cached.value as number) : 0
+    const next = existing + 1
+    this.inMemoryCache.set(key, { value: next, expires: now + ttlSeconds * 1000 })
+    return next
   }
 
   async del(key: string): Promise<void> {
@@ -132,19 +171,27 @@ export const cache = new CacheService()
 
 // Cache key generators for consistency
 export const CacheKeys = {
-  user: (userId: string) => `user:${userId}`,
-  userSession: (userId: string) => `session:${userId}`,
-  organization: (orgId: string) => `org:${orgId}`,
-  organizationBySlug: (slug: string) => `org:slug:${slug}`,
-  organizationByKindeId: (kindeId: string) => `org:kinde:${kindeId}`,
-  organizationMembers: (orgId: string) => `org:${orgId}:members`,
-  products: (orgId: string, page = 1, limit = 50) => `products:${orgId}:${page}:${limit}`,
-  productFamilies: (orgId: string) => `families:${orgId}`,
-  productById: (productId: string) => `product:${productId}`,
-  assets: (orgId: string, folderId?: string) => `assets:${orgId}${folderId ? `:${folderId}` : ''}`,
-  assetById: (assetId: string) => `asset:${assetId}`,
-  apiResponse: (route: string, params: string) => `api:${route}:${params}`,
-  userOrgAccess: (userId: string, orgId: string) => `access:${userId}:${orgId}`,
+  user: (userId: string) => withPrefix(`user:${userId}`),
+  userSession: (userId: string) => withPrefix(`session:${userId}`),
+  organization: (orgId: string) => withPrefix(`org:${orgId}`),
+  organizationBySlug: (slug: string) => withPrefix(`org:slug:${slug}`),
+  organizationByKindeId: (kindeId: string) => withPrefix(`org:kinde:${kindeId}`),
+  organizationMembers: (orgId: string) => withPrefix(`org:${orgId}:members`),
+  organizationSlugExists: (slug: string) => withPrefix(`org:slug-exists:${slug}`),
+  userWorkspaces: (userId: string) => withPrefix(`user:${userId}:workspaces`),
+  products: (orgId: string, page = 1, limit = 50) => withPrefix(`products:${orgId}:${page}:${limit}`),
+  productFamilies: (orgId: string) => withPrefix(`families:${orgId}`),
+  productById: (productId: string) => withPrefix(`product:${productId}`),
+  assets: (orgId: string, folderId?: string) => withPrefix(`assets:${orgId}${folderId ? `:${folderId}` : ''}`),
+  assetById: (assetId: string) => withPrefix(`asset:${assetId}`),
+  assetPreview: (assetId: string, scopeKey: string) =>
+    withPrefix(`asset-preview:${assetId}:${scopeKey}`),
+  assetsList: (scopeKey: string) => withPrefix(`assets:list:${scopeKey}`),
+  productsList: (scopeKey: string) => withPrefix(`products:list:${scopeKey}`),
+  workspaceUnreadCounts: (userId: string, workspaceScope: string) =>
+    withPrefix(`workspace-unread:${userId}:${workspaceScope}`),
+  apiResponse: (route: string, params: string) => withPrefix(`api:${route}:${params}`),
+  userOrgAccess: (userId: string, orgId: string) => withPrefix(`access:${userId}:${orgId}`),
 }
 
 // TTL constants (in seconds)
@@ -156,8 +203,13 @@ export const CacheTTL = {
   PRODUCT_SINGLE: 10 * 60,      // 10 minutes - single product details
   ASSETS: 10 * 60,              // 10 minutes - asset listings
   ASSET_SINGLE: 30 * 60,        // 30 minutes - single asset details
+  ASSET_PREVIEW_SIGNED: 2 * 60, // 2 minutes - short lived signed URL indirection
+  ASSET_PREVIEW_FALLBACK: 10 * 60, // 10 minutes - stable CDN/S3 fallback URL
   API_RESPONSE: 5 * 60,         // 5 minutes - general API responses
   USER_ACCESS: 60 * 60,         // 1 hour - organization access permissions
+  WORKSPACES: 20,               // 20 seconds - high traffic user nav data
+  WORKSPACE_UNREAD: 60,         // 1 minute - workspace rail badge counts
+  ORG_EXISTS: 5 * 60,           // 5 minutes - org slug availability checks
   SHORT: 2 * 60,                // 2 minutes - temporary cache
   LONG: 4 * 60 * 60,           // 4 hours - very stable data
 }

@@ -8,7 +8,7 @@ import type {
   DamAsset,
   DamFolder,
   Organization,
-} from '@tradetool/types';
+} from '@stack-app/types';
 
 export class DatabaseQueries {
   constructor(private supabase: SupabaseClient<Database>) {}

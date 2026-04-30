@@ -6,6 +6,24 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const UUID_PREFIX_PATTERN =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-.+)?$/i;
 
+type ProductLike = {
+  id?: string | null;
+  sku?: string | null;
+  type?: string | null;
+  title?: string | null;
+  product_name?: string | null;
+  parent_id?: string | null;
+  parentId?: string | null;
+  parent_sku?: string | null;
+  parentSku?: string | null;
+  parent_product_name?: string | null;
+  parentProductName?: string | null;
+  parent_product?: {
+    id?: string | null;
+    product_name?: string | null;
+  } | null;
+};
+
 /**
  * Generate a URL-friendly slug from a product SKU
  * @param sku - Product SKU
@@ -115,7 +133,7 @@ export function generateVariantUrl(
  * @param tenantSlug - Organization slug
  * @returns Appropriate URL for the product
  */
-export function getProductUrl(product: any, tenantSlug: string): string {
+export function getProductUrl(product: ProductLike, tenantSlug: string): string {
   const parentIdentifier =
     product.parent_id ||
     product.parentId ||
@@ -124,11 +142,13 @@ export function getProductUrl(product: any, tenantSlug: string): string {
     product.parentSku ||
     null;
 
-  if (product.type === 'variant' && parentIdentifier) {
+  const variantIdentifier = product.id || product.sku || null;
+
+  if (product.type === 'variant' && parentIdentifier && variantIdentifier) {
     return generateVariantUrl(
       tenantSlug,
       parentIdentifier,
-      product.id || product.sku,
+      variantIdentifier,
       {
         parentLabel:
           product.parent_product_name ||
@@ -145,7 +165,7 @@ export function getProductUrl(product: any, tenantSlug: string): string {
   return generateProductUrl(
     tenantSlug,
     product.product_name || product.title || product.sku,
-    product.id
+    product.id || undefined
   );
 }
 
@@ -155,9 +175,9 @@ export function getProductUrl(product: any, tenantSlug: string): string {
  * @param tenantSlug - Organization slug
  * @returns URL and identifier info
  */
-export function getProductUrlInfo(product: any, tenantSlug: string) {
+export function getProductUrlInfo(product: ProductLike, tenantSlug: string) {
   const url = getProductUrl(product, tenantSlug);
-  const slug = generateProductSlug(product.sku);
+  const slug = generateProductSlug(product.sku || "");
 
   return {
     url,
@@ -177,14 +197,14 @@ export const ProductHierarchy = {
   /**
    * Check if a product should redirect to its parent
    */
-  shouldRedirectToParent(product: any): boolean {
-    return product.type === 'variant' && product.parent_id;
+  shouldRedirectToParent(product: ProductLike): boolean {
+    return product.type === 'variant' && Boolean(product.parent_id);
   },
 
   /**
    * Get the canonical URL for a product (considering hierarchy)
    */
-  getCanonicalUrl(product: any, tenantSlug: string): string {
+  getCanonicalUrl(product: ProductLike, tenantSlug: string): string {
     return getProductUrl(product, tenantSlug);
   },
 

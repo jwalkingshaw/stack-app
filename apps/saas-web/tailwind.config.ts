@@ -64,12 +64,12 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        "accent-blue": {
-          DEFAULT: "var(--color-accent-blue)",
-          foreground: "var(--color-accent-blue-foreground)",
-          hover: "var(--color-accent-blue-hover)",
-          active: "var(--color-accent-blue-active)",
-          subtle: "var(--color-accent-blue-subtle)",
+        "accent-black": {
+          DEFAULT: "var(--color-accent-black)",
+          foreground: "var(--color-accent-black-foreground)",
+          hover: "var(--color-accent-black-hover)",
+          active: "var(--color-accent-black-active)",
+          subtle: "var(--color-accent-black-subtle)",
         },
       },
       borderRadius: {
@@ -79,13 +79,22 @@ const config: Config = {
       },
       animation: {
         'fade-in': 'fadeIn 0.2s ease-in-out',
+        'fade-out': 'fadeOut 0.2s ease-in-out',
         'slide-up': 'slideUp 0.3s ease-out',
         'slide-down': 'slideDown 0.3s ease-out',
+        'slide-in-from-right': 'slideInFromRight 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
+        'slide-out-to-right': 'slideOutToRight 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
+        'slide-in-from-left': 'slideInFromLeft 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
+        'slide-out-to-left': 'slideOutToLeft 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
       },
       keyframes: {
         fadeIn: {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
+        },
+        fadeOut: {
+          '0%': { opacity: '1' },
+          '100%': { opacity: '0' },
         },
         slideUp: {
           '0%': { transform: 'translateY(10px)', opacity: '0' },
@@ -95,6 +104,22 @@ const config: Config = {
           '0%': { transform: 'translateY(-10px)', opacity: '0' },
           '100%': { transform: 'translateY(0)', opacity: '1' },
         },
+        slideInFromRight: {
+          '0%': { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
+        slideOutToRight: {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(100%)' },
+        },
+        slideInFromLeft: {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
+        slideOutToLeft: {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-100%)' },
+        },
       },
       boxShadow: {
         'soft': '0 2px 8px 0 rgb(0 0 0 / 0.08)',
@@ -103,6 +128,6 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  plugins: [require('tailwindcss-animate')],
 };
 export default config;

@@ -2,7 +2,7 @@
 
 import { useKindeBrowserClient } from '@kinde-oss/kinde-auth-nextjs';
 import { useState, useEffect } from 'react';
-import type { User, Organization } from '@tradetool/types';
+import type { User, Organization } from '@stack-app/types';
 
 export function useAuth() {
   const { user, isAuthenticated, isLoading } = useKindeBrowserClient();

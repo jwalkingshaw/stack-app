@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import FieldGroupsSettings from '../components/FieldGroupsSettings';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 
 interface FieldGroupsPageProps {
   params: Promise<{ tenant: string }>;
@@ -11,9 +11,10 @@ export default async function FieldGroupsPage({ params }: FieldGroupsPageProps) 
 
   return (
     <Suspense fallback={
-      <PageLoader text="Loading groups..." size="lg" />
+      <PageSkeleton text="Loading groups..." size="lg" />
     }>
       <FieldGroupsSettings tenantSlug={tenant} />
     </Suspense>
   );
 }
+

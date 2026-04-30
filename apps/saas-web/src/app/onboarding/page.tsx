@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { createServerClient } from "@tradetool/database";
+import { createServerClient } from "@stack-app/database";
 import OnboardingClient from "./OnboardingClient";
-import { AuthLayoutShell } from "@tradetool/ui";
+import { AuthLayoutShell } from "@stack-app/ui";
 import { getCurrentOrganization, requireUser } from "@/lib/auth-server";
 import { getActiveWorkspaceMemberships } from "@/lib/workspace-notifications";
 
@@ -65,7 +65,7 @@ export default async function OnboardingPage({
           contentClassName="pt-0"
         >
           <div className="flex min-h-screen items-center justify-center px-4 py-12">
-            <div className="rounded-2xl border border-muted/30 bg-white px-6 py-8 text-sm text-muted-foreground shadow-sm sm:px-8">
+            <div className="rounded-2xl bg-white px-6 py-8 text-sm text-muted-foreground sm:px-8">
               Loading...
             </div>
           </div>

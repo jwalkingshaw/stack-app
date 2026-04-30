@@ -4,7 +4,7 @@ import {
   isShareablePermissionKey,
   parseShareScopeType,
 } from "./container-sharing";
-import { ScopedPermission } from "@tradetool/auth";
+import { ScopedPermission } from "@stack-app/auth";
 
 test("parses valid share scope types", () => {
   assert.equal(parseShareScopeType("market"), "market");

@@ -160,6 +160,21 @@ export default function FileField({ value, onChange }: FileFieldProps) {
             <li>- Upload and file governance remains managed in the Assets workspace.</li>
           </ul>
         </div>
+
+        <div className="rounded-lg border border-border/60 bg-background px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Preview</p>
+          <div className="mt-3 space-y-2 text-sm">
+            <button
+              type="button"
+              className="inline-flex h-9 items-center rounded-md border border-border/60 bg-muted/20 px-3 text-foreground"
+            >
+              {allowMultiple ? 'Add files' : 'Select file'}
+            </button>
+            <p className="text-xs text-muted-foreground">
+              Allowed groups: {allowedMimeGroups.length ? allowedMimeGroups.join(', ') : 'none selected'}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

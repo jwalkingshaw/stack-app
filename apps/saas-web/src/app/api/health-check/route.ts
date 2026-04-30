@@ -1,174 +1,173 @@
 import { NextRequest, NextResponse } from "next/server";
-import { 
-  validateEnvironmentVariables, 
+import {
   getEnvironmentSummary,
-  runSupabaseTests,
   runKindeTests,
   runS3Tests,
-  type ServiceTestResult
-} from "@tradetool/database";
+  runSupabaseTests,
+  type ServiceTestResult,
+  validateEnvironmentVariables,
+} from "@stack-app/database";
+
+type ServiceName = "supabase" | "kinde" | "s3";
+
+type ServiceBatchResult = {
+  service: ServiceName;
+  results: ServiceTestResult[];
+};
+
+type ServiceResultPayload = {
+  service: string;
+  status: ServiceTestResult["status"];
+  message: string;
+  details?: unknown;
+};
+
+type ServiceResponseEntry = {
+  tested: boolean;
+  results?: ServiceResultPayload[];
+  skipped?: boolean;
+  reason?: string;
+};
+
+const TESTABLE_SERVICES: ServiceName[] = ["supabase", "kinde", "s3"];
+
+function parseSkipList(raw: string | null): ServiceName[] {
+  if (!raw) return [];
+  const values = raw
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+
+  return values.filter((value): value is ServiceName =>
+    TESTABLE_SERVICES.includes(value as ServiceName)
+  );
+}
 
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
-  
+
   try {
-    // Parse query parameters
     const { searchParams } = new URL(request.url);
-    const includeDetails = searchParams.get('details') === 'true';
-    const skipTests = searchParams.get('skip')?.split(',') || [];
+    const includeDetails = searchParams.get("details") === "true";
+    const skipTests = parseSkipList(searchParams.get("skip"));
 
-    console.log('🔍 Starting environment health check...');
-
-    // 1. Validate environment variables
-    console.log('📋 Validating environment variables...');
     const envValidation = validateEnvironmentVariables();
     const envSummary = getEnvironmentSummary();
 
-    // 2. Run service tests in parallel
-    const testPromises: Promise<any>[] = [];
-    
-    if (!skipTests.includes('supabase')) {
-      console.log('🗄️ Testing Supabase connection...');
+    const testPromises: Promise<ServiceBatchResult>[] = [];
+    if (!skipTests.includes("supabase")) {
       testPromises.push(
-        runSupabaseTests().then((results: ServiceTestResult[]) => ({ service: 'supabase', results }))
+        runSupabaseTests().then((results) => ({ service: "supabase", results }))
       );
     }
-
-    if (!skipTests.includes('kinde')) {
-      console.log('🔐 Testing Kinde configuration...');
+    if (!skipTests.includes("kinde")) {
       testPromises.push(
-        runKindeTests().then((results: ServiceTestResult[]) => ({ service: 'kinde', results }))
+        runKindeTests().then((results) => ({ service: "kinde", results }))
       );
     }
-
-    if (!skipTests.includes('s3')) {
-      console.log('☁️ Testing S3 connectivity...');
-      testPromises.push(
-        runS3Tests().then((results: ServiceTestResult[]) => ({ service: 's3', results }))
-      );
+    if (!skipTests.includes("s3")) {
+      testPromises.push(runS3Tests().then((results) => ({ service: "s3", results })));
     }
 
     const serviceTests = await Promise.all(testPromises);
-    
-    // 3. Aggregate results
-    const allResults = serviceTests.flatMap(test => test.results);
-    const errorCount = allResults.filter((r: ServiceTestResult) => r.status === 'error').length;
-    const warningCount = allResults.filter((r: ServiceTestResult) => r.status === 'warning').length;
-    const successCount = allResults.filter((r: ServiceTestResult) => r.status === 'success').length;
+    const allResults = serviceTests.flatMap((test) => test.results);
+    const errorCount = allResults.filter((result) => result.status === "error").length;
+    const warningCount = allResults.filter((result) => result.status === "warning").length;
+    const successCount = allResults.filter((result) => result.status === "success").length;
 
-    // 4. Determine overall health status
-    let overallStatus: 'healthy' | 'degraded' | 'unhealthy';
+    let overallStatus: "healthy" | "degraded" | "unhealthy";
     let statusMessage: string;
-
     if (errorCount === 0 && warningCount === 0) {
-      overallStatus = 'healthy';
-      statusMessage = 'All systems operational';
+      overallStatus = "healthy";
+      statusMessage = "All systems operational";
     } else if (errorCount === 0) {
-      overallStatus = 'degraded';
+      overallStatus = "degraded";
       statusMessage = `${warningCount} warning(s) detected`;
     } else {
-      overallStatus = 'unhealthy';
+      overallStatus = "unhealthy";
       statusMessage = `${errorCount} error(s) and ${warningCount} warning(s) detected`;
     }
 
-    const endTime = Date.now();
-    const duration = endTime - startTime;
+    const durationMs = Date.now() - startTime;
+    const services: Record<string, ServiceResponseEntry> = {};
+    for (const test of serviceTests) {
+      services[test.service] = {
+        tested: true,
+        results: test.results.map((result) => ({
+          service: result.service,
+          status: result.status,
+          message: result.message,
+          ...(includeDetails && result.details ? { details: result.details } : {}),
+        })),
+      };
+    }
 
-    console.log(`✅ Health check completed in ${duration}ms - Status: ${overallStatus}`);
+    for (const skipped of skipTests) {
+      services[skipped] = {
+        tested: false,
+        skipped: true,
+        reason: "Skipped via query parameter",
+      };
+    }
 
-    // 5. Build response
+    const isInternal =
+      searchParams.get("secret") === process.env.HEALTH_CHECK_SECRET &&
+      Boolean(process.env.HEALTH_CHECK_SECRET);
+
     const response = {
       status: overallStatus,
       message: statusMessage,
       timestamp: new Date().toISOString(),
-      duration: `${duration}ms`,
-      environment: process.env.NODE_ENV || 'development',
+      duration: `${durationMs}ms`,
       summary: {
         total: allResults.length,
         success: successCount,
         warnings: warningCount,
-        errors: errorCount
+        errors: errorCount,
       },
-      environmentVariables: {
-        validation: envValidation,
-        summary: envSummary
-      },
-      services: serviceTests.reduce((acc, test) => {
-        acc[test.service] = {
-          tested: true,
-          results: test.results.map((r: ServiceTestResult) => ({
-            service: r.service,
-            status: r.status,
-            message: r.message,
-            ...(includeDetails && r.details ? { details: r.details } : {})
-          }))
-        };
-        return acc;
-      }, {} as Record<string, any>)
+      ...(isInternal
+        ? {
+            environment: process.env.NODE_ENV || "development",
+            environmentVariables: { validation: envValidation, summary: envSummary },
+          }
+        : {}),
+      services,
     };
 
-    // Add skipped services
-    skipTests.forEach(service => {
-      if (['supabase', 'kinde', 's3'].includes(service)) {
-        response.services[service] = {
-          tested: false,
-          skipped: true,
-          reason: 'Skipped via query parameter'
-        };
-      }
-    });
-
-    const statusCode = overallStatus === 'unhealthy' ? 503 : 200;
-    
-    return NextResponse.json(response, { 
-      status: statusCode,
+    return NextResponse.json(response, {
+      status: overallStatus === "unhealthy" ? 503 : 200,
       headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        Pragma: "no-cache",
+        Expires: "0",
+      },
     });
-
   } catch (error) {
-    const endTime = Date.now();
-    const duration = endTime - startTime;
-    
-    console.error('❌ Health check failed:', error);
-
-    const { searchParams } = new URL(request.url);
-    const includeDetails = searchParams.get('details') === 'true';
-
+    const durationMs = Date.now() - startTime;
+    console.error("[health-check] Internal error:", error);
     return NextResponse.json(
       {
-        status: 'unhealthy',
-        message: 'Health check failed due to internal error',
+        status: "unhealthy",
+        message: "Health check failed due to internal error",
         timestamp: new Date().toISOString(),
-        duration: `${duration}ms`,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        ...(includeDetails && { errorDetails: error })
+        duration: `${durationMs}ms`,
       },
-      { 
+      {
         status: 500,
         headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate'
-        }
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
       }
     );
   }
 }
 
-// Simple health check endpoint for load balancers
-export async function HEAD(request: NextRequest) {
+// Simple health check endpoint for load balancers.
+export async function HEAD() {
   try {
-    // Quick environment validation only
     const envValidation = validateEnvironmentVariables();
-    
-    if (!envValidation.isValid) {
-      return new NextResponse(null, { status: 503 });
-    }
-    
-    return new NextResponse(null, { status: 200 });
-  } catch (error) {
+    return new NextResponse(null, { status: envValidation.isValid ? 200 : 503 });
+  } catch {
     return new NextResponse(null, { status: 503 });
   }
 }

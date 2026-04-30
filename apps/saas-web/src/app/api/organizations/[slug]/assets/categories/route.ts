@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { AuthService, ScopedPermission } from "@tradetool/auth";
-import { DatabaseQueries } from "@tradetool/database";
+import { AuthService, ScopedPermission } from "@stack-app/auth";
+import { DatabaseQueries } from "@stack-app/database";
 import { supabaseServer } from "@/lib/supabase";
 import { applyRLSContext } from "@/lib/rls-context";
 import { ensureSlug } from "@/lib/slug";
-import type { AssetCategory } from "@tradetool/types";
+import type { AssetCategory } from "@stack-app/types";
 import { enforceMarketScopedAccess } from "@/lib/market-scope";
 
 function resolveUniqueSlug(base: string, existing: Set<string>) {
@@ -42,7 +42,7 @@ export async function GET(
     const searchParams = new URL(request.url).searchParams;
     const scopeCheck = await enforceMarketScopedAccess({
       authService: auth,
-      supabase: supabaseServer as any,
+      supabase: supabaseServer,
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetDownloadDerivative,
@@ -115,7 +115,7 @@ export async function POST(
       auth.canEditProducts(user.id, organization.id),
       enforceMarketScopedAccess({
         authService: auth,
-        supabase: supabaseServer as any,
+        supabase: supabaseServer,
         userId: user.id,
         organizationId: organization.id,
         permissionKey: ScopedPermission.AssetMetadataEdit,

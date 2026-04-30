@@ -14,6 +14,21 @@ function parseSortOrder(value: unknown, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function extractRelationCode(relation: unknown): string | null {
+  if (Array.isArray(relation)) {
+    const first = relation[0];
+    if (!isRecord(first) || typeof first.code !== "string") return null;
+    return first.code;
+  }
+
+  if (!isRecord(relation) || typeof relation.code !== "string") return null;
+  return relation.code;
+}
+
 // GET /api/[tenant]/field-groups/[groupKey]/fields
 export async function GET(
   request: NextRequest,
@@ -61,11 +76,13 @@ export async function GET(
     const normalized = (data || [])
       .map((assignment) => normalizeAssignment(assignment))
       .filter(
-        (assignment): assignment is any =>
-          Boolean(assignment) &&
-          (assignment.product_fields?.organization_id ===
-            context.targetOrganizationId ||
-            !assignment.product_fields?.organization_id)
+        (assignment): assignment is NonNullable<ReturnType<typeof normalizeAssignment>> => {
+          if (!assignment) return false;
+          const organizationId = assignment.product_fields?.organization_id;
+          return (
+            organizationId === context.targetOrganizationId || !organizationId
+          );
+        }
       );
 
     return NextResponse.json(normalized);
@@ -237,18 +254,7 @@ export async function DELETE(
           );
         }
 
-        const relation = assignmentRecord?.product_fields;
-        if (Array.isArray(relation)) {
-          targetFieldCode =
-            relation.length > 0 && typeof relation[0]?.code === "string"
-              ? relation[0].code
-              : null;
-        } else {
-          targetFieldCode =
-            relation && typeof (relation as any).code === "string"
-              ? (relation as any).code
-              : null;
-        }
+        targetFieldCode = extractRelationCode(assignmentRecord?.product_fields);
       } else if (fieldId) {
         const { data: fieldRecord, error: fieldError } = await supabase
           .from("product_fields")

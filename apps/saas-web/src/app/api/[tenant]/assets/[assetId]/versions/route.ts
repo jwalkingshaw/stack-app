@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { AuthService, ScopedPermission } from "@tradetool/auth";
-import { DatabaseQueries } from "@tradetool/database";
+import { AuthService, ScopedPermission } from "@stack-app/auth";
+import { DatabaseQueries } from "@stack-app/database";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { evaluateScopedPermission } from "@/lib/security-permissions";
-import { S3Service } from "@tradetool/storage";
-import { getOrganizationBillingLimits } from "@/lib/billing-policy";
+import { S3Service, ThumbnailService } from "@stack-app/storage";
+import {
+  assertStorageCapacity,
+  getMaxUploadBytesForPlan,
+  getOrganizationBillingLimits,
+} from "@/lib/billing-policy";
+import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
-const FREE_PLAN_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const ASSET_OBJECT_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 const EXTENSION_MIME_MAP: Record<string, string> = {
   ".jpg": "image/jpeg",
@@ -115,8 +119,8 @@ type AssetRow = {
   mime_type: string;
   s3_key: string;
   s3_url: string;
-  thumbnail_urls: Record<string, any> | null;
-  metadata: Record<string, any> | null;
+  thumbnail_urls: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
   tags: string[] | null;
   description: string | null;
   created_by: string;
@@ -134,7 +138,7 @@ async function canManageAssetVersions(params: {
   userId: string;
   organizationId: string;
 }) {
-  const db = new DatabaseQueries(supabase as any);
+  const db = new DatabaseQueries(supabase);
   const authService = new AuthService(db);
   const [hasVersionManage, hasUploadPermission] = await Promise.all([
     evaluateScopedPermission({
@@ -154,7 +158,7 @@ async function canManageAssetVersions(params: {
 }
 
 async function fetchAssetForVersioning(params: { assetId: string; organizationId: string }) {
-  const { data: existingAsset, error } = await (supabase as any)
+  const { data: existingAsset, error } = await supabase
     .from("dam_assets")
     .select(
       `
@@ -272,7 +276,9 @@ async function attachVersionPreviewUrls(
 
       let previewUrl: string | null = null;
       if (isImageMimeType(row.mimeType)) {
-        if (row.s3Key) {
+        if (fallbackUrl) {
+          previewUrl = fallbackUrl;
+        } else if (row.s3Key) {
           try {
             s3Service = s3Service || new S3Service();
             previewUrl = await s3Service.getPresignedDownloadUrl(row.s3Key, 900, {
@@ -287,7 +293,9 @@ async function attachVersionPreviewUrls(
         }
       }
 
-      const { s3Key: _s3Key, thumbnailUrls: _thumbnailUrls, ...rest } = row;
+      const { s3Key, thumbnailUrls, ...rest } = row;
+      void s3Key;
+      void thumbnailUrls;
       return {
         ...rest,
         previewUrl,
@@ -317,7 +325,7 @@ export async function GET(
       return NextResponse.json({ error: "Asset not found" }, { status: 404 });
     }
 
-    const { data: versions, error: versionsError } = await (supabase as any)
+    const { data: versions, error: versionsError } = await supabase
       .from("dam_asset_versions")
       .select(
         `
@@ -389,8 +397,7 @@ export async function POST(
     }
 
     const { planId } = await getOrganizationBillingLimits(organization.id);
-    const maxUploadBytes =
-      planId === "free" ? FREE_PLAN_MAX_UPLOAD_BYTES : DEFAULT_MAX_UPLOAD_BYTES;
+    const maxUploadBytes = getMaxUploadBytesForPlan(planId);
 
     const canManageVersions = await canManageAssetVersions({
       userId,
@@ -481,13 +488,36 @@ export async function POST(
       );
     }
 
+    const additionalStorageBytes = Math.max(0, file.size - existingAsset.file_size);
+    if (additionalStorageBytes > 0) {
+      const storageCapacity = await assertStorageCapacity({
+        organizationId: organization.id,
+        additionalBytes: additionalStorageBytes,
+      });
+      if (!storageCapacity.allowed) {
+        return NextResponse.json(
+          {
+            error: storageCapacity.message || "Storage limit exceeded",
+            code: "STORAGE_LIMIT_EXCEEDED",
+            limitBytes: storageCapacity.limitBytes,
+            usageBytes: storageCapacity.usageBytes,
+            projectedBytes: storageCapacity.projectedBytes,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const s3Service = new S3Service();
+    const thumbnailService = new ThumbnailService(s3Service);
     const s3Key = s3Service.generateAssetKey(organization.id, file.name);
     const publicUrl = s3Service.getPublicUrl(s3Key);
     const nextFileType = resolveAssetFileType(effectiveMimeType);
+    let uploadBuffer: Buffer | null = null;
 
     try {
       const fileBuffer = await file.arrayBuffer();
+      uploadBuffer = Buffer.from(fileBuffer);
       const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
       const s3Client = new S3Client({
         region: process.env.AWS_REGION || "ap-southeast-2",
@@ -499,10 +529,11 @@ export async function POST(
 
       await s3Client.send(
         new PutObjectCommand({
-          Bucket: process.env.AWS_S3_BUCKET!,
+          Bucket: process.env.AWS_S3_BUCKET_NAME!,
           Key: s3Key,
-          Body: Buffer.from(fileBuffer),
+          Body: uploadBuffer,
           ContentType: effectiveMimeType,
+          CacheControl: ASSET_OBJECT_CACHE_CONTROL,
         })
       );
     } catch (s3Error) {
@@ -512,6 +543,12 @@ export async function POST(
         { status: 500 }
       );
     }
+
+    const thumbnailUrls = await thumbnailService.generateThumbnails(
+      s3Key,
+      effectiveMimeType,
+      uploadBuffer || undefined
+    );
 
     const currentVersionNumber = Math.max(1, Number(existingAsset.current_version_number || 1));
     const nowIso = new Date().toISOString();
@@ -540,7 +577,7 @@ export async function POST(
         existingAsset.created_at,
     };
 
-    const { data: insertedPreviousVersion, error: insertVersionError } = await (supabase as any)
+    const { data: insertedPreviousVersion, error: insertVersionError } = await supabase
       .from("dam_asset_versions")
       .insert(previousVersionInsert)
       .select("id")
@@ -557,7 +594,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed to create version snapshot" }, { status: 500 });
     }
 
-    const { data: updatedAsset, error: updateError } = await (supabase as any)
+    const { data: updatedAsset, error: updateError } = await supabase
       .from("dam_assets")
       .update({
         filename: file.name,
@@ -567,7 +604,7 @@ export async function POST(
         mime_type: effectiveMimeType,
         s3_key: s3Key,
         s3_url: publicUrl,
-        thumbnail_urls: {},
+        thumbnail_urls: thumbnailUrls,
         current_version_number: currentVersionNumber + 1,
         current_version_comment: changeComment,
         current_version_effective_from: effectiveFrom,
@@ -583,12 +620,22 @@ export async function POST(
 
     if (updateError || !updatedAsset) {
       console.error("POST /assets/[assetId]/versions asset update failed:", updateError);
-      await (supabase as any)
+      await supabase
         .from("dam_asset_versions")
         .delete()
         .eq("id", insertedPreviousVersion.id)
         .eq("organization_id", organization.id);
       return NextResponse.json({ error: "Failed to update latest asset version" }, { status: 500 });
+    }
+
+    try {
+      await Promise.all([
+        redisCache.invalidatePattern(`${CacheKeys.assetsList(`${organization.id}:`)}*`),
+        redisCache.invalidatePattern(`${CacheKeys.apiResponse("assets", `${organization.id}:`)}*`),
+        redisCache.invalidatePattern(`${CacheKeys.assetPreview(assetId, "")}*`),
+      ]);
+    } catch (cacheError) {
+      console.warn("POST /assets/[assetId]/versions cache invalidation failed:", cacheError);
     }
 
     return NextResponse.json({

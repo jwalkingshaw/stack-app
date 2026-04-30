@@ -1,17 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { DatabaseQueries } from "@tradetool/database";
-import { S3Service } from "@tradetool/storage";
+import { DatabaseQueries } from "@stack-app/database";
+import { S3Service } from "@stack-app/storage";
 import { supabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { enforceRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
 import { logRateLimitSecurityEvent } from "@/lib/security-audit";
-import { getOrganizationBillingLimits } from "@/lib/billing-policy";
+import { isBandwidthLimitEnforcementEnabled, trackEstimatedDeliveryBandwidth } from "@/lib/bandwidth-metering";
+import { assertDeliveryBandwidthCapacity, getOrganizationBillingLimits } from "@/lib/billing-policy";
+import { canUsePublicShareLinks } from "@/lib/billing-policy";
 
 type AssetRow = {
   id: string;
   original_filename: string;
   mime_type: string;
   s3_key: string;
+  file_size: number;
+};
+
+type ShareRow = {
+  asset_id: string;
+  public_enabled: boolean | null;
+  allow_downloads: boolean | null;
+  expires_at: string | null;
 };
 
 const isShareExpired = (expiresAt?: string) => {
@@ -36,33 +46,33 @@ const findSharedAsset = async (tenant: string, token: string): Promise<ShareLook
   if (!org) return null;
   const { planId } = await getOrganizationBillingLimits(org.id);
 
-  const { data: shareRow } = await (supabaseServer as any)
+  const { data: shareRow } = await supabaseServer
     .from("asset_shares")
     .select("asset_id, public_enabled, allow_downloads, expires_at")
     .eq("organization_id", org.id)
     .eq("token", token)
-    .maybeSingle();
+    .maybeSingle<ShareRow>();
   if (!shareRow) {
     return null;
   }
 
-  const { data: assetRow } = await (supabaseServer as any)
+  const { data: assetRow } = await supabaseServer
     .from("dam_assets")
-    .select("id, original_filename, mime_type, s3_key")
+    .select("id, original_filename, mime_type, s3_key, file_size")
     .eq("organization_id", org.id)
-    .eq("id", (shareRow as any).asset_id)
-    .maybeSingle();
+    .eq("id", shareRow.asset_id)
+    .maybeSingle<AssetRow>();
   if (!assetRow) {
     return null;
   }
 
   return {
     organizationId: org.id,
-    asset: assetRow as AssetRow,
-    publicEnabled: Boolean((shareRow as any).public_enabled),
-    allowDownloads: Boolean((shareRow as any).allow_downloads),
-    expiresAt: String((shareRow as any).expires_at),
-    forceAuthenticatedAccess: planId === "free",
+    asset: assetRow,
+    publicEnabled: Boolean(shareRow.public_enabled),
+    allowDownloads: Boolean(shareRow.allow_downloads),
+    expiresAt: String(shareRow.expires_at),
+    forceAuthenticatedAccess: !canUsePublicShareLinks(planId),
   };
 };
 
@@ -112,6 +122,29 @@ export async function GET(
     if (!allowDownloads) {
       return NextResponse.json({ error: "Downloads are disabled for this link" }, { status: 403 });
     }
+
+    if (isBandwidthLimitEnforcementEnabled()) {
+      const capacity = await assertDeliveryBandwidthCapacity({
+        organizationId: share.organizationId,
+        additionalBytes: share.asset.file_size,
+      });
+      if (!capacity.allowed) {
+        return NextResponse.json(
+          {
+            error: capacity.message || "Monthly delivery bandwidth limit reached",
+            code: "DELIVERY_BANDWIDTH_LIMIT_EXCEEDED",
+            capacity,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    await trackEstimatedDeliveryBandwidth({
+      organizationId: share.organizationId,
+      bytes: share.asset.file_size,
+      source: "public_asset_download",
+    });
 
     const s3Service = new S3Service();
     const downloadUrl = await s3Service.getPresignedDownloadUrl(share.asset.s3_key, 300, {

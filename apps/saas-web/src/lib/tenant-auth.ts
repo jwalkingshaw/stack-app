@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
 import { supabaseServer } from "@/lib/supabase";
-import { DatabaseQueries } from "@tradetool/database";
-import type { Organization } from "@tradetool/types";
+import { DatabaseQueries } from "@stack-app/database";
+import type { Organization } from "@stack-app/types";
 import { evaluateTenantAccessDecision } from "@/lib/tenant-access-decision";
 
 export interface TenantAuthResult {
@@ -85,7 +85,7 @@ export async function verifyTenantAccess(
     }
 
     const userId = session.user?.id || "";
-    const { data: membershipRows, error: membershipError } = await (supabaseServer as any)
+    const { data: membershipRows, error: membershipError } = await supabaseServer
       .from("organization_members")
       .select("id")
       .eq("organization_id", organization.id)

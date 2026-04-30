@@ -1,30 +1,30 @@
-'use client';
+﻿'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
+import {
+  CanonicalDateFieldOptions,
+  normalizeDateFieldOptions,
+} from './field-option-schema';
 
-interface DateFieldOptions {
-  format?: 'date' | 'datetime' | 'time';
-  minDate?: string;
-  maxDate?: string;
-  defaultToToday?: boolean;
-}
+type DateFieldOptions = CanonicalDateFieldOptions;
 
 interface DateFieldProps {
-  value?: DateFieldOptions;
+  value?: Partial<DateFieldOptions> | Record<string, unknown>;
   onChange: (options: DateFieldOptions) => void;
 }
 
-export default function DateField({ value = {}, onChange }: DateFieldProps) {
-  const [options, setOptions] = useState<DateFieldOptions>({
-    format: 'date',
-    minDate: '',
-    maxDate: '',
-    defaultToToday: false,
-    ...value
-  });
+export default function DateField({ value, onChange }: DateFieldProps) {
+  const [options, setOptions] = useState<DateFieldOptions>(() => normalizeDateFieldOptions(value));
 
-  const updateOption = (key: keyof DateFieldOptions, val: any) => {
+  useEffect(() => {
+    setOptions(normalizeDateFieldOptions(value));
+  }, [value]);
+
+  const updateOption = (
+    key: keyof DateFieldOptions,
+    val: DateFieldOptions[keyof DateFieldOptions]
+  ) => {
     const newOptions = { ...options, [key]: val };
     setOptions(newOptions);
     onChange(newOptions);
@@ -32,11 +32,11 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
 
   const todayDate = new Date();
   const defaultDateValue =
-    options.defaultToToday && options.format !== 'time'
+    options.default_to_today && options.format !== 'time'
       ? todayDate.toISOString().split('T')[0]
       : '';
   const defaultDateTimeValue =
-    options.defaultToToday && options.format === 'datetime'
+    options.default_to_today && options.format === 'datetime'
       ? todayDate.toISOString().slice(0, 16)
       : '';
 
@@ -60,7 +60,7 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
                 name="format"
                 value="date"
                 checked={options.format === 'date'}
-                onChange={(e) => updateOption('format', e.target.value)}
+                onChange={(e) => updateOption('format', e.target.value as DateFieldOptions['format'])}
                 className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
               />
               <span className="text-sm leading-6 text-foreground">Date only (MM/DD/YYYY)</span>
@@ -71,7 +71,7 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
                 name="format"
                 value="datetime"
                 checked={options.format === 'datetime'}
-                onChange={(e) => updateOption('format', e.target.value)}
+                onChange={(e) => updateOption('format', e.target.value as DateFieldOptions['format'])}
                 className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
               />
               <span className="text-sm leading-6 text-foreground">Date and time (MM/DD/YYYY HH:MM)</span>
@@ -82,7 +82,7 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
                 name="format"
                 value="time"
                 checked={options.format === 'time'}
-                onChange={(e) => updateOption('format', e.target.value)}
+                onChange={(e) => updateOption('format', e.target.value as DateFieldOptions['format'])}
                 className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
               />
               <span className="text-sm leading-6 text-foreground">Time only (HH:MM)</span>
@@ -97,8 +97,8 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
               <label className="text-sm font-medium text-foreground">Minimum date</label>
               <Input
                 type="date"
-                value={options.minDate}
-                onChange={(e) => updateOption('minDate', e.target.value)}
+                value={options.min_date}
+                onChange={(e) => updateOption('min_date', e.target.value)}
                 className="h-11"
               />
               <p className="text-xs text-muted-foreground">Earliest allowed date</p>
@@ -107,8 +107,8 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
               <label className="text-sm font-medium text-foreground">Maximum date</label>
               <Input
                 type="date"
-                value={options.maxDate}
-                onChange={(e) => updateOption('maxDate', e.target.value)}
+                value={options.max_date}
+                onChange={(e) => updateOption('max_date', e.target.value)}
                 className="h-11"
               />
               <p className="text-xs text-muted-foreground">Latest allowed date</p>
@@ -122,11 +122,11 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
             <label className="flex cursor-pointer items-center gap-3 rounded-md border border-transparent px-3 py-2 text-sm transition-colors hover:bg-muted/40">
               <input
                 type="checkbox"
-                checked={options.defaultToToday}
-                onChange={(e) => updateOption('defaultToToday', e.target.checked)}
+                checked={options.default_to_today}
+                onChange={(e) => updateOption('default_to_today', e.target.checked)}
                 className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
               />
-              <span className="text-sm leading-6 text-foreground">Default to today's date</span>
+              <span className="text-sm leading-6 text-foreground">Default to today&apos;s date</span>
             </label>
           </div>
         )}
@@ -138,8 +138,8 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
             {options.format === 'date' && (
               <Input
                 type="date"
-                min={options.minDate}
-                max={options.maxDate}
+                min={options.min_date}
+                max={options.max_date}
                 defaultValue={defaultDateValue}
                 className="w-48"
               />
@@ -148,8 +148,8 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
             {options.format === 'datetime' && (
               <Input
                 type="datetime-local"
-                min={options.minDate}
-                max={options.maxDate}
+                min={options.min_date}
+                max={options.max_date}
                 defaultValue={defaultDateTimeValue}
                 className="w-64"
               />
@@ -163,11 +163,11 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
             )}
 
             <div className="text-xs text-muted-foreground">
-              {options.minDate && `Min: ${options.minDate}`}
-              {options.minDate && options.maxDate && ' • '}
-              {options.maxDate && `Max: ${options.maxDate}`}
-              {options.defaultToToday && (options.minDate || options.maxDate) && ' • '}
-              {options.defaultToToday && 'Defaults to today'}
+              {options.min_date && `Min: ${options.min_date}`}
+              {options.min_date && options.max_date && ' | '}
+              {options.max_date && `Max: ${options.max_date}`}
+              {options.default_to_today && (options.min_date || options.max_date) && ' | '}
+              {options.default_to_today && 'Defaults to today'}
             </div>
           </div>
         </div>
@@ -175,3 +175,4 @@ export default function DateField({ value = {}, onChange }: DateFieldProps) {
     </div>
   );
 }
+

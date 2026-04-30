@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
-import { DatabaseQueries, createServerClient } from "@tradetool/database";
+import { DatabaseQueries, createServerClient } from "@stack-app/database";
 import { kindeAPI } from "@/lib/kinde-management";
 
 const supabase = createServerClient();
@@ -19,7 +19,7 @@ async function isSlugAvailable(slug: string): Promise<boolean> {
       const existingOrg = await db.getOrganizationBySlug(slug);
       return !existingOrg;
     }
-  } catch (error) {
+  } catch {
     return false;
   }
 }

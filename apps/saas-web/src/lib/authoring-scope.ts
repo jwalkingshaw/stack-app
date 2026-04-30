@@ -1,3 +1,6 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database, Json } from "@stack-app/database";
+
 export type AuthoringScopeMode = "global" | "scoped";
 
 export type AuthoringScope = {
@@ -147,15 +150,20 @@ function splitMissingIds(expected: string[], found: Array<{ id: string }>): stri
   return expected.filter((id) => !foundIds.has(id));
 }
 
-export function isMissingAssetScopeAssignmentsFoundation(error: any): boolean {
-  const code = String(error?.code || "");
+export function isMissingAssetScopeAssignmentsFoundation(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const normalizedError = error as { code?: unknown; message?: unknown };
+  const code = typeof normalizedError.code === "string" ? normalizedError.code : "";
   if (code === MISSING_TABLE_CODE || code === MISSING_RELATION_CODE) return true;
-  const message = String(error?.message || "").toLowerCase();
+  const message =
+    typeof normalizedError.message === "string"
+      ? normalizedError.message.toLowerCase()
+      : "";
   return message.includes("asset_scope_assignments");
 }
 
 export async function validateAuthoringScope(params: {
-  supabase: any;
+  supabase: SupabaseClient<Database>;
   organizationId: string;
   rawScope: unknown;
 }): Promise<ScopeValidationResult> {
@@ -192,7 +200,7 @@ export async function validateAuthoringScope(params: {
   }
 
   if (marketIds.length > 0) {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("markets")
       .select("id")
       .eq("organization_id", organizationId)
@@ -215,7 +223,7 @@ export async function validateAuthoringScope(params: {
   }
 
   if (channelIds.length > 0) {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("channels")
       .select("id")
       .eq("organization_id", organizationId)
@@ -238,7 +246,7 @@ export async function validateAuthoringScope(params: {
   }
 
   if (localeIds.length > 0) {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("locales")
       .select("id")
       .eq("is_active", true)
@@ -265,7 +273,7 @@ export async function validateAuthoringScope(params: {
   >();
 
   if (destinationIds.length > 0) {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("channel_destinations")
       .select("id,channel_id,market_id")
       .eq("organization_id", organizationId)
@@ -292,7 +300,7 @@ export async function validateAuthoringScope(params: {
   }
 
   if (marketIds.length > 0 && localeIds.length > 0) {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("market_locales")
       .select("market_id,locale_id")
       .eq("is_active", true)
@@ -366,7 +374,7 @@ export async function validateAuthoringScope(params: {
 }
 
 export async function replaceAssetScopeAssignments(params: {
-  supabase: any;
+  supabase: SupabaseClient<Database>;
   organizationId: string;
   assetId: string;
   rawScope: unknown;
@@ -386,7 +394,7 @@ export async function replaceAssetScopeAssignments(params: {
 
   const { tuples, scope } = validation;
 
-  const { error: deleteError } = await (params.supabase as any)
+  const { error: deleteError } = await params.supabase
     .from("asset_scope_assignments")
     .delete()
     .eq("organization_id", params.organizationId)
@@ -413,11 +421,11 @@ export async function replaceAssetScopeAssignments(params: {
     destination_id: tuple.destination_id,
     source: params.source,
     is_active: true,
-    metadata: params.metadata || {},
+    metadata: (params.metadata || {}) as Json,
     created_by: params.userId,
-  }));
+  })) as Database["public"]["Tables"]["asset_scope_assignments"]["Insert"][];
 
-  const { error: insertError } = await (params.supabase as any)
+  const { error: insertError } = await params.supabase
     .from("asset_scope_assignments")
     .insert(rows);
 

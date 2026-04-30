@@ -92,7 +92,7 @@ export function WorkspaceSwitcher({
 
         {isOpen && (
           <div className="absolute left-12 top-0 z-50 w-64 bg-white border border-border rounded-lg shadow-lg">
-            <div className="p-2 border-b border-border">
+            <div className="p-2 border-b border-gray-200">
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1">
                 Switch Workspace
               </div>
@@ -101,7 +101,7 @@ export function WorkspaceSwitcher({
               {renderWorkspaceList()}
               <button
                 onClick={handleCreateWorkspace}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-muted/50 transition-colors border-t border-border mt-1 pt-3"
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-muted/50 transition-colors border-t border-gray-200 mt-1 pt-3"
               >
                 <Plus className="h-4 w-4 text-muted-foreground" />
                 <span>Create workspace</span>
@@ -133,7 +133,7 @@ export function WorkspaceSwitcher({
 
       {isOpen && (
         <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-lg shadow-lg">
-          <div className="p-2 border-b border-border">
+          <div className="p-2 border-b border-gray-200">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1">
               Switch Workspace
             </div>
@@ -142,7 +142,7 @@ export function WorkspaceSwitcher({
             {renderWorkspaceList()}
             <button
               onClick={handleCreateWorkspace}
-              className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-muted/50 transition-colors border-t border-border mt-1 pt-3"
+              className="w-full flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg hover:bg-muted/50 transition-colors border-t border-gray-200 mt-1 pt-3"
             >
               <Plus className="h-4 w-4 text-muted-foreground" />
               <span>Create workspace</span>

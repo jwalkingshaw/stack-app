@@ -1,0 +1,215 @@
+{
+  "Onboarding": {
+    "slug": {
+      "checking": "Verificando disponibilidad...",
+      "available": "Disponible.",
+      "findingAlternatives": "Buscando alternativas...",
+      "suggestAlternatives": "Sugerir alternativas",
+      "alternatives": "Alternativas disponibles:"
+    },
+    "hero": {
+      "welcome": "Bienvenido!",
+      "welcomeWithName": "Bienvenido, {name}!",
+      "subtitleBrand": "Crea tu espacio en menos de un minuto. No se requiere tarjeta.",
+      "subtitlePartner": "Crea tu espacio partner gratis. Cualquier marca en Stackcess puede compartir contenido de productos directamente aqui.",
+      "subtitlePartnerInvite": "Crea tu espacio partner gratis para aceptar contenido de marca, kits de lanzamiento y documentos de cumplimiento."
+    },
+    "actions": {
+      "loading": "Cargando...",
+      "creatingWorkspace": "Creando espacio de trabajo...",
+      "continue": "Continuar",
+      "createOrganization": "Crear organizacion",
+      "backToEdit": "Volver a editar",
+      "createWorkspace": "Crear espacio",
+      "createPartnerWorkspace": "Crear espacio partner"
+    },
+    "fields": {
+      "organizationName": "Nombre de la organizacion",
+      "workspaceName": "Nombre del espacio",
+      "partnerOrganizationName": "Nombre de organizacion partner",
+      "workspaceUrl": "URL del espacio de trabajo",
+      "workspaceUrlHint": "Esta sera la URL de tu espacio y no podra reutilizarse por otro equipo.",
+      "partnerUrl": "URL partner",
+      "businessType": "Tipo de negocio",
+      "partnerBusinessType": "Tipo de negocio partner",
+      "selectBusinessType": "Selecciona tipo de negocio",
+      "industry": "Industria",
+      "selectIndustry": "Selecciona industria",
+      "teamSize": "Tamano de equipo",
+      "selectTeamSize": "Selecciona tamano de equipo",
+      "primaryMarket": "Mercado principal",
+      "loadingMarkets": "Cargando mercados...",
+      "selectPrimaryMarket": "Selecciona mercado principal",
+      "primaryMarketHint": "Crearemos este mercado como predeterminado para ruteo y agrupación. Ya no define tu configuración regional de contenido.",
+      "workspaceLanguage": "Idioma del espacio de trabajo",
+      "selectWorkspaceLanguage": "Selecciona idioma del espacio de trabajo",
+      "workspaceLanguageHint": "Esto controla el idioma predeterminado de la interfaz para los usuarios de este espacio."
+    },
+    "placeholders": {
+      "workspaceName": "Acme Corporation",
+      "partnerOrganizationName": "GNC"
+    },
+    "businessTypeOptions": {
+      "brand": "Marca (recomendado)",
+      "retailer": "Retailer",
+      "distributor": "Distribuidor",
+      "wholesaler": "Mayorista"
+    },
+    "industryOptions": {
+      "supplements": "Suplementos y nutricion",
+      "sports": "Deportes y fitness",
+      "wellness": "Salud y bienestar",
+      "retail": "Retail y distribucion",
+      "other": "Otro"
+    },
+    "teamSizeOptions": {
+      "1-5": "1-5 personas",
+      "6-20": "6-20 personas",
+      "21-50": "21-50 personas",
+      "51-200": "51-200 personas",
+      "200+": "200+ personas"
+    },
+    "optionalDefaults": {
+      "title": "Valores predeterminados opcionales",
+      "hint": "Configuralos ahora o cambialos despues en Settings."
+    },
+    "errors": {
+      "failedToConnectPartner": "No se pudo conectar el partner con la marca.",
+      "workspaceCreateFailed": "No se pudo crear la organizacion. Intentalo de nuevo."
+    },
+    "footer": {
+      "noCreditCardHint": "No se requiere tarjeta. Puedes actualizar los detalles despues."
+    },
+    "kitFlow": {
+      "title": "Configura tu espacio de trabajo",
+      "subtitle": "Solo necesitamos el nombre de tu organizacion. Puedes completar el resto despues.",
+      "organizationPlaceholder": "ej. GNC o Acme Retail",
+      "createAndAccess": "Crear espacio y acceder al kit",
+      "freeHint": "Tu espacio es gratis para siempre. No se requiere tarjeta."
+    },
+    "confirm": {
+      "title": "Listo para crear {name}?",
+      "subtitle": "Configuraremos tu espacio de gestion de activos digitales.",
+      "workspaceUrl": "URL de tu espacio",
+      "organizationName": "Nombre de la organizacion",
+      "partnerBusinessType": "Tipo de negocio del partner",
+      "businessType": "Tipo de negocio",
+      "defaultMarket": "Mercado predeterminado",
+      "workspaceLanguage": "Idioma del espacio de trabajo"
+    }
+  },
+  "Login": {
+    "loadingRedirecting": "Redirigiendo a autenticacion...",
+    "loadingPreparing": "Preparando tu espacio...",
+    "title": "Bienvenido de nuevo",
+    "subtitle": "Inicia sesion para gestionar productos, activos y distribucion con partners.",
+    "actions": {
+      "signIn": "Iniciar sesion",
+      "createFreeAccount": "Crear cuenta gratis",
+      "joinAsPartner": "Unirse como partner (retailer / distribuidor)"
+    },
+    "helper": "Nuevo en Stackcess? Crea una cuenta gratis en menos de un minuto. No se requiere tarjeta. Retailers y distribuidores pueden usar un espacio partner gratis para recibir contenido de todas sus marcas en un solo lugar."
+  },
+  "Shell": {
+    "Header": {
+      "back": "Volver"
+    },
+    "Sidebar": {
+      "dashboard": "Panel",
+      "catalog": "Catalogo",
+      "assets": "Activos",
+      "brandLibrary": "Biblioteca de Marca",
+      "products": "Productos",
+      "syndication": "Sindicacion",
+      "updates": "Actualizaciones",
+      "expandSidebar": "Expandir barra lateral de navegacion",
+      "collapseSidebar": "Contraer barra lateral de navegacion",
+      "openAccountMenu": "Abrir menu de cuenta",
+      "workspace": "Espacio de trabajo",
+      "signedInAs": "Sesion iniciada como {user}",
+      "settings": "Configuracion",
+      "inviteManageMembers": "Invitar y gestionar miembros",
+      "helpCenter": "Centro de ayuda",
+      "logOut": "Cerrar sesion"
+    },
+    "WorkspaceRail": {
+      "workspaceSwitcher": "Selector de espacios",
+      "viewAll": "Ver todo",
+      "home": "Inicio",
+      "newCount": "nuevo",
+      "createWorkspace": "Crear espacio",
+      "notifications": "Notificaciones"
+    }
+  },
+  "Settings": {
+    "Navigation": {
+      "backToApp": "Volver a la app",
+      "sections": {
+        "organization": "Organizacion",
+        "product-families": "Modelos de producto",
+        "field-groups": "Grupos de atributos",
+        "product-fields": "Atributos",
+        "markets": "Mercados",
+        "localization": "Localizacion",
+        "output-profiles": "Sindicacion",
+        "team": "Equipo",
+        "sets": "Alcances Guardados",
+        "billing": "Facturacion"
+      }
+    },
+    "Organization": {
+      "toasts": {
+        "loadError": "No se pudo cargar la configuracion de la organizacion",
+        "saveSuccess": "Configuracion guardada",
+        "saveError": "No se pudo guardar la configuracion",
+        "logoTypeError": "Sube un archivo PNG o JPG",
+        "logoSizeError": "El logo debe ser de 2MB o menos",
+        "logoUploaded": "Logo subido",
+        "logoUploadError": "No se pudo subir el logo"
+      },
+      "cards": {
+        "organization": {
+          "title": "Detalles de la organizacion",
+          "description": "Administra la informacion y la marca de tu espacio"
+        },
+        "branding": {
+          "title": "Marca",
+          "description": "Sube el logo de tu organizacion y personaliza la marca",
+          "logoAlt": "Logo de {workspace}",
+          "workspaceFallback": "Espacio",
+          "uploading": "Subiendo...",
+          "upload": "Subir logo",
+          "hint": "PNG o JPG de hasta 2MB. Recomendado: 200x200px"
+        },
+        "language": {
+          "title": "Preferencias de idioma",
+          "description": "Configura el idioma predeterminado del espacio y tu preferencia personal.",
+          "workspaceDefault": "Idioma predeterminado del espacio",
+          "workspaceDefaultLocked": "Solo owners y admins pueden cambiar el idioma predeterminado del espacio.",
+          "userOverride": "Mi preferencia de idioma",
+          "useWorkspaceDefault": "Usar predeterminado del espacio",
+          "effectiveLabel": "Idioma efectivo: {locale}"
+        }
+      },
+      "fields": {
+        "name": "Nombre de la organizacion",
+        "website": "Sitio web",
+        "description": "Descripcion",
+        "descriptionPlaceholder": "Descripcion breve de tu organizacion..."
+      },
+      "footer": {
+        "hint": "Los cambios se guardan automaticamente en este espacio.",
+        "status": {
+          "saving": "Guardando...",
+          "saved": "Guardado",
+          "unsaved": "Cambios sin guardar",
+          "error": "Fallo el guardado automatico"
+        }
+      },
+      "actions": {
+        "saving": "Guardando...",
+        "save": "Guardar cambios"
+      }
+    }
+  }
+}

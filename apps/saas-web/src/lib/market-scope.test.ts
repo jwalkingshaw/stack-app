@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import type { NextResponse } from "next/server";
 import { enforceMarketScopedAccess } from "./market-scope";
 
+type EnforceMarketScopeInput = Parameters<typeof enforceMarketScopedAccess>[0];
+type MarketScopeResult = Awaited<ReturnType<typeof enforceMarketScopedAccess>>;
+
 type StubAuthService = {
   hasScopedPermission: (params: {
     userId: string;
@@ -20,17 +23,17 @@ function createSupabaseStub(config: {
 }) {
   return {
     from(table: string) {
-      const state: Record<string, any> = { table };
+      const state: Record<string, unknown> = { table };
 
       const chain = {
-        select(_value: string) {
+        select() {
           return chain;
         },
-        eq(key: string, value: any) {
+        eq(key: string, value: unknown) {
           state[key] = value;
           return chain;
         },
-        ilike(key: string, value: any) {
+        ilike(key: string, value: unknown) {
           state[key] = value;
           return chain;
         },
@@ -70,50 +73,74 @@ async function responseStatus(response: NextResponse) {
   return response.status;
 }
 
+function asAuthService(stub: StubAuthService): EnforceMarketScopeInput["authService"] {
+  return stub as unknown as EnforceMarketScopeInput["authService"];
+}
+
+function asSupabaseClient(stub: ReturnType<typeof createSupabaseStub>): EnforceMarketScopeInput["supabase"] {
+  return stub as unknown as EnforceMarketScopeInput["supabase"];
+}
+
+function assertDenied(result: MarketScopeResult) {
+  assert.equal(result.ok, false);
+  if (result.ok) {
+    throw new Error("Expected denied result");
+  }
+  return result;
+}
+
+function assertAllowed(result: MarketScopeResult) {
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    throw new Error("Expected allowed result");
+  }
+  return result;
+}
+
 test("denies when marketId is missing and user lacks org-level permission", async () => {
   const result = await enforceMarketScopedAccess({
-    authService: createAuthStub(() => false) as any,
-    supabase: createSupabaseStub({}) as any,
+    authService: asAuthService(createAuthStub(() => false)),
+    supabase: asSupabaseClient(createSupabaseStub({})),
     userId: "user_1",
     organizationId: "org_1",
     permissionKey: "product.market.scope.read",
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(await responseStatus((result as any).response), 403);
+  const denied = assertDenied(result);
+  assert.equal(await responseStatus(denied.response), 403);
 });
 
 test("allows when marketId is missing but user has org-level permission", async () => {
   const result = await enforceMarketScopedAccess({
-    authService: createAuthStub(() => true) as any,
-    supabase: createSupabaseStub({}) as any,
+    authService: asAuthService(createAuthStub(() => true)),
+    supabase: asSupabaseClient(createSupabaseStub({})),
     userId: "user_1",
     organizationId: "org_1",
     permissionKey: "product.market.scope.read",
   });
 
-  assert.equal(result.ok, true);
-  assert.equal((result as any).marketId, null);
+  const allowed = assertAllowed(result);
+  assert.equal(allowed.marketId, null);
 });
 
 test("denies when market does not exist in organization", async () => {
   const result = await enforceMarketScopedAccess({
-    authService: createAuthStub(() => true) as any,
-    supabase: createSupabaseStub({ marketExists: false }) as any,
+    authService: asAuthService(createAuthStub(() => true)),
+    supabase: asSupabaseClient(createSupabaseStub({ marketExists: false })),
     userId: "user_1",
     organizationId: "org_1",
     permissionKey: "product.market.scope.read",
     marketId: "mkt_missing",
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(await responseStatus((result as any).response), 404);
+  const denied = assertDenied(result);
+  assert.equal(await responseStatus(denied.response), 404);
 });
 
 test("denies when user lacks permission for requested market scope", async () => {
   const result = await enforceMarketScopedAccess({
-    authService: createAuthStub((marketId) => marketId !== "mkt_denied") as any,
-    supabase: createSupabaseStub({ marketExists: true }) as any,
+    authService: asAuthService(createAuthStub((marketId) => marketId !== "mkt_denied")),
+    supabase: asSupabaseClient(createSupabaseStub({ marketExists: true })),
     userId: "user_1",
     organizationId: "org_1",
     permissionKey: "product.market.scope.read",
@@ -122,14 +149,14 @@ test("denies when user lacks permission for requested market scope", async () =>
     collectionId: "col_1",
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(await responseStatus((result as any).response), 403);
+  const denied = assertDenied(result);
+  assert.equal(await responseStatus(denied.response), 403);
 });
 
 test("denies when locale is not enabled for allowed market", async () => {
   const result = await enforceMarketScopedAccess({
-    authService: createAuthStub(() => true) as any,
-    supabase: createSupabaseStub({ marketExists: true, localeExists: false }) as any,
+    authService: asAuthService(createAuthStub(() => true)),
+    supabase: asSupabaseClient(createSupabaseStub({ marketExists: true, localeExists: false })),
     userId: "user_1",
     organizationId: "org_1",
     permissionKey: "product.market.scope.read",
@@ -137,8 +164,8 @@ test("denies when locale is not enabled for allowed market", async () => {
     localeCode: "es-MX",
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(await responseStatus((result as any).response), 403);
+  const denied = assertDenied(result);
+  assert.equal(await responseStatus(denied.response), 403);
 });
 
 test("passes channel and collection scope into org-level permission check", async () => {
@@ -160,8 +187,8 @@ test("passes channel and collection scope into org-level permission check", asyn
   };
 
   const result = await enforceMarketScopedAccess({
-    authService: authStub as any,
-    supabase: createSupabaseStub({}) as any,
+    authService: asAuthService(authStub),
+    supabase: asSupabaseClient(createSupabaseStub({})),
     userId: "user_1",
     organizationId: "org_1",
     permissionKey: "asset.download.derivative",
@@ -181,8 +208,8 @@ test("denies implicit global access when scoped org-level check returns false", 
   };
 
   const denied = await enforceMarketScopedAccess({
-    authService: authStub as any,
-    supabase: createSupabaseStub({}) as any,
+    authService: asAuthService(authStub),
+    supabase: asSupabaseClient(createSupabaseStub({})),
     userId: "user_1",
     organizationId: "org_1",
     permissionKey: "asset.download.derivative",
@@ -190,6 +217,6 @@ test("denies implicit global access when scoped org-level check returns false", 
     collectionId: "col_allowed",
   });
 
-  assert.equal(denied.ok, false);
-  assert.equal(await responseStatus((denied as any).response), 403);
+  const deniedResult = assertDenied(denied);
+  assert.equal(await responseStatus(deniedResult.response), 403);
 });

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-server";
-import { createServerClient } from "@tradetool/database";
+import { createServerClient } from "@stack-app/database";
 import { getActiveWorkspaceMemberships } from "@/lib/workspace-notifications";
 import AllBrandsClient from "../all-brands/AllBrandsClient";
 
@@ -30,6 +30,7 @@ export default async function HomePage() {
     role: membership.role,
     organizationType: membership.organization.organizationType,
     partnerCategory: membership.organization.partnerCategory,
+    logoUrl: membership.organization.logoUrl ?? null,
     lastAccessed: membership.lastAccessedAt || undefined,
     unreadCount: 0,
   }));
@@ -72,6 +73,7 @@ export default async function HomePage() {
               slug: sidebarMembership.organization.slug,
               organizationType: sidebarMembership.organization.organizationType,
               partnerCategory: sidebarMembership.organization.partnerCategory,
+              logoUrl: sidebarMembership.organization.logoUrl ?? null,
               storageUsed: sidebarMembership.organization.storageUsed,
               storageLimit: sidebarMembership.organization.storageLimit,
             }

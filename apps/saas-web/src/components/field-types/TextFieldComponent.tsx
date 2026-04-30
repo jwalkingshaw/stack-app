@@ -1,6 +1,7 @@
 'use client';
 
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { ProductField } from './DynamicFieldRenderer';
 
 interface TextFieldComponentProps {
@@ -25,7 +26,6 @@ export function TextFieldComponent({
   };
 
   const maxLength = field.options?.max_length;
-  const minLength = field.options?.min_length;
 
   return (
     <div className="space-y-2">
@@ -36,7 +36,7 @@ export function TextFieldComponent({
         placeholder={field.description || `Enter ${field.name.toLowerCase()}`}
         disabled={disabled}
         maxLength={maxLength}
-        className={className}
+        className={cn(className)}
       />
       {maxLength && (
         <div className="text-xs text-muted-foreground text-right">

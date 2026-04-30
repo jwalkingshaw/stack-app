@@ -64,7 +64,7 @@ export async function PATCH(
       updatePayload.is_active = Boolean(body?.is_active);
     }
 
-    const { data, error } = await (supabaseServer as any)
+    const { data, error } = await supabaseServer
       .from("translation_glossaries")
       .update(updatePayload)
       .eq("organization_id", organization.id)
@@ -110,7 +110,7 @@ export async function DELETE(
       );
     }
 
-    const { error } = await (supabaseServer as any)
+    const { error } = await supabaseServer
       .from("translation_glossaries")
       .delete()
       .eq("organization_id", organization.id)

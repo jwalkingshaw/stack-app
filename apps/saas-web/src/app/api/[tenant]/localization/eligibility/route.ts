@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getOrganizationBillingLimits } from "@/lib/billing-policy";
+import { canUseDeepL, getOrganizationBillingLimits } from "@/lib/billing-policy";
 import { requireLocalizationAccess } from "../_shared";
 
 // GET /api/[tenant]/localization/eligibility
@@ -15,7 +15,7 @@ export async function GET(
     const { organization } = access.context;
     const { planId } = await getOrganizationBillingLimits(organization.id);
 
-    const canTranslateProduct = planId !== "starter";
+    const canTranslateProduct = canUseDeepL(planId);
 
     return NextResponse.json({
       success: true,
@@ -25,7 +25,7 @@ export async function GET(
         restrictions: {
           translateProduct: canTranslateProduct
             ? null
-            : "Translate this product is disabled on Starter. Upgrade plan to enable translation.",
+            : "Translation is unavailable on Free (Sandbox). Upgrade your plan to enable DeepL-powered translation and writing.",
         },
       },
     });

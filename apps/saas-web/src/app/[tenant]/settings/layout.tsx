@@ -1,9 +1,15 @@
 import { Suspense } from 'react';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { getSafeUserData } from '@/lib/auth-server';
-import { PageHeader } from '@/components/ui/page-header';
 import SettingsNavigation from './components/SettingsNavigation';
-import { PageLoader } from '@/components/ui/loading-spinner';
-import { createServerClient, DatabaseQueries } from '@tradetool/database';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
+import { createServerClient, DatabaseQueries } from '@stack-app/database';
+import { getOrganizationBillingLimits } from '@/lib/billing-policy';
+import {
+  buildPartnerSettingsRedirectPath,
+  isPartnerSettingsPathAllowed,
+} from '@/lib/partner-settings-access';
 
 interface SettingsLayoutProps {
   children: React.ReactNode;
@@ -14,14 +20,31 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
   const { tenant } = await params;
 
   // Get user and organization data for consistent styling
-  const [userData, organization] = await Promise.all([
+  const [userData, organization, requestHeaders] = await Promise.all([
     getSafeUserData(),
     (async () => {
       const supabase = createServerClient();
       const db = new DatabaseQueries(supabase);
       return db.getOrganizationBySlug(tenant);
     })(),
+    headers(),
   ]);
+
+  const organizationType = (organization?.organizationType ||
+    organization?.type ||
+    "brand") as "brand" | "partner";
+  const requestPathname =
+    requestHeaders.get("x-request-pathname") ?? `/${tenant}/settings`;
+  if (
+    organizationType === "partner" &&
+    !isPartnerSettingsPathAllowed(requestPathname, tenant)
+  ) {
+    redirect(buildPartnerSettingsRedirectPath(tenant));
+  }
+
+  const planId = organization
+    ? await getOrganizationBillingLimits(organization.id).then((r) => r.planId).catch(() => 'free')
+    : 'free';
 
   // userData already has the correct type structure from getSafeUserData
   const safeUserData = userData as {
@@ -36,38 +59,39 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
         id: organization.id,
         name: organization.name,
         slug: organization.slug,
-        type: (organization.organizationType || organization.type || "brand") as "brand" | "partner",
+        type: organizationType,
         partnerCategory: organization.partnerCategory ?? null,
+        logoUrl: organization.logoUrl ?? null,
         storageUsed: organization.storageUsed,
         storageLimit: organization.storageLimit,
       }
     : null;
 
   return (
-    <div className="min-h-screen bg-sidebar overflow-hidden">
-      <div className="flex h-screen max-w-full">
-        {/* Settings Sidebar - replaces SAAS sidebar */}
-        <div className="sticky top-0 h-screen flex-shrink-0">
-          <SettingsNavigation
-            tenantSlug={tenant}
-            organization={safeOrganizationData}
-            user={safeUserData}
-          />
-        </div>
+    <div className="min-h-screen overflow-hidden bg-[hsl(var(--app-shell-canvas))]">
+      <div className="h-screen w-full p-1.5">
+        <div className="flex h-full max-w-full overflow-hidden rounded-[22px] bg-[hsl(var(--app-shell-surface))] shadow-soft">
+          <div className="sticky top-0 h-full flex-shrink-0">
+            <SettingsNavigation
+              tenantSlug={tenant}
+              organization={safeOrganizationData}
+              user={safeUserData}
+              planId={planId}
+            />
+          </div>
 
-        {/* Content area with grey border frame - matches AppLayoutShell styling */}
-        <div className="flex-1 min-w-0 p-2 h-screen bg-[#f5f5f5]">
-          <div className="h-full w-full bg-background rounded border border-muted/20 shadow-soft overflow-hidden">
-            <div className="h-full overflow-y-auto bg-white">
-              <div className="w-full">
-                <PageHeader title="Settings" />
-                <main className="p-6">
-                  <Suspense fallback={
-                    <PageLoader text="Loading..." size="lg" />
-                  }>
-                    {children}
-                  </Suspense>
-                </main>
+          <div className="flex-1 min-w-0">
+            <div className="h-full w-full overflow-hidden rounded-l-[20px] bg-white">
+              <div className="relative h-full overflow-y-auto bg-white isolate">
+                <div className="w-full">
+                  <main className="min-h-full">
+                    <Suspense fallback={
+                      <PageSkeleton text="Loading..." size="lg" />
+                    }>
+                      {children}
+                    </Suspense>
+                  </main>
+                </div>
               </div>
             </div>
           </div>
@@ -76,3 +100,4 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
     </div>
   );
 }
+

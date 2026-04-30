@@ -1,0 +1,39 @@
+import { createBrowserClient, createServerClient } from "@stack-app/database";
+
+let browserClient: any;
+let serverClient: any;
+
+function bindClientProperty(client: any, property: PropertyKey) {
+  const value = client[property];
+  return typeof value === "function" ? value.bind(client) : value;
+}
+
+function getBrowserClient() {
+  browserClient ??= createBrowserClient();
+  return browserClient;
+}
+
+function getServerClient() {
+  serverClient ??= createServerClient();
+  return serverClient;
+}
+
+// Lazily resolve Supabase clients so route modules can be imported during build
+// without immediately requiring runtime environment variables.
+export const supabase: any = new Proxy(
+  {},
+  {
+    get(_target, property) {
+      return bindClientProperty(getBrowserClient(), property);
+    },
+  }
+);
+
+export const supabaseServer: any = new Proxy(
+  {},
+  {
+    get(_target, property) {
+      return bindClientProperty(getServerClient(), property);
+    },
+  }
+);

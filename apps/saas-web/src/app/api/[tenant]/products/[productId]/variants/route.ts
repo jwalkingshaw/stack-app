@@ -41,12 +41,21 @@ const UUID_PATTERN =
 const UUID_PREFIX_PATTERN =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-.+)?$/i;
 
-function withNormalizedBarcode<T extends Record<string, any>>(
+function withNormalizedBarcode<T extends Record<string, unknown> & { id: string }>(
   row: T
 ): T & { barcode: string | null } {
+  const barcodeValue = row["barcode"];
+  const upcValue = row["upc"];
+  const normalizedBarcode =
+    typeof barcodeValue === "string"
+      ? barcodeValue
+      : typeof upcValue === "string"
+        ? upcValue
+        : null;
+
   return {
     ...row,
-    barcode: row.barcode ?? row.upc ?? null,
+    barcode: normalizedBarcode,
   };
 }
 
@@ -73,7 +82,7 @@ async function resolveChannelScopedProductIds(params: {
     const scopedIds = new Set<string>();
     for (const channelId of scopedPermissions.channelIds) {
       const ids = await getChannelScopedProductIds({
-        supabase: supabase as any,
+        supabase: supabase,
         organizationId: params.organizationId,
         channelId,
       });
@@ -207,8 +216,8 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch variants" }, { status: 500 });
     }
 
-    const variants = ((variantsResult.data || []) as Record<string, any>[]).map((row) =>
-      withNormalizedBarcode(row)
+    const variants = (((variantsResult.data || []) as unknown) as Record<string, unknown>[]).map(
+      (row) => withNormalizedBarcode(row as Record<string, unknown> & { id: string })
     );
 
     return NextResponse.json({ success: true, data: variants });

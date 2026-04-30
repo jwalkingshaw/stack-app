@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase";
 
+const supabase = supabaseServer;
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ tenant: string }> }
 ) {
   try {
-    const resolvedParams = await params;
+    await params;
 
     // Fetch approved feature requests, sorted by vote count descending
-    const { data: featureRequests, error } = await supabaseServer
+    const { data: featureRequests, error } = await supabase
       .from('feature_requests')
       .select('*')
       .eq('status', 'approved')
@@ -38,9 +40,13 @@ export async function POST(
   { params }: { params: Promise<{ tenant: string }> }
 ) {
   try {
-    const resolvedParams = await params;
-    const body = await request.json();
-    const { name, email, title, description, marketingOptIn } = body;
+    await params;
+    const body = (await request.json()) as Record<string, unknown>;
+    const name = typeof body.name === "string" ? body.name : "";
+    const email = typeof body.email === "string" ? body.email : "";
+    const title = typeof body.title === "string" ? body.title : "";
+    const description = typeof body.description === "string" ? body.description : "";
+    const marketingOptIn = body.marketingOptIn === true;
 
     // Validate required fields
     if (!name || !email || !title || !description) {
@@ -60,10 +66,10 @@ export async function POST(
     }
 
     // Start a transaction to handle both operations
-    const supabase = supabaseServer;
+    const supabaseClient = supabase;
 
     // Insert the feature request
-    const { data: featureRequest, error: featureError } = await supabase
+    const { data: featureRequest, error: featureError } = await supabaseClient
       .from('feature_requests')
       .insert([
         {
@@ -88,7 +94,7 @@ export async function POST(
     // Handle email subscription if opted in
     if (marketingOptIn) {
       // Check if email already exists
-      const { data: existingSubscriber } = await supabase
+      const { data: existingSubscriber } = await supabaseClient
         .from('email_subscribers')
         .select('id')
         .eq('email', email.toLowerCase().trim())
@@ -96,7 +102,7 @@ export async function POST(
 
       if (!existingSubscriber) {
         // Insert new email subscriber
-        const { error: emailError } = await supabase
+        const { error: emailError } = await supabaseClient
           .from('email_subscribers')
           .insert([
             {

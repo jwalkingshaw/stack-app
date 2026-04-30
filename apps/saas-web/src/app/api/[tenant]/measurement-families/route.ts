@@ -19,7 +19,7 @@ const FAMILY_SELECT_WITH_META = `
   default_decimal_precision,
   allow_negative,
   metadata,
-  measurement_units (
+  measurement_units:measurement_units!measurement_units_measurement_family_id_fkey (
     id,
     code,
     name,
@@ -36,7 +36,7 @@ const FAMILY_SELECT_LEGACY = `
   description,
   standard_unit_id,
   is_active,
-  measurement_units (
+  measurement_units:measurement_units!measurement_units_measurement_family_id_fkey (
     id,
     code,
     name,
@@ -46,13 +46,40 @@ const FAMILY_SELECT_LEGACY = `
   )
 `;
 
-function isMissingColumnError(error: any): boolean {
-  return error?.code === "42703";
+function isMissingColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const normalizedError = error as { code?: unknown };
+  return normalizedError.code === "42703";
 }
 
-function isMissingTableError(error: any): boolean {
-  return error?.code === "42P01";
+function isMissingTableError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const normalizedError = error as { code?: unknown };
+  return normalizedError.code === "42P01";
 }
+
+type MeasurementUnitRow = {
+  id: string;
+  code: string;
+  name: string;
+  symbol: string | null;
+  conversion_factor: number | null;
+  is_active: boolean | null;
+};
+
+type MeasurementFamilyRow = {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  standard_unit_id: string | null;
+  is_composite?: boolean | null;
+  component_schema?: unknown;
+  default_decimal_precision?: number | null;
+  allow_negative?: boolean | null;
+  metadata?: unknown;
+  measurement_units?: MeasurementUnitRow[] | null;
+};
 
 // GET /api/[tenant]/measurement-families
 export async function GET(
@@ -95,10 +122,10 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch measurement families" }, { status: 500 });
     }
 
-    const normalized = (result.data || []).map((family: any) => {
+    const normalized = ((result.data || []) as unknown as MeasurementFamilyRow[]).map((family) => {
       const units = (Array.isArray(family.measurement_units) ? family.measurement_units : [])
-        .filter((unit: any) => unit?.is_active !== false)
-        .map((unit: any) => ({
+        .filter((unit) => unit?.is_active !== false)
+        .map((unit) => ({
           id: unit.id,
           code: unit.code,
           name: unit.name,
@@ -108,7 +135,7 @@ export async function GET(
         }));
 
       const standardUnit =
-        units.find((unit: any) => unit.id === family.standard_unit_id) || null;
+        units.find((unit) => unit.id === family.standard_unit_id) || null;
 
       return {
         id: family.id,

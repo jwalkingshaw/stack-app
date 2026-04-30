@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { AuthService, ScopedPermission } from "@tradetool/auth";
-import { DatabaseQueries } from "@tradetool/database";
+import { AuthService, ScopedPermission } from "@stack-app/auth";
+import { DatabaseQueries } from "@stack-app/database";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { evaluateScopedPermission } from "@/lib/security-permissions";
 import {
   replaceAssetScopeAssignments,
   validateAuthoringScope,
 } from "@/lib/authoring-scope";
+import { normalizeDamAssetRecord, normalizeDamEnumValue, type DamEnumField } from "@/lib/dam-enums";
+import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -39,7 +41,7 @@ async function requireAssetWritePermission(params: {
   organizationId: string;
   permissionKey: string;
 }) {
-  const db = new DatabaseQueries(supabase as any);
+  const db = new DatabaseQueries(supabase);
   const authService = new AuthService(db);
   return evaluateScopedPermission({
     authService,
@@ -67,6 +69,13 @@ function normalizeOptionalConfidence(value: unknown): number | null {
   if (value < 0) return 0;
   if (value > 1) return 1;
   return value;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
 }
 
 function normalizeAuthoringScope(value: unknown): AuthoringScope | null {
@@ -146,7 +155,7 @@ async function resolveSelectedProductIds(params: {
   let selectedRows: Array<{ id: string; type: string | null }> = [];
 
   if (selection.all) {
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("products")
       .select("id,type")
       .eq("organization_id", organizationId)
@@ -160,7 +169,7 @@ async function resolveSelectedProductIds(params: {
     if (explicitIds.length === 0) {
       return [];
     }
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("products")
       .select("id,type")
       .eq("organization_id", organizationId)
@@ -185,7 +194,7 @@ async function resolveSelectedProductIds(params: {
     return Array.from(selectedIds);
   }
 
-  const { data: descendants, error: descendantsError } = await (supabase as any)
+  const { data: descendants, error: descendantsError } = await supabase
     .from("products")
     .select("id")
     .eq("organization_id", organizationId)
@@ -214,7 +223,7 @@ async function syncUploadProductLinks(params: {
 }): Promise<void> {
   const { organizationId, userId, assetId, assetType, productIds, confidence, matchReason, linkType } = params;
 
-  const { data: existingLinks, error: existingLinksError } = await (supabase as any)
+  const { data: existingLinks, error: existingLinksError } = await supabase
     .from("product_asset_links")
     .select("id,product_id")
     .eq("organization_id", organizationId)
@@ -232,7 +241,7 @@ async function syncUploadProductLinks(params: {
     .map((link) => link.id);
 
   if (linksToDeactivate.length > 0) {
-    const { error: deactivateError } = await (supabase as any)
+    const { error: deactivateError } = await supabase
       .from("product_asset_links")
       .update({
         is_active: false,
@@ -261,7 +270,7 @@ async function syncUploadProductLinks(params: {
       created_by: userId,
     }));
 
-    const { error: upsertError } = await (supabase as any)
+    const { error: upsertError } = await supabase
       .from("product_asset_links")
       .upsert(linkRows, {
         onConflict: "organization_id,product_id,asset_id,link_context",
@@ -279,7 +288,7 @@ async function refreshAssetProductIdentifiers(params: {
 }): Promise<void> {
   const { organizationId, assetId } = params;
 
-  const { data: activeLinks, error: linksError } = await (supabase as any)
+  const { data: activeLinks, error: linksError } = await supabase
     .from("product_asset_links")
     .select("product_id")
     .eq("organization_id", organizationId)
@@ -301,7 +310,7 @@ async function refreshAssetProductIdentifiers(params: {
   const identifiers = new Set<string>();
 
   if (linkedProductIds.length > 0) {
-    const { data: productRows, error: productsError } = await (supabase as any)
+    const { data: productRows, error: productsError } = await supabase
       .from("products")
       .select("sku,scin")
       .eq("organization_id", organizationId)
@@ -317,7 +326,7 @@ async function refreshAssetProductIdentifiers(params: {
     }
   }
 
-  const { error: updateError } = await (supabase as any)
+  const { error: updateError } = await supabase
     .from("dam_assets")
     .update({
       product_identifiers: Array.from(identifiers),
@@ -327,6 +336,83 @@ async function refreshAssetProductIdentifiers(params: {
 
   if (updateError) {
     throw new Error("Failed to refresh asset product identifiers");
+  }
+}
+
+async function invalidateAssetCaches(params: {
+  organizationId: string;
+  assetId: string;
+}): Promise<void> {
+  await Promise.all([
+    redisCache.invalidatePattern(`${CacheKeys.assetsList(`${params.organizationId}:`)}*`),
+    redisCache.invalidatePattern(`${CacheKeys.apiResponse("assets", `${params.organizationId}:`)}*`),
+    redisCache.invalidatePattern(`${CacheKeys.assetPreview(params.assetId, "")}*`),
+  ]);
+}
+
+// GET /api/[tenant]/assets/[assetId]
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ tenant: string; assetId: string }> }
+) {
+  try {
+    const resolvedParams = await params;
+    const tenantSlug = resolvedParams.tenant;
+    const assetId = resolvedParams.assetId;
+
+    const tenantAccess = await requireTenantAccess(request, tenantSlug);
+    if (!tenantAccess.ok) return tenantAccess.response;
+    const { organization } = tenantAccess;
+
+    const { data: asset, error } = await supabase
+      .from("dam_assets")
+      .select("*")
+      .eq("id", assetId)
+      .eq("organization_id", organization.id)
+      .single();
+
+    if (error || !asset) {
+      return NextResponse.json({ error: "Asset not found" }, { status: 404 });
+    }
+
+    const [{ data: tagRows }, { data: categoryRows }] = await Promise.all([
+      supabase
+        .from("asset_tag_assignments")
+        .select("id, asset_id, tag_id, assigned_by, assigned_at, asset_tags(id, name, slug, color, description)")
+        .eq("asset_id", assetId),
+      supabase
+        .from("asset_category_assignments")
+        .select("id, asset_id, category_id, is_primary, asset_categories(id, name, slug, path, description)")
+        .eq("asset_id", assetId),
+    ]);
+
+    const tagAssignments = (tagRows ?? []).map((row: Record<string, unknown>) => ({
+      id: row.id,
+      assetId: row.asset_id,
+      tagId: row.tag_id,
+      assignedBy: row.assigned_by ?? null,
+      assignedAt: row.assigned_at,
+      tag: row.asset_tags ?? undefined,
+    }));
+
+    const categoryAssignments = (categoryRows ?? []).map((row: Record<string, unknown>) => ({
+      id: row.id,
+      assetId: row.asset_id,
+      categoryId: row.category_id,
+      isPrimary: Boolean(row.is_primary),
+      category: row.asset_categories ?? undefined,
+    }));
+
+    return NextResponse.json({
+      data: {
+        ...normalizeDamAssetRecord(asset),
+        tagAssignments,
+        categoryAssignments,
+      },
+    });
+  } catch (err) {
+    console.error("[GET /assets/:assetId]", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
 
@@ -383,6 +469,15 @@ export async function PATCH(
     const hasProductLinks = Object.prototype.hasOwnProperty.call(body, "productLinks");
     const hasAuthoringScope = Object.prototype.hasOwnProperty.call(body, "authoringScope");
     const hasAppliesToChildren = Object.prototype.hasOwnProperty.call(body, "appliesToChildren");
+    // Tag/category assignments (normalized join-table replacements)
+    const hasTagIds = Object.prototype.hasOwnProperty.call(body, "tagIds");
+    const hasCategoryIds = Object.prototype.hasOwnProperty.call(body, "categoryIds");
+    const tagIds = hasTagIds ? normalizeStringArray(body.tagIds) : null;
+    const categoryIds = hasCategoryIds ? normalizeStringArray(body.categoryIds) : null;
+    const primaryCategoryId =
+      typeof body.primaryCategoryId === "string" && body.primaryCategoryId.trim()
+        ? body.primaryCategoryId.trim()
+        : null;
     const hasAutoSuggestedProductLinks = Object.prototype.hasOwnProperty.call(
       body,
       "autoSuggestedProductLinks"
@@ -532,7 +627,7 @@ export async function PATCH(
       );
     }
 
-    const { data: existingAsset, error: existingAssetError } = await (supabase as any)
+    const { data: existingAsset, error: existingAssetError } = await supabase
       .from("dam_assets")
       .select("id,metadata,file_type,asset_type")
       .eq("id", assetId)
@@ -543,7 +638,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Asset not found" }, { status: 404 });
     }
 
-    const updatePayload: Record<string, any> = {};
+    const updatePayload: Record<string, unknown> = {};
     if (filename !== undefined) {
       updatePayload.filename = filename;
       updatePayload.original_filename = filename;
@@ -556,7 +651,7 @@ export async function PATCH(
     }
     if (hasFolderId) {
       if (folderId) {
-        const { data: matchingFolder, error: folderError } = await (supabase as any)
+        const { data: matchingFolder, error: folderError } = await supabase
           .from("dam_folders")
           .select("id")
           .eq("id", folderId)
@@ -568,13 +663,8 @@ export async function PATCH(
       }
       updatePayload.folder_id = folderId;
     }
-    const existingMetadata =
-      existingAsset &&
-      typeof (existingAsset as any).metadata === "object" &&
-      (existingAsset as any).metadata !== null &&
-      !Array.isArray((existingAsset as any).metadata)
-        ? ((existingAsset as any).metadata as Record<string, any>)
-        : {};
+    const existingAssetRecord = asRecord(existingAsset);
+    const existingMetadata = asRecord(existingAssetRecord?.metadata) || {};
     const normalizedProductLinks = hasProductLinks
       ? normalizeProductSelection(productLinks)
       : null;
@@ -619,24 +709,103 @@ export async function PATCH(
       };
     }
 
-    if (Object.keys(updatePayload).length === 0) {
+    // Structured DAM metadata fields — forwarded directly to dam_assets columns
+    const structuredFields: Array<[string, string, "string" | "boolean" | "number" | "array"]> = [
+      ["assetStatus",           "asset_status",           "string"],
+      ["complianceStatus",      "compliance_status",      "string"],
+      ["brandLegalApproval",    "brand_legal_approval",   "string"],
+      ["claimsReviewStatus",    "claims_review_status",   "string"],
+      ["artworkType",           "artwork_type",           "string"],
+      ["colorProfile",          "color_profile",          "string"],
+      ["printVsDigital",        "print_vs_digital",       "string"],
+      ["labelVersion",          "label_version",          "string"],
+      ["formulaVersion",        "formula_version",        "string"],
+      ["altText",               "alt_text",               "string"],
+      ["licenseOwnership",      "license_ownership",      "string"],
+      ["usageTerritory",        "usage_territory",        "string"],
+      ["usageEnd",              "usage_end",              "string"],
+      ["endorsementType",       "endorsement_type",       "string"],
+      ["talentContractEnd",     "talent_contract_end",    "string"],
+      ["expirationDate",        "expiration_date",        "string"],
+      ["wadaRiskLevel",         "wada_risk_level",        "string"],
+      ["talentPresent",         "talent_present",         "boolean"],
+      ["releaseOnFile",         "release_on_file",        "boolean"],
+      ["ftcDisclosureRequired", "ftc_disclosure_required","boolean"],
+      ["resolutionDpi",         "resolution_dpi",         "number"],
+      ["usagePlatforms",        "usage_platforms",        "array"],
+      ["athleteNames",          "athlete_names",          "array"],
+      ["regulatoryRegion",      "regulatory_region",      "array"],
+      ["certifications",        "certifications",         "array"],
+      ["visibleClaims",         "visible_claims",         "array"],
+      ["claimsApprovedMarkets", "claims_approved_markets","array"],
+    ];
+    const enumStructuredFieldKeys = new Set<DamEnumField>([
+      "assetStatus",
+      "complianceStatus",
+      "brandLegalApproval",
+      "artworkType",
+      "colorProfile",
+      "printVsDigital",
+      "licenseOwnership",
+      "endorsementType",
+      "wadaRiskLevel",
+    ]);
+    for (const [camelKey, dbKey, type] of structuredFields) {
+      if (!Object.prototype.hasOwnProperty.call(body, camelKey)) continue;
+      const raw = body[camelKey];
+      if (type === "array") {
+        updatePayload[dbKey] = normalizeStringArray(raw);
+      } else if (type === "boolean") {
+        updatePayload[dbKey] = raw === null ? null : Boolean(raw);
+      } else if (type === "number") {
+        updatePayload[dbKey] =
+          typeof raw === "number" && Number.isFinite(raw) ? Math.round(raw) : null;
+      } else {
+        if (enumStructuredFieldKeys.has(camelKey as DamEnumField)) {
+          updatePayload[dbKey] =
+            normalizeDamEnumValue(camelKey as DamEnumField, raw) ??
+            (typeof raw === "string" && raw.trim() ? raw.trim() : null);
+        } else {
+          updatePayload[dbKey] =
+            typeof raw === "string" && raw.trim() ? raw.trim() : null;
+        }
+      }
+    }
+
+    if (Object.keys(updatePayload).length === 0 && !hasTagIds && !hasCategoryIds) {
       return NextResponse.json({
         data: existingAsset,
         message: "No asset metadata changes provided",
       });
     }
 
-    const { data: updatedAsset, error: updateError } = await (supabase as any)
-      .from("dam_assets")
-      .update(updatePayload)
-      .eq("id", assetId)
-      .eq("organization_id", organization.id)
-      .select()
-      .single();
+    let updatedAsset: unknown = existingAsset;
+    if (Object.keys(updatePayload).length > 0) {
+      const { data, error: updateError } = await supabase
+        .from("dam_assets")
+        .update(updatePayload)
+        .eq("id", assetId)
+        .eq("organization_id", organization.id)
+        .select()
+        .single();
 
-    if (updateError) {
-      console.error("PATCH /assets/[assetId] DB update failed:", updateError);
-      return NextResponse.json({ error: "Failed to update asset" }, { status: 500 });
+      if (updateError) {
+        console.error("PATCH /assets/[assetId] DB update failed:", updateError);
+        return NextResponse.json({ error: "Failed to update asset" }, { status: 500 });
+      }
+      updatedAsset = data;
+    }
+
+    // Replace tag assignments via join table (trigger keeps dam_assets.tags[] in sync)
+    if (hasTagIds && tagIds !== null) {
+      const db = new DatabaseQueries(supabase);
+      await db.replaceAssetTags(assetId, tagIds, userId);
+    }
+
+    // Replace category assignments via join table
+    if (hasCategoryIds && categoryIds !== null) {
+      const db = new DatabaseQueries(supabase);
+      await db.replaceAssetCategories(assetId, categoryIds, userId, primaryCategoryId);
     }
 
     if (hasProductLinks && normalizedProductLinks) {
@@ -650,15 +819,15 @@ export async function PATCH(
             ? autoSuggestedProductLinks
             : Boolean(existingMetadata.autoSuggestedProductLinks ?? false);
         const existingSuggestedConfidence = normalizeOptionalConfidence(
-          (existingMetadata as any).suggestedProductLinkConfidence
+          existingMetadata.suggestedProductLinkConfidence
         );
         const effectiveSuggestedConfidence =
           hasSuggestedProductLinkConfidence && suggestedProductLinkConfidence !== undefined
             ? suggestedProductLinkConfidence
             : existingSuggestedConfidence;
         const existingSuggestedReason =
-          typeof (existingMetadata as any).suggestedProductLinkReason === "string"
-            ? String((existingMetadata as any).suggestedProductLinkReason).trim() || null
+          typeof existingMetadata.suggestedProductLinkReason === "string"
+            ? String(existingMetadata.suggestedProductLinkReason).trim() || null
             : null;
         const effectiveSuggestedReason =
           hasSuggestedProductLinkReason && suggestedProductLinkReason !== undefined
@@ -679,8 +848,9 @@ export async function PATCH(
           selection: normalizedProductLinks,
           appliesToChildren: effectiveAppliesToChildren,
         });
+        const updatedAssetRecord = asRecord(updatedAsset);
         const assetTypeForLinking =
-          String((updatedAsset as any)?.asset_type || (updatedAsset as any)?.file_type || "").trim() || "general";
+          String(updatedAssetRecord?.asset_type || updatedAssetRecord?.file_type || "").trim() || "general";
         await syncUploadProductLinks({
           organizationId: organization.id,
           userId,
@@ -727,8 +897,17 @@ export async function PATCH(
       }
     }
 
+    try {
+      await invalidateAssetCaches({
+        organizationId: organization.id,
+        assetId,
+      });
+    } catch (cacheError) {
+      console.warn("PATCH /assets/[assetId] cache invalidation failed:", cacheError);
+    }
+
     return NextResponse.json({
-      data: updatedAsset,
+      data: normalizeDamAssetRecord(updatedAsset as Record<string, any>),
       message: "Asset updated successfully",
     });
   } catch (error) {
@@ -777,7 +956,7 @@ export async function DELETE(
       );
     }
 
-    const { data: existingAsset, error: existingAssetError } = await (supabase as any)
+    const { data: existingAsset, error: existingAssetError } = await supabase
       .from("dam_assets")
       .select("id")
       .eq("id", assetId)
@@ -788,7 +967,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Asset not found" }, { status: 404 });
     }
 
-    const { error: deleteError } = await (supabase as any)
+    const { error: deleteError } = await supabase
       .from("dam_assets")
       .delete()
       .eq("id", assetId)
@@ -799,6 +978,15 @@ export async function DELETE(
       return NextResponse.json({ error: "Failed to delete asset" }, { status: 500 });
     }
 
+    try {
+      await invalidateAssetCaches({
+        organizationId: organization.id,
+        assetId,
+      });
+    } catch (cacheError) {
+      console.warn("DELETE /assets/[assetId] cache invalidation failed:", cacheError);
+    }
+
     return NextResponse.json({
       message: "Asset deleted successfully",
     });
@@ -807,3 +995,4 @@ export async function DELETE(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+

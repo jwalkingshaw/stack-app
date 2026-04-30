@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
-import { AuthService } from "@tradetool/auth";
-import { DatabaseQueries } from "@tradetool/database";
+import { AuthService } from "@stack-app/auth";
+import { DatabaseQueries } from "@stack-app/database";
 import { supabaseServer } from "@/lib/supabase";
 
 export async function GET(

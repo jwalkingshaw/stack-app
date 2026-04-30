@@ -1,6 +1,6 @@
 import { Suspense } from 'react';
 import MarketsSettings from '../components/MarketsSettings';
-import { PageLoader } from '@/components/ui/loading-spinner';
+import { PageSkeleton } from '@/components/ui/loading-skeleton';
 
 interface MarketsPageProps {
   params: Promise<{ tenant: string }>;
@@ -11,9 +11,10 @@ export default async function MarketsPage({ params }: MarketsPageProps) {
 
   return (
     <Suspense fallback={
-      <PageLoader text="Loading markets..." size="lg" />
+      <PageSkeleton text="Loading markets..." size="lg" />
     }>
       <MarketsSettings tenantSlug={tenant} />
     </Suspense>
   );
 }
+

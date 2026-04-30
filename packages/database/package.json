@@ -1,5 +1,5 @@
 {
-  "name": "@tradetool/database",
+  "name": "@stack-app/database",
   "version": "0.1.0",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.52.0",
-    "@tradetool/types": "*",
+    "@stack-app/types": "*",
     "tsx": "^4.20.4"
   },
   "devDependencies": {

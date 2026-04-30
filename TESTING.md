@@ -151,7 +151,7 @@ Once all tests pass:
 ### Custom Test Scripts
 
 ```typescript
-import { runSupabaseTests, runKindeTests, runS3Tests } from '@tradetool/database';
+import { runSupabaseTests, runKindeTests, runS3Tests } from '@stack-app/database';
 
 // Test individual services
 const supabaseResults = await runSupabaseTests();

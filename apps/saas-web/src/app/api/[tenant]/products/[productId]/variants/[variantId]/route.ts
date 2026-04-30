@@ -39,12 +39,30 @@ const VARIANT_SELECT_WITH_BARCODE = `
 const VARIANT_SELECT_WITH_UPC =
   VARIANT_SELECT_WITH_BARCODE.replace("barcode", "upc");
 
-function withNormalizedBarcode<T extends Record<string, any>>(
+type VariantRecord = Record<string, unknown> & {
+  id: string;
+  family_id: string | null;
+  status: string | null;
+  sku: string | null;
+  barcode?: string | null;
+  upc?: string | null;
+};
+
+function withNormalizedBarcode<T extends Record<string, unknown> & { id: string }>(
   row: T
 ): T & { barcode: string | null } {
+  const barcodeValue = row["barcode"];
+  const upcValue = row["upc"];
+  const normalizedBarcode =
+    typeof barcodeValue === "string"
+      ? barcodeValue
+      : typeof upcValue === "string"
+        ? upcValue
+        : null;
+
   return {
     ...row,
-    barcode: row.barcode ?? row.upc ?? null,
+    barcode: normalizedBarcode,
   };
 }
 
@@ -68,13 +86,13 @@ function validateBarcode(barcode: string | null): string | null {
   return null;
 }
 
-function normalizeVariantAttributes(input: unknown): Record<string, any> {
+function normalizeVariantAttributes(input: unknown): Record<string, unknown> {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return {};
   }
 
   return Object.fromEntries(
-    Object.entries(input as Record<string, any>).map(([key, value]) => [key, value])
+    Object.entries(input as Record<string, unknown>).map(([key, value]) => [key, value])
   );
 }
 
@@ -279,14 +297,16 @@ export async function PUT(
     }
 
     const existingVariant = variantResult.data
-      ? withNormalizedBarcode(variantResult.data as Record<string, any>)
+      ? withNormalizedBarcode(
+          (variantResult.data as unknown) as VariantRecord
+        )
       : null;
     if (variantResult.error || !existingVariant) {
       return NextResponse.json({ error: "Variant not found" }, { status: 404 });
     }
 
     const body = await request.json().catch(() => ({}));
-    const updatePayload: Record<string, any> = {
+    const updatePayload: Record<string, unknown> = {
       last_modified_by: user.id,
     };
 
@@ -379,7 +399,7 @@ export async function PUT(
       .single();
 
     if (updateResult.error?.code === UPC_MISSING_COLUMN_ERROR) {
-      const legacyPayload: Record<string, any> = {
+      const legacyPayload: Record<string, unknown> = {
         ...updatePayload,
       };
 
@@ -412,7 +432,9 @@ export async function PUT(
 
     return NextResponse.json({
       success: true,
-      data: withNormalizedBarcode(updateResult.data as Record<string, any>),
+      data: withNormalizedBarcode(
+        (updateResult.data as unknown) as VariantRecord
+      ),
     });
   } catch (error) {
     console.error("Error in variant PUT:", error);

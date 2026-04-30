@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { ChevronRight, ChevronDown, Folder, FolderOpen, Plus, MoreHorizontal } from 'lucide-react';
 import { Button } from './button';
-import type { DamFolder } from '@tradetool/types';
+import type { DamFolder } from '@stack-app/types';
 
 interface FolderTreeProps {
   folders: DamFolder[];

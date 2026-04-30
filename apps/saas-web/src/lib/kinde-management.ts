@@ -23,6 +23,17 @@ interface KindeRole {
   name?: string;
 }
 
+type KindeUser = {
+  id?: string;
+  email?: string;
+  [key: string]: unknown;
+};
+
+function asKindeUser(value: unknown): KindeUser | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as KindeUser;
+}
+
 class KindeManagementAPI {
   private baseURL: string;
   private clientId: string;
@@ -321,10 +332,13 @@ class KindeManagementAPI {
     const result = await this.makeRequest(
       `/organizations/${encodeURIComponent(orgId)}/users/${encodeURIComponent(userId)}/roles`
     );
-    const roles = Array.isArray(result?.roles) ? result.roles : [];
+    const roles: unknown[] = Array.isArray(result?.roles) ? result.roles : [];
     return roles
-      .filter((role: any) => role?.id)
-      .map((role: any) => ({
+      .filter(
+        (role): role is Record<string, unknown> =>
+          Boolean(role && typeof role === 'object' && !Array.isArray(role) && 'id' in role)
+      )
+      .map((role) => ({
         id: String(role.id),
         key: typeof role.key === 'string' ? role.key : undefined,
         name: typeof role.name === 'string' ? role.name : undefined,
@@ -424,7 +438,7 @@ class KindeManagementAPI {
   /**
    * Create a new user in Kinde
    */
-  async createUser(email: string, givenName?: string, familyName?: string): Promise<any> {
+  async createUser(email: string, givenName?: string, familyName?: string): Promise<KindeUser | null> {
     console.log('👤 Creating user in Kinde:', email);
 
     const normalizedGivenName = givenName?.trim();
@@ -456,7 +470,7 @@ class KindeManagementAPI {
       });
 
       console.log('✅ User created in Kinde:', result.id || result.user?.id);
-      return result.user || result;
+      return asKindeUser(result.user) || asKindeUser(result);
     } catch (error) {
       // Check if user already exists
       if (error instanceof Error && (error.message.includes('409') || error.message.includes('already exists'))) {
@@ -470,7 +484,7 @@ class KindeManagementAPI {
   /**
    * Get user by email
    */
-  async getUserByEmail(email: string): Promise<any> {
+  async getUserByEmail(email: string): Promise<KindeUser | null> {
     console.log('🔍 Fetching user by email:', email);
 
     try {
@@ -478,7 +492,7 @@ class KindeManagementAPI {
 
       if (result.users && result.users.length > 0) {
         console.log('✅ User found in Kinde:', result.users[0].id);
-        return result.users[0];
+        return asKindeUser(result.users[0]);
       }
 
       return null;
@@ -506,6 +520,9 @@ class KindeManagementAPI {
         // Create new user
         user = await this.createUser(email);
         isNewUser = true;
+      }
+      if (!user?.id || typeof user.id !== 'string') {
+        throw new Error('Failed to resolve user ID from Kinde user record');
       }
 
       // Add user to organization

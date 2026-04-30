@@ -8,8 +8,7 @@ import {
   ProteinFields,
   PreWorkoutFields,
   HydrationFields,
-  CreatineFields,
-  SupplementCategory
+  CreatineFields
 } from "./supplement-fields";
 
 interface CategoryFieldsProps {
@@ -18,7 +17,7 @@ interface CategoryFieldsProps {
   onChange: (updates: Partial<SupplementProduct>) => void;
 }
 
-export function ProteinFieldsComponent({ product, isEditing, onChange }: CategoryFieldsProps) {
+export function ProteinFieldsComponent({ product, onChange }: CategoryFieldsProps) {
   const proteinFields = product.proteinFields || {} as ProteinFields;
 
   const updateProteinFields = (updates: Partial<ProteinFields>) => {
@@ -101,7 +100,7 @@ export function ProteinFieldsComponent({ product, isEditing, onChange }: Categor
   );
 }
 
-export function PreWorkoutFieldsComponent({ product, isEditing, onChange }: CategoryFieldsProps) {
+export function PreWorkoutFieldsComponent({ product, onChange }: CategoryFieldsProps) {
   const preWorkoutFields = product.preWorkoutFields || {} as PreWorkoutFields;
 
   const updatePreWorkoutFields = (updates: Partial<PreWorkoutFields>) => {
@@ -127,7 +126,7 @@ export function PreWorkoutFieldsComponent({ product, isEditing, onChange }: Cate
         <label className="block text-sm font-medium text-gray-700 mb-3">Stimulant Type</label>
         <Select
           value={preWorkoutFields.stimulantType || 'stim-free'}
-          onValueChange={(value) => updatePreWorkoutFields({ stimulantType: value as any })}
+          onValueChange={(value) => updatePreWorkoutFields({ stimulantType: value as PreWorkoutFields['stimulantType'] })}
         >
           <SelectTrigger className="h-auto px-0 py-1 text-base bg-transparent border-none shadow-none focus:ring-0 focus:border-transparent hover:bg-gray-50 focus:bg-white">
             <SelectValue />
@@ -144,7 +143,7 @@ export function PreWorkoutFieldsComponent({ product, isEditing, onChange }: Cate
         <label className="block text-sm font-medium text-gray-700 mb-3">Formula Type</label>
         <Select
           value={preWorkoutFields.formulationType || 'hybrid'}
-          onValueChange={(value) => updatePreWorkoutFields({ formulationType: value as any })}
+          onValueChange={(value) => updatePreWorkoutFields({ formulationType: value as PreWorkoutFields['formulationType'] })}
         >
           <SelectTrigger className="h-auto px-0 py-1 text-base bg-transparent border-none shadow-none focus:ring-0 focus:border-transparent hover:bg-gray-50 focus:bg-white">
             <SelectValue />
@@ -365,7 +364,7 @@ export function CreatineFieldsComponent({ product, isEditing, onChange }: Catego
             {isEditing ? (
               <Select
                 value={creatineFields.creatineType || 'monohydrate'}
-                onValueChange={(value) => updateCreatineFields({ creatineType: value as any })}
+                onValueChange={(value) => updateCreatineFields({ creatineType: value as CreatineFields['creatineType'] })}
               >
                 <SelectTrigger className="h-9">
                   <SelectValue />

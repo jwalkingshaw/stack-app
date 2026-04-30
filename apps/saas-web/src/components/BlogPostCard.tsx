@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { BlogPost } from '@tradetool/shared-components'
+import { BlogPost } from '@stack-app/shared-components'
 
 interface BlogPostCardProps {
   post: BlogPost

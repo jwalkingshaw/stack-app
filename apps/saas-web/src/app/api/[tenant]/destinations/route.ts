@@ -118,12 +118,7 @@ export async function POST(
     const { tenant } = await params;
     const selectedBrandSlug = new URL(request.url).searchParams.get("brand");
 
-    if (isCrossTenantWrite(tenant, selectedBrandSlug)) {
-      return NextResponse.json(
-        { error: "Cross-tenant writes are blocked in shared brand view." },
-        { status: 403 }
-      );
-    }
+    
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -158,17 +153,19 @@ export async function POST(
       return NextResponse.json({ error: "Name and code are required." }, { status: 400 });
     }
 
-    if (channelId) {
-      const { data: channel, error: channelError } = await supabase
-        .from("channels")
-        .select("id")
-        .eq("organization_id", targetOrganizationId)
-        .eq("id", channelId)
-        .maybeSingle();
+    if (!channelId) {
+      return NextResponse.json({ error: "Destination requires a channel." }, { status: 400 });
+    }
 
-      if (channelError || !channel) {
-        return NextResponse.json({ error: "Invalid channel selected." }, { status: 400 });
-      }
+    const { data: channel, error: channelError } = await supabase
+      .from("channels")
+      .select("id")
+      .eq("organization_id", targetOrganizationId)
+      .eq("id", channelId)
+      .maybeSingle();
+
+    if (channelError || !channel) {
+      return NextResponse.json({ error: "Invalid channel selected." }, { status: 400 });
     }
 
     if (marketId) {
@@ -223,3 +220,4 @@ export async function POST(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+

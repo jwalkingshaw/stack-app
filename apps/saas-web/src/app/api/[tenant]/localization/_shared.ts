@@ -18,7 +18,9 @@ export type LocalizationAccessResult =
   | { ok: true; context: LocalizationAccessContext }
   | { ok: false; response: NextResponse };
 
-export function isMissingLocalizationFoundationError(error: any): boolean {
+export function isMissingLocalizationFoundationError(
+  error: { code?: string | null; message?: string | null } | null | undefined
+): boolean {
   if (!error) return false;
   if (error?.code === "42P01" || error?.code === "42703" || error?.code === "PGRST205") return true;
   const message = String(error?.message || "").toLowerCase();
@@ -52,7 +54,7 @@ export async function requireLocalizationAccess(
     };
   }
 
-  const { data, error } = await (supabaseServer as any)
+  const { data, error } = await supabaseServer
     .from("organization_members")
     .select("role")
     .eq("organization_id", organization.id)

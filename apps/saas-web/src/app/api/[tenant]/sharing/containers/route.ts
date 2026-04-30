@@ -18,19 +18,19 @@ export async function GET(
     const { organization } = access.context;
 
     const [marketsResult, channelsResult, collectionsResult] = await Promise.all([
-      (supabaseServer as any)
+      supabaseServer
         .from("markets")
         .select("id,name,code,is_active")
         .eq("organization_id", organization.id)
         .eq("is_active", true)
         .order("name", { ascending: true }),
-      (supabaseServer as any)
+      supabaseServer
         .from("channels")
         .select("id,name,code,is_active")
         .eq("organization_id", organization.id)
         .eq("is_active", true)
         .order("name", { ascending: true }),
-      (supabaseServer as any)
+      supabaseServer
         .from("dam_collections")
         .select("id,name")
         .eq("organization_id", organization.id)

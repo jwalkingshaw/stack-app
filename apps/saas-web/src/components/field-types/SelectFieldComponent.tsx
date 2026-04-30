@@ -20,6 +20,20 @@ export function SelectFieldComponent({
 }: SelectFieldComponentProps) {
   // Support both formats: field.options.options (new) and field.options.choices (legacy)
   const options = field.options?.options || field.options?.choices || [];
+  const normalizedOptions = (Array.isArray(options) ? options : [])
+    .map((option: unknown) => {
+      const optionRecord =
+        option && typeof option === 'object' && !Array.isArray(option)
+          ? (option as Record<string, unknown>)
+          : null;
+      const optionValueRaw = optionRecord?.value ?? option;
+      const optionLabelRaw = optionRecord?.label ?? optionValueRaw;
+      const optionValue = String(optionValueRaw ?? '');
+      const optionLabel = String(optionLabelRaw ?? optionValue);
+      if (!optionValue) return null;
+      return { value: optionValue, label: optionLabel };
+    })
+    .filter((option): option is { value: string; label: string } => Boolean(option));
   const allowEmpty = field.options?.allowEmpty !== false && !field.is_required;
   const placeholder = field.options?.placeholder || field.description || `Select ${field.name.toLowerCase()}`;
   const selectValue = value || '__empty__';
@@ -44,17 +58,15 @@ export function SelectFieldComponent({
               Clear selection
             </SelectItem>
           )}
-          {options.length === 0 ? (
+          {normalizedOptions.length === 0 ? (
             <SelectItem value="__no_options__" disabled>
               No options available
             </SelectItem>
           ) : (
-            options.map((option: any) => {
-              const optionValue = String(option.value || option);
-              const optionLabel = option.label || option;
+            normalizedOptions.map((option) => {
               return (
-                <SelectItem key={optionValue} value={optionValue}>
-                  {optionLabel}
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
                 </SelectItem>
               );
             })

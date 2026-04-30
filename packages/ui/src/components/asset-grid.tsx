@@ -4,7 +4,7 @@ import React from 'react';
 import { MoreHorizontal, Download, Trash2, Edit, Eye } from 'lucide-react';
 import { Button } from './button';
 import { formatFileSize, formatDate, getFileIcon } from '../lib/utils';
-import type { DamAsset } from '@tradetool/types';
+import type { DamAsset } from '@stack-app/types';
 
 interface AssetGridProps {
   assets: DamAsset[];

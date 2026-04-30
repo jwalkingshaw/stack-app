@@ -8,6 +8,8 @@ interface SendInvitationEmailParams {
   inviterName: string;
   role: string;
   invitationUrl: string;
+  invitationType?: 'team_member' | 'partner';
+  workspaceType?: 'brand' | 'partner';
 }
 
 export async function sendInvitationEmail({
@@ -16,28 +18,38 @@ export async function sendInvitationEmail({
   inviterName,
   role,
   invitationUrl,
+  invitationType = 'team_member',
+  workspaceType = 'brand',
 }: SendInvitationEmailParams) {
   try {
+    const emailCopy = getInvitationEmailCopy({
+      invitationType,
+      workspaceType,
+      role,
+      organizationName,
+      inviterName,
+    });
+
     const { data, error } = await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
       to: [to],
-      subject: `You've been invited to join ${organizationName}`,
+      subject: emailCopy.subject,
       html: `
         <!DOCTYPE html>
         <html>
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Team Invitation</title>
+            <title>${emailCopy.title}</title>
           </head>
           <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
             <div style="background-color: #f8f9fa; border-radius: 8px; padding: 30px; margin-bottom: 20px;">
-              <h1 style="margin: 0 0 20px 0; color: #1a1a1a; font-size: 24px;">You've been invited!</h1>
+              <h1 style="margin: 0 0 20px 0; color: #1a1a1a; font-size: 24px;">${emailCopy.title}</h1>
               <p style="margin: 0 0 15px 0; font-size: 16px;">
-                <strong>${inviterName}</strong> has invited you to join <strong>${organizationName}</strong> as a <strong>${role}</strong>.
+                ${emailCopy.intro}
               </p>
               <p style="margin: 0 0 15px 0; font-size: 14px; color: #666;">
-                ${getRoleDescription(role)}
+                ${emailCopy.description}
               </p>
               <p style="margin: 0 0 25px 0; font-size: 14px; color: #666; background-color: #f0f7ff; padding: 12px; border-radius: 6px; border-left: 3px solid #0070f3;">
                 <strong>How it works:</strong> Click "Accept Invitation" below. You'll be asked to verify your email with a code sent to this address. No password needed!
@@ -75,6 +87,34 @@ function getRoleDescription(role: string): string {
     viewer: 'You will have view-only access with the ability to download assets.',
   };
   return descriptions[role] || 'You will have access to the organization.';
+}
+
+function getInvitationEmailCopy(params: {
+  invitationType: 'team_member' | 'partner';
+  workspaceType: 'brand' | 'partner';
+  role: string;
+  organizationName: string;
+  inviterName: string;
+}) {
+  if (params.invitationType === 'partner') {
+    return {
+      subject: `You've been invited to access ${params.organizationName} in Stackcess`,
+      title: "You've been invited!",
+      intro: `<strong>${params.inviterName}</strong> has invited you to access <strong>${params.organizationName}</strong> in the Stackcess Partner Portal.`,
+      description:
+        'This is read-only Portal access to published brand content. If your partner workspace upgrades later, your own workspace content can become editable while shared brand content stays view-only.',
+    };
+  }
+
+  const teamLabel =
+    params.workspaceType === 'partner' ? 'join a partner workspace team' : 'join a workspace team';
+
+  return {
+    subject: `You've been invited to join ${params.organizationName}`,
+    title: "You've been invited!",
+    intro: `<strong>${params.inviterName}</strong> has invited you to ${teamLabel} at <strong>${params.organizationName}</strong> as a <strong>${params.role}</strong>.`,
+    description: getRoleDescription(params.role),
+  };
 }
 
 interface SendPasswordResetEmailParams {

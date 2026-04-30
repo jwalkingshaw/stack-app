@@ -32,12 +32,7 @@ export async function PUT(
     const { tenant, channelId } = await params;
     const selectedBrandSlug = new URL(request.url).searchParams.get("brand");
 
-    if (isCrossTenantWrite(tenant, selectedBrandSlug)) {
-      return NextResponse.json(
-        { error: "Cross-tenant writes are blocked in shared brand view." },
-        { status: 403 }
-      );
-    }
+    
 
     const contextResult = await resolveTenantBrandViewContext({
       request,
@@ -103,3 +98,4 @@ export async function PUT(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
+

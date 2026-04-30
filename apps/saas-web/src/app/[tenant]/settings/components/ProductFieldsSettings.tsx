@@ -1,11 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  Grid3X3,
-  Plus,
-  Edit,
-  Trash2,
   Type,
   FileText,
   Calendar,
@@ -16,18 +12,17 @@ import {
   DollarSign,
   Ruler,
   Table,
-  Eye,
   KeyRound,
-  Lock
+  Search,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogPortal, DialogOverlay } from '@/components/ui/dialog';
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { DataTable, Column, createTableActions } from '@/components/ui/data-table';
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { PageContentContainer } from '@/components/ui/page-content-container';
+import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
+import { DeleteConfirmDialog, FullscreenFormModal } from '@/components/ui/modal-shells';
+import { SettingsPageContent } from './settings-page-content';
+import { ItemList } from '@/components/ui/item-list';
+import { readApiData, readApiError } from '@/lib/api-contract';
 import IdentifierField from '@/components/field-types/IdentifierField';
 import TextField from '@/components/field-types/TextField';
 import TextAreaField from '@/components/field-types/TextAreaField';
@@ -41,13 +36,12 @@ import FileField from '@/components/field-types/FileField';
 import ImageField from '@/components/field-types/ImageField';
 import PriceField from '@/components/field-types/PriceField';
 import { TableField, TableFieldOptions } from '@/components/field-types/TableField';
-import AttributeWorkflowChecklist from './AttributeWorkflowChecklist';
 
 interface ProductField {
   id: string;
   code: string;
   name: string;
-  description: string;
+  description: string | null;
   field_type: string;
   is_required: boolean;
   is_unique: boolean;
@@ -58,8 +52,17 @@ interface ProductField {
   allowed_market_ids?: string[];
   sort_order: number;
   default_value?: string;
-  validation_rules?: any;
-  options?: any;
+  validation_rules?: Record<string, unknown>;
+  options?: Record<string, unknown>;
+  field_class?: 'system' | 'output' | 'custom' | string;
+  system_key?: string | null;
+  is_locked?: boolean;
+  is_override_capable?: boolean;
+  is_write_assist_enabled?: boolean;
+  is_translatable?: boolean;
+  scope_policy?: string | null;
+  data_domain?: string | null;
+  value_storage_strategy?: string | null;
   template_id?: string | null;
   is_active: boolean;
   created_at: string;
@@ -104,21 +107,59 @@ interface ProductFieldsSettingsProps {
   tenantSlug: string;
 }
 
+interface FieldTypeOption {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  description: string;
+}
+
+interface ActiveRecord {
+  is_active?: boolean;
+}
+
+interface FieldGroupAssignment {
+  id: string;
+  product_fields?: Array<{ id?: string }>;
+}
+
 const SYSTEM_FIELD_CODES = new Set([
   'facts_panel',
+  'ingredients',
+  'other_ingredients',
   'title',
+  'brand_name',
   'scin',
   'sku',
   'barcode',
   'coa_documents',
+  'coc_documents',
+  'label_panel_documents',
+  'spec_sheet_documents',
+  'sell_sheet_documents',
+  'supporting_documents',
   'legal_documents',
   'sfp_documents',
+  'manufacturer_name',
+  'unit_count',
+  'package_type',
+  'allergen_statement',
 ]);
 
 const isSystemAttribute = (field: ProductField) =>
-  SYSTEM_FIELD_CODES.has(field.code) || field.options?.is_system === true;
+  field.field_class === 'system' ||
+  field.field_class === 'output' ||
+  field.is_locked === true ||
+  SYSTEM_FIELD_CODES.has(field.code) ||
+  field.options?.is_system === true;
 
-const FIELD_TYPES = [
+const FIELD_CLASS_LABELS: Record<string, string> = {
+  system: 'System',
+  output: 'Output',
+  custom: 'Custom',
+};
+
+const FIELD_TYPES: FieldTypeOption[] = [
   { id: "boolean", label: "Boolean", icon: ToggleLeft, description: "Boolean true/false" },
   { id: "date", label: "Date", icon: Calendar, description: "Date picker" },
   { id: "file", label: "File", icon: FileText, description: "File upload" },
@@ -161,6 +202,15 @@ const generateCode = (name: string): string => {
     .substring(0, 50);
 };
 
+const DESTINATION_OVERRIDE_FIELD_TYPES = new Set(['text', 'textarea']);
+const AI_ASSIST_FIELD_TYPES = new Set(['text', 'textarea']);
+
+const supportsDestinationOverrides = (fieldType: string | null | undefined) =>
+  Boolean(fieldType && DESTINATION_OVERRIDE_FIELD_TYPES.has(fieldType));
+
+const supportsAIAssist = (fieldType: string | null | undefined) =>
+  Boolean(fieldType && AI_ASSIST_FIELD_TYPES.has(fieldType));
+
 export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSettingsProps) {
   // State
   const [fields, setFields] = useState<ProductField[]>([]);
@@ -170,7 +220,11 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   const [markets, setMarkets] = useState<Market[]>([]);
   const [marketLocales, setMarketLocales] = useState<MarketLocaleAssignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [scopeDataLoading, setScopeDataLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const scopeDataReadyRef = useRef(false);
+  const scopeDataRequestRef = useRef<Promise<void> | null>(null);
 
   // Dialog states
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -178,8 +232,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
   const [selectedField, setSelectedField] = useState<ProductField | null>(null);
-  const [selectedFieldType, setSelectedFieldType] = useState<any>(null);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [selectedFieldType, setSelectedFieldType] = useState<FieldTypeOption | null>(null);
 
   // Form states
   const [formData, setFormData] = useState({
@@ -196,42 +249,77 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
     allowed_market_ids: [] as string[],
     sort_order: 1,
     default_value: '',
+    is_override_capable: false,
+    is_write_assist_enabled: false,
+    is_translatable: false,
     validation_rules: {},
-    options: {} as Record<string, any>,
-    table_definition: undefined as any
+    options: {} as Record<string, unknown>,
+    table_definition: undefined as Record<string, unknown> | undefined
   });
   const [selectedFieldGroupId, setSelectedFieldGroupId] = useState<string | null>(null);
   const [formLoading, setFormLoading] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [hasCustomCode, setHasCustomCode] = useState(false);
 
+  const fetchScopeData = useCallback(async () => {
+    if (scopeDataReadyRef.current) return;
+    if (scopeDataRequestRef.current) {
+      await scopeDataRequestRef.current;
+      return;
+    }
+
+    const request = (async () => {
+      try {
+        setScopeDataLoading(true);
+        const response = await fetch(`/api/${tenantSlug}/market-context`);
+        if (!response.ok) {
+          console.error('Failed to fetch market context:', response.status);
+          return;
+        }
+
+        const marketContext = await response.json();
+        setChannels(((marketContext?.channels || []) as ActiveRecord[]).filter((item) => item.is_active) as MarketChannel[]);
+        setLocales(((marketContext?.locales || []) as ActiveRecord[]).filter((item) => item.is_active) as MarketLocale[]);
+        setMarkets(((marketContext?.markets || []) as ActiveRecord[]).filter((item) => item.is_active) as Market[]);
+        setMarketLocales(
+          ((marketContext?.marketLocales || []) as ActiveRecord[]).filter((item) => item.is_active) as MarketLocaleAssignment[]
+        );
+        scopeDataReadyRef.current = true;
+      } catch (err) {
+        console.error('Error fetching market context:', err);
+      } finally {
+        setScopeDataLoading(false);
+      }
+    })();
+
+    scopeDataRequestRef.current = request;
+    try {
+      await request;
+    } finally {
+      scopeDataRequestRef.current = null;
+    }
+  }, [tenantSlug]);
+
   // Fetch data
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch fields and groups separately for better error handling
-      const [
-        fieldsResponse,
-        groupsResponse,
-        channelsResponse,
-        localesResponse,
-        marketsResponse,
-        marketLocalesResponse
-      ] = await Promise.all([
+      const [fieldsResponse, groupsResponse] = await Promise.all([
         fetch(`/api/${tenantSlug}/product-fields`),
-        fetch(`/api/${tenantSlug}/field-groups`),
-        fetch(`/api/${tenantSlug}/channels`),
-        fetch(`/api/${tenantSlug}/locales`),
-        fetch(`/api/${tenantSlug}/markets`),
-        fetch(`/api/${tenantSlug}/market-locales`)
+        fetch(`/api/${tenantSlug}/field-groups`)
       ]);
 
       // Handle fields response
       if (fieldsResponse.ok) {
-        const fieldsData = await fieldsResponse.json();
-        setFields(fieldsData || []);
+        const fieldsPayload = await fieldsResponse.json().catch(() => []);
+        const nextFields = readApiData<ProductField[]>(fieldsPayload, []).map((field) => ({
+          ...field,
+          description: typeof field.description === 'string' ? field.description : null,
+          default_value: typeof field.default_value === 'string' ? field.default_value : '',
+        }));
+        setFields(nextFields);
       } else {
         console.error('Failed to fetch attributes:', fieldsResponse.status);
         setFields([]); // Set empty array instead of failing
@@ -239,43 +327,11 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
 
       // Handle groups response
       if (groupsResponse.ok) {
-        const groupsData = await groupsResponse.json();
-        setFieldGroups(groupsData || []);
+        const groupsPayload = await groupsResponse.json().catch(() => []);
+        setFieldGroups(readApiData<FieldGroup[]>(groupsPayload, []));
       } else {
         console.error('Failed to fetch field groups:', groupsResponse.status);
         setFieldGroups([]); // Set empty array instead of failing
-      }
-
-      if (channelsResponse.ok) {
-        const channelsData = await channelsResponse.json();
-        setChannels((channelsData || []).filter((item: any) => item.is_active));
-      } else {
-        console.error('Failed to fetch channels:', channelsResponse.status);
-        setChannels([]);
-      }
-
-      if (localesResponse.ok) {
-        const localesData = await localesResponse.json();
-        setLocales((localesData || []).filter((item: any) => item.is_active));
-      } else {
-        console.error('Failed to fetch locales:', localesResponse.status);
-        setLocales([]);
-      }
-
-      if (marketsResponse.ok) {
-        const marketsData = await marketsResponse.json();
-        setMarkets((marketsData || []).filter((item: any) => item.is_active));
-      } else {
-        console.error('Failed to fetch markets:', marketsResponse.status);
-        setMarkets([]);
-      }
-
-      if (marketLocalesResponse.ok) {
-        const marketLocalesData = await marketLocalesResponse.json();
-        setMarketLocales((marketLocalesData || []).filter((item: any) => item.is_active));
-      } else {
-        console.error('Failed to fetch market locales:', marketLocalesResponse.status);
-        setMarketLocales([]);
       }
 
     } catch (err) {
@@ -284,18 +340,17 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       // Ensure we still have empty arrays to render the table
       setFields([]);
       setFieldGroups([]);
-      setChannels([]);
-      setLocales([]);
-      setMarkets([]);
-      setMarketLocales([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [tenantSlug]);
 
   useEffect(() => {
-    fetchData();
-  }, [tenantSlug]);
+    scopeDataReadyRef.current = false;
+    scopeDataRequestRef.current = null;
+    void fetchData();
+    void fetchScopeData();
+  }, [fetchData, fetchScopeData]);
 
   const marketLocaleMap = useMemo(() => {
     const localeById = new Map(locales.map((locale) => [locale.id, locale]));
@@ -337,12 +392,15 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         body: JSON.stringify(formData)
       });
 
+      const responsePayload = await response.json().catch(() => null);
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create attribute');
+        throw new Error(readApiError(responsePayload, 'Failed to create attribute'));
       }
 
-      const createdField = await response.json();
+      const createdField = readApiData<{ id: string } | null>(responsePayload, null);
+      if (!createdField?.id) {
+        throw new Error('Attribute created but response payload was incomplete.');
+      }
 
       // Assign field to selected field groups
       if (selectedFieldGroupId) {
@@ -356,7 +414,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         );
 
         if (!assignmentResponse.ok) {
-          const errorData = await assignmentResponse.json();
+          const errorData = await assignmentResponse.json().catch(() => null);
           console.error('Failed to assign field to group:', errorData);
         }
       }
@@ -386,26 +444,26 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         body: JSON.stringify(formData)
       });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to update attribute');
+      const responsePayload = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(readApiError(responsePayload, 'Failed to update attribute'));
+      }
+
+      const assignmentResponse = await fetch(
+        `/api/${tenantSlug}/product-fields/${selectedField.id}/field-group`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field_group_id: selectedFieldGroupId })
         }
+      );
 
-        const assignmentResponse = await fetch(
-          `/api/${tenantSlug}/product-fields/${selectedField.id}/field-group`,
-          {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ field_group_id: selectedFieldGroupId })
-          }
-        );
+      if (!assignmentResponse.ok) {
+        const errorData = await assignmentResponse.json().catch(() => null);
+        throw new Error(readApiError(errorData, 'Failed to update attribute group'));
+      }
 
-        if (!assignmentResponse.ok) {
-          const errorData = await assignmentResponse.json();
-          throw new Error(errorData.error || 'Failed to update attribute group');
-        }
-
-        await fetchData(); // Refresh list
+      await fetchData(); // Refresh list
       setShowEditDialog(false);
       resetForm();
     } catch (err) {
@@ -428,14 +486,13 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete attribute');
+        const errorData = await response.json().catch(() => null);
+        throw new Error(readApiError(errorData, 'Failed to delete attribute'));
       }
 
       await fetchData(); // Refresh list
       setShowDeleteDialog(false);
       setSelectedField(null);
-      setDeleteConfirmText('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete attribute');
     } finally {
@@ -459,6 +516,9 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       allowed_market_ids: [],
       sort_order: fields.length + 1,
       default_value: '',
+      is_override_capable: false,
+      is_write_assist_enabled: false,
+      is_translatable: false,
       validation_rules: {},
       options: {},
       table_definition: undefined
@@ -474,10 +534,11 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   const openCreateDialog = () => {
     resetForm();
     setError(null);
+    void fetchScopeData();
     setShowTypeSelector(true);
   };
 
-  const selectFieldType = (fieldType: any) => {
+  const selectFieldType = (fieldType: FieldTypeOption) => {
     setSelectedFieldType(fieldType);
     setFormData((prev) => {
       const isIdentifier = fieldType.id === 'identifier';
@@ -486,8 +547,8 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       const existingOptions =
         prev.options && typeof prev.options === 'object' ? prev.options : {};
 
-      let nextOptions: Record<string, any>;
-      let nextTableDefinition: any;
+      let nextOptions: Record<string, unknown>;
+      let nextTableDefinition: Record<string, unknown> | undefined;
 
       if (isTable) {
         const baseDefinition =
@@ -503,7 +564,9 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         };
         nextTableDefinition = JSON.parse(JSON.stringify(baseDefinition));
       } else {
-        const { table_definition, template_reference, ...rest } = existingOptions;
+        const rest = { ...existingOptions };
+        delete rest.table_definition;
+        delete rest.template_reference;
         nextOptions = rest;
         nextTableDefinition = undefined;
       }
@@ -519,6 +582,14 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         allowed_locale_ids: isIdentifier ? [] : prev.allowed_locale_ids || [],
         allowed_market_ids: isIdentifier ? [] : prev.allowed_market_ids || [],
         table_definition: nextTableDefinition,
+        is_override_capable:
+          isIdentifier || !supportsDestinationOverrides(fieldType.id)
+            ? false
+            : prev.is_override_capable,
+        is_write_assist_enabled:
+          !supportsAIAssist(fieldType.id) ? false : prev.is_write_assist_enabled,
+        is_translatable:
+          !supportsAIAssist(fieldType.id) ? false : prev.is_translatable,
         options: nextOptions
       };
     });
@@ -529,15 +600,16 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   };
 
   const openEditDialog = (field: ProductField) => {
+    void fetchScopeData();
     setSelectedField(field);
-    setSelectedFieldType(FIELD_TYPES.find(t => t.id === field.field_type));
+    setSelectedFieldType(FIELD_TYPES.find(t => t.id === field.field_type) ?? null);
     const tableDefinition = field.options?.table_definition
       ? JSON.parse(JSON.stringify(field.options.table_definition))
       : undefined;
     setFormData({
       name: field.name,
       code: field.code,
-      description: field.description,
+      description: field.description ?? '',
       field_type: field.field_type,
       is_required: field.is_required,
       is_unique: field.is_unique,
@@ -548,6 +620,9 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       allowed_market_ids: field.allowed_market_ids || [],
       sort_order: field.sort_order,
       default_value: field.default_value || '',
+      is_override_capable: field.is_override_capable === true,
+      is_write_assist_enabled: field.is_write_assist_enabled === true,
+      is_translatable: field.is_translatable === true,
       validation_rules: field.validation_rules || {},
       options: field.options || {},
       table_definition: tableDefinition
@@ -557,116 +632,35 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
     setShowEditDialog(true);
   };
 
-  const getAssignedGroupId = (fieldId: string) => {
-    const assigned = fieldGroups
-      .filter((group: any) =>
-        Array.isArray((group as any).product_fields) &&
-        (group as any).product_fields.some((f: any) => f?.id === fieldId)
+  const getAssignedGroupId = useCallback((fieldId: string) => {
+    const assigned = (fieldGroups as unknown as FieldGroupAssignment[])
+      .filter((group) =>
+        Array.isArray(group.product_fields) &&
+        group.product_fields.some((field) => field?.id === fieldId)
       )
       .map((group) => group.id);
     return assigned[0] || null;
-  };
+  }, [fieldGroups]);
 
   useEffect(() => {
     if (showEditDialog && selectedField) {
       setSelectedFieldGroupId(getAssignedGroupId(selectedField.id));
     }
-  }, [showEditDialog, selectedField, fieldGroups]);
+  }, [showEditDialog, selectedField, getAssignedGroupId]);
 
-  const openDeleteDialog = (field: ProductField) => {
-    setSelectedField(field);
-    setDeleteConfirmText('');
-    setShowDeleteDialog(true);
-  };
-
-  // Table columns
-  const columns: Column<ProductField>[] = [
-    {
-      key: 'name',
-      label: 'Attribute Name',
-      sortable: true,
-      width: '45%',
-      render: (value, field) => (
-        <div className="flex items-center gap-2">
-          <div className="font-medium text-foreground">{value}</div>
-          {isSystemAttribute(field) && (
-            <Badge variant="outline" className="text-xs">
-              <Lock className="mr-1 h-3 w-3" />
-              System
-            </Badge>
-          )}
-        </div>
-      )
-    },
-    {
-      key: 'is_required',
-      label: 'Properties',
-      sortable: false,
-      width: '35%',
-      render: (_, field) => (
-        <div className="flex gap-1 flex-wrap">
-          {field.is_required && (
-            <Badge variant="secondary" className="text-xs">Required</Badge>
-          )}
-          {field.is_unique && (
-            <Badge variant="secondary" className="text-xs">Unique</Badge>
-          )}
-          {field.is_localizable && (
-            <Badge variant="secondary" className="text-xs">Localizable</Badge>
-          )}
-          {isSystemAttribute(field) && (
-            <Badge variant="outline" className="text-xs">Locked</Badge>
-          )}
-        </div>
-      )
-    },
-    {
-      key: 'is_active',
-      label: 'Status',
-      sortable: true,
-      width: '20%',
-      render: (value) => (
-        <Badge variant={value ? 'default' : 'secondary'}>
-          {value ? 'Active' : 'Inactive'}
-        </Badge>
-      )
-    }
-  ];
-
-  // Table actions
-  const actions = [
-    createTableActions.view((field: ProductField) => {
-      if (isSystemAttribute(field)) {
-        return;
-      }
-      // TODO: Navigate to field detail view
-      console.log('View field:', field);
-    }),
-    createTableActions.edit((field: ProductField) => {
-      if (isSystemAttribute(field)) {
-        return;
-      }
-      openEditDialog(field);
-    }),
-    createTableActions.delete((field: ProductField) => {
-      if (isSystemAttribute(field)) {
-        return;
-      }
-      openDeleteDialog(field);
-    })
-  ];
+  const filteredFields = useMemo(
+    () => fields
+      .filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [fields, searchQuery]
+  );
 
   return (
-    <PageContentContainer mode="fluid" className="space-y-6">
+    <SettingsPageContent page="product-fields">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-semibold text-foreground">Attributes</h2>
-        <p className="text-muted-foreground">
-          Define custom attributes to capture product information
-        </p>
       </div>
-
-      <AttributeWorkflowChecklist tenantSlug={tenantSlug} />
 
       {/* Error Display */}
       {error && (
@@ -675,109 +669,105 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         </div>
       )}
 
-      {/* Data Table */}
-      <DataTable
-        data={fields}
-        columns={columns}
-        loading={loading}
-        actions={actions}
-        hideActions={(field: ProductField) => isSystemAttribute(field)}
-        searchPlaceholder="Search attributes..."
-        onCreateNew={openCreateDialog}
-        createNewLabel="Create Attribute"
-        emptyState={{
-          title: "No attributes found",
-          description: "Create your first attribute to capture custom product information.",
-          icon: <Grid3X3 className="w-8 h-8 text-muted-foreground" />
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search attributes..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-9"
+        />
+      </div>
+
+      {/* List */}
+      <ItemList
+        items={filteredFields}
+        getKey={(f) => f.id}
+        renderTitle={(f) => f.name}
+        renderSubtitle={(f) => {
+          const typeLabel = FIELD_TYPES.find(t => t.id === f.field_type)?.label ?? f.field_type;
+          const classLabel = FIELD_CLASS_LABELS[f.field_class ?? 'custom'] ?? 'Custom';
+          return `${typeLabel} • ${classLabel}`;
         }}
+        getStatus={(f) => (f.is_active ? 'active' : 'inactive')}
+        onClickItem={openEditDialog}
+        isLocked={isSystemAttribute}
+        loading={loading}
+        loadingRows={8}
+        emptyMessage={searchQuery ? 'No attributes match your search.' : 'No attributes yet. Create your first attribute.'}
+        headerLabel="attributes"
+        onCreate={openCreateDialog}
+        createLabel="Add attribute"
       />
 
       {/* Field Type Selector Dialog */}
-      <Dialog open={showTypeSelector} onOpenChange={setShowTypeSelector}>
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-white" />
-          <DialogPrimitive.Content className="fixed inset-0 z-50 bg-background">
-            <div className="flex h-full flex-col">
-              {/* Header with X close button */}
-              <div className="flex items-center justify-between border-b border-border/60 px-8 py-6">
-                <DialogPrimitive.Title className="text-xl font-semibold text-foreground">Choose Attribute Type</DialogPrimitive.Title>
-                <button
-                  onClick={() => setShowTypeSelector(false)}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Centered content */}
-              <div className="flex-1 overflow-y-auto px-8 py-10">
-                <div className="grid w-full max-w-5xl gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  {FIELD_TYPES.map((type) => {
-                    const Icon = type.icon;
-                    return (
-                      <button
-                        key={type.id}
-                        onClick={() => selectFieldType(type)}
-                        className="group flex h-full flex-col gap-4 rounded-xl border border-border/60 bg-background p-4 text-left transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                      >
-                        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
-                          <Icon className="h-5 w-5" />
-                        </div>
-                        <div className="space-y-2">
-                          <div className="text-sm font-semibold text-foreground">{type.label}</div>
-                          <p className="text-xs leading-5 text-muted-foreground">{type.description}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
+      <FullscreenFormModal
+        open={showTypeSelector}
+        title="Choose Attribute Type"
+        onOpenChange={setShowTypeSelector}
+        onBack={() => setShowTypeSelector(false)}
+        frameBody={false}
+        bodyClassName="flex min-h-[calc(100vh-9rem)] items-center justify-center p-0"
+      >
+        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {FIELD_TYPES.map((type) => {
+            const Icon = type.icon;
+            return (
+              <button
+                key={type.id}
+                onClick={() => selectFieldType(type)}
+                className="group flex h-28 w-full flex-col gap-2 rounded-xl border border-border/60 bg-background p-3 text-left transition-colors hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
+                  <Icon className="h-4 w-4" />
                 </div>
-              </div>
-            </div>
-          </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </Dialog>
+                <div className="space-y-1.5">
+                  <div className="text-sm font-semibold text-foreground">{type.label}</div>
+                  <p className="text-xs leading-[1.2] text-muted-foreground">{type.description}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </FullscreenFormModal>
 
       {/* Create/Edit Dialog */}
-      <Dialog open={showCreateDialog || showEditDialog} onOpenChange={(open) => {
-        if (!open) {
+      <FullscreenFormModal
+        open={showCreateDialog || showEditDialog}
+        title={`${showEditDialog ? 'Edit' : 'Create'} ${selectedFieldType?.label ?? ''} Attribute`}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowCreateDialog(false);
+            setShowEditDialog(false);
+            resetForm();
+          }
+        }}
+        onBack={() => {
           setShowCreateDialog(false);
           setShowEditDialog(false);
           resetForm();
-        }
-      }}>
-        <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-white" />
-          <DialogPrimitive.Content className="fixed inset-0 z-50 bg-background">
-            <div className="flex h-full flex-col">
-              {/* Header with X close button */}
-              <div className="flex items-center justify-between border-b border-border/60 px-8 py-6">
-                <DialogPrimitive.Title className="text-xl font-semibold text-foreground">
-                  {showEditDialog ? 'Edit' : 'Create'} {selectedFieldType?.label} Attribute
-                </DialogPrimitive.Title>
-                <button
-                  onClick={() => {
-                    setShowCreateDialog(false);
-                    setShowEditDialog(false);
-                    resetForm();
-                  }}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border/60 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
+        }}
+        primaryActionLabel={showEditDialog ? 'Update Attribute' : 'Create Attribute'}
+        onPrimaryAction={() => void (showEditDialog ? handleUpdate() : handleCreate())}
+        primaryActionDisabled={formLoading || !formData.name.trim() || !formData.code.trim() || !formData.field_type}
+        primaryActionLoading={formLoading}
+        primaryActionLoadingLabel={showEditDialog ? 'Updating...' : 'Creating...'}
+      >
+        {error && (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {error}
+          </div>
+        )}
 
-              {/* Scrollable content */}
-              <div className="flex-1 overflow-y-auto px-8 py-10">
-                <div className="flex w-full max-w-5xl flex-col gap-8">
-                  {error && (
-                    <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                      {error}
-                    </div>
-                  )}
+        <div className="space-y-10">
+                    <section className="space-y-6">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-semibold text-foreground">General</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Core attribute details visible to your team.
+                        </p>
+                      </div>
 
                   {/* Basic Information */}
                   <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -897,6 +887,16 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                     )}
                   </div>
 
+                    </section>
+
+                    <section className="space-y-6">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-semibold text-foreground">Validation</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Configure data rules and where this attribute can be used.
+                        </p>
+                      </div>
+
                   {/* Attribute Properties - Hidden for identifier fields since they're predetermined */}
                     {selectedFieldType?.id !== 'identifier' && (
                       <div className="rounded-lg border border-border/60 bg-muted/20 px-5 py-4">
@@ -943,7 +943,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                               }}
                               className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
                             />
-                          <span className="text-sm leading-6 text-foreground">Localizable</span>
+                          <span className="text-sm leading-6 text-foreground">Locale versions</span>
                         </label>
                         <label className="flex cursor-pointer items-start gap-3 rounded-md border border-transparent px-3 py-2 transition-colors hover:bg-muted/40">
                             <input
@@ -959,25 +959,117 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                               }}
                               className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary"
                             />
-                          <span className="text-sm leading-6 text-foreground">Channel</span>
+                          <span className="text-sm leading-6 text-foreground">Destination availability</span>
                         </label>
                         </div>
+                        <div className="mt-4 space-y-3">
+                        <div className="rounded-md border border-border/60 bg-background px-4 py-3">
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={formData.is_write_assist_enabled}
+                              onChange={(e) =>
+                                setFormData({ ...formData, is_write_assist_enabled: e.target.checked })
+                              }
+                              disabled={!supportsAIAssist(formData.field_type)}
+                              className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary disabled:opacity-60"
+                            />
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-foreground">Write</div>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                Enable AI-assisted content drafting for this field. Appears inline when editing base content.
+                              </p>
+                              {!supportsAIAssist(formData.field_type) ? (
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  Write is supported for text and textarea fields only.
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="rounded-md border border-border/60 bg-background px-4 py-3">
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={formData.is_translatable}
+                              onChange={(e) =>
+                                setFormData({ ...formData, is_translatable: e.target.checked })
+                              }
+                              disabled={!supportsAIAssist(formData.field_type) || !formData.is_localizable}
+                              className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary disabled:opacity-60"
+                            />
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-foreground">Adapt</div>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                Enable locale adaptation for this field. Translates content into the target locale and enforces regional regulatory compliance in a single step.
+                              </p>
+                              {!formData.is_localizable ? (
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  Requires Locale versions to be enabled.
+                                </p>
+                              ) : !supportsAIAssist(formData.field_type) ? (
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  Adapt is supported for text and textarea fields only.
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="rounded-md border border-border/60 bg-background px-4 py-3">
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={formData.is_override_capable}
+                              onChange={(e) =>
+                                setFormData({ ...formData, is_override_capable: e.target.checked })
+                              }
+                              disabled={!supportsDestinationOverrides(formData.field_type)}
+                              className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary disabled:opacity-60"
+                            />
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-foreground">
+                                Allow destination versions
+                              </div>
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                Use this when a shared field needs an additional version for a destination like Amazon or Partner Portal.
+                              </p>
+                              {!supportsDestinationOverrides(formData.field_type) ? (
+                                <p className="mt-2 text-xs text-muted-foreground">
+                                  Destination versions are currently supported for text and textarea fields only.
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedFieldType?.id === 'identifier' && (
+                      <div className="rounded-lg border border-border/60 bg-muted/10 px-5 py-4 text-sm text-muted-foreground">
+                        Identifier attributes are always required, unique, and not scoped by destination or locale.
                       </div>
                     )}
 
                     {(formData.is_channelable || formData.is_localizable) && (
                       <div className="rounded-lg border border-border/60 bg-muted/10 px-5 py-4">
-                        <h4 className="text-sm font-semibold text-foreground">Market Availability</h4>
+                        <h4 className="text-sm font-semibold text-foreground">Locale And Destination Availability</h4>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          Limit which channels or markets this attribute applies to. Leave empty to allow all.
+                          Limit which destinations, locales, or optional operational markets this attribute can use. Leave empty to allow all.
                         </p>
+                        {scopeDataLoading && (
+                          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                            <LoadingSkeleton size="sm" />
+                            <span>Loading destinations, locales, and markets...</span>
+                          </div>
+                        )}
                         <div className="mt-4 grid gap-4 sm:grid-cols-2">
                           {formData.is_channelable && (
                             <div className="space-y-2">
-                              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Channels</div>
+                              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Destinations</div>
                               <div className="space-y-2">
                                 {channels.length === 0 && (
-                                  <div className="text-xs text-muted-foreground">No channels defined yet.</div>
+                                  <div className="text-xs text-muted-foreground">No destinations defined yet.</div>
                                 )}
                                 {channels.map((channel) => {
                                   const checked = (formData.allowed_channel_ids || []).includes(channel.id);
@@ -1005,11 +1097,14 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                           )}
                           {formData.is_localizable && (
                             <div className="space-y-2">
-                              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Markets</div>
+                              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Operational markets</div>
                               <div className="space-y-3">
                                 {markets.length === 0 && (
-                                  <div className="text-xs text-muted-foreground">No markets defined yet.</div>
+                                  <div className="text-xs text-muted-foreground">No operational markets defined yet.</div>
                                 )}
+                                <p className="text-xs text-muted-foreground">
+                                  Markets stay optional here and do not create field-level content branches.
+                                </p>
                                 {markets.map((market) => {
                                   const checked = (formData.allowed_market_ids || []).includes(market.id);
                                   const marketLocales = marketLocaleMap.get(market.id) || [];
@@ -1081,6 +1176,16 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                       </div>
                     )}
 
+                    </section>
+
+                    <section className="space-y-6">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-semibold text-foreground">Type-specific</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Additional settings for {selectedFieldType?.label?.toLowerCase() || 'this'} attributes.
+                        </p>
+                      </div>
+
                     {/* Type-specific settings */}
                   <div className="space-y-6">
                   {selectedFieldType?.id === 'identifier' && <IdentifierField />}
@@ -1090,23 +1195,28 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                       onChange={(options) => setFormData({ ...formData, options })}
                     />
                   )}
-                  {selectedFieldType?.id === 'textarea' && <TextAreaField />}
+                  {selectedFieldType?.id === 'textarea' && (
+                    <TextAreaField
+                      value={formData.options}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
+                    />
+                  )}
                   {selectedFieldType?.id === 'number' && (
                     <NumberField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                   {selectedFieldType?.id === 'boolean' && (
                     <BooleanField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                   {selectedFieldType?.id === 'date' && (
                     <DateField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                   {selectedFieldType?.id === 'measurement' && (
@@ -1123,8 +1233,8 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                       onChange={(options) =>
                         setFormData({
                           ...formData,
-                          options,
-                          table_definition: options.table_definition ?? formData.table_definition
+                          options: options as Record<string, unknown>,
+                          table_definition: (options.table_definition as Record<string, unknown> | undefined) ?? formData.table_definition
                         })
                       }
                     />
@@ -1132,134 +1242,82 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
                   {selectedFieldType?.id === 'file' && (
                     <FileField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                   {selectedFieldType?.id === 'image' && (
                     <ImageField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                   {selectedFieldType?.id === 'price' && (
                     <PriceField
                       value={formData.options}
-                      onChange={(options) => setFormData({ ...formData, options })}
+                      onChange={(options) => setFormData({ ...formData, options: options as Record<string, unknown> })}
                     />
                   )}
                 </div>
 
                 {selectedFieldType?.id === 'select' && (
                   <SelectField
-                    value={(formData.options && 'options' in formData.options) ? formData.options as any : { options: [] }}
-                    onChange={(options) => setFormData({ ...formData, options })}
+                    value={
+                      formData.options && 'options' in formData.options
+                        ? (formData.options as { options: Array<{ id: string; label: string; value: string; sort_order?: number }> })
+                        : { options: [] }
+                    }
+                    onChange={(options) => setFormData({ ...formData, options: options as unknown as Record<string, unknown> })}
                   />
                 )}
                 {selectedFieldType?.id === 'multiselect' && (
                   <MultiSelectField
-                    value={(formData.options && 'options' in formData.options) ? formData.options as any : { options: [] }}
-                    onChange={(options) => setFormData({ ...formData, options })}
+                    value={
+                      formData.options && 'options' in formData.options
+                        ? (formData.options as {
+                            options: Array<{ id: string; label: string; value: string; sort_order?: number }>;
+                            allowEmpty?: boolean;
+                            placeholder?: string;
+                            defaultValue?: string[];
+                            max_selections?: number;
+                            min_selections?: number;
+                          })
+                        : { options: [] }
+                    }
+                    onChange={(options) => setFormData({ ...formData, options: options as unknown as Record<string, unknown> })}
                   />
                 )}
-              </div>
-            </div>
-
-            {/* Fixed footer with buttons */}
-            <div className="border-t border-border px-8 py-6">
-              <div className="flex w-full max-w-5xl justify-end gap-3">
-                <Button variant="outline" onClick={() => {
-                  setShowCreateDialog(false);
-                  setShowEditDialog(false);
-                  resetForm();
-                }}>
-                  Cancel
-                </Button>
-                <Button
-                  onClick={showEditDialog ? handleUpdate : handleCreate}
-                  variant="accent-blue"
-                  disabled={formLoading || !formData.name.trim() || !formData.code.trim() || !formData.field_type}
-                >
-                  {formLoading ? (
-                    <>
-                      <LoadingSpinner size="sm" color="white" className="mr-2" />
-                      {showEditDialog ? 'Updating...' : 'Creating...'}
-                    </>
-                  ) : (
-                    showEditDialog ? 'Update Attribute' : 'Create Attribute'
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </DialogPrimitive.Content>
-        </DialogPrimitive.Portal>
-      </Dialog>
+          </section>
+        </div>
+      </FullscreenFormModal>
 
       {/* Delete Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Attribute</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {error && (
-              <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-                {error}
-              </div>
-            )}
-
-            <p>
-              Are you sure you want to delete <strong>{selectedField?.name}</strong>?
-            </p>
-
-            <div className="bg-red-50 p-3 rounded-md">
-              <p className="text-sm text-red-800">
-                <strong>Warning:</strong> This action cannot be undone. All data associated with this field will be permanently lost.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-sm font-medium text-red-800 block mb-2">
-                  To confirm deletion, type <strong>delete</strong> below:
-                </label>
-                <Input
-                  value={deleteConfirmText}
-                  onChange={(e) => setDeleteConfirmText(e.target.value)}
-                  placeholder="Type 'delete' to confirm"
-                  className="border-red-200 focus:border-red-400"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4">
-              <Button variant="outline" onClick={() => {
-                setShowDeleteDialog(false);
-                setSelectedField(null);
-                setDeleteConfirmText('');
-              }}>
-                Cancel
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={handleDelete}
-                disabled={formLoading || deleteConfirmText !== 'delete'}
-              >
-                {formLoading ? (
-                  <>
-                    <LoadingSpinner size="sm" color="white" className="mr-2" />
-                    Deleting...
-                  </>
-                ) : (
-                  'Delete Attribute'
-                )}
-              </Button>
-            </div>
+      <DeleteConfirmDialog
+        open={showDeleteDialog}
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open);
+          if (!open) {
+            setSelectedField(null);
+          }
+        }}
+        title="Delete Attribute"
+        description={`Are you sure you want to delete ${selectedField?.name || 'this attribute'}? This action cannot be undone.`}
+        confirmLabel="Delete Attribute"
+        confirmDisabled={formLoading}
+        confirmLoading={formLoading}
+        confirmLoadingLabel="Deleting..."
+        onConfirm={() => void handleDelete()}
+        safetyMode="typed"
+        confirmPhrase="delete"
+      >
+        {error && (
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            {error}
           </div>
-        </DialogContent>
-      </Dialog>
-    </PageContentContainer>
+        )}
+      </DeleteConfirmDialog>
+    </SettingsPageContent>
   );
 }
+
 
 

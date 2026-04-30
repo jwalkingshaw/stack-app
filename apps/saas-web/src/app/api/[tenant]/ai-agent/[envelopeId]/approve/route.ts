@@ -161,7 +161,8 @@ async function commitChange(
       }
       const { error } = await supabase
         .from("products")
-        .update({ [change.field]: change.after })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .update({ [change.field]: change.after } as any)
         .eq("id", change.productId)
         .eq("organization_id", organizationId); // org guard — always present
       if (error) throw new Error(error.message);

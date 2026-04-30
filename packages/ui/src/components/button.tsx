@@ -19,6 +19,7 @@ const buttonVariants = cva(
           "border-[1px] border-[var(--color-border-strong)] bg-transparent text-foreground hover:border-[var(--color-foreground-muted)] hover:bg-[var(--color-interactive-hover)] active:bg-[var(--color-interactive-pressed)]",
         ghost: "border-[1px] border-transparent hover:bg-[var(--color-interactive-hover)] hover:text-foreground active:bg-[var(--color-interactive-pressed)]",
         link: "text-primary underline-offset-4 hover:underline",
+        "accent-blue": "border-0 bg-[var(--color-accent-blue)] text-white hover:text-white active:text-white hover:bg-[var(--color-accent-blue-hover)] active:bg-[var(--color-accent-blue-active)]",
       },
       size: {
         default: "h-8 px-3 py-2",

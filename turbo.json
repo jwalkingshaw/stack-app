@@ -62,6 +62,14 @@
     },
     "clean": {
       "cache": false
+    },
+    "@stack-app/design-tokens#build": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "@stack-app/shared-components#build": {
+      "dependsOn": ["^build"],
+      "outputs": []
     }
   }
 }

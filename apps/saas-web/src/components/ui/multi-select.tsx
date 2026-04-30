@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 export interface MultiSelectOption {
   value: string
   label: string
+  shortLabel?: string  // shown in trigger summary only; falls back to label
   disabled?: boolean
 }
 
@@ -52,8 +53,15 @@ export function MultiSelect({
   }
 
   const selectedCount = value.length
+  const shortLabelByValue = React.useMemo(
+    () => new Map(options.map((option) => [option.value, option.shortLabel ?? option.label])),
+    [options]
+  )
   const selectedLabels = value
     .map((selectedValue) => labelByValue.get(selectedValue))
+    .filter((label): label is string => Boolean(label))
+  const selectedShortLabels = value
+    .map((selectedValue) => shortLabelByValue.get(selectedValue))
     .filter((label): label is string => Boolean(label))
   const selectedItems = value.map((selectedValue) => ({
     value: selectedValue,
@@ -64,11 +72,11 @@ export function MultiSelect({
   const selectedSummary =
     selectedCount === 0
       ? placeholder
-      : selectedLabels.length === 0
+      : selectedShortLabels.length === 0
         ? `${selectedCount} selected`
         : selectedCount <= 2
-          ? selectedLabels.join(", ")
-          : `${selectedLabels.slice(0, 2).join(", ")} +${selectedCount - 2}`
+          ? selectedShortLabels.join(", ")
+          : `${selectedShortLabels.slice(0, 2).join(", ")} +${selectedCount - 2}`
   const selectedTitle = selectedLabels.length > 0 ? selectedLabels.join(", ") : undefined
   const handleRemove = (optionValue: string) => {
     if (disabled) return

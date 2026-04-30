@@ -1,20 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, AlertTriangle, CheckCircle, RefreshCw } from "lucide-react";
+import { Sparkles, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
-
-interface ComplianceFlag {
-  phrase: string;
-  rule: string;
-  severity: "error" | "warning";
-  suggestion: string;
-}
 
 interface WriteAssistButtonProps {
   tenant: string;
@@ -48,14 +40,12 @@ export function WriteAssistButton({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [suggestion, setSuggestion] = useState("");
-  const [complianceFlags, setComplianceFlags] = useState<ComplianceFlag[]>([]);
   const [editedSuggestion, setEditedSuggestion] = useState("");
   const [refinement, setRefinement] = useState("");
 
   const generate = async () => {
     setLoading(true);
     setSuggestion("");
-    setComplianceFlags([]);
     setEditedSuggestion("");
 
     try {
@@ -84,7 +74,6 @@ export function WriteAssistButton({
       const text = typeof data.suggestion === "string" ? data.suggestion : "";
       setSuggestion(text);
       setEditedSuggestion(text);
-      setComplianceFlags(Array.isArray(data.complianceFlags) ? data.complianceFlags : []);
     } catch {
       toast.error("Failed to generate content");
     } finally {
@@ -102,9 +91,6 @@ export function WriteAssistButton({
     onAccept(editedSuggestion);
     setOpen(false);
   };
-
-  const errorFlags = complianceFlags.filter((f) => f.severity === "error");
-  const warningFlags = complianceFlags.filter((f) => f.severity === "warning");
 
   return (
     <>
@@ -152,7 +138,7 @@ export function WriteAssistButton({
               </div>
             ) : suggestion ? (
               <>
-                {/* Suggestion — primary focus */}
+                {/* Suggestion */}
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     Suggestion
@@ -164,44 +150,7 @@ export function WriteAssistButton({
                   />
                 </div>
 
-                {/* Compliance — inline, no header */}
-                {complianceFlags.length > 0 ? (
-                  <div className="space-y-2">
-                    {[...errorFlags, ...warningFlags].map((flag, i) => (
-                      <div key={i} className="rounded-md border px-3 py-2.5 text-xs space-y-1">
-                        <div className="flex items-center gap-2">
-                          <AlertTriangle
-                            className={`h-3.5 w-3.5 shrink-0 ${
-                              flag.severity === "error" ? "text-red-500" : "text-amber-500"
-                            }`}
-                          />
-                          <Badge
-                            variant={flag.severity === "error" ? "error" : "warning"}
-                            className="text-[10px]"
-                          >
-                            {flag.severity === "error" ? "Issue" : "Warning"}
-                          </Badge>
-                          <span className="font-medium text-foreground">
-                            &ldquo;{flag.phrase}&rdquo;
-                          </span>
-                        </div>
-                        <p className="text-muted-foreground pl-5">{flag.rule}</p>
-                        {flag.suggestion ? (
-                          <p className="text-muted-foreground pl-5">
-                            Try: <span className="italic">{flag.suggestion}</span>
-                          </p>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 text-xs text-emerald-600">
-                    <CheckCircle className="h-3.5 w-3.5" />
-                    No compliance issues found
-                  </div>
-                )}
-
-                {/* Primary actions — directly below suggestion */}
+                {/* Actions */}
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
@@ -215,10 +164,9 @@ export function WriteAssistButton({
                   </Button>
                 </div>
 
-                {/* Divider */}
                 <hr className="border-border/60" />
 
-                {/* Refine + Try again — secondary */}
+                {/* Refine */}
                 <div className="space-y-2">
                   <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     Refine (optional)
@@ -243,6 +191,12 @@ export function WriteAssistButton({
             ) : null}
           </div>
 
+          {/* Disclaimer */}
+          <div className="shrink-0 border-t border-border/60 px-5 py-3">
+            <p className="text-[11px] text-muted-foreground">
+              AI-generated content is guidance only. Verify compliance before publishing.
+            </p>
+          </div>
         </SheetContent>
       </Sheet>
     </>

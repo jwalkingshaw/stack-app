@@ -203,6 +203,7 @@ type ProductFieldRow = {
   field_type: string;
   is_localizable?: boolean | null;
   is_channelable?: boolean | null;
+  is_translatable?: boolean | null;
   allowed_channel_ids?: string[] | null;
   allowed_market_ids?: string[] | null;
   allowed_locale_ids?: string[] | null;
@@ -590,13 +591,23 @@ async function resolveScopedFieldMap(params: {
     return new Map();
   }
 
-  const { data, error } = await supabase
-    .from("product_fields")
-    .select(
+  const runFieldQuery = (select: string) =>
+    supabase
+      .from("product_fields")
+      .select(select)
+      .eq("organization_id", params.organizationId)
+      .in("code", candidateCodes);
+
+  let { data, error } = await runFieldQuery(
+    "id,code,field_type,is_localizable,is_channelable,is_translatable,allowed_channel_ids,allowed_market_ids,allowed_locale_ids"
+  );
+
+  // Fallback for databases where is_translatable column doesn't exist yet
+  if (error?.code === "42703") {
+    ({ data, error } = await runFieldQuery(
       "id,code,field_type,is_localizable,is_channelable,allowed_channel_ids,allowed_market_ids,allowed_locale_ids"
-    )
-    .eq("organization_id", params.organizationId)
-    .in("code", candidateCodes);
+    ));
+  }
 
   if (error) {
     console.error("Failed to resolve scoped product fields:", error);
@@ -833,7 +844,12 @@ function validateScopedFieldWrite(params: {
     return `Field "${fieldLabel}" cannot be scoped by channel.`;
   }
 
-  if (scope.localeId && !field.is_localizable) {
+  const isLocaleCapable =
+    field.is_localizable ||
+    field.is_translatable ||
+    (Array.isArray(field.allowed_locale_ids) && field.allowed_locale_ids.length > 0);
+
+  if (scope.localeId && !isLocaleCapable) {
     return `Field "${fieldLabel}" cannot be scoped by language.`;
   }
 
@@ -1591,13 +1607,21 @@ export async function PUT(
       }
 
       if (!scopedPersistResult.ok) {
+        const persistError = scopedPersistResult.error || "Failed to persist scoped field values";
+        console.error("PUT /products/[productId] scoped persist failed:", {
+          productId,
+          organizationId,
+          scope: requestScope,
+          error: persistError,
+          unresolvedColumns: scopedPersistResult.unresolvedColumns,
+        });
         const status =
           typeof scopedPersistResult.error === "string" &&
           scopedPersistResult.error.toLowerCase().includes("legacy uniqueness")
             ? 409
-            : 500;
+            : 422;
         return NextResponse.json(
-          { error: scopedPersistResult.error || "Failed to persist scoped field values" },
+          { error: persistError },
           { status }
         );
       }

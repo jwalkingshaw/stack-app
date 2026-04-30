@@ -6,6 +6,7 @@ import {
   resolveOrganizationBaselineScope,
   scopeMatchesOrganizationBaseline,
 } from "@/lib/default-market-locale";
+import { normalizeProductFieldValue } from "@/lib/product-field-options";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,13 +29,17 @@ type FieldValueRow = {
     | {
         id: string;
         code: string;
+        name?: string;
         field_type: string;
+        options?: Record<string, unknown> | null;
         organization_id: string;
       }
     | Array<{
         id: string;
         code: string;
+        name?: string;
         field_type: string;
+        options?: Record<string, unknown> | null;
         organization_id: string;
       }>
     | null;
@@ -92,7 +97,7 @@ export async function GET(
     const { data, error } = await supabase
       .from("product_field_values")
       .select(
-        "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,product_fields!inner(id,code,field_type,organization_id)"
+        "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,product_fields!inner(id,code,name,field_type,options,organization_id)"
       )
       .eq("product_id", productId)
       .eq("product_fields.organization_id", access.organizationId);
@@ -139,11 +144,21 @@ export async function GET(
         return;
       }
 
+      const normalizedValueResult = normalizeProductFieldValue({
+        fieldType: String(field?.field_type || ""),
+        options: field?.options,
+        value: toTypedFieldValue(row),
+        fieldLabel: typeof field?.name === "string" && field.name.trim().length > 0 ? field.name : fieldCode,
+      });
+      if (normalizedValueResult.error || normalizedValueResult.value === null || typeof normalizedValueResult.value === "undefined") {
+        return;
+      }
+
       grouped[fieldCode] ||= [];
       grouped[fieldCode].push({
         fieldId: String(field?.id || row.product_field_id || ""),
         fieldType: String(field?.field_type || ""),
-        value: toTypedFieldValue(row),
+        value: normalizedValueResult.value,
         marketId: row.market_id ?? null,
         localeId: row.locale_id ?? null,
         channelId: row.channel_id ?? null,

@@ -8,6 +8,7 @@ import {
   replaceAssetScopeAssignments,
   validateAuthoringScope,
 } from "@/lib/authoring-scope";
+import { normalizeDamAssetRecord, normalizeDamEnumValue, type DamEnumField } from "@/lib/dam-enums";
 import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
 const supabase = createClient(
@@ -402,7 +403,13 @@ export async function GET(
       category: row.asset_categories ?? undefined,
     }));
 
-    return NextResponse.json({ data: { ...asset, tagAssignments, categoryAssignments } });
+    return NextResponse.json({
+      data: {
+        ...normalizeDamAssetRecord(asset),
+        tagAssignments,
+        categoryAssignments,
+      },
+    });
   } catch (err) {
     console.error("[GET /assets/:assetId]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -732,6 +739,17 @@ export async function PATCH(
       ["visibleClaims",         "visible_claims",         "array"],
       ["claimsApprovedMarkets", "claims_approved_markets","array"],
     ];
+    const enumStructuredFieldKeys = new Set<DamEnumField>([
+      "assetStatus",
+      "complianceStatus",
+      "brandLegalApproval",
+      "artworkType",
+      "colorProfile",
+      "printVsDigital",
+      "licenseOwnership",
+      "endorsementType",
+      "wadaRiskLevel",
+    ]);
     for (const [camelKey, dbKey, type] of structuredFields) {
       if (!Object.prototype.hasOwnProperty.call(body, camelKey)) continue;
       const raw = body[camelKey];
@@ -743,8 +761,14 @@ export async function PATCH(
         updatePayload[dbKey] =
           typeof raw === "number" && Number.isFinite(raw) ? Math.round(raw) : null;
       } else {
-        updatePayload[dbKey] =
-          typeof raw === "string" && raw.trim() ? raw.trim() : null;
+        if (enumStructuredFieldKeys.has(camelKey as DamEnumField)) {
+          updatePayload[dbKey] =
+            normalizeDamEnumValue(camelKey as DamEnumField, raw) ??
+            (typeof raw === "string" && raw.trim() ? raw.trim() : null);
+        } else {
+          updatePayload[dbKey] =
+            typeof raw === "string" && raw.trim() ? raw.trim() : null;
+        }
       }
     }
 
@@ -883,7 +907,7 @@ export async function PATCH(
     }
 
     return NextResponse.json({
-      data: updatedAsset,
+      data: normalizeDamAssetRecord(updatedAsset as Record<string, any>),
       message: "Asset updated successfully",
     });
   } catch (error) {

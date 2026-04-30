@@ -20,6 +20,9 @@ import { cn } from "@/lib/utils";
 import type { AssetTag } from "@stack-app/types";
 import {
   ASSET_STATUS_OPTIONS,
+  BRAND_LEGAL_APPROVAL_OPTIONS,
+  CLAIMS_REVIEW_STATUS_OPTIONS,
+  COMPLIANCE_STATUS_OPTIONS,
   ARTWORK_TYPE_OPTIONS,
   PRINT_VS_DIGITAL_OPTIONS,
   CERTIFICATION_OPTIONS,
@@ -473,10 +476,9 @@ export function BulkEditorPanel({
                         <Select value={formData.complianceStatus} onValueChange={(v) => setFormData((p) => ({ ...p, complianceStatus: v }))}>
                           <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Pending">Pending Review</SelectItem>
-                            <SelectItem value="Approved">Approved</SelectItem>
-                            <SelectItem value="Rejected">Rejected</SelectItem>
-                            <SelectItem value="Under Review">Under Review</SelectItem>
+                            {COMPLIANCE_STATUS_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -485,9 +487,9 @@ export function BulkEditorPanel({
                         <Select value={formData.brandLegalApproval} onValueChange={(v) => setFormData((p) => ({ ...p, brandLegalApproval: v }))}>
                           <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Pending">Pending</SelectItem>
-                            <SelectItem value="Approved">Approved</SelectItem>
-                            <SelectItem value="Rejected">Rejected</SelectItem>
+                            {BRAND_LEGAL_APPROVAL_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>
@@ -496,10 +498,9 @@ export function BulkEditorPanel({
                         <Select value={formData.claimsReviewStatus} onValueChange={(v) => setFormData((p) => ({ ...p, claimsReviewStatus: v }))}>
                           <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="No change" /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="pending">Pending</SelectItem>
-                            <SelectItem value="approved">Approved</SelectItem>
-                            <SelectItem value="challenged">Challenged</SelectItem>
-                            <SelectItem value="expired">Expired</SelectItem>
+                            {CLAIMS_REVIEW_STATUS_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                       </div>

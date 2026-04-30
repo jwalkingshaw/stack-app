@@ -14,6 +14,7 @@ import { assertBillingCapacity, isBillableSkuRecord } from '@/lib/billing-policy
 import { validateAuthoringScope } from '@/lib/authoring-scope';
 import { resolveMarketCatalogProductIds } from '@/lib/market-catalog';
 import { cache as redisCache, CacheKeys } from '@/lib/redis';
+import { normalizeProductFieldValue } from "@/lib/product-field-options";
 import {
   resolveOrganizationBaselineScope,
   scopeMatchesOrganizationBaseline,
@@ -200,7 +201,9 @@ type ScopeSelection = {
 type ProductFieldRow = {
   id: string;
   code: string;
+  name?: string | null;
   field_type: string;
+  options?: Record<string, unknown> | null;
   is_localizable?: boolean | null;
   is_channelable?: boolean | null;
   is_translatable?: boolean | null;
@@ -599,13 +602,13 @@ async function resolveScopedFieldMap(params: {
       .in("code", candidateCodes);
 
   let { data, error } = await runFieldQuery(
-    "id,code,field_type,is_localizable,is_channelable,is_translatable,allowed_channel_ids,allowed_market_ids,allowed_locale_ids"
+    "id,code,name,field_type,options,is_localizable,is_channelable,is_translatable,allowed_channel_ids,allowed_market_ids,allowed_locale_ids"
   );
 
   // Fallback for databases where is_translatable column doesn't exist yet
   if (error?.code === "42703") {
     ({ data, error } = await runFieldQuery(
-      "id,code,field_type,is_localizable,is_channelable,allowed_channel_ids,allowed_market_ids,allowed_locale_ids"
+      "id,code,name,field_type,options,is_localizable,is_channelable,allowed_channel_ids,allowed_market_ids,allowed_locale_ids"
     ));
   }
 
@@ -706,7 +709,16 @@ async function applyScopedProductValueOverrides<T extends Record<string, unknown
 
     const typedValue = toTypedFieldValue(winner);
     if (typedValue === null || typeof typedValue === "undefined") return;
-    overrides[column] = typedValue;
+    const normalizedValueResult = normalizeProductFieldValue({
+      fieldType: field.field_type,
+      options: field.options,
+      value: typedValue,
+      fieldLabel: typeof field.name === "string" && field.name.trim().length > 0 ? field.name : field.code,
+    });
+    if (normalizedValueResult.error || normalizedValueResult.value === null || typeof normalizedValueResult.value === "undefined") {
+      return;
+    }
+    overrides[column] = normalizedValueResult.value;
   });
 
   if (Object.keys(overrides).length === 0) {
@@ -739,7 +751,7 @@ async function loadScopedProductFieldValueMap(params: {
   const { data, error } = await supabase
     .from("product_field_values")
     .select(
-      "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,channel,locale,product_fields!inner(id,code,field_type,organization_id)"
+      "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,channel,locale,product_fields!inner(id,code,name,field_type,options,organization_id)"
     )
     .eq("product_id", params.productId)
     .eq("product_fields.organization_id", params.organizationId);
@@ -775,7 +787,20 @@ async function loadScopedProductFieldValueMap(params: {
     if (!winner) return;
     const typedValue = toTypedFieldValue(winner);
     if (typedValue === null || typeof typedValue === "undefined") return;
-    resolvedValues[fieldCode] = typedValue;
+    const joinedField = resolveJoinedProductField(winner);
+    const normalizedValueResult = normalizeProductFieldValue({
+      fieldType: joinedField?.field_type ?? "",
+      options: joinedField?.options,
+      value: typedValue,
+      fieldLabel:
+        typeof joinedField?.name === "string" && joinedField.name.trim().length > 0
+          ? joinedField.name
+          : joinedField?.code ?? fieldCode,
+    });
+    if (normalizedValueResult.error || normalizedValueResult.value === null || typeof normalizedValueResult.value === "undefined") {
+      return;
+    }
+    resolvedValues[fieldCode] = normalizedValueResult.value;
   });
 
   return resolvedValues;
@@ -955,8 +980,18 @@ async function persistScopedProductValueUpdates(params: {
       return { ok: false, error: scopedFieldError, unresolvedColumns };
     }
     const nextValue = params.updates[column];
+    const normalizedValueResult = normalizeProductFieldValue({
+      fieldType: field.field_type,
+      options: field.options,
+      value: nextValue,
+      fieldLabel: typeof field.name === "string" && field.name.trim().length > 0 ? field.name : field.code,
+    });
+    if (normalizedValueResult.error) {
+      return { ok: false, error: normalizedValueResult.error, unresolvedColumns };
+    }
+    const nextNormalizedValue = normalizedValueResult.value;
 
-    if (nextValue === null || typeof nextValue === "undefined") {
+    if (nextNormalizedValue === null || typeof nextNormalizedValue === "undefined") {
       let deleteQuery = supabase
         .from("product_field_values")
         .delete()
@@ -985,7 +1020,7 @@ async function persistScopedProductValueUpdates(params: {
     }
 
     const scopedPayload = buildFieldValueWritePayload({
-      value: nextValue,
+      value: nextNormalizedValue,
       fieldType: field.field_type,
       scope: normalizedScope,
     });

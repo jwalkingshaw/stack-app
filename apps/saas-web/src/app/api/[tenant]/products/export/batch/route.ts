@@ -5,6 +5,7 @@ import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 import { getOutputProfileTemplate } from "@/lib/output-profile-templates";
 import { resolveStorageDeliveryUrl } from "@/lib/storage-url";
+import { normalizeProductFieldValue } from "@/lib/product-field-options";
 import {
   buildTemplateDestinationAttributeMappings,
   normalizeDestinationAttributeMappings,
@@ -595,7 +596,7 @@ export async function POST(
     // Load field definitions
     const { data: fieldDefsRaw, error: fieldDefsError } = await supabase
       .from("product_fields")
-      .select("id, code, field_type, is_localizable")
+      .select("id, code, name, field_type, options, is_localizable")
       .eq("organization_id", organizationId)
       .in("code", allFieldCodes);
 
@@ -607,7 +608,9 @@ export async function POST(
     const fieldDefs = (fieldDefsRaw ?? []) as Array<{
       id: string;
       code: string;
+      name?: string | null;
       field_type: string;
+      options?: Record<string, unknown> | null;
       is_localizable: boolean;
     }>;
     const fieldByCode = new Map(fieldDefs.map((f) => [f.code, f]));
@@ -687,8 +690,15 @@ export async function POST(
         if (!fieldDef || (fieldDef.field_type !== "file" && fieldDef.field_type !== "image")) continue;
         const valueRow = fieldMap.get(fieldDef.id) ?? null;
         const rawValue = valueRow ? resolveRawValue(valueRow) : null;
-        if (!isPresent(rawValue)) continue;
-        const assetId = extractAssetId(rawValue);
+        const normalizedValueResult = normalizeProductFieldValue({
+          fieldType: fieldDef.field_type,
+          options: fieldDef.options,
+          value: rawValue,
+          fieldLabel: fieldDef.name ?? fieldDef.code,
+        });
+        const normalizedValue = normalizedValueResult.error ? rawValue : normalizedValueResult.value;
+        if (!isPresent(normalizedValue)) continue;
+        const assetId = extractAssetId(normalizedValue);
         if (!assetId) continue;
         allAssetIds.add(assetId);
         if (!assetIdByProductField.has(productId)) {
@@ -711,8 +721,15 @@ export async function POST(
             const rawValue = valueRow
               ? resolveRawValue(valueRow)
               : getBaseProductValue(product, fieldCode);
-            if (!isPresent(rawValue)) continue;
-            const assetId = extractAssetId(rawValue);
+            const normalizedValueResult = normalizeProductFieldValue({
+              fieldType: fieldDef.field_type,
+              options: fieldDef.options,
+              value: rawValue,
+              fieldLabel: fieldDef.name ?? fieldDef.code,
+            });
+            const normalizedValue = normalizedValueResult.error ? rawValue : normalizedValueResult.value;
+            if (!isPresent(normalizedValue)) continue;
+            const assetId = extractAssetId(normalizedValue);
             if (!assetId) continue;
             allAssetIds.add(assetId);
             if (!assetIdByProductField.has(productId)) {
@@ -798,9 +815,16 @@ export async function POST(
       const fieldValueByCode = new Map<string, unknown>();
       for (const fieldDef of fieldDefs) {
         const valueRow = fieldMap.get(fieldDef.id) ?? null;
+        const rawFieldValue = valueRow ? resolveRawValue(valueRow) : getBaseProductValue(product, fieldDef.code);
+        const normalizedValueResult = normalizeProductFieldValue({
+          fieldType: fieldDef.field_type,
+          options: fieldDef.options,
+          value: rawFieldValue,
+          fieldLabel: fieldDef.name ?? fieldDef.code,
+        });
         fieldValueByCode.set(
           fieldDef.code,
-          valueRow ? resolveRawValue(valueRow) : getBaseProductValue(product, fieldDef.code)
+          normalizedValueResult.error ? rawFieldValue : normalizedValueResult.value
         );
       }
 
@@ -857,7 +881,14 @@ export async function POST(
 
           const valueRow = fieldMap.get(fieldDef.id) ?? null;
           const rawValue = valueRow ? resolveRawValue(valueRow) : getBaseProductValue(product, rule.field_code);
-          const present = isPresent(rawValue);
+          const normalizedValueResult = normalizeProductFieldValue({
+            fieldType: fieldDef.field_type,
+            options: fieldDef.options,
+            value: rawValue,
+            fieldLabel: fieldDef.name ?? fieldDef.code,
+          });
+          const normalizedValue = normalizedValueResult.error ? rawValue : normalizedValueResult.value;
+          const present = isPresent(normalizedValue);
 
           if (!present) {
             if (rule.is_required) missing.push(rule.field_code);
@@ -878,7 +909,7 @@ export async function POST(
             const assetId = productAssetIds.get(rule.field_code) ?? null;
             assets[rule.field_code] = assetId ? (assetUrlById.get(assetId) ?? null) : null;
           } else {
-            fields[rule.field_code] = rawValue;
+            fields[rule.field_code] = normalizedValue;
           }
         }
       }

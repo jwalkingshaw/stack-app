@@ -15,6 +15,7 @@ import {
   getMaxUploadBytesForPlan,
   getOrganizationBillingLimits,
 } from "@/lib/billing-policy";
+import { normalizeDamEnumValue } from "@/lib/dam-enums";
 import { addResourceToGlobalCatalogSet } from "@/lib/market-catalog";
 import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
@@ -517,32 +518,48 @@ function parseUploadMetadata(raw: FormDataEntryValue | null): {
     folderId: normalizeOptionalString(value.folderId),
     uploadProfileId,
     // Compliance & approval
-    complianceStatus: normalizeOptionalString(value.complianceStatus),
-    brandLegalApproval: normalizeOptionalString(value.brandLegalApproval),
+    complianceStatus:
+      normalizeDamEnumValue("complianceStatus", value.complianceStatus) ??
+      normalizeOptionalString(value.complianceStatus),
+    brandLegalApproval:
+      normalizeDamEnumValue("brandLegalApproval", value.brandLegalApproval) ??
+      normalizeOptionalString(value.brandLegalApproval),
     // Rights & talent
     talentPresent: typeof value.talentPresent === "boolean" ? value.talentPresent : null,
     releaseOnFile: typeof value.releaseOnFile === "boolean" ? value.releaseOnFile : null,
     usageEnd: normalizeOptionalString(value.usageEnd),
     usageTerritory: normalizeOptionalString(value.usageTerritory),
-    licenseOwnership: normalizeOptionalString(value.licenseOwnership),
+    licenseOwnership:
+      normalizeDamEnumValue("licenseOwnership", value.licenseOwnership) ??
+      normalizeOptionalString(value.licenseOwnership),
     usagePlatforms: normalizeStringArray(value.usagePlatforms),
     ftcDisclosureRequired: typeof value.ftcDisclosureRequired === "boolean" ? value.ftcDisclosureRequired : null,
     athleteNames: normalizeStringArray(value.athleteNames ?? value.talentNames),
     talentContractEnd: normalizeOptionalString(value.talentContractEnd),
-    endorsementType: normalizeOptionalString(value.endorsementType),
+    endorsementType:
+      normalizeDamEnumValue("endorsementType", value.endorsementType) ??
+      normalizeOptionalString(value.endorsementType),
     expirationDate: normalizeOptionalString(value.expirationDate),
     // Regulatory
     regulatoryRegion: normalizeStringArray(value.regulatoryRegion),
     certifications: normalizeStringArray(value.certifications),
     visibleClaims: normalizeStringArray(value.visibleClaims),
     claimsApprovedMarkets: normalizeStringArray(value.claimsApprovedMarkets),
-    wadaRiskLevel: normalizeOptionalString(value.wadaRiskLevel),
+    wadaRiskLevel:
+      normalizeDamEnumValue("wadaRiskLevel", value.wadaRiskLevel) ??
+      normalizeOptionalString(value.wadaRiskLevel),
     // Accessibility
     altText: normalizeOptionalString(value.altText),
     // Label / artwork
-    artworkType: normalizeOptionalString(value.artworkType),
-    colorProfile: normalizeOptionalString(value.colorProfile),
-    printVsDigital: normalizeOptionalString(value.printVsDigital),
+    artworkType:
+      normalizeDamEnumValue("artworkType", value.artworkType) ??
+      normalizeOptionalString(value.artworkType),
+    colorProfile:
+      normalizeDamEnumValue("colorProfile", value.colorProfile) ??
+      normalizeOptionalString(value.colorProfile),
+    printVsDigital:
+      normalizeDamEnumValue("printVsDigital", value.printVsDigital) ??
+      normalizeOptionalString(value.printVsDigital),
     resolutionDpi: typeof value.resolutionDpi === "number" && Number.isFinite(value.resolutionDpi) ? Math.round(value.resolutionDpi) : null,
     labelVersion: normalizeOptionalString(value.labelVersion),
     formulaVersion: normalizeOptionalString(value.formulaVersion),

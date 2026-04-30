@@ -10,6 +10,7 @@ import {
   resolveTenantBrandViewContext,
 } from "@/lib/partner-brand-view";
 import { resolvePartnerEntitlements } from "@/lib/partner-entitlements";
+import { normalizeDamAssetRecord, normalizeDamEnumValue } from "@/lib/dam-enums";
 import { resolveMarketCatalogAssetIds } from "@/lib/market-catalog";
 import { cache as redisCache, CacheKeys } from "@/lib/redis";
 import { rewriteStorageUrlToCloudFront, rewriteThumbnailUrls } from "@/lib/storage-url";
@@ -417,12 +418,24 @@ export async function GET(
     const updatedAfter = parseIsoDateParam(requestUrl.searchParams.get("updatedAfter"));
     // New structured field filters
     const filterFileType = normalizeToken(requestUrl.searchParams.get("fileType"));
-    const filterAssetStatus = normalizeToken(requestUrl.searchParams.get("assetStatus"));
-    const filterComplianceStatus = normalizeToken(requestUrl.searchParams.get("complianceStatus"));
-    const filterBrandLegalApproval = normalizeToken(requestUrl.searchParams.get("brandLegalApproval"));
-    const filterArtworkType = normalizeToken(requestUrl.searchParams.get("artworkType"));
-    const filterPrintVsDigital = normalizeToken(requestUrl.searchParams.get("printVsDigital"));
-    const filterWadaRiskLevel = normalizeToken(requestUrl.searchParams.get("wadaRiskLevel"));
+    const filterAssetStatus =
+      normalizeDamEnumValue("assetStatus", requestUrl.searchParams.get("assetStatus")) ??
+      normalizeToken(requestUrl.searchParams.get("assetStatus"));
+    const filterComplianceStatus =
+      normalizeDamEnumValue("complianceStatus", requestUrl.searchParams.get("complianceStatus")) ??
+      normalizeToken(requestUrl.searchParams.get("complianceStatus"));
+    const filterBrandLegalApproval =
+      normalizeDamEnumValue("brandLegalApproval", requestUrl.searchParams.get("brandLegalApproval")) ??
+      normalizeToken(requestUrl.searchParams.get("brandLegalApproval"));
+    const filterArtworkType =
+      normalizeDamEnumValue("artworkType", requestUrl.searchParams.get("artworkType")) ??
+      normalizeToken(requestUrl.searchParams.get("artworkType"));
+    const filterPrintVsDigital =
+      normalizeDamEnumValue("printVsDigital", requestUrl.searchParams.get("printVsDigital")) ??
+      normalizeToken(requestUrl.searchParams.get("printVsDigital"));
+    const filterWadaRiskLevel =
+      normalizeDamEnumValue("wadaRiskLevel", requestUrl.searchParams.get("wadaRiskLevel")) ??
+      normalizeToken(requestUrl.searchParams.get("wadaRiskLevel"));
     const filterAthleteNames = parseCsvIds(requestUrl.searchParams.get("athleteNames"));
     const filterCertifications = parseCsvIds(requestUrl.searchParams.get("certifications"));
     const filterRegulatoryRegion = parseCsvIds(requestUrl.searchParams.get("regulatoryRegion"));
@@ -742,6 +755,7 @@ export async function GET(
       );
       assets = assets.filter((asset) => linkedAssetIds.has(asset.id));
     }
+    assets = assets.map((asset) => normalizeDamAssetRecord(asset));
     assets = filterAssetsByRecency({
       assets,
       createdAfter,

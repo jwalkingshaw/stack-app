@@ -19,6 +19,7 @@ import {
   resolveMarketCatalogProductIds,
 } from "@/lib/market-catalog";
 import { cache as redisCache, CacheKeys } from "@/lib/redis";
+import { normalizeProductFieldValue } from "@/lib/product-field-options";
 import { verifyTenantAccess } from "@/lib/tenant-auth";
 
 const supabase = createClient(
@@ -169,6 +170,9 @@ type ScopeSelection = {
 type ProductFieldRow = {
   id: string;
   code: string;
+  name?: string | null;
+  field_type?: string | null;
+  options?: Record<string, unknown> | null;
 };
 
 type ProductFieldValueRow = {
@@ -554,7 +558,7 @@ async function resolveScopedFieldMap(params: {
 
   const { data, error } = await supabase
     .from("product_fields")
-    .select("id,code")
+    .select("id,code,name,field_type,options")
     .eq("organization_id", params.organizationId)
     .in("code", candidateCodes);
 
@@ -655,7 +659,16 @@ async function applyScopedOverridesForOrganization(params: {
       if (!winner) return;
       const typedValue = toTypedFieldValue(winner);
       if (typedValue === null || typeof typedValue === "undefined") return;
-      overrides[column] = typedValue;
+      const normalizedValueResult = normalizeProductFieldValue({
+        fieldType: field.field_type ?? "",
+        options: field.options,
+        value: typedValue,
+        fieldLabel: typeof field.name === "string" && field.name.trim().length > 0 ? field.name : field.code,
+      });
+      if (normalizedValueResult.error || normalizedValueResult.value === null || typeof normalizedValueResult.value === "undefined") {
+        return;
+      }
+      overrides[column] = normalizedValueResult.value;
     });
 
     if (Object.keys(overrides).length > 0) {

@@ -57,7 +57,7 @@ export interface AssetMetadata {
   certifications?: string[];
   intendedUse?: string[];
   regulatoryRegion?: string[];
-  complianceStatus?: 'Pending' | 'Approved' | 'Rejected' | 'Under Review';
+  complianceStatus?: 'pending' | 'approved' | 'rejected' | 'under_review';
   claimsBasis?: string;
   mandatoryDisclosures?: string;
   expirationDate?: string;
@@ -75,12 +75,12 @@ export interface AssetMetadata {
   talentNames?: string[];
   releaseOnFile?: boolean;
   usageRestrictions?: string;
-  licenseOwnership?: 'Work for Hire' | 'UGC License' | 'Licensed' | 'Owned' | 'Rights-Managed';
+  licenseOwnership?: 'work_for_hire' | 'ugc_license' | 'licensed' | 'owned' | 'rights_managed';
   usageTerritory?: 'Global' | 'US' | 'EU' | 'APAC' | 'Other';
   usagePlatforms?: string[];
   usageStart?: string;
   usageEnd?: string;
-  brandLegalApproval?: 'Pending' | 'Approved' | 'Rejected';
+  brandLegalApproval?: 'pending' | 'approved' | 'rejected' | 'not_required';
   approver?: string;
   approvalTimestamp?: string;
   ftcDisclosureRequired?: boolean;
@@ -146,6 +146,80 @@ export const CERTIFICATION_OPTIONS = [
   { value: 'Vegan', label: 'Vegan' },
   { value: 'Kosher', label: 'Kosher' },
   { value: 'Halal', label: 'Halal' }
+];
+
+export const COMPLIANCE_STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending review' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'under_review', label: 'Under review' }
+];
+
+export const BRAND_LEGAL_APPROVAL_OPTIONS = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'not_required', label: 'Not required' }
+];
+
+export const CLAIMS_REVIEW_STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'challenged', label: 'Challenged' },
+  { value: 'expired', label: 'Expired' }
+];
+
+export const ASSET_STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'archived', label: 'Archived' },
+  { value: 'retired', label: 'Retired' }
+];
+
+export const ARTWORK_TYPE_OPTIONS = [
+  { value: 'label', label: 'Label' },
+  { value: 'carton', label: 'Carton' },
+  { value: 'shipper', label: 'Shipper' },
+  { value: 'display', label: 'Display' },
+  { value: 'digital', label: 'Digital' },
+  { value: 'sell_sheet', label: 'Sell sheet' },
+  { value: 'other', label: 'Other' }
+];
+
+export const COLOR_PROFILE_OPTIONS = [
+  { value: 'cmyk', label: 'CMYK' },
+  { value: 'rgb', label: 'RGB' },
+  { value: 'pms', label: 'Pantone / PMS' },
+  { value: 'spot', label: 'Spot color' }
+];
+
+export const PRINT_VS_DIGITAL_OPTIONS = [
+  { value: 'print', label: 'Print' },
+  { value: 'digital', label: 'Digital' },
+  { value: 'omnichannel', label: 'Omnichannel' }
+];
+
+export const LICENSE_OWNERSHIP_OPTIONS = [
+  { value: 'work_for_hire', label: 'Work for hire' },
+  { value: 'ugc_license', label: 'UGC license' },
+  { value: 'licensed', label: 'Licensed' },
+  { value: 'owned', label: 'Owned' },
+  { value: 'rights_managed', label: 'Rights-managed' }
+];
+
+export const ENDORSEMENT_TYPE_OPTIONS = [
+  { value: 'athlete', label: 'Athlete' },
+  { value: 'influencer', label: 'Influencer' },
+  { value: 'creator', label: 'Creator' },
+  { value: 'expert', label: 'Expert / practitioner' },
+  { value: 'none', label: 'None' }
+];
+
+export const WADA_RISK_OPTIONS = [
+  { value: 'none', label: 'No WADA risk' },
+  { value: 'low', label: 'Low risk' },
+  { value: 'medium', label: 'Medium risk' },
+  { value: 'high', label: 'High risk' }
 ];
 
 export const ALLERGEN_OPTIONS = [
@@ -357,11 +431,7 @@ export const ASSET_METADATA_SCHEMA: Record<string, FieldSchema> = {
     key: 'brandLegalApproval',
     label: 'Brand/Legal Approval',
     type: 'select',
-    options: [
-      { value: 'Pending', label: 'Pending' },
-      { value: 'Approved', label: 'Approved' },
-      { value: 'Rejected', label: 'Rejected' }
-    ],
+    options: BRAND_LEGAL_APPROVAL_OPTIONS,
     group: 'compliance',
     width: 'sm',
     bulkEditable: true

@@ -41,6 +41,9 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  ASSET_STATUS_OPTIONS as SHARED_ASSET_STATUS_OPTIONS,
+  BRAND_LEGAL_APPROVAL_OPTIONS as SHARED_BRAND_LEGAL_APPROVAL_OPTIONS,
+  COMPLIANCE_STATUS_OPTIONS as SHARED_COMPLIANCE_STATUS_OPTIONS,
 } from "@stack-app/ui";
 import { AssetViewPanel } from "@/components/dam/asset-view-panel";
 import { BulkActionToolbar } from "@/components/dam/bulk-action-toolbar";
@@ -177,25 +180,21 @@ const FILE_TYPE_OPTIONS = [
 
 const ASSET_STATUS_OPTIONS = [
   { value: "all", label: "Any status" },
-  { value: "active", label: "Active" },
-  { value: "draft", label: "Draft" },
-  { value: "archived", label: "Archived" },
-  { value: "retired", label: "Retired" },
+  ...SHARED_ASSET_STATUS_OPTIONS,
 ] as const;
 
 const APPROVAL_STATUS_OPTIONS = [
   { value: "all", label: "Any approval" },
-  { value: "approved", label: "Approved" },
-  { value: "pending", label: "Pending review" },
-  { value: "rejected", label: "Rejected" },
-  { value: "not_required", label: "Not required" },
+  ...SHARED_BRAND_LEGAL_APPROVAL_OPTIONS,
 ] as const;
 
 const COMPLIANCE_STATUS_OPTIONS = [
   { value: "all", label: "Any compliance" },
-  { value: "approved", label: "Compliant" },
-  { value: "pending", label: "Pending review" },
-  { value: "rejected", label: "Non-compliant" },
+  ...SHARED_COMPLIANCE_STATUS_OPTIONS.map((opt) => {
+    if (opt.value === "approved") return { value: opt.value, label: "Compliant" };
+    if (opt.value === "rejected") return { value: opt.value, label: "Non-compliant" };
+    return opt;
+  }),
 ] as const;
 
 const NEW_CONTENT_FILTER_OPTIONS = [

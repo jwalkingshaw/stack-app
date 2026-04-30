@@ -8,6 +8,7 @@ import {
 import { resolvePartnerEntitlements } from "@/lib/partner-entitlements";
 import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 import { resolveStorageDeliveryUrl } from "@/lib/storage-url";
+import { normalizeProductFieldValue } from "@/lib/product-field-options";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -489,7 +490,7 @@ export async function GET(
     // Load field definitions (brand org)
     const { data: fieldDefsRaw, error: fieldDefsError } = await supabase
       .from("product_fields")
-      .select("id, code, field_type, is_localizable")
+      .select("id, code, name, field_type, options, is_localizable")
       .eq("organization_id", brandOrganizationId)
       .in("code", allFieldCodes);
 
@@ -497,7 +498,14 @@ export async function GET(
       return NextResponse.json({ error: "Failed to load field definitions" }, { status: 500 });
     }
 
-    const fieldDefs = (fieldDefsRaw ?? []) as Array<{ id: string; code: string; field_type: string; is_localizable: boolean }>;
+    const fieldDefs = (fieldDefsRaw ?? []) as Array<{
+      id: string;
+      code: string;
+      name?: string | null;
+      field_type: string;
+      options?: Record<string, unknown> | null;
+      is_localizable: boolean;
+    }>;
     const fieldByCode = new Map(fieldDefs.map((f) => [f.code, f]));
     const fieldIds = fieldDefs.map((f) => f.id);
 
@@ -572,8 +580,15 @@ export async function GET(
         if (!fieldDef || (fieldDef.field_type !== "file" && fieldDef.field_type !== "image")) continue;
         const valueRow = fieldMap.get(fieldDef.id) ?? null;
         const rawValue = valueRow ? resolveRawValue(valueRow) : null;
-        if (!isPresent(rawValue)) continue;
-        const assetId = extractAssetId(rawValue);
+        const normalizedValueResult = normalizeProductFieldValue({
+          fieldType: fieldDef.field_type,
+          options: fieldDef.options,
+          value: rawValue,
+          fieldLabel: fieldDef.name ?? fieldDef.code,
+        });
+        const normalizedValue = normalizedValueResult.error ? rawValue : normalizedValueResult.value;
+        if (!isPresent(normalizedValue)) continue;
+        const assetId = extractAssetId(normalizedValue);
         if (!assetId) continue;
         allAssetIds.add(assetId);
         if (!assetIdByProductField.has(productId)) assetIdByProductField.set(productId, new Map());
@@ -625,7 +640,14 @@ export async function GET(
         }
         const valueRow = fieldMap.get(fieldDef.id) ?? null;
         const rawValue = valueRow ? resolveRawValue(valueRow) : getBaseProductValue(product, rule.field_code);
-        const present = isPresent(rawValue);
+        const normalizedValueResult = normalizeProductFieldValue({
+          fieldType: fieldDef.field_type,
+          options: fieldDef.options,
+          value: rawValue,
+          fieldLabel: fieldDef.name ?? fieldDef.code,
+        });
+        const normalizedValue = normalizedValueResult.error ? rawValue : normalizedValueResult.value;
+        const present = isPresent(normalizedValue);
 
         if (!present) {
           if (rule.is_required) missing.push(rule.field_code);
@@ -643,7 +665,7 @@ export async function GET(
           const assetId = productAssetIds.get(rule.field_code) ?? null;
           assets[rule.field_code] = assetId ? (assetUrlById.get(assetId) ?? null) : null;
         } else {
-          fields[rule.field_code] = rawValue;
+          fields[rule.field_code] = normalizedValue;
         }
       }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess, setDatabaseUserContext } from "@/lib/user-context";
+import { normalizeProductFieldValue } from "@/lib/product-field-options";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -124,15 +125,25 @@ export async function POST(
     const customCodes = [...new Set(
       changes.filter((c) => !SYSTEM_PRODUCT_COLUMNS.has(c.fieldCode)).map((c) => c.fieldCode)
     )];
-    const fieldMap = new Map<string, { id: string; field_type: string }>();
+    const fieldMap = new Map<string, { id: string; field_type: string; name: string | null; options: Record<string, unknown> | null }>();
     if (customCodes.length > 0) {
       const { data: fields } = await supabase
         .from("product_fields")
-        .select("id, code, field_type")
+        .select("id, code, name, field_type, options")
         .eq("organization_id", organizationId)
         .in("code", customCodes)
         .eq("is_active", true);
-      fields?.forEach((f) => fieldMap.set(f.code as string, { id: f.id as string, field_type: f.field_type as string }));
+      fields?.forEach((f) =>
+        fieldMap.set(f.code as string, {
+          id: f.id as string,
+          field_type: f.field_type as string,
+          name: typeof f.name === "string" ? f.name : null,
+          options:
+            f.options && typeof f.options === "object" && !Array.isArray(f.options)
+              ? (f.options as Record<string, unknown>)
+              : null,
+        })
+      );
     }
 
     const applied: string[] = [];
@@ -201,9 +212,37 @@ export async function POST(
             throw new Error(`Field "${fieldCode}" not found or inactive`);
           }
 
-          const fieldType = fieldMap.get(fieldCode)?.field_type ?? "text";
+          const fieldDefinition = fieldMap.get(fieldCode) ?? null;
+          const fieldType = fieldDefinition?.field_type ?? "text";
+          const normalizedValueResult = normalizeProductFieldValue({
+            fieldType,
+            options: fieldDefinition?.options,
+            value,
+            fieldLabel: fieldDefinition?.name ?? fieldCode,
+          });
+          if (normalizedValueResult.error) {
+            throw new Error(normalizedValueResult.error);
+          }
+          if (normalizedValueResult.value === null || typeof normalizedValueResult.value === "undefined") {
+            let deleteQuery = supabase
+              .from("product_field_values")
+              .delete()
+              .eq("product_id", productId)
+              .eq("product_field_id", productFieldId);
+            deleteQuery = localeId ? deleteQuery.eq("locale_id", localeId) : deleteQuery.is("locale_id", null);
+            deleteQuery = marketId ? deleteQuery.eq("market_id", marketId) : deleteQuery.is("market_id", null);
+            deleteQuery = channelId ? deleteQuery.eq("channel_id", channelId) : deleteQuery.is("channel_id", null);
+            deleteQuery = destinationId
+              ? deleteQuery.eq("destination_id", destinationId)
+              : deleteQuery.is("destination_id", null);
+
+            const { error } = await deleteQuery;
+            if (error) throw new Error(error.message);
+            applied.push(`${productId}::${fieldCode}`);
+            continue;
+          }
           const record: FieldValueRecord = {
-            ...buildValueRecord(value, fieldType),
+            ...buildValueRecord(normalizedValueResult.value, fieldType),
             locale_id: localeId ?? null,
             market_id: marketId ?? null,
             channel_id: channelId ?? null,

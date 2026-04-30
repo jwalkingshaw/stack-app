@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@stack-app/database";
@@ -40,7 +41,7 @@ function normalizeLocaleName(name: string, localeCode: string, localeNameByCode:
 async function loadLocaleCatalogMap(): Promise<Map<string, string>> {
   // locale_catalog is present in runtime schema but not yet in generated Database types.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (getSupabaseServer() as any)
     .from("locale_catalog")
     .select("code,name,is_active")
     .eq("is_active", true);
@@ -69,7 +70,7 @@ function extractDefaultLocaleId(metadata: LocalizationSettingsMetadata): string 
 }
 
 async function readDefaultLocaleId(organizationId: string): Promise<string | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("organization_localization_settings")
     .select("metadata")
     .eq("organization_id", organizationId)
@@ -86,7 +87,7 @@ async function readDefaultLocaleId(organizationId: string): Promise<string | nul
     return explicitDefaultLocaleId;
   }
 
-  const baselineScope = await resolveOrganizationBaselineScope(supabase, organizationId);
+  const baselineScope = await resolveOrganizationBaselineScope(getSupabaseServer(), organizationId);
   return baselineScope.localeId;
 }
 
@@ -95,7 +96,7 @@ async function persistDefaultLocaleId(params: {
   userId: string | null;
   defaultLocaleId: string | null;
 }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  const { data: existingRow, error: existingError } = await supabase
+  const { data: existingRow, error: existingError } = await getSupabaseServer()
     .from("organization_localization_settings")
     .select("organization_id,metadata")
     .eq("organization_id", params.organizationId)
@@ -125,7 +126,7 @@ async function persistDefaultLocaleId(params: {
   }
 
   if (existingRow?.organization_id) {
-    const { error: updateError } = await supabase
+    const { error: updateError } = await getSupabaseServer()
       .from("organization_localization_settings")
       .update({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -141,7 +142,7 @@ async function persistDefaultLocaleId(params: {
     return { ok: true };
   }
 
-  const { error: insertError } = await supabase
+  const { error: insertError } = await getSupabaseServer()
     .from("organization_localization_settings")
     .insert({
       organization_id: params.organizationId,
@@ -179,7 +180,7 @@ async function buildLocaleUsage(params: {
   const glossaryCounts = new Map<string, number>();
   const jobCounts = new Map<string, number>();
 
-  const { data: markets, error: marketsError } = await supabase
+  const { data: markets, error: marketsError } = await getSupabaseServer()
     .from("markets")
     .select("id,default_locale_id")
     .eq("organization_id", params.organizationId);
@@ -190,7 +191,7 @@ async function buildLocaleUsage(params: {
 
   const marketIds = (markets || []).map((market) => market.id);
   if (marketIds.length > 0) {
-    const { data: marketLocaleRows, error: marketLocalesError } = await supabase
+    const { data: marketLocaleRows, error: marketLocalesError } = await getSupabaseServer()
       .from("market_locales")
       .select("locale_id,is_active")
       .in("market_id", marketIds);
@@ -213,7 +214,7 @@ async function buildLocaleUsage(params: {
     }
   }
 
-  const { data: products, error: productsError } = await supabase
+  const { data: products, error: productsError } = await getSupabaseServer()
     .from("products")
     .select("id")
     .eq("organization_id", params.organizationId);
@@ -224,7 +225,7 @@ async function buildLocaleUsage(params: {
 
   const productIds = (products || []).map((product) => product.id);
   if (productIds.length > 0 && localeIds.length > 0) {
-    const { data: fieldRows, error: fieldError } = await supabase
+    const { data: fieldRows, error: fieldError } = await getSupabaseServer()
       .from("product_field_values")
       .select("locale_id")
       .in("product_id", productIds)
@@ -240,7 +241,7 @@ async function buildLocaleUsage(params: {
     }
   }
 
-  const { data: glossaries, error: glossariesError } = await supabase
+  const { data: glossaries, error: glossariesError } = await getSupabaseServer()
     .from("translation_glossaries")
     .select("source_language_code,target_language_code")
     .eq("organization_id", params.organizationId);
@@ -260,7 +261,7 @@ async function buildLocaleUsage(params: {
     }
   }
 
-  const { data: jobs, error: jobsError } = await supabase
+  const { data: jobs, error: jobsError } = await getSupabaseServer()
     .from("translation_jobs")
     .select("source_locale_id,target_locale_ids")
     .eq("organization_id", params.organizationId);
@@ -317,7 +318,7 @@ export async function GET(
     const targetOrganizationId = contextResult.context.targetOrganization.id;
     const localeNameByCode = await loadLocaleCatalogMap();
 
-    let query = supabase
+    let query = getSupabaseServer()
       .from("locales")
       .select("id,code,name,is_active")
       .eq("organization_id", targetOrganizationId)
@@ -392,7 +393,7 @@ export async function POST(
     }
 
     const targetOrganizationId = contextResult.context.targetOrganization.id;
-    const { data: existingLocale, error: existingError } = await supabase
+    const { data: existingLocale, error: existingError } = await getSupabaseServer()
       .from("locales")
       .select("id,code,name,is_active")
       .eq("organization_id", targetOrganizationId)
@@ -415,7 +416,7 @@ export async function POST(
         );
       }
 
-      const { data: reactivatedLocale, error: reactivateError } = await supabase
+      const { data: reactivatedLocale, error: reactivateError } = await getSupabaseServer()
         .from("locales")
         .update({
           name,
@@ -439,7 +440,7 @@ export async function POST(
       );
     }
 
-    const { data: createdLocale, error: createError } = await supabase
+    const { data: createdLocale, error: createError } = await getSupabaseServer()
       .from("locales")
       .insert({
         organization_id: targetOrganizationId,
@@ -507,7 +508,7 @@ export async function PATCH(
       return NextResponse.json({ error: "localeId is required." }, { status: 400 });
     }
 
-    const { data: locale, error: localeError } = await supabase
+    const { data: locale, error: localeError } = await getSupabaseServer()
       .from("locales")
       .select("id,code,name,is_active")
       .eq("organization_id", targetOrganizationId)
@@ -556,7 +557,7 @@ export async function PATCH(
     }
 
     if (nextIsActive !== null) {
-      const { error: updateError } = await supabase
+      const { error: updateError } = await getSupabaseServer()
         .from("locales")
         .update({ is_active: nextIsActive })
         .eq("organization_id", targetOrganizationId)
@@ -580,7 +581,7 @@ export async function PATCH(
     }
 
     const localeNameByCode = await loadLocaleCatalogMap();
-    const { data: refreshedLocale, error: refreshedError } = await supabase
+    const { data: refreshedLocale, error: refreshedError } = await getSupabaseServer()
       .from("locales")
       .select("id,code,name,is_active")
       .eq("organization_id", targetOrganizationId)

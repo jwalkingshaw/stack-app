@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -6252,6 +6252,41 @@ export type Database = {
           last_updated?: string | null
         }
         Relationships: []
+      }
+      user_workspace_notification_state: {
+        Row: {
+          created_at: string
+          id: string
+          kinde_user_id: string
+          last_read_at: string
+          organization_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kinde_user_id: string
+          last_read_at?: string
+          organization_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kinde_user_id?: string
+          last_read_at?: string
+          organization_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_workspace_notification_state_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       variant_templates: {
         Row: {

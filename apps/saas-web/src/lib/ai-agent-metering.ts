@@ -73,7 +73,7 @@ export async function incrementAgentRunsUsage(params: {
       .update({
         ai_agent_runs_count: currentDaily + 1,
         updated_at: new Date().toISOString(),
-      } as never)
+      })
       .eq("organization_id", params.organizationId)
       .eq("usage_date", usageDate);
 
@@ -89,7 +89,7 @@ export async function incrementAgentRunsUsage(params: {
         usage_date: usageDate,
         source: "ai_agent",
         ai_agent_runs_count: 1,
-      } as never);
+      });
 
     if (dailyInsertError) {
       console.error("Failed to insert organization_usage_daily agent runs:", dailyInsertError);
@@ -126,7 +126,7 @@ export async function incrementAgentRunsUsage(params: {
       .update({
         ai_agent_runs_count: currentMonthly + 1,
         updated_at: new Date().toISOString(),
-      } as never)
+      })
       .eq("organization_id", params.organizationId)
       .eq("period_start", periodStart);
 
@@ -146,7 +146,7 @@ export async function incrementAgentRunsUsage(params: {
         period_end: periodEnd,
         source: "ai_agent",
         ai_agent_runs_count: 1,
-      } as never);
+      });
 
     if (monthlyInsertError) {
       console.error(

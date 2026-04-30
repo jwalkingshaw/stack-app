@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient } from "@stack-app/database";
@@ -7,8 +8,8 @@ import { ensureCoreBasicInformationFields } from "@/lib/pim-bootstrap";
 import { randomUUID } from "crypto";
 
 const supabase = createServerClient();
-const db = new DatabaseQueries(supabase);
-const supabaseWithSetConfig = supabase as unknown as {
+const db = new DatabaseQueries(getSupabaseServer());
+const supabaseWithSetConfig = getSupabaseServer() as unknown as {
   rpc: (
     fn: string,
     args: { setting_name: string; new_value: string; is_local: boolean }
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if slug is already taken in Supabase
+    // Check if slug is already taken in getSupabaseServer()
     const existingOrg = await db.getOrganizationBySlug(slug);
     if (existingOrg) {
       // TODO: Suggest alternative slugs like "acme-corp-2"
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
 
       console.log('Kinde organization created:', kindeOrg);
 
-      // Step 2: Create organization in Supabase with Kinde org code
+      // Step 2: Create organization in getSupabaseServer() with Kinde org code
       const organizationPayload: Parameters<typeof db.createOrganization>[0] = {
         name,
         slug,
@@ -87,13 +88,13 @@ export async function POST(request: NextRequest) {
       };
       organization = await db.createOrganization(organizationPayload);
 
-      console.log('Supabase organization created:', organization);
+      console.log('getSupabaseServer() organization created:', organization);
 
       if (!organization) {
-        throw new Error('Failed to create organization in Supabase - returned null');
+        throw new Error('Failed to create organization in getSupabaseServer() - returned null');
       }
 
-      await ensureCoreBasicInformationFields(supabase, organization.id);
+      await ensureCoreBasicInformationFields(getSupabaseServer(), organization.id);
 
       // Step 3: Add user to new organization in Kinde
       kindeOrgId = kindeOrg.code || kindeOrg.id;
@@ -131,7 +132,7 @@ export async function POST(request: NextRequest) {
           is_local: true
         });
 
-        const { data: memberData, error: memberError } = await supabase
+        const { data: memberData, error: memberError } = await getSupabaseServer()
           .from('organization_members')
           .insert({
             organization_id: organization.id,
@@ -169,7 +170,7 @@ export async function POST(request: NextRequest) {
       if (organization && organization.id) {
         try {
           // Clean up organization_members
-          await supabase
+          await getSupabaseServer()
             .from('organization_members')
             .delete()
             .eq('organization_id', organization.id);
@@ -180,13 +181,13 @@ export async function POST(request: NextRequest) {
         
         try {
           // Clean up organization
-          await supabase
+          await getSupabaseServer()
             .from('organizations')
             .delete()
             .eq('id', organization.id);
-          console.log('Rolled back Supabase organization');
+          console.log('Rolled back getSupabaseServer() organization');
         } catch (rollbackError) {
-          console.error('Failed to rollback Supabase organization:', rollbackError);
+          console.error('Failed to rollback getSupabaseServer() organization:', rollbackError);
         }
       }
       

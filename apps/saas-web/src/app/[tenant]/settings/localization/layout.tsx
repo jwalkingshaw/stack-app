@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { redirect } from 'next/navigation';
 import { createServerClient, DatabaseQueries } from '@stack-app/database';
 import { canUseDeepL, getOrganizationBillingLimits } from '@/lib/billing-policy';
@@ -11,7 +12,7 @@ export default async function LocalizationLayout({ children, params }: Localizat
   const { tenant } = await params;
 
   const supabase = createServerClient();
-  const db = new DatabaseQueries(supabase);
+  const db = new DatabaseQueries(getSupabaseServer());
   const organization = await db.getOrganizationBySlug(tenant);
 
   if (organization) {

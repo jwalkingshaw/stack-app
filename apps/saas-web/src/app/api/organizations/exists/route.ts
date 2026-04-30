@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient } from "@stack-app/database";
@@ -5,7 +6,7 @@ import { kindeAPI } from "@/lib/kinde-management";
 import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 
 const supabase = createServerClient();
-const db = new DatabaseQueries(supabase);
+const db = new DatabaseQueries(getSupabaseServer());
 
 // GET /api/organizations/exists?slug=example-org
 // Super fast boolean-only endpoint for real-time checking
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
     } catch (kindeError) {
       console.warn('Kinde check failed in exists endpoint:', kindeError);
       
-      // Fallback to Supabase
+      // Fallback to getSupabaseServer()
       const existingOrg = await db.getOrganizationBySlug(slug);
       const exists = !!existingOrg;
       const payload = { exists };

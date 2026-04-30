@@ -187,7 +187,7 @@ export async function POST(
     let portalPublish = null;
     if (deliveryTarget === "portal") {
       const { error: contractGrantError } = await getSupabaseServer()
-        .from("partner_contract_grants" as never)
+        .from("partner_contract_grants")
         .upsert(
           partnerOrganizationIds.map((partnerOrganizationId) => ({
             organization_id: tenantAccess.organization.id,
@@ -201,7 +201,7 @@ export async function POST(
               syndication_run_id: run.id,
             },
             created_by: tenantAccess.userId ?? null,
-          })) as never,
+          })),
           {
             onConflict: "organization_id,partner_organization_id,output_profile_id",
             ignoreDuplicates: false,

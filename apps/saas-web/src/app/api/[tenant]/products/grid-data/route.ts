@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 /**
  * GET /api/[tenant]/products/grid-data
@@ -57,7 +54,7 @@ export async function GET(
     }
 
     // Resolve product_field_id for each requested code
-    const { data: fields, error: fieldsError } = await supabase
+    const { data: fields, error: fieldsError } = await getSupabaseServer()
       .from("product_fields")
       .select("id, code, field_type")
       .eq("organization_id", organizationId)
@@ -78,8 +75,8 @@ export async function GET(
 
     // Fetch product_field_values for the requested scope(s)
     // Fetch all rows matching product_ids + field_ids; filter scopes client-side
-    // (Supabase OR filters with IS NULL are tricky; fetching slightly more is fine at this scale)
-    const { data: values, error: valuesError } = await supabase
+    // (getSupabaseServer() OR filters with IS NULL are tricky; fetching slightly more is fine at this scale)
+    const { data: values, error: valuesError } = await getSupabaseServer()
       .from("product_field_values")
       .select(
         "product_id, product_field_id, value_text, value_number, value_boolean, value_date, value_datetime, value_json, locale_id, market_id"

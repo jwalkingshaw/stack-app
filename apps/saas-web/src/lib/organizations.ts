@@ -2,9 +2,8 @@
 
 export async function getOrganizationBySlug(slug: string): Promise<{ id: string; name: string; slug: string } | null> {
   try {
-    const supabase = getSupabaseServer();
-
-    const { data: organization, error } = await supabase
+    
+    const { data: organization, error } = await getSupabaseServer()
       .from('organizations')
       .select('id, name, slug')
       .eq('slug', slug)

@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
@@ -164,7 +165,7 @@ export default function ImageField({ value, onChange }: ImageFieldProps) {
               className="h-11"
             />
             <p className="text-xs text-muted-foreground">
-              Large hero imagery is supported via Supabase (S3). Consider optimised derivatives for channel exports.
+              Large hero imagery is supported via getSupabaseServer() (S3). Consider optimised derivatives for channel exports.
             </p>
           </div>
 

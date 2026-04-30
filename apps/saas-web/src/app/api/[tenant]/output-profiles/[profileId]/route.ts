@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const VALID_PROFILE_TYPES = ["portal", "marketplace", "retail", "export", "api"] as const;
 type ProfileType = (typeof VALID_PROFILE_TYPES)[number];
@@ -21,7 +18,7 @@ function isValidProfileType(value: unknown): value is ProfileType {
 }
 
 async function resolveProfile(organizationId: string, profileId: string) {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("output_channel_profiles")
     .select(`
       id, organization_id, name, code, profile_type, template_key, description,
@@ -121,14 +118,14 @@ export async function PATCH(
 
     // When promoting this profile to primary, clear the flag on all other profiles first
     if (patch.is_primary === true) {
-      await supabase
+      await getSupabaseServer()
         .from("output_channel_profiles")
         .update({ is_primary: false })
         .eq("organization_id", organizationId)
         .neq("id", profileId);
     }
 
-    const { data: updated, error } = await supabase
+    const { data: updated, error } = await getSupabaseServer()
       .from("output_channel_profiles")
       .update(patch)
       .eq("id", profileId)
@@ -164,7 +161,7 @@ export async function DELETE(
     if (!contextResult.ok) return contextResult.response;
     const organizationId = contextResult.context.tenantOrganization.id;
 
-    const { error } = await supabase
+    const { error } = await getSupabaseServer()
       .from("output_channel_profiles")
       .delete()
       .eq("id", profileId)

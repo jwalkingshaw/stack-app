@@ -391,7 +391,7 @@ export async function GET(
     }
 
     const contractGrantsResult = await (getSupabaseServer())
-      .from("partner_contract_grants" as never)
+      .from("partner_contract_grants")
       .select(
         "id,output_profile_id,access_level,status,created_at,updated_at,output_channel_profiles!inner(id,name,code,profile_type)"
       )
@@ -437,7 +437,7 @@ export async function GET(
     }
 
     const portalPublishesResult = await (getSupabaseServer())
-      .from("portal_publish_audiences" as never)
+      .from("portal_publish_audiences")
       .select(
         "portal_publishes!inner(id,output_profile_id,publish_state,published_at,output_channel_profiles!inner(id,name,code,profile_type))"
       )

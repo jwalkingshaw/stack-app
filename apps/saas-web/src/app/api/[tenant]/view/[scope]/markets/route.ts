@@ -43,7 +43,7 @@ export async function GET(
     // Legacy output_profile_id values are kept for compatibility and represent
     // market-level destination assignments.
     const { data: assignments, error: assignmentsError } = await getSupabaseServer()
-      .from("partner_market_assignments" as never)
+      .from("partner_market_assignments")
       .select("market_id, output_profile_id")
       .eq("organization_id", brandOrganizationId)
       .eq("partner_organization_id", partnerOrganizationId)
@@ -84,9 +84,9 @@ export async function GET(
     const profileById = new Map<string, { id: string; name: string; code: string; profile_type: string }>();
     if (profileIds.length > 0) {
       const { data: profileRowsRaw } = await getSupabaseServer()
-        .from("output_channel_profiles" as never)
+        .from("output_channel_profiles")
         .select("id,name,code,profile_type")
-        .in("id", profileIds as never);
+        .in("id", profileIds);
       const profileRows = (profileRowsRaw ?? []) as Array<{ id: string; name: string; code: string; profile_type: string }>;
       for (const p of profileRows) {
         profileById.set(p.id, p);

@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { createServerClient } from "@stack-app/database";
@@ -16,7 +17,7 @@ export async function GET() {
 
     // locale_catalog exists in runtime schema but may not exist in every local DB yet.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (supabase as any)
+    const { data, error } = await (getSupabaseServer() as any)
       .from("locale_catalog")
       .select("code,name,sort_order,is_active")
       .eq("is_active", true)

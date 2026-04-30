@@ -1,7 +1,8 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import {
   resolveTargetOrganization,
-  supabase,
+  
 } from "../../_shared";
 
 const UUID_PATTERN =
@@ -14,7 +15,7 @@ async function resolveFieldGroupIdByKey(
   const key = groupKey.trim();
 
   if (UUID_PATTERN.test(key)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from("field_groups")
       .select("id")
       .eq("organization_id", organizationId)
@@ -26,7 +27,7 @@ async function resolveFieldGroupIdByKey(
     }
   }
 
-  return supabase
+  return getSupabaseServer()
     .from("field_groups")
     .select("id")
     .eq("organization_id", organizationId)
@@ -61,7 +62,7 @@ export async function GET(
     }
     const groupId = (groupResult.data as { id: string }).id;
 
-    const { data: assignedRows, error: assignedError } = await supabase
+    const { data: assignedRows, error: assignedError } = await getSupabaseServer()
       .from("product_field_group_assignments")
       .select("product_field_id")
       .eq("field_group_id", groupId);
@@ -80,7 +81,7 @@ export async function GET(
         .filter((id): id is string => typeof id === "string")
     );
 
-    const { data: allFields, error: fieldsError } = await supabase
+    const { data: allFields, error: fieldsError } = await getSupabaseServer()
       .from("product_fields")
       .select("id, name, code, description, field_type")
       .eq("organization_id", context.targetOrganizationId)

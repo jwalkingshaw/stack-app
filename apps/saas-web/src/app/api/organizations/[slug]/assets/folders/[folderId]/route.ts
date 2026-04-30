@@ -4,7 +4,6 @@ import { DatabaseQueries } from "@stack-app/database";
 import { getSupabaseServer } from "@/lib/supabase";
 import { enforceMarketScopedAccess } from "@/lib/market-scope";
 
-const supabase = getSupabaseServer();
 
 export async function PATCH(
   request: NextRequest,
@@ -65,7 +64,7 @@ export async function PATCH(
       }
     }
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await getSupabaseServer()
       .from("dam_folders")
       .update({
         name: name.trim(),
@@ -83,7 +82,7 @@ export async function PATCH(
     }
 
     if (targetFolder.path && targetFolder.path !== newPath) {
-      const { data: descendants, error: descendantsError } = await supabase
+      const { data: descendants, error: descendantsError } = await getSupabaseServer()
         .from("dam_folders")
         .select("id, path")
         .eq("organization_id", organization.id)
@@ -94,7 +93,7 @@ export async function PATCH(
       } else if (descendants && descendants.length > 0) {
         for (const descendant of descendants) {
           const updatedPath = descendant.path.replace(targetFolder.path, newPath);
-          await supabase
+          await getSupabaseServer()
             .from("dam_folders")
             .update({
               path: updatedPath,
@@ -154,7 +153,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    const { data: existing } = await supabase
+    const { data: existing } = await getSupabaseServer()
       .from("dam_folders")
       .select("id")
       .eq("id", folderId)
@@ -165,7 +164,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Folder not found" }, { status: 404 });
     }
 
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await getSupabaseServer()
       .from("dam_folders")
       .delete()
       .eq("id", folderId)
@@ -235,7 +234,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
 
-    const { data: sourceFolder } = await supabase
+    const { data: sourceFolder } = await getSupabaseServer()
       .from("dam_folders")
       .select("id")
       .eq("id", folderId)
@@ -247,7 +246,7 @@ export async function POST(
     }
 
     if (destinationFolderId) {
-      const { data: destinationFolder } = await supabase
+      const { data: destinationFolder } = await getSupabaseServer()
         .from("dam_folders")
         .select("id")
         .eq("id", destinationFolderId)
@@ -266,7 +265,7 @@ export async function POST(
       );
     }
 
-    const { count: sourceAssetCount, error: sourceCountError } = await supabase
+    const { count: sourceAssetCount, error: sourceCountError } = await getSupabaseServer()
       .from("dam_assets")
       .select("*", { count: "exact", head: true })
       .eq("organization_id", organization.id)
@@ -288,7 +287,7 @@ export async function POST(
     }
 
     if (action === "move_contents") {
-      const { data: movedAssets, error: moveError } = await supabase
+      const { data: movedAssets, error: moveError } = await getSupabaseServer()
         .from("dam_assets")
         .update({
           folder_id: destinationFolderId,
@@ -311,7 +310,7 @@ export async function POST(
       });
     }
 
-    const { data: sourceAssets, error: sourceAssetsError } = await supabase
+    const { data: sourceAssets, error: sourceAssetsError } = await getSupabaseServer()
       .from("dam_assets")
       .select(
         "id, filename, original_filename, file_type, asset_type, asset_scope, file_size, mime_type, file_path, s3_key, s3_url, thumbnail_urls, metadata, tags, description, product_identifiers"
@@ -337,7 +336,7 @@ export async function POST(
     const oldToNewAssetId = new Map<string, string>();
 
     for (const asset of assets) {
-      const { data: insertedAsset, error: insertError } = await supabase
+      const { data: insertedAsset, error: insertError } = await getSupabaseServer()
         .from("dam_assets")
         .insert({
           asset_ref: asset.s3_key,
@@ -375,7 +374,7 @@ export async function POST(
 
     const sourceAssetIds = Array.from(oldToNewAssetId.keys());
 
-    const { data: tagAssignments } = await supabase
+    const { data: tagAssignments } = await getSupabaseServer()
       .from("asset_tag_assignments")
       .select("asset_id, tag_id")
       .in("asset_id", sourceAssetIds);
@@ -398,12 +397,12 @@ export async function POST(
       );
 
     if (mappedTagAssignments.length > 0) {
-      await supabase
+      await getSupabaseServer()
         .from("asset_tag_assignments")
         .insert(mappedTagAssignments);
     }
 
-    const { data: categoryAssignments } = await supabase
+    const { data: categoryAssignments } = await getSupabaseServer()
       .from("asset_category_assignments")
       .select("asset_id, category_id, is_primary")
       .in("asset_id", sourceAssetIds);
@@ -431,12 +430,12 @@ export async function POST(
       );
 
     if (mappedCategoryAssignments.length > 0) {
-      await supabase
+      await getSupabaseServer()
         .from("asset_category_assignments")
         .insert(mappedCategoryAssignments);
     }
 
-    const { data: productLinks } = await supabase
+    const { data: productLinks } = await getSupabaseServer()
       .from("product_asset_links")
       .select("asset_id, product_id, asset_type, link_context, link_type, confidence, match_reason, is_active")
       .eq("organization_id", organization.id)
@@ -486,7 +485,7 @@ export async function POST(
       );
 
     if (mappedProductLinks.length > 0) {
-      await supabase
+      await getSupabaseServer()
         .from("product_asset_links")
         .insert(mappedProductLinks);
     }

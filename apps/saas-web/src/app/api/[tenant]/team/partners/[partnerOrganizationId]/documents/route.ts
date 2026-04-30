@@ -95,8 +95,8 @@ export async function POST(
     }
 
     const { data, error } = await getSupabaseServer()
-      .from("partner_documents" as never)
-      .insert(({
+      .from("partner_documents")
+      .insert({
         organization_id: tenantAccess.organization.id,
         partner_organization_id: resolvedParams.partnerOrganizationId,
         asset_id: assetId,
@@ -114,7 +114,7 @@ export async function POST(
         expires_at: typeof body.expiresAt === "string" ? body.expiresAt : null,
         metadata: typeof body.metadata === "object" && body.metadata ? body.metadata : {},
         created_by: tenantAccess.userId ?? null,
-      }) as never)
+      } as never)
       .select("*")
       .single();
 

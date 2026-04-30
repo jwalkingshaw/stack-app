@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 function isCrossTenantWrite(tenantSlug: string, selectedBrandSlug: string | null): boolean {
   const selected = (selectedBrandSlug || "").trim().toLowerCase();
@@ -43,7 +40,7 @@ export async function GET(
     }
 
     const targetOrganizationId = contextResult.context.targetOrganization.id;
-    const { data: markets, error: marketsError } = await supabase
+    const { data: markets, error: marketsError } = await getSupabaseServer()
       .from("markets")
       .select("id")
       .eq("organization_id", targetOrganizationId);
@@ -58,7 +55,7 @@ export async function GET(
       return NextResponse.json([]);
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("market_countries")
       .select("id,market_id,country_code,is_active")
       .in("market_id", marketIds);
@@ -106,7 +103,7 @@ export async function POST(
       );
     }
 
-    const { data: market, error: marketError } = await supabase
+    const { data: market, error: marketError } = await getSupabaseServer()
       .from("markets")
       .select("id")
       .eq("organization_id", targetOrganizationId)
@@ -117,7 +114,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid market selected." }, { status: 400 });
     }
 
-    const { data: country, error: countryError } = await supabase
+    const { data: country, error: countryError } = await getSupabaseServer()
       .from("countries")
       .select("code")
       .eq("code", countryCode)
@@ -127,7 +124,7 @@ export async function POST(
       return NextResponse.json({ error: "Invalid country selected." }, { status: 400 });
     }
 
-    const { data: assignment, error: assignmentError } = await supabase
+    const { data: assignment, error: assignmentError } = await getSupabaseServer()
       .from("market_countries")
       .upsert(
         {
@@ -189,7 +186,7 @@ export async function PATCH(
       );
     }
 
-    const { data: market, error: marketError } = await supabase
+    const { data: market, error: marketError } = await getSupabaseServer()
       .from("markets")
       .select("id")
       .eq("organization_id", targetOrganizationId)
@@ -200,7 +197,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid market selected." }, { status: 400 });
     }
 
-    const { data: assignment, error: assignmentError } = await supabase
+    const { data: assignment, error: assignmentError } = await getSupabaseServer()
       .from("market_countries")
       .select("id,market_id,country_code,is_active")
       .eq("market_id", marketId)
@@ -221,7 +218,7 @@ export async function PATCH(
     }
 
     if (!nextIsActive) {
-      const { data: activeAssignments, error: activeAssignmentsError } = await supabase
+      const { data: activeAssignments, error: activeAssignmentsError } = await getSupabaseServer()
         .from("market_countries")
         .select("country_code")
         .eq("market_id", marketId)
@@ -240,7 +237,7 @@ export async function PATCH(
       }
     }
 
-    const { data: updatedAssignment, error: updateError } = await supabase
+    const { data: updatedAssignment, error: updateError } = await getSupabaseServer()
       .from("market_countries")
       .update({ is_active: nextIsActive })
       .eq("id", assignment.id)

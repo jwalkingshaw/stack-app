@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import {
@@ -12,10 +13,6 @@ import {
 } from "@/lib/partner-brand-view";
 import { getChannelScopedProductIds } from "@/lib/product-channel-scope";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type LinkReadConstraints = {
   allowedProductIds: Set<string> | null;
@@ -124,7 +121,7 @@ async function resolvePartnerLinkReadConstraints(params: {
     const channelScoped = new Set<string>();
     for (const channelId of productScope.channelIds) {
       const scopedIds = await getChannelScopedProductIds({
-        supabase: supabase,
+        supabase: getSupabaseServer(),
         organizationId: brandOrganizationId,
         channelId,
       });
@@ -192,7 +189,7 @@ export async function DELETE(
 
     const targetOrganizationId = context.targetOrganization.id;
 
-    const { data: productLink, error: linkError } = await supabase
+    const { data: productLink, error: linkError } = await getSupabaseServer()
       .from("product_asset_links")
       .select(
         `
@@ -211,7 +208,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Product link not found or access denied" }, { status: 404 });
     }
 
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await getSupabaseServer()
       .from("product_asset_links")
       .delete()
       .eq("id", linkId)
@@ -228,7 +225,7 @@ export async function DELETE(
     const linkedAsset = Array.isArray(typedLink.dam_assets)
       ? typedLink.dam_assets[0]
       : typedLink.dam_assets;
-    const { data: otherLinks } = await supabase
+    const { data: otherLinks } = await getSupabaseServer()
       .from("product_asset_links")
       .select("id")
       .eq("asset_id", typedLink.asset_id)
@@ -244,7 +241,7 @@ export async function DELETE(
         ? currentIdentifiers.filter((sku) => sku !== productSku)
         : currentIdentifiers;
 
-      await supabase
+      await getSupabaseServer()
         .from("dam_assets")
         .update({
           product_identifiers: updatedIdentifiers,
@@ -308,7 +305,7 @@ export async function GET(
       }
     }
 
-    const { data: productLink, error: linkError } = await supabase
+    const { data: productLink, error: linkError } = await getSupabaseServer()
       .from("product_asset_links")
       .select(
         `

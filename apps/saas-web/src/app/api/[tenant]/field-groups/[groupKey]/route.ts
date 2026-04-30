@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import {
   isCrossTenantWrite,
@@ -5,7 +6,7 @@ import {
   normalizeFieldGroup,
   resolveFieldGroupByKey,
   resolveTargetOrganization,
-  supabase,
+  
 } from "../_shared";
 
 function normalizeCode(value: string): string {
@@ -127,7 +128,7 @@ export async function PUT(
       return NextResponse.json(normalizeFieldGroup(existing.data));
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("field_groups")
       .update(updates)
       .eq("id", existing.data.id)
@@ -200,7 +201,7 @@ export async function DELETE(
       );
     }
 
-    const { error } = await supabase
+    const { error } = await getSupabaseServer()
       .from("field_groups")
       .delete()
       .eq("id", existing.data.id)

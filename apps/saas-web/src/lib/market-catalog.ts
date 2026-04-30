@@ -1,4 +1,4 @@
-﻿import { getSupabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 
 type ShareSetModule = "assets" | "products";
 
@@ -227,7 +227,7 @@ export async function addResourceToGlobalCatalogSet(params: {
           },
           created_by: params.userId,
         },
-      ] as never,
+      ],
       { onConflict: "share_set_id,resource_type,resource_id" }
     );
 
@@ -463,7 +463,7 @@ async function maybeSyncAssignedGlobalSetMembership(params: {
     };
     const { error: metadataError } = await getSupabaseServer()
       .from("share_sets")
-      .update({ metadata: nextMetadata } as never)
+      .update({ metadata: nextMetadata })
       .eq("organization_id", params.organizationId)
       .eq("id", shareSetId);
     if (metadataError) {
@@ -482,7 +482,7 @@ async function resolveAssignedSetIdsByModule(params: {
   const { organizationId, marketId, moduleKey } = params;
 
   const { data: assignmentRows, error: assignmentError } = await getSupabaseServer()
-    .from("market_set_assignments" as never)
+    .from("market_set_assignments")
     .select("share_set_id")
     .eq("organization_id", organizationId)
     .eq("market_id", marketId)
@@ -537,7 +537,7 @@ export async function resolveMarketCatalogAssignments(params: {
   const { organizationId, marketId } = params;
 
   const { data: assignmentRows, error: assignmentError } = await getSupabaseServer()
-    .from("market_set_assignments" as never)
+    .from("market_set_assignments")
     .select("share_set_id")
     .eq("organization_id", organizationId)
     .eq("market_id", marketId)
@@ -761,7 +761,7 @@ async function resolveMarketCatalogIds(params: {
     }
 
     if (parentIdsWithDescendants.size > 0) {
-      // Exclude partner_exclusive and restricted variants — they must be granted directly
+      // Exclude partner_exclusive and restricted variants � they must be granted directly
       const { data: descendants, error: descendantsError } = await getSupabaseServer()
         .from("products")
         .select("id")
@@ -931,7 +931,7 @@ export async function replaceMarketCatalogAssignments(params: {
   const desiredSetIds = dedupe([...validatedProducts.validIds, ...validatedAssets.validIds]);
 
   const { data: existingRows, error: existingError } = await getSupabaseServer()
-    .from("market_set_assignments" as never)
+    .from("market_set_assignments")
     .select("share_set_id")
     .eq("organization_id", params.organizationId)
     .eq("market_id", params.marketId)
@@ -978,8 +978,8 @@ export async function replaceMarketCatalogAssignments(params: {
     }));
 
     const { error: upsertError } = await getSupabaseServer()
-      .from("market_set_assignments" as never)
-      .upsert(upsertRows as never, { onConflict: "organization_id,market_id,share_set_id" });
+      .from("market_set_assignments")
+      .upsert(upsertRows, { onConflict: "organization_id,market_id,share_set_id" });
 
     if (upsertError) {
       if (isMissingMarketCatalogFoundationError(upsertError)) {
@@ -999,7 +999,7 @@ export async function replaceMarketCatalogAssignments(params: {
 
   if (toDeactivate.length > 0) {
     const { error: deactivateError } = await getSupabaseServer()
-      .from("market_set_assignments" as never)
+      .from("market_set_assignments")
       .update(
         {
           is_active: false,
@@ -1008,7 +1008,7 @@ export async function replaceMarketCatalogAssignments(params: {
             updated_by: params.userId,
             updated_at: new Date().toISOString(),
           },
-        } as never
+        }
       )
       .eq("organization_id", params.organizationId)
       .eq("market_id", params.marketId)

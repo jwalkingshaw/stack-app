@@ -1,4 +1,4 @@
-﻿import {
+import {
   resolvePartnerGrantedAssetIds,
   resolvePartnerGrantedProductIds,
 } from "@/lib/partner-brand-view";
@@ -83,7 +83,7 @@ async function resolveActivePartnerShareSetIds(params: {
 }): Promise<string[]> {
   const now = Date.now();
   const { data: grants, error } = await getSupabaseServer()
-    .from("partner_share_set_grants" as never)
+    .from("partner_share_set_grants")
     .select("share_set_id,expires_at,valid_from")
     .eq("organization_id", params.brandOrganizationId)
     .eq("partner_organization_id", params.partnerOrganizationId)
@@ -148,7 +148,7 @@ async function resolveLinkedAssetIdsForProducts(params: {
       .eq("organization_id", params.organizationId)
       .in("product_id", params.productIds),
     getSupabaseServer()
-      .from("product_output_slot_assignments" as never)
+      .from("product_output_slot_assignments")
       .select("asset_id,product_id,status")
       .eq("organization_id", params.organizationId)
       .in("product_id", params.productIds)
@@ -190,10 +190,10 @@ async function resolvePortalPublishedProductIds(params: {
 
   if (runIdsToLoad.size > 0) {
     const { data, error } = await getSupabaseServer()
-      .from("syndication_runs" as never)
+      .from("syndication_runs")
       .select("id,source_metadata")
       .eq("organization_id", params.organizationId)
-      .in("id", Array.from(runIdsToLoad) as never);
+      .in("id", Array.from(runIdsToLoad));
 
     if (error) {
       console.error("Failed to resolve portal publish product scope:", error);
@@ -224,7 +224,7 @@ async function resolveLegacyDestinationViews(params: {
   const destinationIds = new Set<string>();
 
   const { data: marketAssignments } = await getSupabaseServer()
-    .from("partner_market_assignments" as never)
+    .from("partner_market_assignments")
     .select("output_profile_id,market_id")
     .eq("organization_id", params.brandOrganizationId)
     .eq("partner_organization_id", params.partnerOrganizationId)
@@ -239,7 +239,7 @@ async function resolveLegacyDestinationViews(params: {
   }
 
   const { data: shareSetGrantRows } = await getSupabaseServer()
-    .from("partner_share_set_grants" as never)
+    .from("partner_share_set_grants")
     .select("share_set_id")
     .eq("organization_id", params.brandOrganizationId)
     .eq("partner_organization_id", params.partnerOrganizationId)
@@ -255,10 +255,10 @@ async function resolveLegacyDestinationViews(params: {
 
   if (shareSetIds.length > 0) {
     const { data: shareSets } = await getSupabaseServer()
-      .from("share_sets" as never)
+      .from("share_sets")
       .select("output_profile_id")
       .eq("organization_id", params.brandOrganizationId)
-      .in("id", shareSetIds as never)
+      .in("id", shareSetIds)
       .not("output_profile_id", "is", null);
 
     for (const row of (shareSets || []) as unknown as Array<{ output_profile_id: string | null }>) {
@@ -269,10 +269,10 @@ async function resolveLegacyDestinationViews(params: {
   if (destinationIds.size === 0) return [];
 
   const { data: profiles } = await getSupabaseServer()
-    .from("output_channel_profiles" as never)
+    .from("output_channel_profiles")
     .select("id,name,code,profile_type")
     .eq("organization_id", params.brandOrganizationId)
-    .in("id", Array.from(destinationIds) as never)
+    .in("id", Array.from(destinationIds))
     .eq("is_active", true);
 
   return ((profiles || []) as Array<{
@@ -298,7 +298,7 @@ export async function resolvePartnerGrantedDestinationViews(params: {
   scope?: PartnerGrantScopeSelection;
 }): Promise<PartnerDestinationView[]> {
   const { data, error } = await getSupabaseServer()
-    .from("partner_contract_grants" as never)
+    .from("partner_contract_grants")
     .select(
       "output_profile_id,access_level,status,output_channel_profiles!inner(id,name,code,profile_type)"
     )

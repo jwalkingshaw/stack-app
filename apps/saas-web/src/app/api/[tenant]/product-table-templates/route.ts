@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const TEMPLATE_SELECT = `
   id,
@@ -69,7 +66,7 @@ export async function GET(
 
     const targetOrganizationId = contextResult.context.targetOrganization.id;
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_table_templates")
       .select(TEMPLATE_SELECT)
       .eq("is_active", true)
@@ -84,7 +81,7 @@ export async function GET(
       return NextResponse.json({ error: "Failed to fetch product table templates" }, { status: 500 });
     }
 
-    const templates = ((data || []) as ProductTableTemplateRow[]).map((template) => ({
+    const templates = ((data || []) as unknown as ProductTableTemplateRow[]).map((template) => ({
       id: template.id,
       organization_id: template.organization_id,
       code: template.code,

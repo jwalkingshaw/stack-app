@@ -1,16 +1,17 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import {
   invalidateVariantAttributesCache,
   isCrossTenantWrite,
   resolveVariantAttributeFamilyContext,
-  supabase,
+  
 } from "../_shared";
 
 async function fetchVariantAttribute(params: {
   familyId: string;
   attributeId: string;
 }) {
-  return await supabase
+  return await getSupabaseServer()
     .from("product_family_variant_attributes")
     .select("id,product_family_id,product_field_id,sort_order,is_required")
     .eq("id", params.attributeId)
@@ -69,7 +70,7 @@ export async function PATCH(
       return NextResponse.json({ success: true, data: existing.data });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_family_variant_attributes")
       .update(updates)
       .eq("id", attributeId)
@@ -129,7 +130,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Variant axis not found." }, { status: 404 });
     }
 
-    const { error } = await supabase
+    const { error } = await getSupabaseServer()
       .from("product_family_variant_attributes")
       .delete()
       .eq("id", attributeId)

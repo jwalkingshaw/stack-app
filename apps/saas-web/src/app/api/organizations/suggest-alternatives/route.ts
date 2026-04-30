@@ -1,10 +1,11 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient } from "@stack-app/database";
 import { kindeAPI } from "@/lib/kinde-management";
 
 const supabase = createServerClient();
-const db = new DatabaseQueries(supabase);
+const db = new DatabaseQueries(getSupabaseServer());
 
 // Helper function to check if a slug is available
 async function isSlugAvailable(slug: string): Promise<boolean> {
@@ -14,8 +15,8 @@ async function isSlugAvailable(slug: string): Promise<boolean> {
       const existingOrg = await kindeAPI.getOrganizationByCode(slug);
       return !existingOrg;
     } catch (kindeError) {
-      // Fallback to Supabase only if Kinde fails
-      console.warn('Kinde check failed in suggestion, using Supabase fallback:', kindeError);
+      // Fallback to getSupabaseServer() only if Kinde fails
+      console.warn('Kinde check failed in suggestion, using getSupabaseServer() fallback:', kindeError);
       const existingOrg = await db.getOrganizationBySlug(slug);
       return !existingOrg;
     }

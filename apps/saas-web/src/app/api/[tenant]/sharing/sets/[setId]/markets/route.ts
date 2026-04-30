@@ -34,7 +34,7 @@ export async function GET(
 
     // Find markets that have this set in their catalog
     const { data: assignments, error: assignmentsError } = await getSupabaseServer()
-      .from("market_set_assignments" as never)
+      .from("market_set_assignments")
       .select("market_id")
       .eq("organization_id", organizationId)
       .eq("share_set_id", setId);

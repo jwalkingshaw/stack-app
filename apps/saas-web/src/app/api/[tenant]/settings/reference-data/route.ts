@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import {
@@ -7,10 +8,6 @@ import {
 } from "@/lib/market-reference-data";
 import { DEFAULT_LOCALE_CATALOG } from "@/lib/locale-catalog";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function GET(
   request: NextRequest,
@@ -29,7 +26,7 @@ export async function GET(
       return contextResult.response;
     }
 
-    const { data: countries, error: countriesError } = await supabase
+    const { data: countries, error: countriesError } = await getSupabaseServer()
       .from("countries")
       .select("code,name")
       .order("name", { ascending: true });
@@ -42,7 +39,7 @@ export async function GET(
       );
     }
 
-    const { data: localeCatalogRows, error: localeCatalogError } = await supabase
+    const { data: localeCatalogRows, error: localeCatalogError } = await getSupabaseServer()
       .from("locale_catalog")
       .select("code,name,sort_order,is_active")
       .eq("is_active", true)

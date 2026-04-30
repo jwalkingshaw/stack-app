@@ -3,7 +3,6 @@ import { getSupabaseServer } from "@/lib/supabase";
 import { resolveImportContext } from "@/lib/product-import-job-service";
 import { buildCsv } from "@/lib/product-imports";
 
-const supabase = getSupabaseServer();
 
 export async function GET(
   request: NextRequest,
@@ -13,7 +12,7 @@ export async function GET(
     const { tenant } = await params;
     const context = await resolveImportContext(request, tenant);
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("dam_assets")
       .select("asset_ref, id, filename, file_type, updated_at, folder_id, dam_folders:dam_assets_folder_id_fkey(path)")
       .eq("organization_id", context.organizationId)

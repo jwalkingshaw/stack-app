@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import DashboardClient from "./DashboardClient";
 import { createServerClient, DatabaseQueries } from "@stack-app/database";
 import { redirect } from "next/navigation";
@@ -11,7 +12,7 @@ export default async function TenantDashboard({ params }: TenantDashboardProps) 
   const tenantSlug = resolvedParams.tenant
 
   const supabase = createServerClient();
-  const db = new DatabaseQueries(supabase);
+  const db = new DatabaseQueries(getSupabaseServer());
   const organization = await db.getOrganizationBySlug(tenantSlug);
   const organizationType = String(
     organization?.organizationType || organization?.type || "brand"

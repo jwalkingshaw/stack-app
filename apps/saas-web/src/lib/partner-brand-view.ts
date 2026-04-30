@@ -1,4 +1,4 @@
-﻿import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
+import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Organization } from "@stack-app/types";
 import { verifyTenantAccess } from "@/lib/tenant-auth";
@@ -1129,7 +1129,7 @@ async function resolvePartnerMarketSetIds(params: {
 }): Promise<string[]> {
   // Resolve markets this partner is assigned to (Tier 2 access)
   const { data: assignments, error } = await getSupabaseServer()
-    .from("partner_market_assignments" as never)
+    .from("partner_market_assignments")
     .select("market_id,valid_from")
     .eq("organization_id", params.brandOrganizationId)
     .eq("partner_organization_id", params.partnerOrganizationId)
@@ -1308,7 +1308,7 @@ export async function resolvePartnerMarketOutputProfileId(params: {
   if (!params.marketId) return null;
 
   const { data, error } = await getSupabaseServer()
-    .from("partner_market_assignments" as never)
+    .from("partner_market_assignments")
     .select("output_profile_id")
     .eq("organization_id", params.brandOrganizationId)
     .eq("partner_organization_id", params.partnerOrganizationId)
@@ -1354,7 +1354,7 @@ async function resolvePartnerShareSetOutputProfileId(params: {
 
 async function resolvePrimaryOutputProfileId(organizationId: string): Promise<string | null> {
   const { data, error } = await getSupabaseServer()
-    .from("output_channel_profiles" as never)
+    .from("output_channel_profiles")
     .select("id")
     .eq("organization_id", organizationId)
     .eq("is_primary", true)
@@ -1373,7 +1373,7 @@ export async function resolvePartnerEffectiveOutputProfileId(params: {
 }): Promise<string | null> {
   if (params.destinationId) {
     const { data: directGrant, error: directGrantError } = await getSupabaseServer()
-      .from("partner_contract_grants" as never)
+      .from("partner_contract_grants")
       .select("output_profile_id")
       .eq("organization_id", params.brandOrganizationId)
       .eq("partner_organization_id", params.partnerOrganizationId)
@@ -1387,7 +1387,7 @@ export async function resolvePartnerEffectiveOutputProfileId(params: {
   }
 
   const { data: contractGrants, error: contractGrantError } = await getSupabaseServer()
-    .from("partner_contract_grants" as never)
+    .from("partner_contract_grants")
     .select("output_profile_id,updated_at")
     .eq("organization_id", params.brandOrganizationId)
     .eq("partner_organization_id", params.partnerOrganizationId)

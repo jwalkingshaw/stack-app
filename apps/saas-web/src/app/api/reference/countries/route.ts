@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { createServerClient } from "@stack-app/database";
@@ -13,7 +14,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("countries")
       .select("code, name")
       .order("name", { ascending: true });

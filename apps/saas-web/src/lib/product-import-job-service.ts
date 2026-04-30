@@ -28,7 +28,6 @@ import {
   type TemplateSource,
 } from "@/lib/product-imports";
 
-const supabase = getSupabaseServer();
 
 type ImportContext = {
   tenant: string;
@@ -222,7 +221,7 @@ async function resolveFamilyByKey(params: {
   const familyKey = normalizeOptionalString(params.familyKey);
   if (!familyKey) return null;
 
-  let query = supabase
+  let query = getSupabaseServer()
     .from("product_families")
     .select("id, code, name")
     .eq("organization_id", params.organizationId);
@@ -250,7 +249,7 @@ async function resolveChannelByKey(params: {
   const channelKey = normalizeOptionalString(params.channelKey);
   if (!channelKey) return null;
 
-  let query = supabase
+  let query = getSupabaseServer()
     .from("output_channel_profiles")
     .select("id, code, name")
     .eq("organization_id", params.organizationId)
@@ -274,7 +273,7 @@ async function resolveChannelByKey(params: {
 
 async function loadProductFieldsByCodes(organizationId: string, codes: string[]): Promise<Map<string, ProductFieldRow>> {
   if (codes.length === 0) return new Map();
-  const { data } = await supabase
+  const { data } = await getSupabaseServer()
     .from("product_fields")
     .select("id, code, name, field_type, is_required")
     .eq("organization_id", organizationId)
@@ -317,7 +316,7 @@ export async function resolveTemplate(params: {
     }
     await ensureFamilyAttributesFromFieldGroups(family.id);
 
-    const { data } = await supabase
+    const { data } = await getSupabaseServer()
       .from("family_attributes")
       .select("family_id, attribute_code, attribute_label, attribute_type, is_required, display_order")
       .eq("organization_id", params.organizationId)
@@ -351,7 +350,7 @@ export async function resolveTemplate(params: {
     };
   }
 
-  const { data: rulesRaw } = await supabase
+  const { data: rulesRaw } = await getSupabaseServer()
     .from("output_profile_field_rules")
     .select("field_code, is_required")
     .eq("profile_id", channel!.id);
@@ -392,7 +391,7 @@ export async function createImportJob(params: {
   scope: ImportScope;
   sourceFilename?: string | null;
 }): Promise<ImportJob> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("import_jobs")
     .insert({
       organization_id: params.organizationId,
@@ -418,7 +417,7 @@ export async function createImportJob(params: {
 }
 
 export async function getImportJob(organizationId: string, jobId: string): Promise<ImportJob | null> {
-  const { data } = await supabase
+  const { data } = await getSupabaseServer()
     .from("import_jobs")
     .select("*")
     .eq("organization_id", organizationId)
@@ -429,7 +428,7 @@ export async function getImportJob(organizationId: string, jobId: string): Promi
 }
 
 export async function listImportJobs(organizationId: string): Promise<ImportJob[]> {
-  const { data } = await supabase
+  const { data } = await getSupabaseServer()
     .from("import_jobs")
     .select("*")
     .eq("organization_id", organizationId)
@@ -446,7 +445,7 @@ export async function uploadCsvToJob(params: {
 }): Promise<{ rowCount: number; headerCount: number }> {
   const parsed = parseCsvText(params.text);
 
-  await supabase.from("import_job_rows").delete().eq("job_id", params.job.id);
+  await getSupabaseServer().from("import_job_rows").delete().eq("job_id", params.job.id);
 
   if (parsed.rows.length > 0) {
     const payload = parsed.rows.map((row, index) => ({
@@ -459,13 +458,13 @@ export async function uploadCsvToJob(params: {
       result: {},
       errors: [],
     }));
-    const { error } = await supabase.from("import_job_rows").insert(payload);
+    const { error } = await getSupabaseServer().from("import_job_rows").insert(payload);
     if (error) {
       throw new Error(error.message || "Failed to upload CSV rows.");
     }
   }
 
-  const { error: jobError } = await supabase
+  const { error: jobError } = await getSupabaseServer()
     .from("import_jobs")
     .update({
       source_filename: params.filename,
@@ -497,7 +496,7 @@ export async function uploadCsvToJob(params: {
 }
 
 async function loadJobRows(jobId: string): Promise<ImportJobRow[]> {
-  const { data } = await supabase
+  const { data } = await getSupabaseServer()
     .from("import_job_rows")
     .select("*")
     .eq("job_id", jobId)
@@ -515,7 +514,7 @@ async function resolveProductsByIdentifiers(params: {
   const products: ProductLookupRow[] = [];
 
   if (params.scins.length > 0) {
-    const { data } = await supabase
+    const { data } = await getSupabaseServer()
       .from("products")
       .select("id, scin, sku, family_id, product_name, type")
       .eq("organization_id", params.organizationId)
@@ -524,7 +523,7 @@ async function resolveProductsByIdentifiers(params: {
   }
 
   if (params.skus.length > 0) {
-    const { data } = await supabase
+    const { data } = await getSupabaseServer()
       .from("products")
       .select("id, scin, sku, family_id, product_name, type")
       .eq("organization_id", params.organizationId)
@@ -548,7 +547,7 @@ async function resolveFamiliesForRows(params: {
   const normalized = Array.from(new Set(params.familyCodes.map((value) => normalizeCode(value)).filter(Boolean)));
   if (normalized.length === 0) return new Map();
 
-  const { data } = await supabase
+  const { data } = await getSupabaseServer()
     .from("product_families")
     .select("id, code, name")
     .eq("organization_id", params.organizationId)
@@ -568,7 +567,7 @@ async function resolveRequiredFamilyAttributes(params: {
   const uniqueFamilyIds = Array.from(new Set(params.familyIds.filter(Boolean)));
   if (uniqueFamilyIds.length === 0) return new Map();
 
-  const { data } = await supabase
+  const { data } = await getSupabaseServer()
     .from("family_attributes")
     .select("family_id, attribute_code, attribute_label, attribute_type, is_required, display_order")
     .eq("organization_id", params.organizationId)
@@ -597,7 +596,7 @@ async function resolveAssets(params: {
   const byRef = new Map<string, { id: string; asset_ref: string; filename: string }>();
 
   if (params.assetIds.length > 0) {
-    const { data } = await supabase
+    const { data } = await getSupabaseServer()
       .from("dam_assets")
       .select("id, asset_ref, filename")
       .eq("organization_id", params.organizationId)
@@ -610,7 +609,7 @@ async function resolveAssets(params: {
   }
 
   if (params.assetRefs.length > 0) {
-    const { data } = await supabase
+    const { data } = await getSupabaseServer()
       .from("dam_assets")
       .select("id, asset_ref, filename")
       .eq("organization_id", params.organizationId)
@@ -883,7 +882,7 @@ export async function validateImportJob(job: ImportJob): Promise<ValidationSumma
 
   for (const update of rowUpdates) {
     const { id, ...payload } = update;
-    const { error } = await supabase.from("import_job_rows").update(payload).eq("id", id);
+    const { error } = await getSupabaseServer().from("import_job_rows").update(payload).eq("id", id);
     if (error) {
       throw new Error(error.message || "Failed to persist row validation results.");
     }
@@ -892,7 +891,7 @@ export async function validateImportJob(job: ImportJob): Promise<ValidationSumma
   const summary = buildPreviewSummary({ rows: previewRows });
   const status = summary.invalidRows === 0 ? "ready" : summary.validRows > 0 ? "ready" : "failed";
 
-  const { error: jobError } = await supabase
+  const { error: jobError } = await getSupabaseServer()
     .from("import_jobs")
     .update({
       status,
@@ -950,7 +949,7 @@ export async function runImportJob(params: {
   const validRows = rows.filter((row) => row.status === "valid");
   const scope = normalizeImportScope(params.job.scope);
 
-  await supabase
+  await getSupabaseServer()
     .from("import_jobs")
     .update({
       status: "running",
@@ -968,7 +967,7 @@ export async function runImportJob(params: {
     const normalized = isRecord(row.normalized_payload) ? (row.normalized_payload as unknown as NormalizedRowPayload) : null;
     if (!normalized) {
       failedRows += 1;
-      await supabase
+      await getSupabaseServer()
         .from("import_job_rows")
         .update({ status: "failed", errors: ["Missing normalized payload."] })
         .eq("id", row.id);
@@ -999,7 +998,7 @@ export async function runImportJob(params: {
           method: "DELETE",
         });
         appliedRows += 1;
-        await supabase
+        await getSupabaseServer()
           .from("import_job_rows")
           .update({
             status: "applied",
@@ -1091,7 +1090,7 @@ export async function runImportJob(params: {
       }
 
       appliedRows += 1;
-      await supabase
+      await getSupabaseServer()
         .from("import_job_rows")
         .update({
           status: "applied",
@@ -1105,7 +1104,7 @@ export async function runImportJob(params: {
         .eq("id", row.id);
     } catch (error) {
       failedRows += 1;
-      await supabase
+      await getSupabaseServer()
         .from("import_job_rows")
         .update({
           status: "failed",
@@ -1118,7 +1117,7 @@ export async function runImportJob(params: {
   const finalStatus: ImportJob["status"] =
     appliedRows > 0 && failedRows > 0 ? "partial" : failedRows > 0 ? "failed" : "completed";
 
-  await supabase
+  await getSupabaseServer()
     .from("import_jobs")
     .update({
       status: finalStatus,

@@ -1,13 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
+export 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -107,7 +104,7 @@ async function resolveFamilyId(params: {
   const { organizationId, familyKey } = params;
 
   if (UUID_PATTERN.test(familyKey)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from("product_families")
       .select("id")
       .eq("id", familyKey)
@@ -116,7 +113,7 @@ async function resolveFamilyId(params: {
     if (byId.data?.id) return byId.data.id;
   }
 
-  const byCode = await supabase
+  const byCode = await getSupabaseServer()
     .from("product_families")
     .select("id")
     .eq("code", normalizeCode(familyKey))

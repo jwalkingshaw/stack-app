@@ -29,7 +29,7 @@ function sanitizeSlug(raw: string): string {
     .replace(/^-|-$/g, "");
 }
 
-// Sync organization from Kinde to Supabase.
+// Sync organization from Kinde to getSupabaseServer().
 export async function POST(request: NextRequest) {
   try {
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
@@ -43,13 +43,12 @@ export async function POST(request: NextRequest) {
     }
 
     const db = new DatabaseQueries(getSupabaseServer());
-    const supabase = getSupabaseServer();
-    const kindeOrg = session.organization as LegacySessionOrganization;
+        const kindeOrg = session.organization as LegacySessionOrganization;
 
     const slug = sanitizeSlug(kindeOrg.code || `org-${Date.now()}`);
     const existing = await db.getOrganizationBySlug(slug);
     if (existing) {
-      const { error } = await supabase
+      const { error } = await getSupabaseServer()
         .from("organizations")
         .update({
           name: kindeOrg.name || existing.name,

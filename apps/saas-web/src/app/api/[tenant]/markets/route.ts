@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import {
@@ -11,10 +12,6 @@ import {
   resolveMarketCatalogAssignments,
 } from "@/lib/market-catalog";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UNIQUE_VIOLATION_ERROR = "23505";
 
@@ -97,7 +94,7 @@ export async function GET(
     }
 
     const targetOrganizationId = contextResult.context.targetOrganization.id;
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("markets")
       .select("id,code,name,is_active,is_default,currency_code,timezone,default_locale_id")
       .eq("organization_id", targetOrganizationId)
@@ -175,7 +172,7 @@ export async function POST(
       );
     }
 
-    const { data: countries, error: countriesError } = await supabase
+    const { data: countries, error: countriesError } = await getSupabaseServer()
       .from("countries")
       .select("code")
       .in("code", countryCodes);
@@ -188,7 +185,7 @@ export async function POST(
       return NextResponse.json({ error: "One or more selected countries are invalid." }, { status: 400 });
     }
 
-    const { data: locales, error: localesError } = await supabase
+    const { data: locales, error: localesError } = await getSupabaseServer()
       .from("locales")
       .select("id,is_active")
       .eq("organization_id", targetOrganizationId)
@@ -208,7 +205,7 @@ export async function POST(
       return NextResponse.json({ error: "All selected languages must be active." }, { status: 400 });
     }
 
-    const { data: existingMarkets, error: existingMarketsError } = await supabase
+    const { data: existingMarkets, error: existingMarketsError } = await getSupabaseServer()
       .from("markets")
       .select("id")
       .eq("organization_id", targetOrganizationId);
@@ -221,7 +218,7 @@ export async function POST(
     const shouldBeDefault = Boolean(body?.is_default) || (existingMarkets || []).length === 0;
 
     if (shouldBeDefault) {
-      const { error: clearDefaultError } = await supabase
+      const { error: clearDefaultError } = await getSupabaseServer()
         .from("markets")
         .update({ is_default: false })
         .eq("organization_id", targetOrganizationId);
@@ -254,7 +251,7 @@ export async function POST(
       );
     }
 
-    const { data: market, error: marketError } = await supabase
+    const { data: market, error: marketError } = await getSupabaseServer()
       .from("markets")
       .insert({
         organization_id: targetOrganizationId,
@@ -286,13 +283,13 @@ export async function POST(
       country_code: countryCode,
       is_active: true,
     }));
-    const { error: marketCountriesError } = await supabase
+    const { error: marketCountriesError } = await getSupabaseServer()
       .from("market_countries")
       .upsert(countryRows, { onConflict: "market_id,country_code" });
 
     if (marketCountriesError) {
       console.error("Error assigning countries to market:", marketCountriesError);
-      await supabase
+      await getSupabaseServer()
         .from("markets")
         .delete()
         .eq("organization_id", targetOrganizationId)
@@ -305,13 +302,13 @@ export async function POST(
       locale_id: localeId,
       is_active: true,
     }));
-    const { error: marketLocalesError } = await supabase
+    const { error: marketLocalesError } = await getSupabaseServer()
       .from("market_locales")
       .upsert(localeRows, { onConflict: "market_id,locale_id" });
 
     if (marketLocalesError) {
       console.error("Error assigning locales to market:", marketLocalesError);
-      await supabase
+      await getSupabaseServer()
         .from("markets")
         .delete()
         .eq("organization_id", targetOrganizationId)
@@ -350,7 +347,7 @@ export async function POST(
       });
 
       if (!catalogResult.ok) {
-        await supabase
+        await getSupabaseServer()
           .from("markets")
           .delete()
           .eq("organization_id", targetOrganizationId)
@@ -376,7 +373,7 @@ export async function POST(
           });
 
           if (!defaultCatalogResult.ok) {
-            await supabase
+            await getSupabaseServer()
               .from("markets")
               .delete()
               .eq("organization_id", targetOrganizationId)
@@ -442,7 +439,7 @@ export async function PATCH(
       return NextResponse.json({ error: "market_id is required." }, { status: 400 });
     }
 
-    const { data: market, error: marketError } = await supabase
+    const { data: market, error: marketError } = await getSupabaseServer()
       .from("markets")
       .select("id,is_default,default_locale_id")
       .eq("organization_id", targetOrganizationId)
@@ -507,7 +504,7 @@ export async function PATCH(
     if (Object.prototype.hasOwnProperty.call(body, "default_locale_id")) {
       const requestedDefaultLocaleId = normalizeToken(body?.default_locale_id);
       if (requestedDefaultLocaleId) {
-        const { data: locale, error: localeError } = await supabase
+        const { data: locale, error: localeError } = await getSupabaseServer()
           .from("locales")
           .select("id,is_active")
           .eq("organization_id", targetOrganizationId)
@@ -518,7 +515,7 @@ export async function PATCH(
           return NextResponse.json({ error: "Invalid default language selected." }, { status: 400 });
         }
 
-        const { data: assignment, error: assignmentError } = await supabase
+        const { data: assignment, error: assignmentError } = await getSupabaseServer()
           .from("market_locales")
           .select("id")
           .eq("market_id", marketId)
@@ -545,7 +542,7 @@ export async function PATCH(
         : null;
 
     if (requestedIsDefault === true) {
-      const { error: clearDefaultError } = await supabase
+      const { error: clearDefaultError } = await getSupabaseServer()
         .from("markets")
         .update({ is_default: false })
         .eq("organization_id", targetOrganizationId);
@@ -563,7 +560,7 @@ export async function PATCH(
       return NextResponse.json({ error: "No valid fields provided for update." }, { status: 400 });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("markets")
       .update(updatePayload)
       .eq("organization_id", targetOrganizationId)
@@ -626,7 +623,7 @@ export async function DELETE(
       return NextResponse.json({ error: "market_id is required." }, { status: 400 });
     }
 
-    const { data: market, error: marketError } = await supabase
+    const { data: market, error: marketError } = await getSupabaseServer()
       .from("markets")
       .select("id,is_default,name,is_active")
       .eq("organization_id", targetOrganizationId)
@@ -642,7 +639,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Market not found." }, { status: 404 });
     }
 
-    const { count: marketCount, error: marketCountError } = await supabase
+    const { count: marketCount, error: marketCountError } = await getSupabaseServer()
       .from("markets")
       .select("id", { count: "exact", head: true })
       .eq("organization_id", targetOrganizationId);
@@ -660,7 +657,7 @@ export async function DELETE(
     }
 
     if (market.is_default) {
-      const { data: replacementMarket, error: replacementError } = await supabase
+      const { data: replacementMarket, error: replacementError } = await getSupabaseServer()
         .from("markets")
         .select("id")
         .eq("organization_id", targetOrganizationId)
@@ -678,7 +675,7 @@ export async function DELETE(
         );
       }
 
-      const { error: clearDefaultError } = await supabase
+      const { error: clearDefaultError } = await getSupabaseServer()
         .from("markets")
         .update({ is_default: false })
         .eq("organization_id", targetOrganizationId);
@@ -688,7 +685,7 @@ export async function DELETE(
         return NextResponse.json({ error: "Failed to delete market." }, { status: 500 });
       }
 
-      const { error: setDefaultError } = await supabase
+      const { error: setDefaultError } = await getSupabaseServer()
         .from("markets")
         .update({ is_default: true })
         .eq("organization_id", targetOrganizationId)
@@ -700,7 +697,7 @@ export async function DELETE(
       }
     }
 
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await getSupabaseServer()
       .from("markets")
       .delete()
       .eq("organization_id", targetOrganizationId)

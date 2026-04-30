@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import {
@@ -16,10 +17,6 @@ import {
   rewriteThumbnailUrls,
 } from "@/lib/storage-url";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type LinkReadConstraints = {
   allowedProductIds: Set<string> | null;
@@ -190,7 +187,7 @@ async function resolvePartnerLinkReadConstraints(params: {
     const channelScoped = new Set<string>();
     for (const channelId of productScope.channelIds) {
       const scopedIds = await getChannelScopedProductIds({
-        supabase: supabase,
+        supabase: getSupabaseServer(),
         organizationId: brandOrganizationId,
         channelId,
       });
@@ -289,7 +286,7 @@ export async function POST(
 
     const targetOrganizationId = context.targetOrganization.id;
 
-    const { data: product, error: productError } = await supabase
+    const { data: product, error: productError } = await getSupabaseServer()
       .from("products")
       .select("id, sku, product_name")
       .eq("id", product_id)
@@ -300,7 +297,7 @@ export async function POST(
       return NextResponse.json({ error: "Product not found or access denied" }, { status: 404 });
     }
 
-    const { data: asset, error: assetError } = await supabase
+    const { data: asset, error: assetError } = await getSupabaseServer()
       .from("dam_assets")
       .select("id, filename")
       .eq("id", asset_id)
@@ -324,7 +321,7 @@ export async function POST(
     const cleanSortOrder = typeof sort_order === "number" && Number.isFinite(sort_order) ? Math.floor(sort_order) : null;
 
     if (cleanDocumentSlotCode && replace_existing_slot) {
-      let replaceQuery = supabase
+      let replaceQuery = getSupabaseServer()
         .from("product_asset_links")
         .update({
           is_active: false,
@@ -370,7 +367,7 @@ export async function POST(
       }
     }
 
-    const { data: productLink, error: linkError } = await supabase
+    const { data: productLink, error: linkError } = await getSupabaseServer()
       .from("product_asset_links")
       .insert({
         organization_id: targetOrganizationId,
@@ -411,7 +408,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed to create product-asset link" }, { status: 500 });
     }
 
-    const currentProductIdentifiers = await supabase
+    const currentProductIdentifiers = await getSupabaseServer()
       .from("dam_assets")
       .select("product_identifiers")
       .eq("id", asset_id)
@@ -420,7 +417,7 @@ export async function POST(
     if (currentProductIdentifiers.data) {
       const identifiers = currentProductIdentifiers.data.product_identifiers || [];
       if (product.sku && !identifiers.includes(product.sku)) {
-        await supabase
+        await getSupabaseServer()
           .from("dam_assets")
           .update({
             product_identifiers: [...identifiers, product.sku],
@@ -526,7 +523,7 @@ export async function GET(
       }
     }
 
-    let query = supabase
+    let query = getSupabaseServer()
       .from("product_asset_links")
       .select(
         `

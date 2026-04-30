@@ -4,7 +4,11 @@ import { requireTenantAccess } from "@/lib/tenant-auth";
 import { getSupabaseServer } from "@/lib/supabase";
 import { cache, REDIS_KEY_PREFIX_SAAS } from "@/lib/redis";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let _anthropic: Anthropic | null = null;
+function getAnthropic() {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _anthropic;
+}
 const MODEL = "claude-haiku-4-5-20251001";
 const HOURLY_LIMIT = 60;
 
@@ -170,7 +174,7 @@ export async function POST(
   ].filter(Boolean).join("\n");
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await getAnthropic().messages.create({
       model: MODEL,
       max_tokens: 1024,
       system: systemPrompt,

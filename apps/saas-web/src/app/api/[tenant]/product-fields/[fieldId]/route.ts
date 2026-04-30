@@ -1,12 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { normalizeProductFieldOptions } from "@/lib/product-field-options";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const PRODUCT_FIELDS_SELECT_WITH_SCOPES = `
   id,
@@ -204,7 +201,7 @@ async function resolveContext(request: NextRequest, tenant: string) {
 
 async function fetchProductFieldById(organizationId: string, fieldId: string) {
   const runQuery = (selectClause: string) =>
-    supabase
+    getSupabaseServer()
       .from("product_fields")
       .select(selectClause)
       .eq("organization_id", organizationId)
@@ -434,7 +431,7 @@ export async function PUT(
       delete built.payload.value_storage_strategy;
     }
 
-    let updateResult = await supabase
+    let updateResult = await getSupabaseServer()
       .from("product_fields")
       .update(built.payload)
       .eq("id", fieldId)
@@ -443,7 +440,7 @@ export async function PUT(
       .single();
 
     if (isMissingColumnError(updateResult.error)) {
-      updateResult = await supabase
+      updateResult = await getSupabaseServer()
         .from("product_fields")
         .update(toLegacyPayload(built.payload))
         .eq("id", fieldId)
@@ -515,7 +512,7 @@ export async function DELETE(
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_fields")
       .delete()
       .eq("id", fieldId)

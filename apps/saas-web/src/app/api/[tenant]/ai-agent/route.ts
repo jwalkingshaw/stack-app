@@ -32,7 +32,7 @@ export async function GET(
   const limit = Math.min(Number(url.searchParams.get("limit") ?? "50"), 100);
 
   const { data, error } = await getSupabaseServer()
-    .from("ai_task_envelopes" as never)
+    .from("ai_task_envelopes")
     .select("*")
     .eq("organization_id", organizationId)
     .eq("task_type", "agent_task")

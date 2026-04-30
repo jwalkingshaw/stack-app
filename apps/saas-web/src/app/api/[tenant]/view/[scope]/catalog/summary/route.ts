@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import {
   resolveTenantBrandViewContext,
@@ -6,10 +7,6 @@ import {
 } from "@/lib/partner-brand-view";
 import { resolvePartnerEntitlements } from "@/lib/partner-entitlements";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -75,7 +72,7 @@ export async function GET(
       // Get market name if marketId provided
       (async () => {
         if (!marketId || !UUID_RE.test(marketId)) return null;
-        const { data } = await supabase
+        const { data } = await getSupabaseServer()
           .from("markets")
           .select("id,name,code")
           .eq("id", marketId)
@@ -128,8 +125,8 @@ export async function GET(
     // Resolve destination profile name from profile
     let destinationProfile: { id: string; name: string; profile_type: string } | null = null;
     if (profileId) {
-      const { data: profileData } = await supabase
-        .from("output_channel_profiles" as never)
+      const { data: profileData } = await getSupabaseServer()
+        .from("output_channel_profiles")
         .select("id, name, profile_type")
         .eq("id", profileId)
         .eq("organization_id", brandOrganizationId)
@@ -205,7 +202,7 @@ async function computeReadiness(params: {
   } = params;
 
   // Load required field rules
-  const { data: rulesRaw } = await supabase
+  const { data: rulesRaw } = await getSupabaseServer()
     .from("output_profile_field_rules")
     .select("field_code")
     .eq("profile_id", profileId)
@@ -217,7 +214,7 @@ async function computeReadiness(params: {
   }
 
   // Resolve field codes → IDs
-  const { data: fieldDefsRaw } = await supabase
+  const { data: fieldDefsRaw } = await getSupabaseServer()
     .from("product_fields")
     .select("id, code")
     .eq("organization_id", organizationId)
@@ -232,7 +229,7 @@ async function computeReadiness(params: {
   const totalRequired = fieldDefs.length;
 
   // Load field values (global values only — no scope filtering for summary)
-  const { data: valuesRaw } = await supabase
+  const { data: valuesRaw } = await getSupabaseServer()
     .from("product_field_values")
     .select(
       "product_id, product_field_id, value_text, value_number, value_boolean, value_json, market_id, channel_id, locale_id, destination_id"

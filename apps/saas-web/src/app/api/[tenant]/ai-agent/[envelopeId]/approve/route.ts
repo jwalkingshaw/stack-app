@@ -159,9 +159,9 @@ async function commitChange(
       if (!allowedFields.has(change.field)) {
         throw new Error(`Field '${change.field}' is not an allowed update target`);
       }
-      const { error } = await supabase
+      const { error } = await getSupabaseServer()
         .from("products")
-        .update({ [change.field]: change.after } as unknown as never)
+        .update({ [change.field]: change.after } as unknown as { [key: string]: string })
         .eq("id", change.productId)
         .eq("organization_id", organizationId); // org guard — always present
       if (error) throw new Error(error.message);
@@ -177,7 +177,7 @@ async function commitChange(
       }
 
       // 1. Resolve locale_id from locale code
-      const { data: localeRow } = await supabase
+      const { data: localeRow } = await getSupabaseServer()
         .from("locales")
         .select("id")
         .eq("code", change.locale)
@@ -188,7 +188,7 @@ async function commitChange(
       const localeId = localeRow.id;
 
       // 2. Resolve product_field_id (create system field record if first use)
-      const { data: fieldRow } = await supabase
+      const { data: fieldRow } = await getSupabaseServer()
         .from("product_fields")
         .select("id")
         .eq("organization_id", organizationId)
@@ -198,7 +198,7 @@ async function commitChange(
       let productFieldId: string | null = fieldRow?.id ?? null;
 
       if (!productFieldId) {
-        const { data: created } = await supabase
+        const { data: created } = await getSupabaseServer()
           .from("product_fields")
           .insert({
             organization_id: organizationId,
@@ -210,7 +210,7 @@ async function commitChange(
             is_localizable: true,
             is_translatable: true,
             sort_order: 1,
-            options: { is_system: true, system_key: change.field } as never,
+            options: { is_system: true, system_key: change.field },
           })
           .select("id")
           .single();
@@ -222,7 +222,7 @@ async function commitChange(
       }
 
       // 3. Upsert translated value into product_field_values
-      const { data: existing } = await supabase
+      const { data: existing } = await getSupabaseServer()
         .from("product_field_values")
         .select("id")
         .eq("product_id", change.productId)
@@ -235,20 +235,20 @@ async function commitChange(
         .maybeSingle();
 
       if (existing?.id) {
-        const { error } = await supabase
+        const { error } = await getSupabaseServer()
           .from("product_field_values")
           .update({ value_text: change.after, locale_id: localeId, updated_at: new Date().toISOString() })
           .eq("id", existing.id);
         if (error) throw new Error(error.message);
       } else {
-        const { error } = await supabase
+        const { error } = await getSupabaseServer()
           .from("product_field_values")
           .insert({
             product_id: change.productId,
             product_field_id: productFieldId,
             locale_id: localeId,
             value_text: change.after,
-          } as never);
+          });
         if (error) throw new Error(error.message);
       }
       break;
@@ -275,7 +275,7 @@ async function commitChange(
         code: meta.code as string,
         description: (meta.description as string) ?? null,
       };
-      const { error } = await supabase
+      const { error } = await getSupabaseServer()
         .from("product_families")
         .insert(payload as never);
       if (error) throw new Error(error.message);
@@ -296,7 +296,7 @@ async function commitChange(
         features: (meta.features as string[]) ?? null,
         status: "Draft",
       };
-      const { error } = await supabase
+      const { error } = await getSupabaseServer()
         .from("products")
         .insert(payload as never);
       if (error) throw new Error(error.message);
@@ -317,7 +317,7 @@ async function commitChange(
         short_description: (meta.short_description as string) ?? null,
         status: "Draft",
       };
-      const { error } = await supabase
+      const { error } = await getSupabaseServer()
         .from("products")
         .insert(payload as never);
       if (error) throw new Error(error.message);

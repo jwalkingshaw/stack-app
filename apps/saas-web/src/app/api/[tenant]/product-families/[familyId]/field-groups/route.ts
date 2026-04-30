@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import { resolvePartnerProductVisibilityPolicy } from "@/lib/partner-brand-view";
 import {
@@ -6,7 +7,7 @@ import {
   isCrossTenantWrite,
   resolveFamilyContext,
   setFamilyFieldGroupsCache,
-  supabase,
+  
 } from "./_shared";
 
 const PRODUCT_FIELDS_SELECT_WITH_SCOPES = `
@@ -191,7 +192,7 @@ async function fetchFamilyFieldGroups(
   familyId: string
 ): Promise<{ data: unknown[] | null; error: PostgrestLikeError }> {
   const runQuery = (selectClause: string) =>
-    supabase
+    getSupabaseServer()
       .from("product_family_field_groups")
       .select(selectClause)
       .eq("product_family_id", familyId)
@@ -373,7 +374,7 @@ export async function POST(
     const sortOrder = Number.isFinite(Number(body?.sort_order)) ? Number(body.sort_order) : 0;
     const hiddenFields = parseHiddenFields(body?.hidden_fields);
 
-    const { data: fieldGroup, error: fieldGroupError } = await supabase
+    const { data: fieldGroup, error: fieldGroupError } = await getSupabaseServer()
       .from("field_groups")
       .select("id")
       .eq("id", fieldGroupId)
@@ -394,9 +395,9 @@ export async function POST(
       hidden_fields: hiddenFields,
     };
 
-    const { error: upsertError } = await supabase
+    const { error: upsertError } = await getSupabaseServer()
       .from("product_family_field_groups")
-      .upsert(insertPayload, {
+      .upsert(insertPayload as never, {
         onConflict: "product_family_id,field_group_id",
         ignoreDuplicates: false,
       });

@@ -90,7 +90,7 @@ export async function GET(
 
     // Load assigned partners for this market
     const { data: assignments, error: assignmentsError } = await getSupabaseServer()
-      .from("partner_market_assignments" as never)
+      .from("partner_market_assignments")
       .select("id,partner_organization_id,valid_from,assigned_by,created_at,output_profile_id")
       .eq("organization_id", organizationId)
       .eq("market_id", marketId)
@@ -246,7 +246,7 @@ export async function POST(
     }
 
     const { error: upsertError } = await getSupabaseServer()
-      .from("partner_market_assignments" as never)
+      .from("partner_market_assignments")
       .upsert(
         [{
           organization_id: organizationId,
@@ -260,7 +260,7 @@ export async function POST(
             updated_by: context.userId,
             updated_at: new Date().toISOString(),
           },
-        }] as never,
+        }],
         { onConflict: "organization_id,market_id,partner_organization_id" }
       );
 
@@ -332,7 +332,7 @@ export async function PATCH(
 
     if (outputProfileId) {
       const { data: profile } = await getSupabaseServer()
-        .from("output_channel_profiles" as never)
+        .from("output_channel_profiles")
         .select("id,market_id")
         .eq("id", outputProfileId)
         .eq("organization_id", organizationId)
@@ -352,8 +352,8 @@ export async function PATCH(
     }
 
     const { error: updateError } = await getSupabaseServer()
-      .from("partner_market_assignments" as never)
-      .update({ output_profile_id: outputProfileId } as never)
+      .from("partner_market_assignments")
+      .update({ output_profile_id: outputProfileId })
       .eq("organization_id", organizationId)
       .eq("market_id", marketId)
       .eq("partner_organization_id", partnerOrganizationId)
@@ -422,8 +422,8 @@ export async function DELETE(
     if (denied) return denied;
 
     const { error: updateError } = await getSupabaseServer()
-      .from("partner_market_assignments" as never)
-      .update({ is_active: false } as never)
+      .from("partner_market_assignments")
+      .update({ is_active: false })
       .eq("organization_id", organizationId)
       .eq("market_id", marketId)
       .eq("partner_organization_id", partnerOrganizationId)

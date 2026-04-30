@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import type { Organization } from "@stack-app/types";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { canManageContainerSharing } from "@/lib/security-permissions";
 
@@ -48,7 +48,7 @@ export async function requireSharingManagerContext(
   | { ok: true; context: SharingManagerContext }
   | { ok: false; response: NextResponse }
 > {
-  const db = new DatabaseQueries(supabaseServer);
+  const db = new DatabaseQueries(getSupabaseServer());
   const authService = new AuthService(db);
 
   const tenantAccess = await requireTenantAccess(request, tenant);

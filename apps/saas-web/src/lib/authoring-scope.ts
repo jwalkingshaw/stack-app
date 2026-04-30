@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@stack-app/database";
 
@@ -200,7 +201,7 @@ export async function validateAuthoringScope(params: {
   }
 
   if (marketIds.length > 0) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("markets")
       .select("id")
       .eq("organization_id", organizationId)
@@ -223,7 +224,7 @@ export async function validateAuthoringScope(params: {
   }
 
   if (channelIds.length > 0) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("channels")
       .select("id")
       .eq("organization_id", organizationId)
@@ -246,7 +247,7 @@ export async function validateAuthoringScope(params: {
   }
 
   if (localeIds.length > 0) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("locales")
       .select("id")
       .eq("is_active", true)
@@ -273,7 +274,7 @@ export async function validateAuthoringScope(params: {
   >();
 
   if (destinationIds.length > 0) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("channel_destinations")
       .select("id,channel_id,market_id")
       .eq("organization_id", organizationId)
@@ -300,7 +301,7 @@ export async function validateAuthoringScope(params: {
   }
 
   if (marketIds.length > 0 && localeIds.length > 0) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("market_locales")
       .select("market_id,locale_id")
       .eq("is_active", true)

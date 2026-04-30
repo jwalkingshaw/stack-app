@@ -1803,27 +1803,23 @@ export function VariantDetailClient({
                                     {index > 0 ? (
                                       <div className="absolute left-4 right-4 top-0 h-px bg-border/50" />
                                     ) : null}
-                                    <div className="grid gap-4 md:grid-cols-[minmax(220px,280px),1fr] md:items-start">
+                                    <div className="grid gap-2 md:grid-cols-[minmax(220px,280px),1fr] md:items-start">
                                       {/* Left column: label + badges + description */}
-                                      <div className="space-y-1.5">
+                                      <div className="space-y-1">
                                         <div className="flex flex-wrap items-center gap-1.5">
                                           <span className="text-sm font-medium text-foreground">
                                             {productField.name}
+                                            {productField.is_required && <span className="text-xs text-red-600 ml-0.5 align-top">*</span>}
                                           </span>
-                                          {productField.is_required && (
-                                            <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700">
-                                              Required
-                                            </span>
-                                          )}
                                           {isVariantAxis && (
                                             <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
                                               Variant Axis
                                             </span>
                                           )}
                                           {isScinField && (
-                                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700">
-                                              System
-                                            </span>
+                                            <svg className="h-4 w-4 text-slate-500" fill="currentColor" viewBox="0 0 24 24">
+                                              <path d="M18 8h-1V6c0-2.76-2.24-5-5-5s-5 2.24-5 5v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
+                                            </svg>
                                           )}
                                         </div>
                                         {hasDescription && (
@@ -1847,7 +1843,7 @@ export function VariantDetailClient({
                                         ) : (
                                           <>
                                             {isScinField ? (
-                                              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm text-foreground">
+                                              <div className="rounded-lg border border-border/40 bg-muted/40 px-3 py-2 text-sm text-muted-foreground cursor-not-allowed opacity-75">
                                                 {variant?.scin || variant?.id || '—'}
                                               </div>
                                             ) : inherits ? (

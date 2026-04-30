@@ -57,6 +57,12 @@
   --color-accent-black-active: hsl(0 0% 30%);
   --color-accent-black-subtle: hsl(217 12% 97%);
 
+  /* Blue accent system */
+  --color-accent-blue: hsl(216 100% 50%);
+  --color-accent-blue-foreground: hsl(0 0% 100%);
+  --color-accent-blue-hover: hsl(216 100% 44%);
+  --color-accent-blue-active: hsl(216 100% 38%);
+
 
   /* Typography */
   --font-family-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;

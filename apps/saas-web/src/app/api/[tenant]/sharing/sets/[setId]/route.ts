@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { logSecurityEvent } from "@/lib/security-audit";
 import { requireSharingManagerContext } from "../../_shared";
 
@@ -24,7 +24,7 @@ export async function PATCH(
     const { organization, userId } = access.context;
 
     // Verify saved scope belongs to org
-    const { data: set, error: setError } = await supabaseServer
+    const { data: set, error: setError } = await getSupabaseServer()
       .from("share_sets")
       .select("id, name, module_key")
       .eq("id", setId)
@@ -50,7 +50,7 @@ export async function PATCH(
         updates.output_profile_id = null;
       } else if (typeof profileId === "string") {
         // Verify the profile belongs to this org
-        const { data: profile } = await supabaseServer
+        const { data: profile } = await getSupabaseServer()
           .from("output_channel_profiles")
           .select("id")
           .eq("id", profileId)
@@ -70,7 +70,7 @@ export async function PATCH(
       return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
     }
 
-    const { data: updated, error: updateError } = await supabaseServer
+    const { data: updated, error: updateError } = await getSupabaseServer()
       .from("share_sets")
       .update(updates)
       .eq("id", setId)
@@ -83,7 +83,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Failed to update saved scope" }, { status: 500 });
     }
 
-    await logSecurityEvent(supabaseServer, {
+    await logSecurityEvent(getSupabaseServer(), {
       organizationId: organization.id,
       actorUserId: userId,
       action: "sharing.set.updated",

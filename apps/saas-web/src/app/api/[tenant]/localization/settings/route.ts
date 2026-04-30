@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { resolveOrganizationBaselineScope } from "@/lib/default-market-locale";
 import { isDeepLConfigured } from "@/lib/deepl";
 import {
@@ -94,18 +94,18 @@ export async function GET(
 
     const { organization } = access.context;
     const [settingsResult, localesResult, baselineScope] = await Promise.all([
-      supabaseServer
+      getSupabaseServer()
         .from("organization_localization_settings")
         .select(SETTINGS_SELECT)
         .eq("organization_id", organization.id)
         .maybeSingle(),
-      supabaseServer
+      getSupabaseServer()
         .from("locales")
         .select("id,code,name,is_active")
         .eq("organization_id", organization.id)
         .eq("is_active", true)
         .order("name", { ascending: true }),
-      resolveOrganizationBaselineScope(supabaseServer, organization.id),
+      resolveOrganizationBaselineScope(getSupabaseServer(), organization.id),
     ]);
 
     if (settingsResult.error) {
@@ -207,7 +207,7 @@ export async function PUT(
       );
     }
 
-    const { data: existingRow, error: existingError } = await supabaseServer
+    const { data: existingRow, error: existingError } = await getSupabaseServer()
       .from("organization_localization_settings")
       .select("organization_id,metadata")
       .eq("organization_id", organization.id)
@@ -226,7 +226,7 @@ export async function PUT(
 
     if (explicitDefaultLocaleId !== null) {
       if (explicitDefaultLocaleId.length > 0) {
-        const { data: locale, error: localeError } = await supabaseServer
+        const { data: locale, error: localeError } = await getSupabaseServer()
           .from("locales")
           .select("id,is_active")
           .eq("organization_id", organization.id)
@@ -266,7 +266,7 @@ export async function PUT(
     let writeResult;
     if (existingRow?.organization_id) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      writeResult = await (supabaseServer as any)
+      writeResult = await (getSupabaseServer() as any)
         .from("organization_localization_settings")
         .update({
           translation_enabled: translationEnabled,
@@ -282,7 +282,7 @@ export async function PUT(
         .single();
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      writeResult = await (supabaseServer as any)
+      writeResult = await (getSupabaseServer() as any)
         .from("organization_localization_settings")
         .insert({
           organization_id: organization.id,

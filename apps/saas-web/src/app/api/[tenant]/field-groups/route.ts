@@ -1,10 +1,11 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import {
   FIELD_GROUP_WITH_ASSIGNMENTS_SELECT,
   isCrossTenantWrite,
   normalizeFieldGroup,
   resolveTargetOrganization,
-  supabase,
+  
 } from "./_shared";
 
 function normalizeCode(value: string): string {
@@ -28,7 +29,7 @@ export async function GET(
       return context.response;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("field_groups")
       .select(FIELD_GROUP_WITH_ASSIGNMENTS_SELECT)
       .eq("organization_id", context.targetOrganizationId)
@@ -90,7 +91,7 @@ export async function POST(
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("field_groups")
       .insert({
         organization_id: context.targetOrganizationId,

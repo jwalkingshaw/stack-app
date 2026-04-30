@@ -1,3 +1,4 @@
+import { getSupabaseServer } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@stack-app/database";
 
@@ -68,8 +69,8 @@ export async function createAiTaskEnvelope(params: {
   metadata?: Record<string, unknown>;
 }) {
   const { data, error } = await params.supabase
-    .from("ai_task_envelopes" as never)
-    .insert(({
+    .from("ai_task_envelopes")
+    .insert({
       organization_id: params.organizationId,
       actor_user_id: params.actorUserId ?? null,
       task_type: params.taskType,
@@ -84,7 +85,7 @@ export async function createAiTaskEnvelope(params: {
       allowed_actions: params.allowedActions ?? [],
       input_payload: params.inputPayload ?? {},
       metadata: params.metadata ?? {},
-    }) as never)
+    } as never)
     .select("*")
     .single();
 
@@ -105,14 +106,14 @@ export async function updateAiTaskEnvelopeResult(params: {
   approvedAt?: string | null;
 }) {
   const { data, error } = await params.supabase
-    .from("ai_task_envelopes" as never)
-    .update(({
+    .from("ai_task_envelopes")
+    .update({
       status: params.status,
       result_payload: params.resultPayload ?? {},
       approved_by: params.approvedBy ?? null,
       approved_at: params.approvedAt ?? null,
       updated_at: new Date().toISOString(),
-    }) as never)
+    } as never)
     .eq("organization_id", params.organizationId)
     .eq("id", params.envelopeId)
     .select("*")
@@ -137,8 +138,8 @@ export async function logAiActionAudit(params: {
   metadata?: Record<string, unknown>;
 }) {
   const { data, error } = await params.supabase
-    .from("ai_action_audit_logs" as never)
-    .insert(({
+    .from("ai_action_audit_logs")
+    .insert({
       organization_id: params.organizationId,
       ai_task_envelope_id: params.aiTaskEnvelopeId ?? null,
       actor_user_id: params.actorUserId ?? null,
@@ -147,7 +148,7 @@ export async function logAiActionAudit(params: {
       resource_id: params.resourceId ?? null,
       status: params.status ?? "recorded",
       metadata: params.metadata ?? {},
-    }) as never)
+    } as never)
     .select("*")
     .single();
 
@@ -191,7 +192,7 @@ export async function getAiTaskEnvelope(params: {
   envelopeId: string;
 }): Promise<AiTaskEnvelope | null> {
   const { data, error } = await params.supabase
-    .from("ai_task_envelopes" as never)
+    .from("ai_task_envelopes")
     .select("*")
     .eq("organization_id", params.organizationId)
     .eq("id", params.envelopeId)

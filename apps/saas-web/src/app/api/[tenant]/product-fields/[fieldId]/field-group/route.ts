@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 function isCrossTenantWrite(tenantSlug: string, selectedBrandSlug: string | null): boolean {
   const selected = (selectedBrandSlug || "").trim().toLowerCase();
@@ -49,7 +46,7 @@ export async function PUT(
     const fieldGroupId = asFieldGroupId(body?.field_group_id ?? body?.fieldGroupId);
     const sortOrder = parseSortOrder(body?.sort_order ?? body?.sortOrder);
 
-    const { data: fieldRecord, error: fieldError } = await supabase
+    const { data: fieldRecord, error: fieldError } = await getSupabaseServer()
       .from("product_fields")
       .select("id")
       .eq("id", fieldId)
@@ -66,7 +63,7 @@ export async function PUT(
     }
 
     if (fieldGroupId) {
-      const { data: groupRecord, error: groupError } = await supabase
+      const { data: groupRecord, error: groupError } = await getSupabaseServer()
         .from("field_groups")
         .select("id")
         .eq("id", fieldGroupId)
@@ -83,7 +80,7 @@ export async function PUT(
       }
     }
 
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await getSupabaseServer()
       .from("product_field_group_assignments")
       .delete()
       .eq("product_field_id", fieldId);
@@ -95,7 +92,7 @@ export async function PUT(
 
     let assignmentData: Record<string, unknown> | null = null;
     if (fieldGroupId) {
-      const { data, error: assignmentError } = await supabase
+      const { data, error: assignmentError } = await getSupabaseServer()
         .from("product_field_group_assignments")
         .insert({
           product_field_id: fieldId,

@@ -1,13 +1,10 @@
-import crypto from "node:crypto";
+﻿import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { canUsePublicShareLinks, getOrganizationBillingLimits } from "@/lib/billing-policy";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type RouteParams = { params: Promise<{ tenant: string; assetId: string }> };
 
@@ -41,7 +38,7 @@ function generateShareToken(): string {
 async function issueUniqueToken(organizationId: string): Promise<string | null> {
   for (let i = 0; i < 10; i += 1) {
     const token = generateShareToken();
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("asset_shares")
       .select("id")
       .eq("organization_id", organizationId)
@@ -60,7 +57,7 @@ async function ensureShareRow(params: {
   assetId: string;
   userId: string;
 }): Promise<{ ok: true; row: AssetShareRow } | { ok: false; status: number; error: string }> {
-  const existing = await supabase
+  const existing = await getSupabaseServer()
     .from("asset_shares")
     .select("id,organization_id,asset_id,token,public_enabled,allow_downloads,expires_at")
     .eq("organization_id", params.organizationId)
@@ -79,7 +76,7 @@ async function ensureShareRow(params: {
     return { ok: false, status: 500, error: "Failed to generate asset share token" };
   }
 
-  const inserted = await supabase
+  const inserted = await getSupabaseServer()
     .from("asset_shares")
     .insert({
       organization_id: params.organizationId,
@@ -111,7 +108,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: asset, error: assetError } = await supabase
+  const { data: asset, error: assetError } = await getSupabaseServer()
     .from("dam_assets")
     .select("id")
     .eq("id", assetId)
@@ -157,7 +154,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: asset, error: assetError } = await supabase
+  const { data: asset, error: assetError } = await getSupabaseServer()
     .from("dam_assets")
     .select("id")
     .eq("id", assetId)
@@ -184,7 +181,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   };
 
   if (body.action === "revoke") {
-    const revoked = await supabase
+    const revoked = await getSupabaseServer()
       .from("asset_shares")
       .update({
         public_enabled: false,
@@ -239,7 +236,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "No share settings provided" }, { status: 400 });
   }
 
-  const updated = await supabase
+  const updated = await getSupabaseServer()
     .from("asset_shares")
     .update(updatePayload)
     .eq("organization_id", organization.id)

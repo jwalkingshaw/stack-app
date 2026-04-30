@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireLocalizationAccess } from "../_shared";
 
 type ProductRow = {
@@ -43,7 +43,6 @@ type AvailableFieldsPayload = {
   customFields: Array<{ id: string; code: string; name: string }>;
 };
 
-const supabase = supabaseServer;
 const AVAILABLE_FIELDS_CACHE_TTL_MS = 5_000;
 const availableFieldsCache = new Map<string, { expiresAt: number; value: AvailableFieldsPayload }>();
 const availableFieldsInFlight = new Map<string, Promise<AvailableFieldsPayload>>();
@@ -175,7 +174,7 @@ function extractFieldValue(product: ProductRow, fieldCode: string): string | nul
 }
 
 async function resolveProducts(organizationId: string, productIds: string[]): Promise<ProductRow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("products")
     .select("id,type,parent_id,product_name,short_description,long_description,features")
     .eq("organization_id", organizationId)
@@ -209,7 +208,7 @@ async function resolveParentProductsForVariants(
     return new Map<string, ProductRow>();
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("products")
     .select("id,type,parent_id,product_name,short_description,long_description,features")
     .eq("organization_id", organizationId)
@@ -229,7 +228,7 @@ async function resolveParentProductsForVariants(
 async function resolveTranslatableProductFields(
   organizationId: string
 ): Promise<ProductFieldRow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_fields")
     .select("id,code,name,field_type,is_localizable,is_translatable,is_active,sort_order")
     .eq("organization_id", organizationId)
@@ -253,7 +252,7 @@ async function resolveTranslatableProductFields(
 async function resolveSystemFieldDefinitions(
   organizationId: string
 ): Promise<Array<Pick<ProductFieldRow, "id" | "code">>> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_fields")
     .select("id,code")
     .eq("organization_id", organizationId)
@@ -278,7 +277,7 @@ async function resolveProductFieldValues(params: {
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_field_values")
     .select(
       "product_id,product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,destination_id,locale_id"

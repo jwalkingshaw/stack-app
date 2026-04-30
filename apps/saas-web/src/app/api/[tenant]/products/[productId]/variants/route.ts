@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import {
   PRODUCT_VIEW_PERMISSION_KEYS,
@@ -8,10 +9,6 @@ import {
 } from "@/lib/partner-brand-view";
 import { getChannelScopedProductIds } from "@/lib/product-channel-scope";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const VARIANT_SELECT_WITH_BARCODE = `
   id,
@@ -82,7 +79,7 @@ async function resolveChannelScopedProductIds(params: {
     const scopedIds = new Set<string>();
     for (const channelId of scopedPermissions.channelIds) {
       const ids = await getChannelScopedProductIds({
-        supabase: supabase,
+        supabase: getSupabaseServer(),
         organizationId: params.organizationId,
         channelId,
       });
@@ -105,7 +102,7 @@ async function getProductByIdentifier(params: {
   const candidateId = uuidPrefixMatch?.[1] || normalizedIdentifier;
 
   if (UUID_PATTERN.test(candidateId)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from("products")
       .select("id,type,parent_id,product_name,sku")
       .eq("id", candidateId)
@@ -117,7 +114,7 @@ async function getProductByIdentifier(params: {
     }
   }
 
-  return await supabase
+  return await getSupabaseServer()
     .from("products")
     .select("id,type,parent_id,product_name,sku")
     .ilike("sku", normalizedIdentifier)
@@ -192,7 +189,7 @@ export async function GET(
     }
 
     const buildVariantsQuery = (selectClause: string) => {
-      let query = supabase
+      let query = getSupabaseServer()
         .from("products")
         .select(selectClause)
         .eq("organization_id", targetOrganizationId)

@@ -1,10 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 import { getOutputProfileTemplate } from "@/lib/output-profile-templates";
 import { resolveStorageDeliveryUrl } from "@/lib/storage-url";
+import { normalizeProductFieldValue } from "@/lib/product-field-options";
 import {
   buildTemplateDestinationAttributeMappings,
   normalizeDestinationAttributeMappings,
@@ -15,10 +17,6 @@ import {
   type OrganizationBaselineScope,
 } from "@/lib/default-market-locale";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID_PREFIX_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-.+)?$/i;
@@ -330,7 +328,7 @@ async function resolveProfileFieldRules(params: {
     return params.directRules;
   }
 
-  const { data: fieldGroupsRaw, error } = await supabase
+  const { data: fieldGroupsRaw, error } = await getSupabaseServer()
     .from("field_groups")
     .select(`
       id,
@@ -391,8 +389,8 @@ async function resolveProfileAttributeMappings(params: {
   profileId: string;
   templateKey: string | null;
 }) {
-  const { data, error } = await supabase
-    .from("output_profile_attribute_mappings" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("output_profile_attribute_mappings")
     .select(
       "id,attribute_code,attribute_label,source_mode,source_field_code,override_field_code,source_slot_code,constant_value,resolution_rule,is_required,max_length,notes,sort_order,metadata"
     )
@@ -510,7 +508,7 @@ export async function POST(
 
     // Load channel first, then rules separately. This is more robust than
     // relying on embedded PostgREST relations during export.
-    const { data: profileRaw, error: profileError } = await supabase
+    const { data: profileRaw, error: profileError } = await getSupabaseServer()
       .from("output_channel_profiles")
       .select("id, name, code, profile_type, template_key")
       .eq("id", profileId)
@@ -526,7 +524,7 @@ export async function POST(
       return NextResponse.json({ error: "Channel not found or inactive" }, { status: 404 });
     }
 
-    const { data: ruleRowsRaw, error: rulesError } = await supabase
+    const { data: ruleRowsRaw, error: rulesError } = await getSupabaseServer()
       .from("output_profile_field_rules")
       .select("field_code, is_required, max_length, notes")
       .eq("profile_id", profileId);
@@ -593,9 +591,9 @@ export async function POST(
     }
 
     // Load field definitions
-    const { data: fieldDefsRaw, error: fieldDefsError } = await supabase
+    const { data: fieldDefsRaw, error: fieldDefsError } = await getSupabaseServer()
       .from("product_fields")
-      .select("id, code, field_type, is_localizable")
+      .select("id, code, name, field_type, options, is_localizable")
       .eq("organization_id", organizationId)
       .in("code", allFieldCodes);
 
@@ -607,13 +605,15 @@ export async function POST(
     const fieldDefs = (fieldDefsRaw ?? []) as Array<{
       id: string;
       code: string;
+      name?: string | null;
       field_type: string;
+      options?: Record<string, unknown> | null;
       is_localizable: boolean;
     }>;
     const fieldByCode = new Map(fieldDefs.map((f) => [f.code, f]));
     const fieldIds = fieldDefs.map((f) => f.id);
 
-    const { data: productsRaw, error: productsError } = await supabase
+    const { data: productsRaw, error: productsError } = await getSupabaseServer()
       .from("products")
       .select(
         "id, product_name, scin, sku, barcode, brand_line, short_description, long_description, meta_title, meta_description, features, specifications, keywords, dimensions, weight_g, launch_date, primary_image_url"
@@ -633,7 +633,7 @@ export async function POST(
     // Bulk load all field values for all products in one query
     let allValues: FieldValueRow[] = [];
     if (fieldIds.length > 0) {
-      const { data: valuesRaw, error: valuesError } = await supabase
+      const { data: valuesRaw, error: valuesError } = await getSupabaseServer()
         .from("product_field_values")
         .select(
           "product_id, product_field_id, value_text, value_number, value_boolean, value_date, value_datetime, value_json, locale_id, market_id, channel_id, destination_id, channel, locale"
@@ -661,7 +661,7 @@ export async function POST(
       destinationId,
       destinationCode,
     };
-    const baselineScope = await resolveOrganizationBaselineScope(supabase, organizationId);
+    const baselineScope = await resolveOrganizationBaselineScope(getSupabaseServer(), organizationId);
     const bestValueByProductAndField = new Map<string, Map<string, FieldValueRow>>();
     for (const row of allValues) {
       const score = scoreScopedFieldValueRow(row, scope, baselineScope);
@@ -687,8 +687,15 @@ export async function POST(
         if (!fieldDef || (fieldDef.field_type !== "file" && fieldDef.field_type !== "image")) continue;
         const valueRow = fieldMap.get(fieldDef.id) ?? null;
         const rawValue = valueRow ? resolveRawValue(valueRow) : null;
-        if (!isPresent(rawValue)) continue;
-        const assetId = extractAssetId(rawValue);
+        const normalizedValueResult = normalizeProductFieldValue({
+          fieldType: fieldDef.field_type,
+          options: fieldDef.options,
+          value: rawValue,
+          fieldLabel: fieldDef.name ?? fieldDef.code,
+        });
+        const normalizedValue = normalizedValueResult.error ? rawValue : normalizedValueResult.value;
+        if (!isPresent(normalizedValue)) continue;
+        const assetId = extractAssetId(normalizedValue);
         if (!assetId) continue;
         allAssetIds.add(assetId);
         if (!assetIdByProductField.has(productId)) {
@@ -711,8 +718,15 @@ export async function POST(
             const rawValue = valueRow
               ? resolveRawValue(valueRow)
               : getBaseProductValue(product, fieldCode);
-            if (!isPresent(rawValue)) continue;
-            const assetId = extractAssetId(rawValue);
+            const normalizedValueResult = normalizeProductFieldValue({
+              fieldType: fieldDef.field_type,
+              options: fieldDef.options,
+              value: rawValue,
+              fieldLabel: fieldDef.name ?? fieldDef.code,
+            });
+            const normalizedValue = normalizedValueResult.error ? rawValue : normalizedValueResult.value;
+            if (!isPresent(normalizedValue)) continue;
+            const assetId = extractAssetId(normalizedValue);
             if (!assetId) continue;
             allAssetIds.add(assetId);
             if (!assetIdByProductField.has(productId)) {
@@ -727,7 +741,7 @@ export async function POST(
     // Batch resolve all asset IDs to CDN URLs
     const assetUrlById = new Map<string, string | null>();
     if (allAssetIds.size > 0) {
-      const { data: assetsRaw } = await supabase
+      const { data: assetsRaw } = await getSupabaseServer()
         .from("dam_assets")
         .select("id, s3_key, s3_url")
         .eq("organization_id", organizationId)
@@ -798,9 +812,16 @@ export async function POST(
       const fieldValueByCode = new Map<string, unknown>();
       for (const fieldDef of fieldDefs) {
         const valueRow = fieldMap.get(fieldDef.id) ?? null;
+        const rawFieldValue = valueRow ? resolveRawValue(valueRow) : getBaseProductValue(product, fieldDef.code);
+        const normalizedValueResult = normalizeProductFieldValue({
+          fieldType: fieldDef.field_type,
+          options: fieldDef.options,
+          value: rawFieldValue,
+          fieldLabel: fieldDef.name ?? fieldDef.code,
+        });
         fieldValueByCode.set(
           fieldDef.code,
-          valueRow ? resolveRawValue(valueRow) : getBaseProductValue(product, fieldDef.code)
+          normalizedValueResult.error ? rawFieldValue : normalizedValueResult.value
         );
       }
 
@@ -857,7 +878,14 @@ export async function POST(
 
           const valueRow = fieldMap.get(fieldDef.id) ?? null;
           const rawValue = valueRow ? resolveRawValue(valueRow) : getBaseProductValue(product, rule.field_code);
-          const present = isPresent(rawValue);
+          const normalizedValueResult = normalizeProductFieldValue({
+            fieldType: fieldDef.field_type,
+            options: fieldDef.options,
+            value: rawValue,
+            fieldLabel: fieldDef.name ?? fieldDef.code,
+          });
+          const normalizedValue = normalizedValueResult.error ? rawValue : normalizedValueResult.value;
+          const present = isPresent(normalizedValue);
 
           if (!present) {
             if (rule.is_required) missing.push(rule.field_code);
@@ -878,7 +906,7 @@ export async function POST(
             const assetId = productAssetIds.get(rule.field_code) ?? null;
             assets[rule.field_code] = assetId ? (assetUrlById.get(assetId) ?? null) : null;
           } else {
-            fields[rule.field_code] = rawValue;
+            fields[rule.field_code] = normalizedValue;
           }
         }
       }

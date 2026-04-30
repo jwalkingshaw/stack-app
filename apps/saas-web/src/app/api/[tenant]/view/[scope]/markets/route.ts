@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
 function normalizeScope(scope: string, tenantSlug: string): string | null {
@@ -42,8 +42,8 @@ export async function GET(
     // Load markets this partner is assigned to for this brand.
     // Legacy output_profile_id values are kept for compatibility and represent
     // market-level destination assignments.
-    const { data: assignments, error: assignmentsError } = await supabaseServer
-      .from("partner_market_assignments" as never)
+    const { data: assignments, error: assignmentsError } = await getSupabaseServer()
+      .from("partner_market_assignments")
       .select("market_id, output_profile_id")
       .eq("organization_id", brandOrganizationId)
       .eq("partner_organization_id", partnerOrganizationId)
@@ -69,7 +69,7 @@ export async function GET(
 
     let markets: Array<{ id: string; name: string; code: string }> = [];
     if (marketIds.length > 0) {
-      const { data: marketRows } = await supabaseServer
+      const { data: marketRows } = await getSupabaseServer()
         .from("markets")
         .select("id,name,code")
         .eq("organization_id", brandOrganizationId)
@@ -83,10 +83,10 @@ export async function GET(
     const profileIds = [...new Set(assignmentRows.map((r) => r.output_profile_id).filter(Boolean))] as string[];
     const profileById = new Map<string, { id: string; name: string; code: string; profile_type: string }>();
     if (profileIds.length > 0) {
-      const { data: profileRowsRaw } = await supabaseServer
-        .from("output_channel_profiles" as never)
+      const { data: profileRowsRaw } = await getSupabaseServer()
+        .from("output_channel_profiles")
         .select("id,name,code,profile_type")
-        .in("id", profileIds as never);
+        .in("id", profileIds);
       const profileRows = (profileRowsRaw ?? []) as Array<{ id: string; name: string; code: string; profile_type: string }>;
       for (const p of profileRows) {
         profileById.set(p.id, p);

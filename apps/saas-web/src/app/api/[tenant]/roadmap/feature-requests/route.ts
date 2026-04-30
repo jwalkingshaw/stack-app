@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 
-const supabase = supabaseServer;
 
 export async function GET(
   request: NextRequest,
@@ -11,7 +10,7 @@ export async function GET(
     await params;
 
     // Fetch approved feature requests, sorted by vote count descending
-    const { data: featureRequests, error } = await supabase
+    const { data: featureRequests, error } = await getSupabaseServer()
       .from('feature_requests')
       .select('*')
       .eq('status', 'approved')
@@ -66,7 +65,7 @@ export async function POST(
     }
 
     // Start a transaction to handle both operations
-    const supabaseClient = supabase;
+    const supabaseClient = getSupabaseServer();
 
     // Insert the feature request
     const { data: featureRequest, error: featureError } = await supabaseClient

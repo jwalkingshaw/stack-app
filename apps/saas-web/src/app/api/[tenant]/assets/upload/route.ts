@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
@@ -15,13 +16,10 @@ import {
   getMaxUploadBytesForPlan,
   getOrganizationBillingLimits,
 } from "@/lib/billing-policy";
+import { normalizeDamEnumValue } from "@/lib/dam-enums";
 import { addResourceToGlobalCatalogSet } from "@/lib/market-catalog";
 import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type ProductLinkPayload = {
   productId?: string;
@@ -222,7 +220,7 @@ async function ensureFolderPath(params: {
     const segment = sanitizeFolderSegment(rawSegment, "Untitled");
     currentPath = `${currentPath}/${segment}`;
 
-    let query = (supabase)
+    let query = (getSupabaseServer())
       .from("dam_folders")
       .select("id")
       .eq("organization_id", params.organizationId)
@@ -238,7 +236,7 @@ async function ensureFolderPath(params: {
       continue;
     }
 
-    const { data: inserted, error: insertError } = await (supabase)
+    const { data: inserted, error: insertError } = await (getSupabaseServer() as any)
       .from("dam_folders")
       .insert({
         organization_id: params.organizationId,
@@ -248,7 +246,7 @@ async function ensureFolderPath(params: {
         created_by: params.userId,
       })
       .select("id")
-      .single();
+      .single() as { data: { id: string } | null; error: unknown };
 
     if (insertError || !inserted?.id) {
       return parentId;
@@ -517,32 +515,48 @@ function parseUploadMetadata(raw: FormDataEntryValue | null): {
     folderId: normalizeOptionalString(value.folderId),
     uploadProfileId,
     // Compliance & approval
-    complianceStatus: normalizeOptionalString(value.complianceStatus),
-    brandLegalApproval: normalizeOptionalString(value.brandLegalApproval),
+    complianceStatus:
+      normalizeDamEnumValue("complianceStatus", value.complianceStatus) ??
+      normalizeOptionalString(value.complianceStatus),
+    brandLegalApproval:
+      normalizeDamEnumValue("brandLegalApproval", value.brandLegalApproval) ??
+      normalizeOptionalString(value.brandLegalApproval),
     // Rights & talent
     talentPresent: typeof value.talentPresent === "boolean" ? value.talentPresent : null,
     releaseOnFile: typeof value.releaseOnFile === "boolean" ? value.releaseOnFile : null,
     usageEnd: normalizeOptionalString(value.usageEnd),
     usageTerritory: normalizeOptionalString(value.usageTerritory),
-    licenseOwnership: normalizeOptionalString(value.licenseOwnership),
+    licenseOwnership:
+      normalizeDamEnumValue("licenseOwnership", value.licenseOwnership) ??
+      normalizeOptionalString(value.licenseOwnership),
     usagePlatforms: normalizeStringArray(value.usagePlatforms),
     ftcDisclosureRequired: typeof value.ftcDisclosureRequired === "boolean" ? value.ftcDisclosureRequired : null,
     athleteNames: normalizeStringArray(value.athleteNames ?? value.talentNames),
     talentContractEnd: normalizeOptionalString(value.talentContractEnd),
-    endorsementType: normalizeOptionalString(value.endorsementType),
+    endorsementType:
+      normalizeDamEnumValue("endorsementType", value.endorsementType) ??
+      normalizeOptionalString(value.endorsementType),
     expirationDate: normalizeOptionalString(value.expirationDate),
     // Regulatory
     regulatoryRegion: normalizeStringArray(value.regulatoryRegion),
     certifications: normalizeStringArray(value.certifications),
     visibleClaims: normalizeStringArray(value.visibleClaims),
     claimsApprovedMarkets: normalizeStringArray(value.claimsApprovedMarkets),
-    wadaRiskLevel: normalizeOptionalString(value.wadaRiskLevel),
+    wadaRiskLevel:
+      normalizeDamEnumValue("wadaRiskLevel", value.wadaRiskLevel) ??
+      normalizeOptionalString(value.wadaRiskLevel),
     // Accessibility
     altText: normalizeOptionalString(value.altText),
     // Label / artwork
-    artworkType: normalizeOptionalString(value.artworkType),
-    colorProfile: normalizeOptionalString(value.colorProfile),
-    printVsDigital: normalizeOptionalString(value.printVsDigital),
+    artworkType:
+      normalizeDamEnumValue("artworkType", value.artworkType) ??
+      normalizeOptionalString(value.artworkType),
+    colorProfile:
+      normalizeDamEnumValue("colorProfile", value.colorProfile) ??
+      normalizeOptionalString(value.colorProfile),
+    printVsDigital:
+      normalizeDamEnumValue("printVsDigital", value.printVsDigital) ??
+      normalizeOptionalString(value.printVsDigital),
     resolutionDpi: typeof value.resolutionDpi === "number" && Number.isFinite(value.resolutionDpi) ? Math.round(value.resolutionDpi) : null,
     labelVersion: normalizeOptionalString(value.labelVersion),
     formulaVersion: normalizeOptionalString(value.formulaVersion),
@@ -614,7 +628,7 @@ async function applyDynamicAssetSetRules(params: {
   const { organizationId, userId, assetId, tags, folderId, usageGroupId } = params;
   const emptySummary: DynamicSetMatchSummary = { count: 0, sets: [] };
 
-  const { data: rules, error: rulesError } = await (supabase)
+  const { data: rules, error: rulesError } = await (getSupabaseServer())
     .from("share_set_dynamic_rules")
     .select(
       "id,share_set_id,include_tags,include_folder_ids,include_usage_group_ids,exclude_tags,exclude_folder_ids"
@@ -694,7 +708,7 @@ async function applyDynamicAssetSetRules(params: {
     created_by: userId,
   }));
 
-  const { error: upsertItemsError } = await (supabase)
+  const { error: upsertItemsError } = await (getSupabaseServer())
     .from("share_set_items")
     .upsert(itemRows, {
       onConflict: "share_set_id,resource_type,resource_id",
@@ -708,7 +722,7 @@ async function applyDynamicAssetSetRules(params: {
     throw new Error("Failed to apply dynamic share set items");
   }
 
-  const { data: matchedSets, error: matchedSetsError } = await (supabase)
+  const { data: matchedSets, error: matchedSetsError } = await (getSupabaseServer())
     .from("share_sets")
     .select("id,name")
     .eq("organization_id", organizationId)
@@ -765,7 +779,7 @@ export async function POST(
     const { planId } = await getOrganizationBillingLimits(organization.id);
     const maxUploadBytes = getMaxUploadBytesForPlan(planId);
 
-    const db = new DatabaseQueries(supabase);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     const canUpload = await evaluateScopedPermission({
       authService,
@@ -793,7 +807,7 @@ export async function POST(
     const requestedAuthoringScope =
       uploadMetadata?.authoringScope ?? createGlobalAuthoringScope();
     const authoringScopeValidation = await validateAuthoringScope({
-      supabase,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       rawScope: requestedAuthoringScope,
     });
@@ -954,7 +968,7 @@ export async function POST(
     const productIdentifiers = new Set<string>();
 
     if (productLinkData?.productId) {
-      const { data: productRow } = await (supabase)
+      const { data: productRow } = await (getSupabaseServer())
         .from("products")
         .select("id,scin,sku,product_name,brand_line,family_id")
         .eq("organization_id", organization.id)
@@ -970,7 +984,7 @@ export async function POST(
           productIdentifiers.add(linkedProduct.sku.trim());
         }
         if (linkedProduct.family_id) {
-          const { data: familyRow } = await (supabase)
+          const { data: familyRow } = await (getSupabaseServer())
             .from("product_families")
             .select("name")
             .eq("organization_id", organization.id)
@@ -983,7 +997,7 @@ export async function POST(
 
     // If a variantId is provided, fetch the variant and ensure we have the parent product
     if (productLinkData?.variantId) {
-      const { data: variantRow } = await (supabase)
+      const { data: variantRow } = await (getSupabaseServer())
         .from("products")
         .select("id,product_name,sku,parent_id")
         .eq("organization_id", organization.id)
@@ -994,7 +1008,7 @@ export async function POST(
         linkedVariant = variantRow as VariantForAssetFolder;
         // If the parent product wasn't already fetched via productId, fetch it now
         if (!linkedProduct && linkedVariant.parent_id) {
-          const { data: parentRow } = await (supabase)
+          const { data: parentRow } = await (getSupabaseServer())
             .from("products")
             .select("id,scin,sku,product_name,brand_line,family_id")
             .eq("organization_id", organization.id)
@@ -1003,7 +1017,7 @@ export async function POST(
           if (parentRow) {
             linkedProduct = parentRow as ProductForAssetFolder;
             if (linkedProduct.family_id) {
-              const { data: familyRow } = await (supabase)
+              const { data: familyRow } = await (getSupabaseServer())
                 .from("product_families")
                 .select("name")
                 .eq("organization_id", organization.id)
@@ -1027,7 +1041,7 @@ export async function POST(
         : null;
 
     if (explicitTargetFolderId) {
-      const { data: explicitFolder } = await (supabase)
+      const { data: explicitFolder } = await (getSupabaseServer())
         .from("dam_folders")
         .select("id")
         .eq("organization_id", organization.id)
@@ -1039,7 +1053,7 @@ export async function POST(
     }
 
     if (!resolvedFolderId && metadataFolderId) {
-      const { data: metadataFolder } = await (supabase)
+      const { data: metadataFolder } = await (getSupabaseServer())
         .from("dam_folders")
         .select("id")
         .eq("organization_id", organization.id)
@@ -1079,7 +1093,7 @@ export async function POST(
     if (uploadMetadata?.productLinks && !productLinkData?.productId) {
       const selection = uploadMetadata.productLinks;
       if (selection.all) {
-        const { data: allProducts, error: allProductsError } = await (supabase)
+        const { data: allProducts, error: allProductsError } = await (getSupabaseServer())
           .from("products")
           .select("id,sku,scin,type,parent_id")
           .eq("organization_id", organization.id)
@@ -1090,7 +1104,7 @@ export async function POST(
       } else {
         const explicitProductIds = buildMetadataProductIds(selection);
         if (explicitProductIds.length > 0) {
-          const { data: selectedProducts, error: selectedProductsError } = await (supabase)
+          const { data: selectedProducts, error: selectedProductsError } = await (getSupabaseServer())
             .from("products")
             .select("id,sku,scin,type,parent_id")
             .eq("organization_id", organization.id)
@@ -1110,7 +1124,7 @@ export async function POST(
           );
 
           if (parentIds.length > 0) {
-            const { data: descendantVariants, error: descendantError } = await (supabase)
+            const { data: descendantVariants, error: descendantError } = await (getSupabaseServer())
               .from("products")
               .select("id,sku,scin,type,parent_id")
               .eq("organization_id", organization.id)
@@ -1156,7 +1170,7 @@ export async function POST(
     const filename = uploadMetadata?.name || file.name;
     const description = uploadMetadata?.description || null;
 
-    const { data: createdAsset, error: assetError } = await (supabase)
+    const { data: createdAsset, error: assetError } = await (getSupabaseServer())
       .from("dam_assets")
       .insert({
         organization_id: organization.id,
@@ -1203,7 +1217,7 @@ export async function POST(
         formula_version: uploadMetadata?.formulaVersion ?? null,
         width: uploadMetadata?.width ?? null,
         height: uploadMetadata?.height ?? null,
-      })
+      } as never)
       .select()
       .single();
 
@@ -1213,7 +1227,7 @@ export async function POST(
     }
 
     const scopeAssignmentResult = await replaceAssetScopeAssignments({
-      supabase,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       assetId: createdAsset.id,
       rawScope: normalizedAuthoringScope,
@@ -1224,7 +1238,7 @@ export async function POST(
 
     if (!scopeAssignmentResult.ok) {
       console.error("POST /assets/upload scope assignment failed:", scopeAssignmentResult.error);
-      await (supabase)
+      await (getSupabaseServer())
         .from("dam_assets")
         .delete()
         .eq("organization_id", organization.id)
@@ -1241,7 +1255,7 @@ export async function POST(
           : null;
 
       if (cleanDocumentSlotCode && productLinkData.replaceExistingSlot !== false) {
-        let replaceQuery = (supabase)
+        let replaceQuery = (getSupabaseServer())
           .from("product_asset_links")
           .update({
             is_active: false,
@@ -1322,9 +1336,9 @@ export async function POST(
         linkInsertPayload.variant_id = productLinkData.variantId.trim();
       }
 
-      const { error: linkError } = await (supabase)
+      const { error: linkError } = await (getSupabaseServer())
         .from("product_asset_links")
-        .insert(linkInsertPayload);
+        .insert(linkInsertPayload as never);
 
       if (linkError) {
         console.error("POST /assets/upload product link failed:", linkError);
@@ -1361,7 +1375,7 @@ export async function POST(
       }));
 
       if (metadataLinkRows.length > 0) {
-        const { error: metadataLinksError } = await (supabase)
+        const { error: metadataLinksError } = await (getSupabaseServer())
           .from("product_asset_links")
           .upsert(metadataLinkRows, {
             onConflict: "organization_id,product_id,asset_id,link_context",

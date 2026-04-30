@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess, setDatabaseUserContext } from "@/lib/user-context";
@@ -6,11 +7,8 @@ import {
   resolveOrganizationBaselineScope,
   scopeMatchesOrganizationBaseline,
 } from "@/lib/default-market-locale";
+import { normalizeProductFieldValue } from "@/lib/product-field-options";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type FieldValueRow = {
   product_field_id: string;
@@ -28,13 +26,17 @@ type FieldValueRow = {
     | {
         id: string;
         code: string;
+        name?: string;
         field_type: string;
+        options?: Record<string, unknown> | null;
         organization_id: string;
       }
     | Array<{
         id: string;
         code: string;
+        name?: string;
         field_type: string;
+        options?: Record<string, unknown> | null;
         organization_id: string;
       }>
     | null;
@@ -76,9 +78,9 @@ export async function GET(
     }
 
     await setDatabaseUserContext(user.id, access.organizationId);
-    const baselineScope = await resolveOrganizationBaselineScope(supabase, access.organizationId);
+    const baselineScope = await resolveOrganizationBaselineScope(getSupabaseServer(), access.organizationId);
 
-    const { data: productRow, error: productError } = await supabase
+    const { data: productRow, error: productError } = await getSupabaseServer()
       .from("products")
       .select("id, organization_id")
       .eq("id", productId)
@@ -89,10 +91,10 @@ export async function GET(
       return NextResponse.json({ error: "Product not found" }, { status: 404 });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_field_values")
       .select(
-        "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,product_fields!inner(id,code,field_type,organization_id)"
+        "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,product_fields!inner(id,code,name,field_type,options,organization_id)"
       )
       .eq("product_id", productId)
       .eq("product_fields.organization_id", access.organizationId);
@@ -139,11 +141,21 @@ export async function GET(
         return;
       }
 
+      const normalizedValueResult = normalizeProductFieldValue({
+        fieldType: String(field?.field_type || ""),
+        options: field?.options,
+        value: toTypedFieldValue(row),
+        fieldLabel: typeof field?.name === "string" && field.name.trim().length > 0 ? field.name : fieldCode,
+      });
+      if (normalizedValueResult.error || normalizedValueResult.value === null || typeof normalizedValueResult.value === "undefined") {
+        return;
+      }
+
       grouped[fieldCode] ||= [];
       grouped[fieldCode].push({
         fieldId: String(field?.id || row.product_field_id || ""),
         fieldType: String(field?.field_type || ""),
-        value: toTypedFieldValue(row),
+        value: normalizedValueResult.value,
         marketId: row.market_id ?? null,
         localeId: row.locale_id ?? null,
         channelId: row.channel_id ?? null,

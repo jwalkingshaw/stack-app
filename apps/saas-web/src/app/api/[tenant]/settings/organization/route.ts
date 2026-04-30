@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import {
   applyOrganizationProfileUpdate,
@@ -45,7 +45,7 @@ async function canManageOrganizationSettings(
   organizationId: string
 ): Promise<boolean> {
   if (!userId) return false;
-  const db = new DatabaseQueries(supabaseServer);
+  const db = new DatabaseQueries(getSupabaseServer());
   const authService = new AuthService(db);
   const permissions = await authService.getUserPermissions(userId, organizationId);
   return permissions.is_owner || permissions.is_admin;
@@ -63,7 +63,7 @@ export async function GET(
     }
 
     const { organization } = tenantAccess;
-    const { data: organizationRow, error } = await supabaseServer
+    const { data: organizationRow, error } = await getSupabaseServer()
       .from("organizations")
       .select("*")
       .eq("id", organization.id)
@@ -176,7 +176,7 @@ export async function PATCH(
       );
     }
 
-    const { data: existingRow, error: existingError } = await supabaseServer
+    const { data: existingRow, error: existingError } = await getSupabaseServer()
       .from("organizations")
       .select("*")
       .eq("id", organization.id)
@@ -231,7 +231,7 @@ export async function PATCH(
       });
     }
 
-    const { data: updatedRow, error: updateError } = await supabaseServer
+    const { data: updatedRow, error: updateError } = await getSupabaseServer()
       .from("organizations")
       .update(updatePayload)
       .eq("id", organization.id)

@@ -1,12 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { getOutputProfileTemplate } from "@/lib/output-profile-templates";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 function isCrossTenantWrite(tenantSlug: string, selectedBrandSlug: string | null): boolean {
   const selected = (selectedBrandSlug || "").trim().toLowerCase();
@@ -57,7 +54,7 @@ export async function POST(
     const organizationId = contextResult.context.tenantOrganization.id;
 
     // ── 1. Verify profile ────────────────────────────────────────────────────
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile, error: profileError } = await getSupabaseServer()
       .from("output_channel_profiles")
       .select("id, name, code, profile_type, template_key")
       .eq("id", profileId)
@@ -91,7 +88,7 @@ export async function POST(
     // stored per market. Upserts below are safe to run multiple times.
     let fieldGroupId: string;
 
-    const { data: existingGroup } = await supabase
+    const { data: existingGroup } = await getSupabaseServer()
       .from("field_groups")
       .select("id")
       .eq("organization_id", organizationId)
@@ -104,7 +101,7 @@ export async function POST(
     } else {
       // Create a new field group — source_output_profile_id records which profile
       // first scaffolded this group (used for product page badge + export API)
-      const { data: newGroup, error: groupError } = await supabase
+      const { data: newGroup, error: groupError } = await getSupabaseServer()
         .from("field_groups")
         .insert({
           organization_id: organizationId,
@@ -157,9 +154,9 @@ export async function POST(
       };
     });
 
-    const { data: upsertedFields, error: fieldsError } = await supabase
+    const { data: upsertedFields, error: fieldsError } = await getSupabaseServer()
       .from("product_fields")
-      .upsert(fieldPayloads, { onConflict: "organization_id,code", ignoreDuplicates: false })
+      .upsert(fieldPayloads as never, { onConflict: "organization_id,code", ignoreDuplicates: false })
       .select("id, code");
 
     if (fieldsError) {
@@ -178,7 +175,7 @@ export async function POST(
     }));
 
     if (assignmentPayloads.length > 0) {
-      const { error: assignError } = await supabase
+      const { error: assignError } = await getSupabaseServer()
         .from("product_field_group_assignments")
         .upsert(assignmentPayloads, { onConflict: "product_field_id,field_group_id", ignoreDuplicates: true });
 
@@ -200,7 +197,7 @@ export async function POST(
       notes: rule.notes ?? null,
     }));
 
-    const { data: upsertedRules, error: rulesError } = await supabase
+    const { data: upsertedRules, error: rulesError } = await getSupabaseServer()
       .from("output_profile_field_rules")
       .upsert(rulePayloads, { onConflict: "profile_id,field_code", ignoreDuplicates: false })
       .select("field_code");
@@ -267,8 +264,8 @@ export async function POST(
       }));
 
     if (slotPayloads.length > 0) {
-      const { error: slotError } = await supabase
-        .from("output_slot_definitions" as never)
+      const { error: slotError } = await getSupabaseServer()
+        .from("output_slot_definitions")
         .upsert(slotPayloads, {
           onConflict: "output_profile_id,slot_code",
           ignoreDuplicates: false,
@@ -303,8 +300,8 @@ export async function POST(
     }));
 
     if (mappingPayloads.length > 0) {
-      const { error: mappingError } = await supabase
-        .from("output_profile_attribute_mappings" as never)
+      const { error: mappingError } = await getSupabaseServer()
+        .from("output_profile_attribute_mappings")
         .upsert(mappingPayloads, {
           onConflict: "profile_id,attribute_code",
           ignoreDuplicates: false,
@@ -315,7 +312,7 @@ export async function POST(
       }
     }
 
-    await supabase
+    await getSupabaseServer()
       .from("output_channel_profiles")
       .update({ template_key: template.key })
       .eq("id", profileId)

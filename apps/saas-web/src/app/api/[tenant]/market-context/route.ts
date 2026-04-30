@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const MISSING_DESTINATIONS_TABLE_ERROR = "42P01";
 
@@ -58,22 +55,22 @@ export async function GET(
     const targetOrganizationId = contextResult.context.targetOrganization.id;
 
     const [channelsResult, localesResult, marketsResult, destinationsResult] = await Promise.all([
-      supabase
+      getSupabaseServer()
         .from("channels")
         .select("id,code,name,is_active")
         .eq("organization_id", targetOrganizationId)
         .order("name", { ascending: true }),
-      supabase
+      getSupabaseServer()
         .from("locales")
         .select("id,code,name,is_active")
         .eq("organization_id", targetOrganizationId)
         .order("name", { ascending: true }),
-      supabase
+      getSupabaseServer()
         .from("markets")
         .select("id,code,name,is_active,is_default,currency_code,timezone,default_locale_id")
         .eq("organization_id", targetOrganizationId)
         .order("name", { ascending: true }),
-      supabase
+      getSupabaseServer()
         .from("channel_destinations")
         .select("id,code,name,description,is_active,channel_id,market_id,sort_order")
         .eq("organization_id", targetOrganizationId)
@@ -101,7 +98,7 @@ export async function GET(
     const marketIds = markets.map((market) => market.id).filter(Boolean);
     let marketLocales: MarketLocaleRow[] = [];
     if (marketIds.length > 0) {
-      const marketLocalesResult = await supabase
+      const marketLocalesResult = await getSupabaseServer()
         .from("market_locales")
         .select("id,market_id,locale_id,is_active")
         .in("market_id", marketIds);

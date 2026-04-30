@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   normalizeJsonObject,
   normalizeOptionalString,
@@ -27,7 +27,7 @@ export async function GET(
     const access = await requireUpdatesContext(request, resolvedParams.tenant);
     if (!access.ok) return access.response;
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_updates")
       .select(
         "id,title,summary,urgency,status,event_label,labels,message_json,due_at,published_at,scheduled_for,metadata,created_by,updated_by,created_at,updated_at"
@@ -140,7 +140,7 @@ export async function PATCH(
       return NextResponse.json({ error: "No update fields provided" }, { status: 400 });
     }
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_updates")
       .update(updatePayload)
       .eq("organization_id", access.context.organizationId)

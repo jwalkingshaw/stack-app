@@ -1,7 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 
-const supabase = supabaseServer;
 
 export async function POST(
   request: NextRequest,
@@ -23,7 +22,7 @@ export async function POST(
     }
 
     // Check if the feature request exists and is approved
-    const { data: featureRequest, error: featureError } = await supabase
+    const { data: featureRequest, error: featureError } = await getSupabaseServer()
       .from('feature_requests')
       .select('id, status')
       .eq('id', featureRequestId)
@@ -38,7 +37,7 @@ export async function POST(
     }
 
     // Check if user has already voted
-    const { data: existingVote } = await supabase
+    const { data: existingVote } = await getSupabaseServer()
       .from('feature_votes')
       .select('id')
       .eq('feature_request_id', featureRequestId)
@@ -53,7 +52,7 @@ export async function POST(
     }
 
     // Insert the vote
-    const { data: vote, error: voteError } = await supabase
+    const { data: vote, error: voteError } = await getSupabaseServer()
       .from('feature_votes')
       .insert({
         feature_request_id: featureRequestId,
@@ -72,7 +71,7 @@ export async function POST(
     }
 
     // Get updated vote count
-    const { data: updatedFeatureRaw } = await supabase
+    const { data: updatedFeatureRaw } = await getSupabaseServer()
       .from('feature_requests')
       .select('vote_count')
       .eq('id', featureRequestId)
@@ -114,7 +113,7 @@ export async function DELETE(
     }
 
     // Find and delete the vote
-    const { data: deletedVote, error: deleteError } = await supabase
+    const { data: deletedVote, error: deleteError } = await getSupabaseServer()
       .from('feature_votes')
       .delete()
       .eq('feature_request_id', featureRequestId)
@@ -130,7 +129,7 @@ export async function DELETE(
     }
 
     // Get updated vote count
-    const { data: updatedFeatureRaw } = await supabase
+    const { data: updatedFeatureRaw } = await getSupabaseServer()
       .from('feature_requests')
       .select('vote_count')
       .eq('id', featureRequestId)

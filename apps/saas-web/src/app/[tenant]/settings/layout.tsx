@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { Suspense } from 'react';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -24,7 +25,7 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
     getSafeUserData(),
     (async () => {
       const supabase = createServerClient();
-      const db = new DatabaseQueries(supabase);
+      const db = new DatabaseQueries(getSupabaseServer());
       return db.getOrganizationBySlug(tenant);
     })(),
     headers(),

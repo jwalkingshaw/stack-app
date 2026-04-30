@@ -1,12 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { getProductContractReadinessList } from "@/lib/product-contracts";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // GET /api/[tenant]/products/[productId]/readiness
 // Returns readiness scores for all active destination profiles using the normalized contract service.
@@ -34,7 +31,7 @@ export async function GET(
     const organizationId = contextResult.context.targetOrganization.id;
 
     const profiles = await getProductContractReadinessList({
-      supabase,
+      supabase: getSupabaseServer(),
       organizationId,
       productId,
       scope: {

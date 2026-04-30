@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UNIQUE_VIOLATION_ERROR = "23505";
 const FK_VIOLATION_ERROR = "23503";
@@ -46,7 +43,7 @@ async function fetchFamilyByIdOrCode(params: {
   const { organizationId, familyKey, selectClause } = params;
 
   if (UUID_PATTERN.test(familyKey)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from("product_families")
       .select(selectClause)
       .eq("organization_id", organizationId)
@@ -58,7 +55,7 @@ async function fetchFamilyByIdOrCode(params: {
     }
   }
 
-  return await supabase
+  return await getSupabaseServer()
     .from("product_families")
     .select(selectClause)
     .eq("organization_id", organizationId)
@@ -193,7 +190,7 @@ export async function PUT(
       return NextResponse.json({ error: "No valid fields to update." }, { status: 400 });
     }
 
-    let updateResult = await supabase
+    let updateResult = await getSupabaseServer()
       .from("product_families")
       .update(updatePayload)
       .eq("id", familyId)
@@ -206,7 +203,7 @@ export async function PUT(
       delete noRulesPayload.require_sku_on_active;
       delete noRulesPayload.require_barcode_on_active;
 
-      updateResult = await supabase
+      updateResult = await getSupabaseServer()
         .from("product_families")
         .update(noRulesPayload)
         .eq("id", familyId)
@@ -221,7 +218,7 @@ export async function PUT(
       delete legacyPayload.require_barcode_on_active;
       delete legacyPayload.is_active;
 
-      updateResult = await supabase
+      updateResult = await getSupabaseServer()
         .from("product_families")
         .update(legacyPayload)
         .eq("id", familyId)
@@ -283,7 +280,7 @@ export async function DELETE(
 
     const targetOrganizationId = contextResult.context.targetOrganization.id;
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_families")
       .delete()
       .eq("id", familyId)

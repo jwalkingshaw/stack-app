@@ -1,11 +1,10 @@
-import { supabaseServer } from "@/lib/supabase";
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { bytesToBillingGb, getMonthlyDeliveryBandwidthUsage } from "@/lib/bandwidth-metering";
 import {
   type BillingPlanId as PlanId,
   type SubscriptionPlan,
 } from "@stack-app/types";
 
-const supabase = supabaseServer;
 
 type LimitSet = {
   activeSkuCount: number;
@@ -286,7 +285,7 @@ function applyAddonDeltas(base: LimitSet, addons: Array<{ addonId: string; quant
 
 async function resolvePlanIdForOrganization(organizationId: string): Promise<PlanId> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("organization_subscriptions")
       .select("plan_id,status,current_period_end")
       .eq("organization_id", organizationId)
@@ -313,7 +312,7 @@ async function resolveActiveAddonsForOrganization(
 ): Promise<Array<{ addonId: string; quantity: number }>> {
   const now = new Date();
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("organization_subscription_addons")
       .select("addon_id,quantity,status,expires_at")
       .eq("organization_id", organizationId)
@@ -343,7 +342,7 @@ async function resolveActiveAddonsForOrganization(
 }
 
 async function countActiveSkus(organizationId: string): Promise<number> {
-  const { count, error } = await supabase
+  const { count, error } = await getSupabaseServer()
     .from("products")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
@@ -358,7 +357,7 @@ async function countActiveSkus(organizationId: string): Promise<number> {
 }
 
 async function countInternalUsers(organizationId: string): Promise<number> {
-  const { count, error } = await supabase
+  const { count, error } = await getSupabaseServer()
     .from("organization_members")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
@@ -375,7 +374,7 @@ async function countExternalPartnerInviteUsage(organizationId: string): Promise<
   const now = new Date();
   const identityKeys = new Set<string>();
 
-  const baseQuery = supabase
+  const baseQuery = getSupabaseServer()
     .from("invitations")
     .select("email,accepted_at,declined_at,revoked_at,expires_at,partner_organization_id")
     .eq("organization_id", organizationId)
@@ -393,7 +392,7 @@ async function countExternalPartnerInviteUsage(organizationId: string): Promise<
   }> = [];
 
   if (invitationsResult.error?.code === "42703") {
-    const fallbackInvitationsResult = await supabase
+    const fallbackInvitationsResult = await getSupabaseServer()
       .from("invitations")
       .select("email,accepted_at,declined_at,expires_at,partner_organization_id")
       .eq("organization_id", organizationId)
@@ -458,7 +457,7 @@ async function countExternalPartnerInviteUsage(organizationId: string): Promise<
   ];
 
   for (const attempt of relationshipAttempts) {
-    const relationshipsResult = await supabase
+    const relationshipsResult = await getSupabaseServer()
       .from("brand_partner_relationships")
       .select(attempt.partnerColumn)
       .eq(attempt.brandColumn, organizationId)
@@ -489,7 +488,7 @@ async function countMonthlyAgentRuns(organizationId: string): Promise<number> {
     .toISOString()
     .slice(0, 10);
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("organization_usage_monthly_snapshots")
     .select("ai_agent_runs_count")
     .eq("organization_id", organizationId)
@@ -517,7 +516,7 @@ async function countMonthlyLocalizationUsage(params: {
     .toISOString()
     .slice(0, 10);
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("organization_usage_monthly_snapshots")
     .select("translation_chars,write_chars")
     .eq("organization_id", params.organizationId)
@@ -604,7 +603,7 @@ export async function getOrganizationUsageSnapshot(
 
 export async function getOrganizationStorageUsageBytes(organizationId: string): Promise<number> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("organizations")
       .select("storage_used")
       .eq("id", organizationId)

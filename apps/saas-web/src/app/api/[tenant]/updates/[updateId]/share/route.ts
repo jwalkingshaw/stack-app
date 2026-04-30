@@ -1,7 +1,7 @@
-import crypto from "node:crypto";
+﻿import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getOrganizationBillingLimits } from "@/lib/billing-policy";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { canUsePublicShareLinks } from "@/lib/billing-policy";
 import { normalizeUuidArray, requireUpdatesContext } from "../../_shared";
 
@@ -27,7 +27,7 @@ async function selectShareRow(params: {
   organizationId: string;
   updateId: string;
 }): Promise<{ row: ShareRow | null; error: { code?: string; message?: string } | null }> {
-  const withOnboarding = await supabaseServer
+  const withOnboarding = await getSupabaseServer()
     .from("partner_update_shares")
     .select("id,organization_id,partner_update_id,token,public_enabled,expires_at,onboarding_share_set_ids")
     .eq("organization_id", params.organizationId)
@@ -51,7 +51,7 @@ async function selectShareRow(params: {
     };
   }
 
-  const legacy = await supabaseServer
+  const legacy = await getSupabaseServer()
     .from("partner_update_shares")
     .select("id,organization_id,partner_update_id,token,public_enabled,expires_at")
     .eq("organization_id", params.organizationId)
@@ -81,7 +81,7 @@ async function validateOnboardingShareSetIds(params: {
     return { ok: true, validatedIds: [] };
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("share_sets")
     .select("id,module_key")
     .eq("organization_id", params.organizationId)
@@ -141,7 +141,7 @@ async function ensureUpdateExists(params: {
   organizationId: string;
   updateId: string;
 }) {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("partner_updates")
     .select("id")
     .eq("organization_id", params.organizationId)
@@ -156,7 +156,7 @@ async function ensureUpdateExists(params: {
 async function issueUniqueToken(organizationId: string): Promise<string | null> {
   for (let i = 0; i < 10; i += 1) {
     const token = generateShareToken();
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_update_shares")
       .select("id")
       .eq("organization_id", organizationId)
@@ -187,7 +187,7 @@ async function ensureShareRow(params: {
     return { ok: false, status: 500, error: "Failed to generate share token" };
   }
 
-  const { data: inserted, error: insertError } = await supabaseServer
+  const { data: inserted, error: insertError } = await getSupabaseServer()
     .from("partner_update_shares")
     .insert({
       organization_id: organizationId,
@@ -201,7 +201,7 @@ async function ensureShareRow(params: {
     .maybeSingle();
 
   if (insertError && isMissingColumnError(insertError)) {
-    const legacyInsert = await supabaseServer
+    const legacyInsert = await getSupabaseServer()
       .from("partner_update_shares")
       .insert({
         organization_id: organizationId,
@@ -396,7 +396,7 @@ export async function PATCH(
       return NextResponse.json({ error: "No share settings provided" }, { status: 400 });
     }
 
-    const updateQuery = supabaseServer
+    const updateQuery = getSupabaseServer()
       .from("partner_update_shares")
       .update(updatePayload)
       .eq("organization_id", access.context.organizationId)

@@ -1,23 +1,22 @@
-import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
-import { createServerClient } from "@stack-app/database";
+﻿import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import {
   DEFAULT_UI_LOCALE,
   type UiLocale,
   normalizeUiLocale,
   resolveLocaleFromAcceptLanguage,
 } from "@/lib/ui-locales";
+import { getSupabaseServer } from "@/lib/supabase";
 
 export async function resolveTenantUiLocale(params: {
   tenantSlug: string;
   acceptLanguageHeader?: string | null;
 }): Promise<UiLocale> {
-  const supabase = createServerClient();
   const tenantSlug = params.tenantSlug.trim().toLowerCase();
   if (!tenantSlug) {
     return resolveLocaleFromAcceptLanguage(params.acceptLanguageHeader ?? null) ?? DEFAULT_UI_LOCALE;
   }
 
-  const { data: organizationRow, error: organizationError } = await supabase
+  const { data: organizationRow, error: organizationError } = await getSupabaseServer()
     .from("organizations")
     .select("id,default_ui_locale")
     .eq("slug", tenantSlug)
@@ -35,7 +34,7 @@ export async function resolveTenantUiLocale(params: {
     const { getUser } = getKindeServerSession();
     const user = await getUser();
     if (user?.id) {
-      const { data: memberRow } = await supabase
+      const { data: memberRow } = await getSupabaseServer()
         .from("organization_members")
         .select("ui_locale_override")
         .eq("organization_id", organizationRow.id)

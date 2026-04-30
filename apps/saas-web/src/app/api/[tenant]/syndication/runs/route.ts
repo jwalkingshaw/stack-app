@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import {
   createPortalPublish,
@@ -8,7 +8,7 @@ import {
   type DeliveryTarget,
   type ScopeSource,
 } from "@/lib/syndication-runs";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 
 type CreateRunBody = {
   outputProfileId?: unknown;
@@ -131,7 +131,7 @@ export async function POST(
     }
 
     if (partnerOrganizationIds.length > 0) {
-      const { data: relationships, error: relationshipsError } = await supabaseServer
+      const { data: relationships, error: relationshipsError } = await getSupabaseServer()
         .from("brand_partner_relationships")
         .select("partner_organization_id,status")
         .eq("brand_organization_id", tenantAccess.organization.id)
@@ -186,8 +186,8 @@ export async function POST(
 
     let portalPublish = null;
     if (deliveryTarget === "portal") {
-      const { error: contractGrantError } = await supabaseServer
-        .from("partner_contract_grants" as never)
+      const { error: contractGrantError } = await getSupabaseServer()
+        .from("partner_contract_grants")
         .upsert(
           partnerOrganizationIds.map((partnerOrganizationId) => ({
             organization_id: tenantAccess.organization.id,
@@ -201,7 +201,7 @@ export async function POST(
               syndication_run_id: run.id,
             },
             created_by: tenantAccess.userId ?? null,
-          })) as never,
+          })),
           {
             onConflict: "organization_id,partner_organization_id,output_profile_id",
             ignoreDuplicates: false,

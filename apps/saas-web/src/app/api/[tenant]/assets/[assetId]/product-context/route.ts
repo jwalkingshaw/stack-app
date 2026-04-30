@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import {
@@ -7,10 +8,6 @@ import {
   resolveTenantBrandViewContext,
 } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type ProductLinkRow = {
   id: string;
@@ -80,7 +77,7 @@ export async function GET(
       return NextResponse.json({ error: "Asset not found or access denied" }, { status: 404 });
     }
 
-    const { data: asset, error: assetError } = await supabase
+    const { data: asset, error: assetError } = await getSupabaseServer()
       .from("dam_assets")
       .select(
         "id, filename, original_filename, file_type, product_identifiers, asset_scope, asset_type, tags"
@@ -93,7 +90,7 @@ export async function GET(
       return NextResponse.json({ error: "Asset not found or access denied" }, { status: 404 });
     }
 
-    let linksQuery = supabase
+    let linksQuery = getSupabaseServer()
       .from("product_asset_links")
       .select(
         `

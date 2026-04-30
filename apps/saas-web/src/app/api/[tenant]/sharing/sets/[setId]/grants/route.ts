@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { logSecurityEvent } from "@/lib/security-audit";
 import { isMissingColumnError, requireSharingManagerContext } from "../../../_shared";
 
@@ -67,7 +67,7 @@ async function getShareSet(params: {
 > {
   const { organizationId, setId } = params;
 
-  const query = (supabaseServer.from("share_sets") as unknown as {
+  const query = (getSupabaseServer().from("share_sets") as unknown as {
     select: (columns: string) => {
       eq: (column: string, value: string) => {
         eq: (column: string, value: string) => {
@@ -124,7 +124,7 @@ async function listActivePartnerOrganizationIds(params: {
 > {
   const { brandOrganizationId } = params;
 
-  const v2 = await supabaseServer
+  const v2 = await getSupabaseServer()
     .from("brand_partner_relationships")
     .select("partner_organization_id")
     .eq("brand_organization_id", brandOrganizationId)
@@ -145,7 +145,7 @@ async function listActivePartnerOrganizationIds(params: {
     return { ok: false, status: 500, error: "Failed to load partner relationships" };
   }
 
-  const v1 = await supabaseServer
+  const v1 = await getSupabaseServer()
     .from("brand_partner_relationships")
     .select("partner_id")
     .eq("brand_id", brandOrganizationId)
@@ -171,7 +171,7 @@ async function getOrganizationsByIds(ids: string[]) {
     return { data: [] as PartnerOrganizationRow[], error: null };
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("organizations")
     .select("id,name,slug,partner_category,organization_type")
     .in("id", ids);
@@ -216,7 +216,7 @@ export async function GET(
       );
     }
 
-    const grantsResult = await supabaseServer
+    const grantsResult = await getSupabaseServer()
       .from("partner_share_set_grants")
       .select(
         "id,partner_organization_id,access_level,status,expires_at,created_at,updated_at"
@@ -351,7 +351,7 @@ export async function POST(
       );
     }
 
-    const existing = await supabaseServer
+    const existing = await getSupabaseServer()
       .from("partner_share_set_grants")
       .select("id")
       .eq("organization_id", organization.id)
@@ -378,7 +378,7 @@ export async function POST(
 
     let writeResult;
     if (existing.data?.id) {
-      writeResult = await supabaseServer
+      writeResult = await getSupabaseServer()
         .from("partner_share_set_grants")
         .update({
           access_level: accessLevel,
@@ -392,7 +392,7 @@ export async function POST(
         )
         .single();
     } else {
-      writeResult = await supabaseServer
+      writeResult = await getSupabaseServer()
         .from("partner_share_set_grants")
         .insert({
           organization_id: organization.id,
@@ -417,7 +417,7 @@ export async function POST(
       );
     }
 
-    await logSecurityEvent(supabaseServer, {
+    await logSecurityEvent(getSupabaseServer(), {
       organizationId: organization.id,
       actorUserId: userId,
       action: "sharing.set.grant.upserted",
@@ -469,7 +469,7 @@ export async function DELETE(
       return NextResponse.json({ error: "grantId is required" }, { status: 400 });
     }
 
-    const { data: existing, error: existingError } = await supabaseServer
+    const { data: existing, error: existingError } = await getSupabaseServer()
       .from("partner_share_set_grants")
       .select("id,status")
       .eq("id", grantId)
@@ -485,7 +485,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Grant not found" }, { status: 404 });
     }
 
-    const { error: revokeError } = await supabaseServer
+    const { error: revokeError } = await getSupabaseServer()
       .from("partner_share_set_grants")
       .update({ status: "revoked" })
       .eq("id", grantId)
@@ -499,7 +499,7 @@ export async function DELETE(
       );
     }
 
-    await logSecurityEvent(supabaseServer, {
+    await logSecurityEvent(getSupabaseServer(), {
       organizationId: organization.id,
       actorUserId: userId,
       action: "sharing.set.grant.revoked",

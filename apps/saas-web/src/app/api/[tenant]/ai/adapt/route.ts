@@ -1,11 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { requireTenantAccess } from "@/lib/tenant-auth";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { cache, REDIS_KEY_PREFIX_SAAS } from "@/lib/redis";
 import { translateWithDeepL } from "@/lib/deepl";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let _anthropic: Anthropic | null = null;
+function getAnthropic() {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _anthropic;
+}
 const MODEL = "claude-haiku-4-5-20251001";
 const HOURLY_LIMIT = 60;
 
@@ -80,7 +84,7 @@ export async function POST(
   const { organization, userId } = tenantAccess;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: memberRow } = await supabaseServer
+  const { data: memberRow } = await getSupabaseServer()
     .from("organization_members")
     .select("role")
     .eq("organization_id", organization.id)
@@ -117,7 +121,7 @@ export async function POST(
   const targetRegion = resolveRegionFromLocale(targetLocale);
 
   // Fetch regulatory rules for this locale/region (locale-specific + universal '*')
-  const { data: rulesData } = await supabaseServer
+  const { data: rulesData } = await getSupabaseServer()
     .from("locale_regulatory_rules")
     .select("claim_type,rule_action,rule_description,example_violations,example_compliant,regulatory_reference,severity")
     .eq("active", true)
@@ -193,7 +197,7 @@ export async function POST(
     const userMessage = userMessageLines.filter(Boolean).join("\n");
 
     try {
-      const response = await anthropic.messages.create({
+      const response = await getAnthropic().messages.create({
         model: MODEL,
         max_tokens: 2048,
         system: systemPrompt,

@@ -1,14 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { evaluateScopedPermission } from "@/lib/security-permissions";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 interface BulkUpdateRequest {
   assetIds: string[];
@@ -64,7 +61,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const db = new DatabaseQueries(supabase);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     const canEditMetadata = await evaluateScopedPermission({
       authService,
@@ -89,7 +86,7 @@ export async function PATCH(
       return NextResponse.json({ error: "No updates specified" }, { status: 400 });
     }
 
-    const { data: existingAssets, error: assetCheckError } = await supabase
+    const { data: existingAssets, error: assetCheckError } = await getSupabaseServer()
       .from("dam_assets")
       .select("id, tags, description")
       .in("id", assetIds)
@@ -153,7 +150,7 @@ export async function PATCH(
         return { success: true, assetId: asset.id, data: asset, error: null };
       }
 
-      const { data, error } = await supabase
+      const { data, error } = await getSupabaseServer()
         .from("dam_assets")
         .update(assetUpdates)
         .eq("id", asset.id)

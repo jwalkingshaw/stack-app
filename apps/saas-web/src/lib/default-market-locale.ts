@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@stack-app/database";
 
@@ -26,7 +27,7 @@ export async function resolveOrganizationBaselineScope(
   supabase: SupabaseClient<Database>,
   organizationId: string
 ): Promise<OrganizationBaselineScope> {
-  const { data: marketsRaw, error: marketsError } = await supabase
+  const { data: marketsRaw, error: marketsError } = await getSupabaseServer()
     .from("markets")
     .select("id,default_locale_id,is_default")
     .eq("organization_id", organizationId)
@@ -49,7 +50,7 @@ export async function resolveOrganizationBaselineScope(
   let localeId = baselineMarket.default_locale_id ?? null;
 
   if (!localeId) {
-    const { data: marketLocalesRaw, error: marketLocalesError } = await supabase
+    const { data: marketLocalesRaw, error: marketLocalesError } = await getSupabaseServer()
       .from("market_locales")
       .select("locale_id")
       .eq("market_id", baselineMarket.id)
@@ -75,7 +76,7 @@ export async function resolveOrganizationBaselineScope(
     };
   }
 
-  const { data: localeRaw, error: localeError } = await supabase
+  const { data: localeRaw, error: localeError } = await getSupabaseServer()
     .from("locales")
     .select("id,code")
     .eq("organization_id", organizationId)

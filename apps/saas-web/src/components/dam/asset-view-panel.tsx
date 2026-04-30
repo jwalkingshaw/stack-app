@@ -44,6 +44,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   ASSET_STATUS_OPTIONS,
+  BRAND_LEGAL_APPROVAL_OPTIONS,
+  CLAIMS_REVIEW_STATUS_OPTIONS,
+  COMPLIANCE_STATUS_OPTIONS,
   ARTWORK_TYPE_OPTIONS,
   COLOR_PROFILE_OPTIONS,
   PRINT_VS_DIGITAL_OPTIONS,
@@ -1692,10 +1695,9 @@ export function AssetViewPanel({
                       <Select value={details.complianceStatus} onValueChange={(v) => setDetails((p) => ({ ...p, complianceStatus: v }))} disabled={!canEdit}>
                         <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Pending">Pending Review</SelectItem>
-                          <SelectItem value="Approved">Approved</SelectItem>
-                          <SelectItem value="Rejected">Rejected</SelectItem>
-                          <SelectItem value="Under Review">Under Review</SelectItem>
+                          {COMPLIANCE_STATUS_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -1704,9 +1706,9 @@ export function AssetViewPanel({
                       <Select value={details.brandLegalApproval} onValueChange={(v) => setDetails((p) => ({ ...p, brandLegalApproval: v }))} disabled={!canEdit}>
                         <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Pending">Pending</SelectItem>
-                          <SelectItem value="Approved">Approved</SelectItem>
-                          <SelectItem value="Rejected">Rejected</SelectItem>
+                          {BRAND_LEGAL_APPROVAL_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -1715,10 +1717,9 @@ export function AssetViewPanel({
                       <Select value={details.claimsReviewStatus} onValueChange={(v) => setDetails((p) => ({ ...p, claimsReviewStatus: v }))} disabled={!canEdit}>
                         <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Not set" /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="approved">Approved</SelectItem>
-                          <SelectItem value="challenged">Challenged</SelectItem>
-                          <SelectItem value="expired">Expired</SelectItem>
+                          {CLAIMS_REVIEW_STATUS_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>

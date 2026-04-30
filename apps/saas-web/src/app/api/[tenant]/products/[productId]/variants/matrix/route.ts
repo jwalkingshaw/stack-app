@@ -1,12 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess, setDatabaseUserContext } from "@/lib/user-context";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -140,7 +137,7 @@ async function resolveProductByIdentifier(params: {
   const candidateId = uuidPrefixMatch?.[1] || normalizedIdentifier;
 
   if (UUID_PATTERN.test(candidateId)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from("products")
       .select("id,type,parent_id,family_id,product_name,sku")
       .eq("id", candidateId)
@@ -149,7 +146,7 @@ async function resolveProductByIdentifier(params: {
     if (byId.data || byId.error) return byId;
   }
 
-  return await supabase
+  return await getSupabaseServer()
     .from("products")
     .select("id,type,parent_id,family_id,product_name,sku")
     .ilike("sku", normalizedIdentifier)
@@ -189,7 +186,7 @@ async function resolveParentProduct(params: {
   }
 
   if (product.type === "variant" && product.parent_id) {
-    const { data: parentProduct, error: parentError } = await supabase
+    const { data: parentProduct, error: parentError } = await getSupabaseServer()
       .from("products")
       .select("id,type,parent_id,family_id,product_name,sku")
       .eq("id", product.parent_id)
@@ -306,7 +303,7 @@ export async function POST(
         ? body.baseName.trim()
         : parent.product_name || parent.sku || "Variant";
 
-    const { data: existingVariants, error: existingError } = await supabase
+    const { data: existingVariants, error: existingError } = await getSupabaseServer()
       .from("products")
       .select("id,scin,sku,product_name,status,variant_attributes,variant_axis")
       .eq("organization_id", writeAccess.organizationId)

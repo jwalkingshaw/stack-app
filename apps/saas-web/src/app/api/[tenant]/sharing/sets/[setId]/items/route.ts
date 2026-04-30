@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import type { Database, Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { logSecurityEvent } from "@/lib/security-audit";
 import { invalidateCatalogVisibilityCaches } from "@/lib/catalog-cache";
 import { invalidatePartnerGrantCachesForBrand } from "@/lib/partner-brand-view";
@@ -135,7 +135,7 @@ async function validateScopedContainerIds(params: {
     const ids = constraints[check.key];
     if (ids.length === 0) continue;
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from(check.table)
       .select("id")
       .eq("organization_id", organizationId)
@@ -177,7 +177,7 @@ async function getShareSet(params: {
 > {
   const { organizationId, setId } = params;
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("share_sets")
     .select("id,module_key")
     .eq("id", setId)
@@ -237,7 +237,7 @@ async function validateItemOwnership(params: {
     );
 
     if (assetIds.length > 0) {
-      const { data, error } = await supabaseServer
+      const { data, error } = await getSupabaseServer()
         .from("dam_assets")
         .select("id,asset_scope")
         .eq("organization_id", organizationId)
@@ -262,7 +262,7 @@ async function validateItemOwnership(params: {
     }
 
     if (folderIds.length > 0) {
-      const { data, error } = await supabaseServer
+      const { data, error } = await getSupabaseServer()
         .from("dam_folders")
         .select("id")
         .eq("organization_id", organizationId)
@@ -294,7 +294,7 @@ async function validateItemOwnership(params: {
     return { ok: true };
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("products")
     .select("id,type")
     .eq("organization_id", organizationId)
@@ -362,7 +362,7 @@ export async function GET(
     const limit = parsePositiveInt(url.searchParams.get("limit"), 200, 1000);
     const skipResolve = url.searchParams.get("resolve") === "false";
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("share_set_items")
       .select(
         "id,resource_type,resource_id,include_descendants,market_ids,channel_ids,locale_ids,destination_ids,metadata,created_at,updated_at"
@@ -386,7 +386,7 @@ export async function GET(
 
     if (!skipResolve && resourceIds.length > 0) {
       if (shareSet.data.module_key === "products") {
-        const { data: productRows } = await supabaseServer
+        const { data: productRows } = await getSupabaseServer()
           .from("products")
           .select("id,product_name,sku,parent_id")
           .eq("organization_id", organization.id)
@@ -395,7 +395,7 @@ export async function GET(
           resolved[row.id] = { name: row.product_name || row.id, sku: row.sku, parent_id: row.parent_id };
         }
       } else {
-        const { data: assetRows } = await supabaseServer
+        const { data: assetRows } = await getSupabaseServer()
           .from("dam_assets")
           .select("id,filename,original_filename,thumbnail_urls")
           .eq("organization_id", organization.id)
@@ -490,7 +490,7 @@ export async function POST(
       created_by: userId,
     }));
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("share_set_items")
       .upsert(records, {
         onConflict: "share_set_id,resource_type,resource_id",
@@ -501,7 +501,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed to upsert saved scope items" }, { status: 500 });
     }
 
-    await logSecurityEvent(supabaseServer, {
+    await logSecurityEvent(getSupabaseServer(), {
       organizationId: organization.id,
       actorUserId: userId,
       action: "sharing.set.items.upserted",
@@ -569,7 +569,7 @@ export async function DELETE(
 
     const deleteOps = Array.from(deletesByType.entries()).map(([resourceType, ids]) => {
       const uniqueIds = Array.from(new Set(ids));
-      return supabaseServer
+      return getSupabaseServer()
         .from("share_set_items")
         .delete()
         .eq("organization_id", organization.id)
@@ -584,7 +584,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Failed to remove saved scope items" }, { status: 500 });
     }
 
-    await logSecurityEvent(supabaseServer, {
+    await logSecurityEvent(getSupabaseServer(), {
       organizationId: organization.id,
       actorUserId: userId,
       action: "sharing.set.items.removed",

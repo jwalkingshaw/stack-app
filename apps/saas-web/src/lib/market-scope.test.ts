@@ -1,4 +1,4 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import type { NextResponse } from "next/server";
 import { enforceMarketScopedAccess } from "./market-scope";

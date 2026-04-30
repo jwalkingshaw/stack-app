@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { S3Service } from "@stack-app/storage";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { applyOrganizationProfileUpdate } from "@/lib/organization-profile";
 
@@ -26,7 +26,7 @@ async function canManageOrganizationSettings(
   organizationId: string
 ): Promise<boolean> {
   if (!userId) return false;
-  const db = new DatabaseQueries(supabaseServer);
+  const db = new DatabaseQueries(getSupabaseServer());
   const authService = new AuthService(db);
   const permissions = await authService.getUserPermissions(userId, organizationId);
   return permissions.is_owner || permissions.is_admin;
@@ -78,7 +78,7 @@ export async function POST(
     await s3.uploadObject(key, bytes, file.type);
     const logoUrl = s3.getPublicUrl(key);
 
-    const { data: existingRow, error: existingError } = await supabaseServer
+    const { data: existingRow, error: existingError } = await getSupabaseServer()
       .from("organizations")
       .select("*")
       .eq("id", organization.id)
@@ -103,7 +103,7 @@ export async function POST(
       );
     }
 
-    const { error: updateError } = await supabaseServer
+    const { error: updateError } = await getSupabaseServer()
       .from("organizations")
       .update(profileUpdates)
       .eq("id", organization.id);

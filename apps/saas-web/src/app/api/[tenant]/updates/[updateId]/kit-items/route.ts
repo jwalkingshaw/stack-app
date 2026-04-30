@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import type { Database, Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   normalizeJsonObject,
   normalizeOptionalString,
@@ -94,7 +94,7 @@ async function ensureUpdateExists(params: {
   updateId: string;
 }) {
   const { organizationId, updateId } = params;
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("partner_updates")
     .select("id")
     .eq("organization_id", organizationId)
@@ -122,7 +122,7 @@ async function validateReferencedResources(params: {
   );
 
   if (productIds.length > 0) {
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("products")
       .select("id")
       .eq("organization_id", params.organizationId)
@@ -136,7 +136,7 @@ async function validateReferencedResources(params: {
   }
 
   if (assetIds.length > 0) {
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("dam_assets")
       .select("id,asset_scope")
       .eq("organization_id", params.organizationId)
@@ -181,7 +181,7 @@ export async function GET(
       return NextResponse.json({ error: exists.error }, { status: exists.status });
     }
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_update_kit_items")
       .select(
         "id,item_type,product_id,asset_id,url,title,description,content_json,sort_order,market_ids,channel_ids,locale_ids,metadata,created_by,created_at,updated_at"
@@ -264,7 +264,7 @@ export async function POST(
       created_by: access.context.userId,
     }));
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_update_kit_items")
       .insert(insertRows)
       .select(

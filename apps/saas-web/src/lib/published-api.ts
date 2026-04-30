@@ -1,5 +1,6 @@
-import type { NextRequest } from "next/server";
+﻿import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getCurrentOrganization, requireUser } from "@/lib/auth-server";
 import {
@@ -15,10 +16,6 @@ import { getProductContract } from "@/lib/product-contracts";
 import { listRecentPortalPublishes, type PortalPublishRecord } from "@/lib/syndication-runs";
 import { rewriteStorageUrlToCloudFront, rewriteThumbnailUrls } from "@/lib/storage-url";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -95,7 +92,7 @@ async function resolveMarketLocaleScope(params: {
     };
   }
 
-  const { data: market } = await supabase
+  const { data: market } = await getSupabaseServer()
     .from("markets")
     .select("id,code,default_locale_id")
     .eq("organization_id", params.organizationId)
@@ -106,7 +103,7 @@ async function resolveMarketLocaleScope(params: {
   const defaultLocaleId =
     typeof market?.default_locale_id === "string" ? market.default_locale_id : null;
 
-  const { data: marketLocales } = await supabase
+  const { data: marketLocales } = await getSupabaseServer()
     .from("market_locales")
     .select("locale_id")
     .eq("market_id", params.marketId)
@@ -124,7 +121,7 @@ async function resolveMarketLocaleScope(params: {
       localeCode = null;
     }
   } else if (localeCode) {
-    const { data: locale } = await supabase
+    const { data: locale } = await getSupabaseServer()
       .from("locales")
       .select("id,code")
       .eq("organization_id", params.organizationId)
@@ -143,7 +140,7 @@ async function resolveMarketLocaleScope(params: {
   }
 
   if (localeId) {
-    const { data: locale } = await supabase
+    const { data: locale } = await getSupabaseServer()
       .from("locales")
       .select("id,code")
       .eq("organization_id", params.organizationId)
@@ -277,7 +274,7 @@ async function resolveOrganizationProfileId(params: {
   }
 
   const profileCodes = [token, ...(PROFILE_CODE_ALIASES[token] ?? [])];
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("output_channel_profiles")
     .select("id")
     .eq("organization_id", params.organizationId)
@@ -305,7 +302,7 @@ async function resolveMarketId(params: {
   if (!token) return null;
   if (UUID_RE.test(token)) return token;
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("markets")
     .select("id")
     .eq("organization_id", params.organizationId)
@@ -388,7 +385,7 @@ async function loadActiveProfiles(params: {
   organizationId: string;
   allowedProfileIds?: string[] | null;
 }) {
-  let query = supabase
+  let query = getSupabaseServer()
     .from("output_channel_profiles")
     .select("id,name,code,profile_type,is_primary")
     .eq("organization_id", params.organizationId)
@@ -523,7 +520,7 @@ export async function buildPublishedWorkspace(request: NextRequest) {
   let brands: Array<Record<string, unknown>> = [];
 
   if (organizationIds.length > 0) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("organizations")
       .select("id,slug,name")
       .in("id", organizationIds);
@@ -623,12 +620,12 @@ async function loadPublishedProductRows(params: {
   limit: number;
   offset: number;
 }) {
-  let countQuery = supabase
+  let countQuery = getSupabaseServer()
     .from("products")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", params.organizationId);
 
-  let query = supabase
+  let query = getSupabaseServer()
     .from("products")
     .select("id,scin,sku,product_name,status,updated_at,primary_image_url")
     .eq("organization_id", params.organizationId)
@@ -762,7 +759,7 @@ async function loadProductByKey(params: {
   const token = normalizeToken(params.productKey);
   if (!token) return null;
 
-  let query = supabase
+  let query = getSupabaseServer()
     .from("products")
     .select("id,scin,sku,product_name,status,family_id,updated_at")
     .eq("organization_id", params.organizationId);
@@ -817,7 +814,7 @@ export async function buildPublishedProduct(params: {
   }
 
   const contract = await getProductContract({
-    supabase: supabase as never,
+    supabase: getSupabaseServer() as never,
     organizationId: context.targetOrganization.id,
     productId: String(product.id),
     outputProfileId: selectedProfileId,
@@ -905,12 +902,12 @@ async function loadPublishedAssets(params: {
   limit: number;
   offset: number;
 }) {
-  let countQuery = supabase
+  let countQuery = getSupabaseServer()
     .from("dam_assets")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", params.organizationId);
 
-  let query = supabase
+  let query = getSupabaseServer()
     .from("dam_assets")
     .select(
       "id,filename,original_filename,file_type,mime_type,file_size,folder_id,s3_url,thumbnail_urls,description,alt_text,tags,product_identifiers,asset_scope,asset_status,updated_at,current_version_changed_at"
@@ -1070,7 +1067,7 @@ export async function buildPublishedAssetDetail(params: {
     destinationToken: scope.destinationToken,
   });
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("dam_assets")
     .select(
       "id,filename,original_filename,file_type,mime_type,file_size,folder_id,s3_url,thumbnail_urls,description,alt_text,tags,product_identifiers,asset_scope,asset_status,updated_at,current_version_changed_at"

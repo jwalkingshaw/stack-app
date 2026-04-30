@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useDeferredValue } from "react";
@@ -623,7 +624,7 @@ export function PIMTable({
             parentSkuById.set(row.id, row.sku ?? null);
           });
 
-          // Transform Supabase data to PIMProduct format
+          // Transform getSupabaseServer() data to PIMProduct format
           const transformedProducts = rawProducts.map((product) => ({
             id: product.id || "",
             organizationId: product.organization_id,

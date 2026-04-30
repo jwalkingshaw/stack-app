@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { canSendInvite } from "@/lib/security-permissions";
 import { isMissingColumnError, isMissingTableError } from "../../sharing/_shared";
@@ -109,7 +109,7 @@ async function queryPermissionBundles(
   organizationId: string,
   subjectType: SubjectType
 ): Promise<PermissionBundle[]> {
-  const bundleQuery = supabaseServer
+  const bundleQuery = getSupabaseServer()
     .from("permission_bundles")
     .select("id, name, description, subject_type, is_default")
     .eq("organization_id", organizationId)
@@ -131,7 +131,7 @@ async function queryPermissionBundles(
     return bundleRows.map((bundle) => ({ ...bundle, rules: [] }));
   }
 
-  const { data: rules, error: rulesError } = await (supabaseServer)
+  const { data: rules, error: rulesError } = await (getSupabaseServer())
     .from("permission_bundle_rules")
     .select("id, permission_bundle_id, module_key, level, scope_defaults")
     .in("permission_bundle_id", bundleIds)
@@ -158,7 +158,7 @@ async function queryPermissionBundles(
 }
 
 async function queryMarkets(organizationId: string): Promise<ShareContainer[]> {
-  const { data, error } = await (supabaseServer)
+  const { data, error } = await (getSupabaseServer())
     .from("markets")
     .select("id,name,code,is_active")
     .eq("organization_id", organizationId)
@@ -176,7 +176,7 @@ async function queryMarkets(organizationId: string): Promise<ShareContainer[]> {
 }
 
 async function querySavedScopes(organizationId: string): Promise<SavedScopeOption[]> {
-  const result = await (supabaseServer)
+  const result = await (getSupabaseServer())
     .from("share_sets")
     .select("id,name,module_key,metadata")
     .eq("organization_id", organizationId)
@@ -203,7 +203,7 @@ async function querySavedScopes(organizationId: string): Promise<SavedScopeOptio
     throw result.error;
   }
 
-  const legacyResult = await (supabaseServer)
+  const legacyResult = await (getSupabaseServer())
     .from("dam_collections")
     .select("id,name")
     .eq("organization_id", organizationId)
@@ -229,7 +229,7 @@ async function querySavedScopes(organizationId: string): Promise<SavedScopeOptio
 }
 
 async function queryOutputProfiles(organizationId: string): Promise<OutputProfileOption[]> {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("output_channel_profiles")
     .select("id,name,code,profile_type,is_primary")
     .eq("organization_id", organizationId)
@@ -266,7 +266,7 @@ export async function GET(
 ) {
   try {
     const resolvedParams = await params;
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const tenantAccess = await requireTenantAccess(request, resolvedParams.tenant);

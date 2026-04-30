@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireSharingManagerContext } from "../_shared";
 
 type FolderOptionRow = {
@@ -27,12 +27,12 @@ export async function GET(
     const { organization } = access.context;
 
     const [foldersResult, assetsResult] = await Promise.all([
-      supabaseServer
+      getSupabaseServer()
         .from("dam_folders")
         .select("id,name,path")
         .eq("organization_id", organization.id)
         .order("path", { ascending: true }),
-      supabaseServer
+      getSupabaseServer()
         .from("dam_assets")
         .select("id,filename,folder_id,created_at")
         .eq("organization_id", organization.id)

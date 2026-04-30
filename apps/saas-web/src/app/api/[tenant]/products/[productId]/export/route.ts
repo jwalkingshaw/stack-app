@@ -1,13 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 import { resolveStorageDeliveryUrl } from "@/lib/storage-url";
+import { normalizeProductFieldValue } from "@/lib/product-field-options";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_PREFIX_RE =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-.+)?$/i;
@@ -137,7 +135,7 @@ export async function GET(
     const organizationId = contextResult.context.targetOrganization.id;
 
     // Load destination profile by code or UUID
-    const profileBase = supabase
+    const profileBase = getSupabaseServer()
       .from("output_channel_profiles")
       .select(`
         id, name, code, profile_type, market_id, is_active,
@@ -211,9 +209,9 @@ export async function GET(
     }
 
     // Load field definitions (field_type needed to distinguish file fields)
-    const { data: fieldDefsRaw, error: fieldDefsError } = await supabase
+    const { data: fieldDefsRaw, error: fieldDefsError } = await getSupabaseServer()
       .from("product_fields")
-      .select("id, code, field_type, is_localizable")
+      .select("id, code, name, field_type, options, is_localizable")
       .eq("organization_id", organizationId)
       .in("code", allFieldCodes);
 
@@ -225,7 +223,9 @@ export async function GET(
     const fieldDefs = (fieldDefsRaw ?? []) as Array<{
       id: string;
       code: string;
+      name?: string | null;
       field_type: string;
+      options?: Record<string, unknown> | null;
       is_localizable: boolean;
     }>;
     const fieldByCode = new Map(fieldDefs.map((f) => [f.code, f]));
@@ -234,7 +234,7 @@ export async function GET(
     // Load field values for this product
     let fieldValuesRaw: FieldValueRow[] = [];
     if (fieldIds.length > 0) {
-      const { data: valuesRaw, error: valuesError } = await supabase
+      const { data: valuesRaw, error: valuesError } = await getSupabaseServer()
         .from("product_field_values")
         .select(
           "product_field_id, value_text, value_number, value_boolean, value_json, locale_id, market_id, channel_id, destination_id"
@@ -277,7 +277,14 @@ export async function GET(
 
       const valueRow = bestValueByFieldId.get(fieldDef.id) ?? null;
       const rawValue = valueRow ? resolveRawValue(valueRow) : null;
-      const present = isPresent(rawValue);
+      const normalizedValueResult = normalizeProductFieldValue({
+        fieldType: fieldDef.field_type,
+        options: fieldDef.options,
+        value: rawValue,
+        fieldLabel: fieldDef.name ?? fieldDef.code,
+      });
+      const normalizedValue = normalizedValueResult.error ? rawValue : normalizedValueResult.value;
+      const present = isPresent(normalizedValue);
 
       if (!present) {
         if (rule.is_required) missing.push(rule.field_code);
@@ -296,25 +303,25 @@ export async function GET(
       }
 
       if (fieldDef.field_type === "file") {
-        const assetId = extractAssetId(rawValue);
+        const assetId = extractAssetId(normalizedValue);
         if (assetId) {
           assetIdsToResolve.set(rule.field_code, assetId);
         }
         assets[rule.field_code] = null; // resolved below
       } else if (fieldDef.field_type === "measurement") {
         // Return as { value, unit } object
-        fields[rule.field_code] = rawValue;
+        fields[rule.field_code] = normalizedValue;
       } else if (fieldDef.field_type === "table") {
         // Return as array of row objects
-        fields[rule.field_code] = Array.isArray(rawValue) ? rawValue : rawValue;
+        fields[rule.field_code] = Array.isArray(normalizedValue) ? normalizedValue : normalizedValue;
       } else {
-        fields[rule.field_code] = rawValue;
+        fields[rule.field_code] = normalizedValue;
       }
     }
 
     // Batch resolve asset IDs â†’ CDN URLs
     if (assetIdsToResolve.size > 0) {
-      const { data: assetsRaw } = await supabase
+      const { data: assetsRaw } = await getSupabaseServer()
         .from("dam_assets")
         .select("id, s3_key, s3_url")
         .eq("organization_id", organizationId)

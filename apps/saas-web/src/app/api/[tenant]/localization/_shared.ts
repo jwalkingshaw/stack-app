@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { requireTenantAccess } from "@/lib/tenant-auth";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 
 type LocalizationMemberRole = "owner" | "admin" | "member" | null;
 
@@ -54,7 +54,7 @@ export async function requireLocalizationAccess(
     };
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("organization_members")
     .select("role")
     .eq("organization_id", organization.id)

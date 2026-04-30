@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { BILLING_PLAN_CATALOG, getOrganizationBillingLimits } from "@/lib/billing-policy";
 
 export async function GET(
@@ -11,7 +11,7 @@ export async function GET(
   try {
     const resolvedParams = await params;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     
     const user = await authService.getCurrentUser();

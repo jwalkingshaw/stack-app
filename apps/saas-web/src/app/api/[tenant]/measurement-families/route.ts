@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const FAMILY_SELECT_WITH_META = `
   id,
@@ -102,7 +99,7 @@ export async function GET(
     const targetOrganizationId = contextResult.context.targetOrganization.id;
 
     const runQuery = (selectClause: string) =>
-      supabase
+      getSupabaseServer()
         .from("measurement_families")
         .select(selectClause)
         .eq("organization_id", targetOrganizationId)

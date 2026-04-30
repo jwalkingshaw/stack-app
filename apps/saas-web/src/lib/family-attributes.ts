@@ -1,4 +1,4 @@
-import { supabaseServer } from '@/lib/supabase';
+﻿import { getSupabaseServer } from '@/lib/supabase';
 import type { Database, Json } from '@stack-app/database';
 
 type FamilyAttributeSeed = {
@@ -305,7 +305,7 @@ const normalizeAttributeOptions = (fieldType: string, options: unknown): Json =>
 const buildFamilyAttributeSeeds = async (
   familyId: string
 ): Promise<FamilyAttributeSeed[]> => {
-  const { data: familyGroupsRaw, error: familyGroupsError } = await supabaseServer
+  const { data: familyGroupsRaw, error: familyGroupsError } = await getSupabaseServer()
     .from('product_family_field_groups')
     .select('field_group_id, sort_order, hidden_fields')
     .eq('product_family_id', familyId)
@@ -331,7 +331,7 @@ const buildFamilyAttributeSeeds = async (
   });
 
   const groupIds = familyGroups.map((group) => group.field_group_id);
-  const { data: assignmentsRaw, error: assignmentsError } = await supabaseServer
+  const { data: assignmentsRaw, error: assignmentsError } = await getSupabaseServer()
     .from('product_field_group_assignments')
     .select(`
       field_group_id,
@@ -394,7 +394,7 @@ const buildFamilyAttributeSeeds = async (
 export async function ensureFamilyAttributesFromFieldGroups(
   familyId: string
 ): Promise<{ total: number; inserted: number; removed: number }> {
-  const { data: familyRaw, error: familyError } = await supabaseServer
+  const { data: familyRaw, error: familyError } = await getSupabaseServer()
     .from('product_families')
     .select('id, organization_id')
     .eq('id', familyId)
@@ -410,7 +410,7 @@ export async function ensureFamilyAttributesFromFieldGroups(
   const seeds = await buildFamilyAttributeSeeds(familyId);
 
   if (seeds.length === 0) {
-    const { error: deleteError } = await supabaseServer
+    const { error: deleteError } = await getSupabaseServer()
       .from('family_attributes')
       .delete()
       .eq('family_id', familyId)
@@ -434,7 +434,7 @@ export async function ensureFamilyAttributesFromFieldGroups(
     updated_at: new Date().toISOString()
   }));
 
-  const { data: upserted, error: upsertError } = await supabaseServer
+  const { data: upserted, error: upsertError } = await getSupabaseServer()
     .from('family_attributes')
     .upsert(upsertPayload, {
       onConflict: 'organization_id,family_id,attribute_code'
@@ -447,7 +447,7 @@ export async function ensureFamilyAttributesFromFieldGroups(
   }
 
   const codeList = seeds.map((seed) => `"${seed.attribute_code}"`).join(',');
-  const { error: deleteError } = await supabaseServer
+  const { error: deleteError } = await getSupabaseServer()
     .from('family_attributes')
     .delete()
     .eq('family_id', familyId)
@@ -486,7 +486,7 @@ export async function evaluateProductCompleteness(
     await ensureFamilyAttributesFromFieldGroups(familyId);
   }
 
-  const { data: requiredAttributesRaw, error: requiredError } = await supabaseServer
+  const { data: requiredAttributesRaw, error: requiredError } = await getSupabaseServer()
     .from('family_attributes')
     .select('attribute_code, attribute_label, attribute_type')
     .eq('family_id', familyId)
@@ -510,7 +510,7 @@ export async function evaluateProductCompleteness(
   }
 
   const requiredCodes = requiredAttributes.map((attr) => attr.attribute_code);
-  const { data: fieldsRaw, error: fieldsError } = await supabaseServer
+  const { data: fieldsRaw, error: fieldsError } = await getSupabaseServer()
     .from('product_fields')
     .select('id, code, field_type, is_localizable, is_channelable')
     .eq('organization_id', organizationId)
@@ -537,7 +537,7 @@ export async function evaluateProductCompleteness(
 
   const fieldIds = Array.from(fieldMap.values()).map((field) => field.id);
   const { data: fieldValuesRaw, error: valuesError } = fieldIds.length
-    ? await supabaseServer
+    ? await getSupabaseServer()
         .from('product_field_values')
         .select(`
           product_field_id,

@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import {
   resolvePartnerGrantedAssetIds,
   resolvePartnerGrantedProductIds,
 } from "@/lib/partner-brand-view";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   appendUpdateActivity,
   markRecipientsNotified,
@@ -18,7 +18,7 @@ async function loadKitItems(params: {
   updateId: string;
   partnerOrganizationId: string;
 }) {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("partner_update_kit_items")
     .select(
       "id,item_type,product_id,asset_id,url,title,description,content_json,sort_order,market_ids,channel_ids,locale_ids,metadata,created_at,updated_at"
@@ -105,7 +105,7 @@ async function loadKitItems(params: {
 
   const productLookup: Record<string, { name: string | null; sku: string | null; type: string | null }> = {};
   if (productIds.length > 0) {
-    const { data: productRows } = await supabaseServer
+    const { data: productRows } = await getSupabaseServer()
       .from("products")
       .select("id,product_name,sku,type")
       .eq("organization_id", params.organizationId)
@@ -123,7 +123,7 @@ async function loadKitItems(params: {
 
   const assetLookup: Record<string, { filename: string | null; fileType: string | null; mimeType: string | null }> = {};
   if (assetIds.length > 0) {
-    const { data: assetRows } = await supabaseServer
+    const { data: assetRows } = await getSupabaseServer()
       .from("dam_assets")
       .select("id,original_filename,file_type,mime_type")
       .eq("organization_id", params.organizationId)
@@ -174,7 +174,7 @@ export async function GET(
     }
 
     const recipient = recipientResult.recipient;
-    const { data: update, error: updateError } = await supabaseServer
+    const { data: update, error: updateError } = await getSupabaseServer()
       .from("partner_updates")
       .select(
         "id,organization_id,title,summary,urgency,status,event_label,labels,message_json,due_at,published_at,scheduled_for,metadata,updated_at"
@@ -201,7 +201,7 @@ export async function GET(
       return NextResponse.json({ error: kitItemsResult.error }, { status: kitItemsResult.status });
     }
 
-    const { data: organizationRow } = await supabaseServer
+    const { data: organizationRow } = await getSupabaseServer()
       .from("organizations")
       .select("id,name,slug")
       .eq("id", recipient.organizationId)
@@ -214,7 +214,7 @@ export async function GET(
           ? "opened"
           : recipient.status;
 
-      const { error: updateRecipientError } = await supabaseServer
+      const { error: updateRecipientError } = await getSupabaseServer()
         .from("partner_update_recipients")
         .update({
           status: nextStatus,

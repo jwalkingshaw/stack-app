@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
@@ -12,10 +13,6 @@ import {
 } from "@/lib/billing-policy";
 import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const ASSET_OBJECT_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
@@ -138,7 +135,7 @@ async function canManageAssetVersions(params: {
   userId: string;
   organizationId: string;
 }) {
-  const db = new DatabaseQueries(supabase);
+  const db = new DatabaseQueries(getSupabaseServer());
   const authService = new AuthService(db);
   const [hasVersionManage, hasUploadPermission] = await Promise.all([
     evaluateScopedPermission({
@@ -158,7 +155,7 @@ async function canManageAssetVersions(params: {
 }
 
 async function fetchAssetForVersioning(params: { assetId: string; organizationId: string }) {
-  const { data: existingAsset, error } = await supabase
+  const { data: existingAsset, error } = await getSupabaseServer()
     .from("dam_assets")
     .select(
       `
@@ -325,7 +322,7 @@ export async function GET(
       return NextResponse.json({ error: "Asset not found" }, { status: 404 });
     }
 
-    const { data: versions, error: versionsError } = await supabase
+    const { data: versions, error: versionsError } = await getSupabaseServer()
       .from("dam_asset_versions")
       .select(
         `
@@ -577,9 +574,9 @@ export async function POST(
         existingAsset.created_at,
     };
 
-    const { data: insertedPreviousVersion, error: insertVersionError } = await supabase
+    const { data: insertedPreviousVersion, error: insertVersionError } = await getSupabaseServer()
       .from("dam_asset_versions")
-      .insert(previousVersionInsert)
+      .insert(previousVersionInsert as never)
       .select("id")
       .single();
 
@@ -594,7 +591,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed to create version snapshot" }, { status: 500 });
     }
 
-    const { data: updatedAsset, error: updateError } = await supabase
+    const { data: updatedAsset, error: updateError } = await getSupabaseServer()
       .from("dam_assets")
       .update({
         filename: file.name,
@@ -620,7 +617,7 @@ export async function POST(
 
     if (updateError || !updatedAsset) {
       console.error("POST /assets/[assetId]/versions asset update failed:", updateError);
-      await supabase
+      await getSupabaseServer()
         .from("dam_asset_versions")
         .delete()
         .eq("id", insertedPreviousVersion.id)

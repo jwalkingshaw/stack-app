@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   isMissingColumnError,
   normalizeUuidArray,
@@ -14,7 +14,7 @@ type CollectionRow = {
 };
 
 async function ensureCollectionBelongsToOrg(collectionId: string, organizationId: string) {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("dam_collections")
     .select("id")
     .eq("id", collectionId)
@@ -33,7 +33,7 @@ async function validateScopedIds(params: {
   const { organizationId, folderIds, assetIds } = params;
 
   if (folderIds.length > 0) {
-    const { data: folders, error: folderError } = await supabaseServer
+    const { data: folders, error: folderError } = await getSupabaseServer()
       .from("dam_folders")
       .select("id")
       .eq("organization_id", organizationId)
@@ -47,7 +47,7 @@ async function validateScopedIds(params: {
   }
 
   if (assetIds.length > 0) {
-    const { data: assets, error: assetError } = await supabaseServer
+    const { data: assets, error: assetError } = await getSupabaseServer()
       .from("dam_assets")
       .select("id")
       .eq("organization_id", organizationId)
@@ -98,7 +98,7 @@ export async function PATCH(
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    let updateResult = await supabaseServer
+    let updateResult = await getSupabaseServer()
       .from("dam_collections")
       .update({
         name,
@@ -111,7 +111,7 @@ export async function PATCH(
       .single();
 
     if (updateResult.error && isMissingColumnError(updateResult.error)) {
-      updateResult = await supabaseServer
+      updateResult = await getSupabaseServer()
         .from("dam_collections")
         .update({
           name,
@@ -160,7 +160,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Shared set not found" }, { status: 404 });
     }
 
-    const { error } = await supabaseServer
+    const { error } = await getSupabaseServer()
       .from("dam_collections")
       .delete()
       .eq("id", collectionId)

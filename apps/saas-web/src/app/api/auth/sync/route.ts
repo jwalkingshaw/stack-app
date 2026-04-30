@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { DatabaseQueries } from "@stack-app/database";
 import { getAuthSession } from "@/lib/auth";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 
 type LegacySessionOrganization = {
   id: string;
@@ -29,7 +29,7 @@ function sanitizeSlug(raw: string): string {
     .replace(/^-|-$/g, "");
 }
 
-// Sync organization from Kinde to Supabase.
+// Sync organization from Kinde to getSupabaseServer().
 export async function POST(request: NextRequest) {
   try {
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
@@ -42,14 +42,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const db = new DatabaseQueries(supabaseServer);
-    const supabase = supabaseServer;
-    const kindeOrg = session.organization as LegacySessionOrganization;
+    const db = new DatabaseQueries(getSupabaseServer());
+        const kindeOrg = session.organization as LegacySessionOrganization;
 
     const slug = sanitizeSlug(kindeOrg.code || `org-${Date.now()}`);
     const existing = await db.getOrganizationBySlug(slug);
     if (existing) {
-      const { error } = await supabase
+      const { error } = await getSupabaseServer()
         .from("organizations")
         .update({
           name: kindeOrg.name || existing.name,
@@ -101,7 +100,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const kindeOrg = session.organization as LegacySessionOrganization;
     const organization = await db.getOrganizationBySlug(kindeOrg.code);
 

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { LoadingSkeleton } from '@/components/ui/loading-skeleton';
@@ -212,9 +212,9 @@ export default function TestPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Supabase */}
+                {/* getSupabaseServer() */}
                 <div className="border rounded p-4">
-                  <h5 className="font-medium mb-2">Supabase</h5>
+                  <h5 className="font-medium mb-2">getSupabaseServer()</h5>
                   <div className="space-y-1 text-sm">
                     <div>URL: {results.environmentVariables.summary.supabase.url}</div>
                     <div>Anon Key: {results.environmentVariables.summary.supabase.anonKey}</div>

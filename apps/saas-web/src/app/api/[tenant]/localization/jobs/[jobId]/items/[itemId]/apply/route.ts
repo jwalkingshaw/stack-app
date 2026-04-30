@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { isMissingLocalizationFoundationError, requireLocalizationAccess } from "../../../../../_shared";
 
 type ItemStatus =
@@ -239,7 +239,6 @@ function toRowText(row: {
   return normalizeValueText(value);
 }
 
-const supabase = supabaseServer;
 
 type ScopedValueRow = {
   value_text: string | null;
@@ -289,7 +288,7 @@ async function resolveCurrentSourceText(item: TranslationJobItemDetail): Promise
   const sourceLocaleId = extractScopeId(item.source_scope, "localeId");
 
   if (item.product_field_id) {
-    const { data: valueRows, error: valuesError } = await supabase
+    const { data: valueRows, error: valuesError } = await getSupabaseServer()
       .from("product_field_values")
       .select(
         "value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,destination_id,locale_id"
@@ -312,7 +311,7 @@ async function resolveCurrentSourceText(item: TranslationJobItemDetail): Promise
     });
     if (direct) return direct;
 
-    const { data: productRow } = await supabase
+    const { data: productRow } = await getSupabaseServer()
       .from("products")
       .select("type,parent_id")
       .eq("organization_id", item.organization_id)
@@ -326,7 +325,7 @@ async function resolveCurrentSourceText(item: TranslationJobItemDetail): Promise
         : null;
     if (!parentId) return null;
 
-    const { data: parentRows, error: parentRowsError } = await supabase
+    const { data: parentRows, error: parentRowsError } = await getSupabaseServer()
       .from("product_field_values")
       .select(
         "value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,destination_id,locale_id"
@@ -349,7 +348,7 @@ async function resolveCurrentSourceText(item: TranslationJobItemDetail): Promise
     });
   }
 
-  const { data: productRow, error: productError } = await supabase
+  const { data: productRow, error: productError } = await getSupabaseServer()
     .from("products")
     .select(
       "type,parent_id,product_name,short_description,long_description,features,meta_title,meta_description"
@@ -370,7 +369,7 @@ async function resolveCurrentSourceText(item: TranslationJobItemDetail): Promise
   });
 
   if (!sourceText && productRow.type === "variant" && productRow.parent_id) {
-    const { data: parentRow, error: parentError } = await supabase
+    const { data: parentRow, error: parentError } = await getSupabaseServer()
       .from("products")
       .select("product_name,short_description,long_description,features,meta_title,meta_description")
       .eq("organization_id", item.organization_id)
@@ -389,7 +388,7 @@ async function resolveCurrentSourceText(item: TranslationJobItemDetail): Promise
 }
 
 async function resolveLocaleCodeById(localeId: string): Promise<string | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("locales")
     .select("code")
     .eq("id", localeId)
@@ -403,7 +402,7 @@ async function resolveLocaleCodeById(localeId: string): Promise<string | null> {
 }
 
 async function resolveChannelCodeById(channelId: string): Promise<string | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("channels")
     .select("code")
     .eq("id", channelId)
@@ -423,7 +422,7 @@ async function ensureSystemProductField(params: {
   const config = SYSTEM_FIELD_AUTO_CREATE[params.fieldCode];
   if (!config) return null;
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_fields")
     .insert({
       organization_id: params.organizationId,
@@ -444,7 +443,7 @@ async function ensureSystemProductField(params: {
 
   if (error) {
     // May already exist (race condition or concurrent request) — try fetching
-    const { data: existing } = await supabase
+    const { data: existing } = await getSupabaseServer()
       .from("product_fields")
       .select("id,code,field_type,organization_id")
       .eq("organization_id", params.organizationId)
@@ -462,7 +461,7 @@ async function resolveProductField(params: {
   fieldCode: string;
 }): Promise<ProductFieldRow | null> {
   if (params.productFieldId) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_fields")
       .select("id,code,field_type,organization_id")
       .eq("organization_id", params.organizationId)
@@ -477,7 +476,7 @@ async function resolveProductField(params: {
 
   const candidates = SYSTEM_TO_PRODUCT_FIELD_CODE_CANDIDATES[params.fieldCode] || [params.fieldCode];
   for (const codeCandidate of candidates) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_fields")
       .select("id,code,field_type,organization_id")
       .eq("organization_id", params.organizationId)
@@ -517,7 +516,7 @@ async function upsertProductFieldValue(params: {
     channelCode = await resolveChannelCodeById(channelId);
   }
 
-  let existingQuery = supabase
+  let existingQuery = getSupabaseServer()
     .from("product_field_values")
     .select("id")
     .eq("product_id", params.productId)
@@ -553,7 +552,7 @@ async function upsertProductFieldValue(params: {
   };
 
   if (existing?.id) {
-    const { error: updateError } = await supabase
+    const { error: updateError } = await getSupabaseServer()
       .from("product_field_values")
       .update(updatePayload)
       .eq("id", existing.id);
@@ -565,7 +564,7 @@ async function upsertProductFieldValue(params: {
     return { ok: true };
   }
 
-  const { error: insertError } = await supabase.from("product_field_values").insert({
+  const { error: insertError } = await getSupabaseServer().from("product_field_values").insert({
     product_id: params.productId,
     product_field_id: params.productField.id,
     ...updatePayload,
@@ -606,7 +605,7 @@ async function applyToCoreProductColumn(params: {
       ? { features: toFeaturesValue(params.textValue), last_modified_by: params.userId }
       : { [systemProductColumn]: params.textValue, last_modified_by: params.userId };
 
-  const { error } = await supabase
+  const { error } = await getSupabaseServer()
     .from("products")
     .update(payload)
     .eq("organization_id", params.organizationId)
@@ -624,7 +623,7 @@ async function refreshJobStatus(params: {
   organizationId: string;
   jobId: string;
 }): Promise<void> {
-  const { data: itemRows, error: itemError } = await supabase
+  const { data: itemRows, error: itemError } = await getSupabaseServer()
     .from("translation_job_items")
     .select("status")
     .eq("organization_id", params.organizationId)
@@ -662,7 +661,7 @@ async function refreshJobStatus(params: {
   const completedAt =
     nextStatus === "completed" || nextStatus === "failed" ? new Date().toISOString() : null;
 
-  const { error: updateError } = await supabase
+  const { error: updateError } = await getSupabaseServer()
     .from("translation_jobs")
     .update({
       status: nextStatus,
@@ -687,7 +686,7 @@ export async function POST(
     if (!access.ok) return access.response;
 
     const { organization, userId } = access.context;
-    const { data: item, error: itemError } = await supabase
+    const { data: item, error: itemError } = await getSupabaseServer()
       .from("translation_job_items")
       .select(ITEM_SELECT)
       .eq("organization_id", organization.id)
@@ -744,7 +743,7 @@ export async function POST(
       (currentSourceHash !== itemRow.source_hash && legacySourceHash !== itemRow.source_hash)
     ) {
       const staleError = "Source content changed since this suggestion was generated. Regenerate before applying.";
-      await supabase
+      await getSupabaseServer()
         .from("translation_job_items")
         .update({
           status: "stale",
@@ -840,7 +839,7 @@ export async function POST(
 
     const appliedAt = new Date().toISOString();
     const finalValue = { text: finalText };
-    const { error: itemUpdateError } = await supabase
+    const { error: itemUpdateError } = await getSupabaseServer()
       .from("translation_job_items")
       .update({
         status: "applied",

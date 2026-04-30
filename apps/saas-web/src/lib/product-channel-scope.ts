@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuthService } from "@stack-app/auth";
 import type { Database } from "@stack-app/database";

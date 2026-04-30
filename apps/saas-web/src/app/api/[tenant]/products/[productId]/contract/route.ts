@@ -1,12 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { getProductContract } from "@/lib/product-contracts";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function GET(
   request: NextRequest,
@@ -33,7 +30,7 @@ export async function GET(
     if (!contextResult.ok) return contextResult.response;
 
     const contract = await getProductContract({
-      supabase,
+      supabase: getSupabaseServer(),
       organizationId: contextResult.context.targetOrganization.id,
       productId,
       outputProfileId,

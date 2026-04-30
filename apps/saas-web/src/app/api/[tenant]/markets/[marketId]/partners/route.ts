@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { blockPartnerBrandMutation } from "@/lib/partner-brand-mutation-guard";
 import { logSecurityEvent } from "@/lib/security-audit";
@@ -14,7 +14,7 @@ async function ensureMarketExists(params: {
   organizationId: string;
   marketId: string;
 }): Promise<boolean> {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("markets")
     .select("id")
     .eq("organization_id", params.organizationId)
@@ -30,7 +30,7 @@ async function requireBrandOwnerOrAdmin(params: {
   request: NextRequest;
   action: string;
 }): Promise<NextResponse | null> {
-  const { data: memberRow } = await supabaseServer
+  const { data: memberRow } = await getSupabaseServer()
     .from("organization_members")
     .select("role")
     .eq("organization_id", params.organizationId)
@@ -42,7 +42,7 @@ async function requireBrandOwnerOrAdmin(params: {
     return null;
   }
 
-  await logSecurityEvent(supabaseServer, {
+  await logSecurityEvent(getSupabaseServer(), {
     organizationId: params.organizationId,
     actorUserId: params.userId,
     action: "security.partner_brand_permission_denied",
@@ -89,8 +89,8 @@ export async function GET(
     }
 
     // Load assigned partners for this market
-    const { data: assignments, error: assignmentsError } = await supabaseServer
-      .from("partner_market_assignments" as never)
+    const { data: assignments, error: assignmentsError } = await getSupabaseServer()
+      .from("partner_market_assignments")
       .select("id,partner_organization_id,valid_from,assigned_by,created_at,output_profile_id")
       .eq("organization_id", organizationId)
       .eq("market_id", marketId)
@@ -121,7 +121,7 @@ export async function GET(
     let partnerOrgs: Array<{ id: string; name: string; slug: string; partner_category: string | null }> = [];
 
     if (partnerOrgIds.length > 0) {
-      const { data: orgs } = await supabaseServer
+      const { data: orgs } = await getSupabaseServer()
         .from("organizations")
         .select("id,name,slug,partner_category")
         .in("id", partnerOrgIds);
@@ -146,7 +146,7 @@ export async function GET(
     });
 
     // Load available partners (active relationships not yet assigned to this market)
-    const { data: relationships } = await supabaseServer
+    const { data: relationships } = await getSupabaseServer()
       .from("brand_partner_relationships")
       .select("partner_organization_id")
       .eq("brand_organization_id", organizationId)
@@ -159,7 +159,7 @@ export async function GET(
 
     let availablePartners: Array<{ id: string; name: string; slug: string; partner_category: string | null }> = [];
     if (availablePartnerIds.length > 0) {
-      const { data: availOrgs } = await supabaseServer
+      const { data: availOrgs } = await getSupabaseServer()
         .from("organizations")
         .select("id,name,slug,partner_category")
         .in("id", availablePartnerIds);
@@ -233,7 +233,7 @@ export async function POST(
     }
 
     // Verify active relationship exists
-    const { data: rel } = await supabaseServer
+    const { data: rel } = await getSupabaseServer()
       .from("brand_partner_relationships")
       .select("id")
       .eq("brand_organization_id", organizationId)
@@ -245,8 +245,8 @@ export async function POST(
       return NextResponse.json({ error: "No active partner relationship found." }, { status: 400 });
     }
 
-    const { error: upsertError } = await supabaseServer
-      .from("partner_market_assignments" as never)
+    const { error: upsertError } = await getSupabaseServer()
+      .from("partner_market_assignments")
       .upsert(
         [{
           organization_id: organizationId,
@@ -260,7 +260,7 @@ export async function POST(
             updated_by: context.userId,
             updated_at: new Date().toISOString(),
           },
-        }] as never,
+        }],
         { onConflict: "organization_id,market_id,partner_organization_id" }
       );
 
@@ -331,8 +331,8 @@ export async function PATCH(
       body?.output_profile_id === null ? null : normalizeToken(body?.output_profile_id);
 
     if (outputProfileId) {
-      const { data: profile } = await supabaseServer
-        .from("output_channel_profiles" as never)
+      const { data: profile } = await getSupabaseServer()
+        .from("output_channel_profiles")
         .select("id,market_id")
         .eq("id", outputProfileId)
         .eq("organization_id", organizationId)
@@ -351,9 +351,9 @@ export async function PATCH(
       }
     }
 
-    const { error: updateError } = await supabaseServer
-      .from("partner_market_assignments" as never)
-      .update({ output_profile_id: outputProfileId } as never)
+    const { error: updateError } = await getSupabaseServer()
+      .from("partner_market_assignments")
+      .update({ output_profile_id: outputProfileId })
       .eq("organization_id", organizationId)
       .eq("market_id", marketId)
       .eq("partner_organization_id", partnerOrganizationId)
@@ -421,9 +421,9 @@ export async function DELETE(
     });
     if (denied) return denied;
 
-    const { error: updateError } = await supabaseServer
-      .from("partner_market_assignments" as never)
-      .update({ is_active: false } as never)
+    const { error: updateError } = await getSupabaseServer()
+      .from("partner_market_assignments")
+      .update({ is_active: false })
       .eq("organization_id", organizationId)
       .eq("market_id", marketId)
       .eq("partner_organization_id", partnerOrganizationId)

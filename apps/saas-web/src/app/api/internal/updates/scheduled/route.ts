@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   appendUpdateActivity,
   loadExistingUpdateRecipients,
@@ -12,7 +12,6 @@ import {
 const DEFAULT_BATCH_SIZE = 50;
 const MAX_BATCH_SIZE = 200;
 const SCHEDULER_ACTOR_USER_ID = "system:scheduler";
-const supabase = supabaseServer;
 
 function getSchedulerToken(request: NextRequest): string {
   const authHeader = request.headers.get("authorization") || "";
@@ -49,7 +48,7 @@ export async function POST(request: NextRequest) {
     const batchSize = getBatchSize(body.limit);
     const nowIso = new Date().toISOString();
 
-    const { data: dueRows, error: dueError } = await supabase
+    const { data: dueRows, error: dueError } = await getSupabaseServer()
       .from("partner_updates")
       .select("id,organization_id,title,summary,urgency,status,due_at,scheduled_for,published_at")
       .eq("status", "scheduled")
@@ -184,7 +183,7 @@ export async function POST(request: NextRequest) {
 
         let orgIdentity = orgIdentityCache.get(organizationId);
         if (!orgIdentity) {
-          const { data: organizationRaw } = await supabase
+          const { data: organizationRaw } = await getSupabaseServer()
             .from("organizations")
             .select("name,slug")
             .eq("id", organizationId)

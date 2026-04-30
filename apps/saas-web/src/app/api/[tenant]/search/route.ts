@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   resolveStorageDeliveryUrl,
   rewriteStorageUrlToCloudFront,
@@ -236,7 +236,7 @@ async function resolveProductThumbnailLookup(
 
   const thumbnailLookup: ThumbnailLookup = {};
 
-  const { data: assetLinkRows } = await supabaseServer
+  const { data: assetLinkRows } = await getSupabaseServer()
     .from("product_asset_links")
     .select(
       `
@@ -311,7 +311,7 @@ async function resolveProductThumbnailLookup(
     return thumbnailLookup;
   }
 
-  const { data: productRows } = await supabaseServer
+  const { data: productRows } = await getSupabaseServer()
     .from("products")
     .select("id, primary_image_url")
     .in("organization_id", organizationIds)
@@ -332,7 +332,7 @@ async function resolveProductThumbnailLookup(
 async function resolveOrganizationLookup(organizationIds: string[]): Promise<OrganizationLookup> {
   if (organizationIds.length === 0) return {};
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("organizations")
     .select("id,slug,name")
     .in("id", organizationIds);
@@ -542,7 +542,7 @@ export async function GET(
         context.tenantOrganization.organizationType === "partner");
 
     if (updatesAllowedInScope) {
-      let updatesQuery = supabaseServer
+      let updatesQuery = getSupabaseServer()
         .from("partner_updates")
         .select("id,organization_id,title,summary,status,urgency,updated_at")
         .eq("organization_id", context.targetOrganization.id)
@@ -580,7 +580,7 @@ export async function GET(
 
         const updateIds = mappedUpdates.map((row) => row.id);
         if (updateIds.length > 0) {
-          const { data: kitRows, error: kitError } = await supabaseServer
+          const { data: kitRows, error: kitError } = await getSupabaseServer()
             .from("partner_update_kit_items")
             .select("partner_update_id")
             .eq("organization_id", context.targetOrganization.id)

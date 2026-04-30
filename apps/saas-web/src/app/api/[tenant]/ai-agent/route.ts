@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess } from "@/lib/user-context";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { normalizeAiTaskEnvelope } from "@/lib/ai-foundation";
 
 // ---------------------------------------------------------------------------
@@ -31,8 +31,8 @@ export async function GET(
   const url = new URL(request.url);
   const limit = Math.min(Number(url.searchParams.get("limit") ?? "50"), 100);
 
-  const { data, error } = await supabaseServer
-    .from("ai_task_envelopes" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("ai_task_envelopes")
     .select("*")
     .eq("organization_id", organizationId)
     .eq("task_type", "agent_task")

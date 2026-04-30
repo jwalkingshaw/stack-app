@@ -1,14 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { evaluateScopedPermission } from "@/lib/security-permissions";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type AssetRow = {
   id: string;
@@ -75,7 +72,7 @@ async function canManageAssetVersions(params: {
   userId: string;
   organizationId: string;
 }) {
-  const db = new DatabaseQueries(supabase);
+  const db = new DatabaseQueries(getSupabaseServer());
   const authService = new AuthService(db);
   const [hasVersionManage, hasUploadPermission] = await Promise.all([
     evaluateScopedPermission({
@@ -95,7 +92,7 @@ async function canManageAssetVersions(params: {
 }
 
 async function fetchAssetForVersioning(params: { assetId: string; organizationId: string }) {
-  const { data: existingAsset, error } = await supabase
+  const { data: existingAsset, error } = await getSupabaseServer()
     .from("dam_assets")
     .select(
       `
@@ -205,7 +202,7 @@ export async function POST(
       );
     }
 
-    const { data: selectedVersion, error: selectedVersionError } = await supabase
+    const { data: selectedVersion, error: selectedVersionError } = await getSupabaseServer()
       .from("dam_asset_versions")
       .select(
         `
@@ -267,9 +264,9 @@ export async function POST(
         existingAsset.created_at,
     };
 
-    const { data: insertedSnapshot, error: snapshotError } = await supabase
+    const { data: insertedSnapshot, error: snapshotError } = await getSupabaseServer()
       .from("dam_asset_versions")
-      .insert(snapshotCurrentVersion)
+      .insert(snapshotCurrentVersion as never)
       .select("id")
       .single();
 
@@ -287,7 +284,7 @@ export async function POST(
     const restoreComment =
       restoreCommentRaw || `Restored from version v${historicalVersion.version_number}`;
 
-    const { data: updatedAsset, error: updateError } = await supabase
+    const { data: updatedAsset, error: updateError } = await getSupabaseServer()
       .from("dam_assets")
       .update({
         filename: historicalVersion.filename,
@@ -297,8 +294,8 @@ export async function POST(
         mime_type: historicalVersion.mime_type,
         s3_key: historicalVersion.s3_key,
         s3_url: historicalVersion.s3_url,
-        thumbnail_urls: historicalVersion.thumbnail_urls || {},
-        metadata: historicalVersion.metadata || {},
+        thumbnail_urls: (historicalVersion.thumbnail_urls || {}) as never,
+        metadata: (historicalVersion.metadata || {}) as never,
         tags: historicalVersion.tags || [],
         description: historicalVersion.description,
         current_version_number: currentVersionNumber + 1,
@@ -318,7 +315,7 @@ export async function POST(
 
     if (updateError || !updatedAsset) {
       console.error("POST /versions/restore asset update failed:", updateError);
-      await supabase
+      await getSupabaseServer()
         .from("dam_asset_versions")
         .delete()
         .eq("id", insertedSnapshot.id)

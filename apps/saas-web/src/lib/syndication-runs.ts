@@ -1,4 +1,4 @@
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 
 export type DeliveryTarget = "portal" | "file_export" | "direct_channel";
 export type SyndicationRunStatus = "completed" | "failed";
@@ -143,10 +143,10 @@ export async function createSyndicationRun(params: {
   createdBy?: string | null;
   deliveredAt?: string | null;
 }): Promise<SyndicationRunRecord> {
-  const { data, error } = await supabaseServer
-    .from("syndication_runs" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("syndication_runs")
     .insert(
-      ({
+      {
         organization_id: params.organizationId,
         output_profile_id: params.outputProfileId,
         share_set_id: params.shareSetId ?? null,
@@ -163,7 +163,7 @@ export async function createSyndicationRun(params: {
         preview_metadata: params.previewMetadata ?? {},
         created_by: params.createdBy ?? null,
         delivered_at: params.deliveredAt ?? new Date().toISOString(),
-      }) as never
+      } as never
     )
     .select("*")
     .single();
@@ -187,10 +187,10 @@ export async function createPortalPublish(params: {
   metadata?: Record<string, unknown>;
   createdBy?: string | null;
 }): Promise<PortalPublishRecord> {
-  const { data, error } = await supabaseServer
-    .from("portal_publishes" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("portal_publishes")
     .insert(
-      ({
+      {
         organization_id: params.organizationId,
         syndication_run_id: params.syndicationRunId,
         output_profile_id: params.outputProfileId,
@@ -201,7 +201,7 @@ export async function createPortalPublish(params: {
         readiness_snapshot: params.readinessSnapshot ?? {},
         metadata: params.metadata ?? {},
         created_by: params.createdBy ?? null,
-      }) as never
+      } as never
     )
     .select("*")
     .single();
@@ -220,9 +220,9 @@ export async function createPortalPublish(params: {
       is_active: true,
     }));
 
-    const { error: audienceError } = await supabaseServer
-      .from("portal_publish_audiences" as never)
-      .upsert(audienceRows as never, {
+    const { error: audienceError } = await getSupabaseServer()
+      .from("portal_publish_audiences")
+      .upsert(audienceRows, {
         onConflict: "portal_publish_id,partner_organization_id",
         ignoreDuplicates: false,
       });
@@ -239,8 +239,8 @@ export async function listRecentSyndicationRuns(params: {
   organizationId: string;
   limit?: number;
 }): Promise<SyndicationRunRecord[]> {
-  const { data, error } = await supabaseServer
-    .from("syndication_runs" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("syndication_runs")
     .select("*")
     .eq("organization_id", params.organizationId)
     .order("created_at", { ascending: false })
@@ -259,8 +259,8 @@ export async function listRecentPortalPublishes(params: {
   limit?: number;
 }): Promise<PortalPublishRecord[]> {
   if (params.partnerOrganizationId) {
-    const { data, error } = await supabaseServer
-      .from("portal_publish_audiences" as never)
+    const { data, error } = await getSupabaseServer()
+      .from("portal_publish_audiences")
       .select("portal_publishes!inner(*)")
       .eq("organization_id", params.organizationId)
       .eq("partner_organization_id", params.partnerOrganizationId)
@@ -283,8 +283,8 @@ export async function listRecentPortalPublishes(params: {
       .slice(0, params.limit ?? 10);
   }
 
-  const { data, error } = await supabaseServer
-    .from("portal_publishes" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("portal_publishes")
     .select("*")
     .eq("organization_id", params.organizationId)
     .eq("publish_state", "published")

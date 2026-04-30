@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries } from "@stack-app/database";
 import { getOrganizationBillingLimits } from "@/lib/billing-policy";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { applyInvitePermissions } from "@/lib/invite-permissions";
 import { canUsePublicShareLinks } from "@/lib/billing-policy";
 import { normalizeUuidArray } from "../../../_shared";
@@ -36,7 +36,7 @@ async function loadShareRow(params: {
     }
   | { ok: false; status: number; error: string }
 > {
-  const withOnboarding = await supabaseServer
+  const withOnboarding = await getSupabaseServer()
     .from("partner_update_shares")
     .select("partner_update_id,public_enabled,expires_at,onboarding_share_set_ids")
     .eq("organization_id", params.organizationId)
@@ -68,7 +68,7 @@ async function loadShareRow(params: {
     return { ok: false, status: 500, error: "Failed to load share link settings" };
   }
 
-  const legacy = await supabaseServer
+  const legacy = await getSupabaseServer()
     .from("partner_update_shares")
     .select("partner_update_id,public_enabled,expires_at")
     .eq("organization_id", params.organizationId)
@@ -104,7 +104,7 @@ async function applyOnboardingShareSetGrants(params: {
   }
 
   const normalizedIds = Array.from(new Set(params.shareSetIds));
-  const { data: shareSets, error: shareSetError } = await supabaseServer
+  const { data: shareSets, error: shareSetError } = await getSupabaseServer()
     .from("share_sets")
     .select("id,module_key")
     .eq("organization_id", params.organizationId)
@@ -136,7 +136,7 @@ async function applyOnboardingShareSetGrants(params: {
     };
   }
 
-  const { data: existingActive, error: existingError } = await supabaseServer
+  const { data: existingActive, error: existingError } = await getSupabaseServer()
     .from("partner_share_set_grants")
     .select("share_set_id")
     .eq("organization_id", params.organizationId)
@@ -182,7 +182,7 @@ async function applyOnboardingShareSetGrants(params: {
     },
   }));
 
-  const { error: insertError } = await supabaseServer
+  const { error: insertError } = await getSupabaseServer()
     .from("partner_share_set_grants")
     .insert(insertRows);
 
@@ -215,7 +215,7 @@ export async function POST(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
 
     // Validate the share token
     const brandOrg = await db.getOrganizationBySlug(tenant);
@@ -246,7 +246,7 @@ export async function POST(
     const updateId = String(shareRow.partner_update_id);
 
     // Verify the update is published
-    const { data: updateRow } = await supabaseServer
+    const { data: updateRow } = await getSupabaseServer()
       .from("partner_updates")
       .select("id,status")
       .eq("organization_id", brandOrg.id)
@@ -272,7 +272,7 @@ export async function POST(
       return NextResponse.json({ error: "You are not a member of the specified organization" }, { status: 403 });
     }
 
-    const { data: partnerOrg } = await supabaseServer
+    const { data: partnerOrg } = await getSupabaseServer()
       .from("organizations")
       .select("id,name,slug,organization_type")
       .eq("id", partnerOrgId)
@@ -284,7 +284,7 @@ export async function POST(
 
     // Add user to brand org as partner member (enables RLS access to brand's data)
     const permissionsResult = await applyInvitePermissions({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: brandOrg.id,
       userId: user.id,
       userEmail: user.email || "",
@@ -325,7 +325,7 @@ export async function POST(
     }
 
     // Create recipient row (upsert) so the partner can view this specific update
-    const { data: existingRecipient } = await supabaseServer
+    const { data: existingRecipient } = await getSupabaseServer()
       .from("partner_update_recipients")
       .select("id")
       .eq("organization_id", brandOrg.id)
@@ -334,7 +334,7 @@ export async function POST(
       .maybeSingle();
 
     if (!existingRecipient) {
-      await supabaseServer
+      await getSupabaseServer()
         .from("partner_update_recipients")
         .insert({
           organization_id: brandOrg.id,

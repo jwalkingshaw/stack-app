@@ -1,11 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
-import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
+﻿import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
 import { cache } from 'react';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import { getSupabaseServer } from '@/lib/supabase';
 
 export interface UserContext {
   kindeUserId: string;
@@ -67,14 +62,14 @@ export const getUserContext = cache(async (): Promise<UserContext | null> => {
     if (!user) return null;
 
     // Check cache first
-    const { data: cachedContext } = await supabase
+    const { data: cachedContext } = await getSupabaseServer()
       .from('user_context_cache')
       .select('context_data, expires_at')
       .eq('kinde_user_id', user.id)
       .single();
 
-    if (cachedContext && new Date(cachedContext.expires_at) > new Date()) {
-      return cachedContext.context_data as UserContext;
+    if (cachedContext && new Date(cachedContext.expires_at as string) > new Date()) {
+      return cachedContext.context_data as unknown as UserContext;
     }
 
     // Build fresh context
@@ -83,7 +78,7 @@ export const getUserContext = cache(async (): Promise<UserContext | null> => {
     // Get owned organizations (via Kinde)
     const ownedOrganizations: Array<{ id: string; name: string; slug: string; kindeOrgId: string; organizationType?: string }> = [];
     if (kindeOrg?.orgCode) {
-      const { data: org } = await supabase
+      const { data: org } = await getSupabaseServer()
         .from('organizations')
         .select('id, name, slug, kinde_org_id, organization_type')
         .eq('kinde_org_id', kindeOrg.orgCode)
@@ -101,7 +96,7 @@ export const getUserContext = cache(async (): Promise<UserContext | null> => {
     }
 
     // Get member organizations (include organization_type for partner detection)
-    const { data: memberOrgs } = await supabase
+    const { data: memberOrgs } = await getSupabaseServer()
       .from('organization_members')
       .select(`
         organization_id,
@@ -140,7 +135,7 @@ export const getUserContext = cache(async (): Promise<UserContext | null> => {
 
     let partnerAccess: UserContext['partnerAccess'] = [];
     if (partnerOrgIds.length > 0) {
-      const { data: brandRelationships } = await supabase
+      const { data: brandRelationships } = await getSupabaseServer()
         .from('brand_partner_relationships')
         .select(`
           brand_organization_id,
@@ -159,7 +154,7 @@ export const getUserContext = cache(async (): Promise<UserContext | null> => {
         dbLevel === 'edit' ? 'collaborate' : 'view';
 
       const brandRelationshipRows = Array.isArray(brandRelationships)
-        ? (brandRelationships as BrandRelationshipRow[])
+        ? (brandRelationships as unknown as BrandRelationshipRow[])
         : [];
       partnerAccess = brandRelationshipRows.map((r) => ({
         orgId: r.brand_organization_id,
@@ -187,11 +182,11 @@ export const getUserContext = cache(async (): Promise<UserContext | null> => {
     };
 
     // Cache the context for 5 minutes
-    await supabase
+    await getSupabaseServer()
       .from('user_context_cache')
       .upsert({
         kinde_user_id: user.id,
-        context_data: context,
+        context_data: context as unknown as never,
         last_updated: new Date().toISOString(),
         expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString() // 5 minutes
       });
@@ -278,7 +273,7 @@ export async function hasOrganizationAccess(
  * Invalidate user context cache (call when permissions change)
  */
 export async function invalidateUserContext(kindeUserId: string) {
-  await supabase
+  await getSupabaseServer()
     .from('user_context_cache')
     .delete()
     .eq('kinde_user_id', kindeUserId);
@@ -289,14 +284,14 @@ export async function invalidateUserContext(kindeUserId: string) {
  */
 export async function setDatabaseUserContext(kindeUserId: string, orgCode?: string) {
   // Set the user context for RLS policies
-  await supabase.rpc('set_rls_setting', {
+  await getSupabaseServer().rpc('set_rls_setting', {
     setting_name: 'app.current_user_id',
     new_value: kindeUserId,
     is_local: true
   });
 
   if (orgCode) {
-    await supabase.rpc('set_rls_setting', {
+    await getSupabaseServer().rpc('set_rls_setting', {
       setting_name: 'app.current_org_code', 
       new_value: orgCode,
       is_local: true

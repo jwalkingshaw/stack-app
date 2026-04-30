@@ -1,12 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess, setDatabaseUserContext } from "@/lib/user-context";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -105,7 +102,7 @@ async function resolveProductByIdentifier(params: {
   const candidateId = uuidPrefixMatch?.[1] || normalizedIdentifier;
 
   if (UUID_PATTERN.test(candidateId)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from("products")
       .select("id,type,parent_id,family_id")
       .eq("id", candidateId)
@@ -114,7 +111,7 @@ async function resolveProductByIdentifier(params: {
     if (byId.data || byId.error) return byId;
   }
 
-  return await supabase
+  return await getSupabaseServer()
     .from("products")
     .select("id,type,parent_id,family_id")
     .ilike("sku", normalizedIdentifier)
@@ -134,7 +131,7 @@ async function getVariantByIdentifier(params: {
   const candidateId = uuidPrefixMatch?.[1] || normalizedIdentifier;
 
   if (UUID_PATTERN.test(candidateId)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from("products")
       .select(params.selectClause)
       .eq("id", candidateId)
@@ -148,7 +145,7 @@ async function getVariantByIdentifier(params: {
     }
   }
 
-  const byScin = await supabase
+  const byScin = await getSupabaseServer()
     .from("products")
     .select(params.selectClause)
     .eq("scin", normalizedIdentifier.toUpperCase())
@@ -161,7 +158,7 @@ async function getVariantByIdentifier(params: {
     return byScin;
   }
 
-  return await supabase
+  return await getSupabaseServer()
     .from("products")
     .select(params.selectClause)
     .ilike("sku", normalizedIdentifier)
@@ -182,7 +179,7 @@ async function getFamilyActivationRules(params: {
     };
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_families")
     .select("require_sku_on_active, require_barcode_on_active")
     .eq("id", params.familyId)
@@ -222,7 +219,7 @@ async function resolveParentProduct(params: {
   if (parentLookup.error || !parent) return null;
 
   if (parent.type === "variant" && parent.parent_id) {
-    const { data: parentRow, error: parentError } = await supabase
+    const { data: parentRow, error: parentError } = await getSupabaseServer()
       .from("products")
       .select("id,type,parent_id,family_id")
       .eq("id", parent.parent_id)
@@ -388,7 +385,7 @@ export async function PUT(
       }
     }
 
-    let updateResult = await supabase
+    let updateResult = await getSupabaseServer()
       .from("products")
       .update(updatePayload)
       .eq("id", existingVariant.id)
@@ -408,7 +405,7 @@ export async function PUT(
         delete legacyPayload.barcode;
       }
 
-      updateResult = await supabase
+      updateResult = await getSupabaseServer()
         .from("products")
         .update(legacyPayload)
         .eq("id", existingVariant.id)
@@ -507,7 +504,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Variant not found" }, { status: 404 });
     }
 
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await getSupabaseServer()
       .from("products")
       .delete()
       .eq("id", variant.id)

@@ -1,4 +1,4 @@
-import { supabaseServer } from "@/lib/supabase";
+﻿import { getSupabaseServer } from "@/lib/supabase";
 
 type MeterResult = {
   ok: boolean;
@@ -63,7 +63,7 @@ export async function getMonthlyDeliveryBandwidthUsage(params: {
   const onDate = params.onDate || new Date();
   const { periodStart } = getMonthWindow(onDate);
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("organization_usage_monthly_snapshots")
     .select("delivery_bandwidth_gb_total")
     .eq("organization_id", params.organizationId)
@@ -96,7 +96,7 @@ export async function incrementDeliveryBandwidthUsage(params: {
   const { periodStart, periodEnd } = getMonthWindow(occurredAt);
   const source = String(params.source || "asset_delivery").trim() || "asset_delivery";
 
-  const { data: dailyExisting, error: dailySelectError } = await supabaseServer
+  const { data: dailyExisting, error: dailySelectError } = await getSupabaseServer()
     .from("organization_usage_daily")
     .select("organization_id,usage_date,delivery_bandwidth_gb")
     .eq("organization_id", params.organizationId)
@@ -113,7 +113,7 @@ export async function incrementDeliveryBandwidthUsage(params: {
 
   if (dailyExisting) {
     const nextDailyValue = normalizeNumericValue(dailyExisting.delivery_bandwidth_gb) + gbAmount;
-    const { error: dailyUpdateError } = await supabaseServer
+    const { error: dailyUpdateError } = await getSupabaseServer()
       .from("organization_usage_daily")
       .update({
         delivery_bandwidth_gb: nextDailyValue,
@@ -128,7 +128,7 @@ export async function incrementDeliveryBandwidthUsage(params: {
       return { ok: false, reason: "daily_update_failed" };
     }
   } else {
-    const { error: dailyInsertError } = await supabaseServer
+    const { error: dailyInsertError } = await getSupabaseServer()
       .from("organization_usage_daily")
       .insert({
         organization_id: params.organizationId,
@@ -143,7 +143,7 @@ export async function incrementDeliveryBandwidthUsage(params: {
     }
   }
 
-  const { data: monthlyExisting, error: monthlySelectError } = await supabaseServer
+  const { data: monthlyExisting, error: monthlySelectError } = await getSupabaseServer()
     .from("organization_usage_monthly_snapshots")
     .select("organization_id,period_start,delivery_bandwidth_gb_total")
     .eq("organization_id", params.organizationId)
@@ -161,7 +161,7 @@ export async function incrementDeliveryBandwidthUsage(params: {
   if (monthlyExisting) {
     const nextMonthlyValue =
       normalizeNumericValue(monthlyExisting.delivery_bandwidth_gb_total) + gbAmount;
-    const { error: monthlyUpdateError } = await supabaseServer
+    const { error: monthlyUpdateError } = await getSupabaseServer()
       .from("organization_usage_monthly_snapshots")
       .update({
         delivery_bandwidth_gb_total: nextMonthlyValue,
@@ -179,7 +179,7 @@ export async function incrementDeliveryBandwidthUsage(params: {
       return { ok: false, reason: "monthly_update_failed" };
     }
   } else {
-    const { error: monthlyInsertError } = await supabaseServer
+    const { error: monthlyInsertError } = await getSupabaseServer()
       .from("organization_usage_monthly_snapshots")
       .insert({
         organization_id: params.organizationId,

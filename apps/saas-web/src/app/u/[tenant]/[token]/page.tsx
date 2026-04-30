@@ -1,9 +1,9 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Package } from "lucide-react";
 import { isAuthenticated, requireUser } from "@/lib/auth-server";
 import { getOrganizationBillingLimits } from "@/lib/billing-policy";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { DatabaseQueries } from "@stack-app/database";
 import { canUsePublicShareLinks } from "@/lib/billing-policy";
 import { applyInvitePermissions } from "@/lib/invite-permissions";
@@ -60,7 +60,7 @@ async function loadShareLinkSettings(params: {
     }
   | { ok: false }
 > {
-  const withOnboarding = await supabaseServer
+  const withOnboarding = await getSupabaseServer()
     .from("partner_update_shares")
     .select("partner_update_id,public_enabled,expires_at,onboarding_share_set_ids")
     .eq("organization_id", params.organizationId)
@@ -89,7 +89,7 @@ async function loadShareLinkSettings(params: {
     return { ok: false };
   }
 
-  const legacy = await supabaseServer
+  const legacy = await getSupabaseServer()
     .from("partner_update_shares")
     .select("partner_update_id,public_enabled,expires_at")
     .eq("organization_id", params.organizationId)
@@ -120,7 +120,7 @@ async function applyOnboardingShareSetGrants(params: {
   const shareSetIds = Array.from(new Set(params.shareSetIds));
   if (shareSetIds.length === 0) return true;
 
-  const { data: shareSets, error: shareSetError } = await supabaseServer
+  const { data: shareSets, error: shareSetError } = await getSupabaseServer()
     .from("share_sets")
     .select("id,module_key")
     .eq("organization_id", params.organizationId)
@@ -135,7 +135,7 @@ async function applyOnboardingShareSetGrants(params: {
   );
   if (validIds.size !== shareSetIds.length) return false;
 
-  const { data: existingActive, error: existingError } = await supabaseServer
+  const { data: existingActive, error: existingError } = await getSupabaseServer()
     .from("partner_share_set_grants")
     .select("share_set_id")
     .eq("organization_id", params.organizationId)
@@ -154,7 +154,7 @@ async function applyOnboardingShareSetGrants(params: {
   const toInsert = shareSetIds.filter((id) => !existingIds.has(id));
   if (toInsert.length === 0) return true;
 
-  const { error: insertError } = await supabaseServer
+  const { error: insertError } = await getSupabaseServer()
     .from("partner_share_set_grants")
     .insert(
       toInsert.map((shareSetId) => ({
@@ -178,7 +178,7 @@ async function applyOnboardingShareSetGrants(params: {
 }
 
 async function getTeaserData(tenant: string, token: string): Promise<TeaserData | null> {
-  const db = new DatabaseQueries(supabaseServer);
+  const db = new DatabaseQueries(getSupabaseServer());
   const brandOrg = await db.getOrganizationBySlug(tenant);
   if (!brandOrg) return null;
   const { planId } = await getOrganizationBillingLimits(brandOrg.id);
@@ -198,7 +198,7 @@ async function getTeaserData(tenant: string, token: string): Promise<TeaserData 
   const updateId = String(shareRow.partner_update_id || "");
   if (!updateId) return null;
 
-  const { data: updateRow } = await supabaseServer
+  const { data: updateRow } = await getSupabaseServer()
     .from("partner_updates")
     .select("id,title,summary,status")
     .eq("organization_id", brandOrg.id)
@@ -207,7 +207,7 @@ async function getTeaserData(tenant: string, token: string): Promise<TeaserData 
 
   if (!updateRow) return null;
 
-  const { data: kitRows } = await supabaseServer
+  const { data: kitRows } = await getSupabaseServer()
     .from("partner_update_kit_items")
     .select("id,item_type")
     .eq("organization_id", brandOrg.id)
@@ -240,10 +240,10 @@ async function acceptShareAndGetRedirect(params: {
   userId: string;
 }): Promise<{ ok: true; redirectUrl: string } | { ok: false; error: string }> {
   const { brandSlug, brandOrgId, updateId, token, partnerOrgId, partnerOrgSlug, userId } = params;
-  const db = new DatabaseQueries(supabaseServer);
+  const db = new DatabaseQueries(getSupabaseServer());
 
   const permsResult = await applyInvitePermissions({
-    supabase: supabaseServer,
+    supabase: getSupabaseServer(),
     organizationId: brandOrgId,
     userId,
     userEmail: "",
@@ -288,7 +288,7 @@ async function acceptShareAndGetRedirect(params: {
     }
   }
 
-  const { data: existingRecipient } = await supabaseServer
+  const { data: existingRecipient } = await getSupabaseServer()
     .from("partner_update_recipients")
     .select("id")
     .eq("organization_id", brandOrgId)
@@ -297,7 +297,7 @@ async function acceptShareAndGetRedirect(params: {
     .maybeSingle();
 
   if (!existingRecipient) {
-    const { error: recipientError } = await supabaseServer.from("partner_update_recipients").insert({
+    const { error: recipientError } = await getSupabaseServer().from("partner_update_recipients").insert({
       organization_id: brandOrgId,
       partner_update_id: updateId,
       partner_organization_id: partnerOrgId,
@@ -357,7 +357,7 @@ export default async function KitSharePage({
     const user = await requireUser();
 
     if (user?.id) {
-      const { data: memberRows } = await supabaseServer
+      const { data: memberRows } = await getSupabaseServer()
         .from("organization_members")
         .select("organization_id, role, organizations(id, name, slug, organization_type)")
         .eq("kinde_user_id", user.id)

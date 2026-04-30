@@ -1,11 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
+import { normalizeProductFieldOptions } from "@/lib/product-field-options";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const PRODUCT_FIELDS_SELECT_WITH_SCOPES = `
   id,
@@ -113,9 +111,18 @@ function normalizeCode(value: string): string {
 }
 
 function normalizeProductFieldRow(field: ProductFieldRow): ProductFieldRow {
-  const options = asRecord(field.options);
+  const normalizedFieldType = typeof field.field_type === "string" ? field.field_type : "";
+  const normalizedOptionsResult = normalizeProductFieldOptions({
+    fieldType: normalizedFieldType,
+    options: field.options,
+    defaultValue: field.default_value,
+  });
+  const options = normalizedOptionsResult.options;
   return {
     ...field,
+    options,
+    default_value:
+      normalizedFieldType === "select" ? (normalizedOptionsResult.defaultValue as string | null) ?? null : field.default_value,
     allowed_channel_ids: Array.isArray(field.allowed_channel_ids) ? field.allowed_channel_ids : [],
     allowed_market_ids: Array.isArray(field.allowed_market_ids) ? field.allowed_market_ids : [],
     allowed_locale_ids: Array.isArray(field.allowed_locale_ids) ? field.allowed_locale_ids : [],
@@ -194,7 +201,7 @@ async function resolveContext(request: NextRequest, tenant: string) {
 
 async function fetchProductFieldById(organizationId: string, fieldId: string) {
   const runQuery = (selectClause: string) =>
-    supabase
+    getSupabaseServer()
       .from("product_fields")
       .select(selectClause)
       .eq("organization_id", organizationId)
@@ -209,9 +216,18 @@ async function fetchProductFieldById(organizationId: string, fieldId: string) {
   return result;
 }
 
-function buildUpdatePayload(body: unknown): { payload: Record<string, unknown>; hasValues: boolean } {
+function buildUpdatePayload(
+  body: unknown,
+  existingFieldType?: string,
+  existingOptions?: unknown,
+  existingDefaultValue?: unknown
+): { payload: Record<string, unknown>; hasValues: boolean; error?: string } {
   const record = asRecord(body);
   const payload: Record<string, unknown> = {};
+  const nextFieldType =
+    typeof record.field_type === "string"
+      ? record.field_type.trim().toLowerCase()
+      : String(existingFieldType || "").trim().toLowerCase();
 
   if (typeof record.name === "string") {
     payload.name = record.name.trim();
@@ -228,7 +244,7 @@ function buildUpdatePayload(body: unknown): { payload: Record<string, unknown>; 
   }
 
   if (typeof record.field_type === "string") {
-    payload.field_type = record.field_type.trim().toLowerCase();
+    payload.field_type = nextFieldType;
   }
 
   if (typeof record.is_required === "boolean") {
@@ -265,11 +281,13 @@ function buildUpdatePayload(body: unknown): { payload: Record<string, unknown>; 
 
   if (record.default_value !== undefined) {
     payload.default_value =
-      typeof record.default_value === "string"
+      nextFieldType === "select"
         ? record.default_value
-        : record.default_value === null
-          ? null
-          : "";
+        : typeof record.default_value === "string"
+          ? record.default_value
+          : record.default_value === null
+            ? null
+            : "";
   }
 
   if (record.validation_rules !== undefined) {
@@ -277,7 +295,30 @@ function buildUpdatePayload(body: unknown): { payload: Record<string, unknown>; 
   }
 
   if (record.options !== undefined) {
-    payload.options = asRecord(record.options);
+    const normalizedOptionsResult = normalizeProductFieldOptions({
+      fieldType: nextFieldType,
+      options: record.options,
+      defaultValue: record.default_value ?? existingDefaultValue,
+    });
+    if (normalizedOptionsResult.error) {
+      return { payload: {}, hasValues: false, error: normalizedOptionsResult.error };
+    }
+    payload.options = normalizedOptionsResult.options;
+    if (nextFieldType === "select") {
+      payload.default_value = (normalizedOptionsResult.defaultValue as string | null) ?? null;
+    }
+  }
+
+  if (record.options === undefined && record.default_value !== undefined && nextFieldType === "select") {
+    const normalizedDefaultResult = normalizeProductFieldOptions({
+      fieldType: nextFieldType,
+      options: existingOptions,
+      defaultValue: record.default_value,
+    });
+    if (normalizedDefaultResult.error) {
+      return { payload: {}, hasValues: false, error: normalizedDefaultResult.error };
+    }
+    payload.default_value = (normalizedDefaultResult.defaultValue as string | null) ?? null;
   }
 
   if (typeof record.field_class === "string") {
@@ -344,20 +385,6 @@ export async function PUT(
 
     
 
-    const body = await request.json();
-    const built = buildUpdatePayload(body);
-    if (!built.hasValues) {
-      return NextResponse.json({ error: "No valid fields to update." }, { status: 400 });
-    }
-
-    if (typeof built.payload.name === "string" && built.payload.name.trim().length === 0) {
-      return NextResponse.json({ error: "Attribute name cannot be empty." }, { status: 400 });
-    }
-
-    if (typeof built.payload.code === "string" && built.payload.code.trim().length === 0) {
-      return NextResponse.json({ error: "Attribute code cannot be empty." }, { status: 400 });
-    }
-
     const existingFieldResult = await fetchProductFieldById(
       contextResult.targetOrganizationId,
       fieldId
@@ -370,6 +397,27 @@ export async function PUT(
     const existingField = normalizeProductFieldRow(
       existingFieldResult.data as unknown as ProductFieldRow
     );
+    const body = await request.json();
+    const built = buildUpdatePayload(
+      body,
+      String(existingField.field_type || ""),
+      existingField.options,
+      existingField.default_value
+    );
+    if (built.error) {
+      return NextResponse.json({ error: built.error }, { status: 400 });
+    }
+    if (!built.hasValues) {
+      return NextResponse.json({ error: "No valid fields to update." }, { status: 400 });
+    }
+
+    if (typeof built.payload.name === "string" && built.payload.name.trim().length === 0) {
+      return NextResponse.json({ error: "Attribute name cannot be empty." }, { status: 400 });
+    }
+
+    if (typeof built.payload.code === "string" && built.payload.code.trim().length === 0) {
+      return NextResponse.json({ error: "Attribute code cannot be empty." }, { status: 400 });
+    }
     const isLockedField = existingField.is_locked === true || existingField.field_class !== "custom";
 
     if (isLockedField) {
@@ -383,7 +431,7 @@ export async function PUT(
       delete built.payload.value_storage_strategy;
     }
 
-    let updateResult = await supabase
+    let updateResult = await getSupabaseServer()
       .from("product_fields")
       .update(built.payload)
       .eq("id", fieldId)
@@ -392,7 +440,7 @@ export async function PUT(
       .single();
 
     if (isMissingColumnError(updateResult.error)) {
-      updateResult = await supabase
+      updateResult = await getSupabaseServer()
         .from("product_fields")
         .update(toLegacyPayload(built.payload))
         .eq("id", fieldId)
@@ -464,7 +512,7 @@ export async function DELETE(
       );
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_fields")
       .delete()
       .eq("id", fieldId)

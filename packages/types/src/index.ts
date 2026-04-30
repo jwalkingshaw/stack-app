@@ -19,6 +19,7 @@ export interface Organization {
   storageLimit: number;
   industry?: string;
   teamSize?: string;
+  defaultUiLocale?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -151,6 +152,8 @@ export interface DamAsset {
   releaseOnFile?: boolean | null;
   athleteNames?: string[];
   endorsementType?: string | null;
+  talentContractEnd?: string | null;
+  ftcDisclosureRequired?: boolean | null;
   visibleClaims?: string[];
   claimsApprovedMarkets?: string[];
   wadaRiskLevel?: string | null;

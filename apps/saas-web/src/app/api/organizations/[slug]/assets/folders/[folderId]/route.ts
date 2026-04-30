@@ -340,6 +340,7 @@ export async function POST(
       const { data: insertedAsset, error: insertError } = await supabase
         .from("dam_assets")
         .insert({
+          asset_ref: asset.s3_key,
           organization_id: organization.id,
           folder_id: destinationFolderId,
           filename: asset.filename,

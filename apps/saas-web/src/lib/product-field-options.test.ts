@@ -4,7 +4,7 @@ import test from "node:test";
 import {
   normalizeProductFieldOptions,
   normalizeProductFieldValue,
-} from "./product-field-options.ts";
+} from "./product-field-options";
 
 test("normalizeProductFieldOptions canonicalizes select options and defaults", () => {
   const result = normalizeProductFieldOptions({

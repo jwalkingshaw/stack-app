@@ -618,7 +618,7 @@ async function resolveScopedFieldMap(params: {
   }
 
   const byCode = new Map<string, ProductFieldRow>();
-  ((data || []) as ProductFieldRow[]).forEach((row) => {
+  ((data || []) as unknown as ProductFieldRow[]).forEach((row) => {
     const code = String(row.code || "").trim().toLowerCase();
     if (!code) return;
     byCode.set(code, {

@@ -1071,6 +1071,7 @@ export class DatabaseQueries {
     teamSize?: string;
     organizationType?: 'brand' | 'partner';
     partnerCategory?: 'retailer' | 'distributor' | 'wholesaler' | null;
+    defaultUiLocale?: string;
   }): Promise<Organization | null> {
     const { data: orgData, error } = await (this.supabase as any)
       .from('organizations')
@@ -1101,6 +1102,7 @@ export class DatabaseQueries {
       storageLimit: orgData.storage_limit,
       industry: orgData.industry,
       teamSize: orgData.team_size,
+      defaultUiLocale: orgData.default_ui_locale ?? null,
       createdAt: orgData.created_at,
       updatedAt: orgData.updated_at,
     };

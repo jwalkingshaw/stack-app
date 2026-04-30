@@ -7,7 +7,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "gen-types": "C:\\tools\\supabase\\supabase.exe gen types typescript --project-id xdmiteplsqydnxonhuiy > src/types.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.52.0",

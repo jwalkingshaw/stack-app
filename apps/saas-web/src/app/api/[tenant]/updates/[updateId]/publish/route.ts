@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { logSecurityEvent } from "@/lib/security-audit";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireUpdatesContext } from "../../_shared";
 import {
   appendUpdateActivity,
@@ -194,7 +194,7 @@ export async function POST(
         partnerOrganizationIds: emailEligiblePartnerIds,
       });
 
-      const { data: organization } = await supabaseServer
+      const { data: organization } = await getSupabaseServer()
         .from("organizations")
         .select("name,slug")
         .eq("id", access.context.organizationId)
@@ -256,7 +256,7 @@ export async function POST(
       partnerOrganizationIds: dispatchDecisions.map((recipient) => recipient.partnerOrganizationId),
     });
 
-    await logSecurityEvent(supabaseServer, {
+    await logSecurityEvent(getSupabaseServer(), {
       organizationId: access.context.organizationId,
       actorUserId: access.context.userId,
       action: "partner_update.publish",

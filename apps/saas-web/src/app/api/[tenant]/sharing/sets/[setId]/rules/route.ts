@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import type { Database, Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { invalidateCatalogVisibilityCaches } from "@/lib/catalog-cache";
 import { invalidatePartnerGrantCachesForBrand } from "@/lib/partner-brand-view";
 import {
@@ -395,7 +395,7 @@ async function getShareSet(params: {
   organizationId: string;
   setId: string;
 }): Promise<{ ok: true; data: ShareSetRecord } | { ok: false; status: number; error: string }> {
-  const query = (supabaseServer.from("share_sets") as unknown as {
+  const query = (getSupabaseServer().from("share_sets") as unknown as {
     select: (columns: string) => {
       eq: (column: string, value: string) => {
         eq: (column: string, value: string) => {
@@ -448,7 +448,7 @@ export async function GET(
       return NextResponse.json({ error: setResult.error }, { status: setResult.status });
     }
 
-    const query = (supabaseServer.from("share_set_dynamic_rules") as unknown as {
+    const query = (getSupabaseServer().from("share_set_dynamic_rules") as unknown as {
       select: (columns: string) => {
         eq: (column: string, value: string) => {
           eq: (column: string, value: string) => {
@@ -561,7 +561,7 @@ export async function POST(
       created_by: userId,
     };
 
-    const query = (supabaseServer.from("share_set_dynamic_rules") as unknown as {
+    const query = (getSupabaseServer().from("share_set_dynamic_rules") as unknown as {
       insert: (payload: ShareSetDynamicRuleMutationPayload) => {
         select: (columns: string) => {
           single: () => Promise<{
@@ -672,7 +672,7 @@ export async function PATCH(
       metadata: input!.metadata as Json,
     };
 
-    const query = (supabaseServer.from("share_set_dynamic_rules") as unknown as {
+    const query = (getSupabaseServer().from("share_set_dynamic_rules") as unknown as {
       update: (payload: ShareSetDynamicRuleMutationPayload) => {
         eq: (column: string, value: string) => {
           eq: (column: string, value: string) => {
@@ -749,7 +749,7 @@ export async function DELETE(
       return NextResponse.json({ error: "ruleId is required" }, { status: 400 });
     }
 
-    const { error } = await supabaseServer
+    const { error } = await getSupabaseServer()
       .from("share_set_dynamic_rules")
       .delete()
       .eq("organization_id", organization.id)

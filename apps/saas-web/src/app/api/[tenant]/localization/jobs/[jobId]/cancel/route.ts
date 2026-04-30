@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   isMissingLocalizationFoundationError,
   isOwnerOrAdmin,
@@ -26,7 +26,7 @@ export async function POST(
       );
     }
 
-    const { data: job, error: jobError } = await supabaseServer
+    const { data: job, error: jobError } = await getSupabaseServer()
       .from("translation_jobs")
       .select("id,status")
       .eq("organization_id", organization.id)
@@ -56,7 +56,7 @@ export async function POST(
     }
 
     const completedAt = new Date().toISOString();
-    const { error: updateError } = await supabaseServer
+    const { error: updateError } = await getSupabaseServer()
       .from("translation_jobs")
       .update({
         status: "cancelled",

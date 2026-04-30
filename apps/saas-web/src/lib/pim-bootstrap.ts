@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import {
   CORE_BASIC_INFO_GROUP_CODE,
   CORE_DOCUMENTATION_GROUP_CODE,
@@ -19,7 +20,7 @@ export async function ensureBasicInformationGroup(
     is_active: true
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from('field_groups')
     .upsert(payload, {
       onConflict: 'organization_id,code',
@@ -336,7 +337,7 @@ async function ensureDocumentationGroup(
     is_active: true
   };
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from('field_groups')
     .upsert(payload, {
       onConflict: 'organization_id,code',
@@ -359,7 +360,7 @@ async function ensureFieldsInGroup(
   fieldSeeds: CoreFieldSeed[]
 ): Promise<void> {
   for (const field of fieldSeeds) {
-    const { data: upsertedField, error: fieldError } = await supabase
+    const { data: upsertedField, error: fieldError } = await getSupabaseServer()
       .from('product_fields')
       .upsert(
         {
@@ -408,7 +409,7 @@ async function ensureFieldsInGroup(
       throw fieldError || new Error(`Failed to ensure core field ${field.code}`);
     }
 
-    const { error: assignmentError } = await supabase
+    const { error: assignmentError } = await getSupabaseServer()
       .from('product_field_group_assignments')
       .upsert(
         {
@@ -741,7 +742,7 @@ async function ensureServingInfoGroup(
   supabase: SupabaseClient<Database>,
   organizationId: string
 ): Promise<string> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from('field_groups')
     .upsert(
       {
@@ -769,7 +770,7 @@ async function ensureComplianceGroup(
   supabase: SupabaseClient<Database>,
   organizationId: string
 ): Promise<string> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from('field_groups')
     .select('id')
     .eq('organization_id', organizationId)
@@ -787,13 +788,13 @@ export async function ensureCoreBasicInformationFields(
   supabase: SupabaseClient<Database>,
   organizationId: string
 ): Promise<void> {
-  const basicInfoGroupId = await ensureBasicInformationGroup(supabase, organizationId);
-  const documentationGroupId = await ensureDocumentationGroup(supabase, organizationId);
-  const servingInfoGroupId = await ensureServingInfoGroup(supabase, organizationId);
-  const complianceGroupId = await ensureComplianceGroup(supabase, organizationId);
+  const basicInfoGroupId = await ensureBasicInformationGroup(getSupabaseServer(), organizationId);
+  const documentationGroupId = await ensureDocumentationGroup(getSupabaseServer(), organizationId);
+  const servingInfoGroupId = await ensureServingInfoGroup(getSupabaseServer(), organizationId);
+  const complianceGroupId = await ensureComplianceGroup(getSupabaseServer(), organizationId);
 
-  await ensureFieldsInGroup(supabase, organizationId, basicInfoGroupId, CORE_FIELD_SEEDS);
-  await ensureFieldsInGroup(supabase, organizationId, documentationGroupId, DOCUMENTATION_FIELD_SEEDS);
-  await ensureFieldsInGroup(supabase, organizationId, servingInfoGroupId, SERVING_INFO_FIELD_SEEDS);
-  await ensureFieldsInGroup(supabase, organizationId, complianceGroupId, COMPLIANCE_EXPANSION_FIELD_SEEDS);
+  await ensureFieldsInGroup(getSupabaseServer(), organizationId, basicInfoGroupId, CORE_FIELD_SEEDS);
+  await ensureFieldsInGroup(getSupabaseServer(), organizationId, documentationGroupId, DOCUMENTATION_FIELD_SEEDS);
+  await ensureFieldsInGroup(getSupabaseServer(), organizationId, servingInfoGroupId, SERVING_INFO_FIELD_SEEDS);
+  await ensureFieldsInGroup(getSupabaseServer(), organizationId, complianceGroupId, COMPLIANCE_EXPANSION_FIELD_SEEDS);
 }

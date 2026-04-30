@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient, type Database } from "@stack-app/database";
@@ -12,7 +13,7 @@ import {
 import { DEFAULT_LOCALE_CATALOG } from "@/lib/locale-catalog";
 
 const supabase = createServerClient();
-const db = new DatabaseQueries(supabase);
+const db = new DatabaseQueries(getSupabaseServer());
 
 const DEFAULT_MARKET_COUNTRY_CODE = "US";
 
@@ -56,7 +57,7 @@ async function ensureOrganizationLocale(params: {
 }): Promise<{ id: string }> {
   const normalizedCode = params.localeCode.trim();
 
-  const { data: existingLocale, error: existingLocaleError } = await supabase
+  const { data: existingLocale, error: existingLocaleError } = await getSupabaseServer()
     .from("locales")
     .select("id")
     .eq("organization_id", params.organizationId)
@@ -75,7 +76,7 @@ async function ensureOrganizationLocale(params: {
     return locale;
   }
 
-  const { data: createdLocaleRaw, error: createLocaleError } = await supabase
+  const { data: createdLocaleRaw, error: createLocaleError } = await getSupabaseServer()
     .from("locales")
     .insert({
       organization_id: params.organizationId,
@@ -99,7 +100,7 @@ async function resolveLocaleCatalogEntry(localeCode: string): Promise<{ code: st
   if (!normalizedCode) return null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
+  const { data, error } = await (getSupabaseServer() as any)
     .from("locale_catalog")
     .select("code,name")
     .eq("code", normalizedCode)
@@ -124,7 +125,7 @@ async function seedDefaultMarketForWorkspace(params: {
   defaultLocaleCode?: string | null;
 }): Promise<{ localeId: string | null }> {
   const normalizedCountryCode = params.countryCode.trim().toUpperCase();
-  const { data: countryRaw, error: countryError } = await supabase
+  const { data: countryRaw, error: countryError } = await getSupabaseServer()
     .from("countries")
     .select("code, name")
     .eq("code", normalizedCountryCode)
@@ -137,7 +138,7 @@ async function seedDefaultMarketForWorkspace(params: {
 
   const preset = MARKET_PRESETS[normalizedCountryCode] || { currencyCode: null, timezone: null };
 
-  const { data: marketRaw, error: marketError } = await supabase
+  const { data: marketRaw, error: marketError } = await getSupabaseServer()
     .from("markets")
     .insert({
       organization_id: params.organizationId,
@@ -156,7 +157,7 @@ async function seedDefaultMarketForWorkspace(params: {
     throw new Error("Failed to create default market.");
   }
 
-  const { data: countryLocalesRaw, error: countryLocalesError } = await supabase
+  const { data: countryLocalesRaw, error: countryLocalesError } = await getSupabaseServer()
     .from("country_locales")
     .select("locale_code, locale_name, is_primary")
     .eq("country_code", normalizedCountryCode)
@@ -199,7 +200,7 @@ async function seedDefaultMarketForWorkspace(params: {
     localeName: seededLocale.name,
   });
 
-  const { error: marketLocaleError } = await supabase
+  const { error: marketLocaleError } = await getSupabaseServer()
     .from("market_locales")
     .upsert(
       {
@@ -214,7 +215,7 @@ async function seedDefaultMarketForWorkspace(params: {
     throw new Error("Failed to assign default locale to default market.");
   }
 
-  const { error: updateMarketError } = await supabase
+  const { error: updateMarketError } = await getSupabaseServer()
     .from("markets")
     .update({ default_locale_id: locale.id })
     .eq("id", market.id);
@@ -236,7 +237,7 @@ async function seedLocalizationDefaultsForWorkspace(params: {
       ? ({ default_locale_id: params.defaultLocaleId.trim() } as Record<string, unknown>)
       : ({} as Record<string, unknown>);
 
-  const { error } = await supabase
+  const { error } = await getSupabaseServer()
     .from("organization_localization_settings")
     .upsert(
       {
@@ -394,7 +395,7 @@ export async function POST(request: NextRequest) {
       kindeOrgId = kindeOrg.code;
       console.log('✅ Kinde organization created:', kindeOrgId);
 
-      // Step 2: Create organization in Supabase
+      // Step 2: Create organization in getSupabaseServer()
       organization = await db.createWorkspace({
         name,
         slug,
@@ -410,11 +411,11 @@ export async function POST(request: NextRequest) {
       });
 
       if (!organization) {
-        throw new Error('Failed to create workspace in Supabase');
+        throw new Error('Failed to create workspace in getSupabaseServer()');
       }
 
-      console.log('✅ Supabase workspace created:', organization.id);
-      await ensureCoreBasicInformationFields(supabase, organization.id);
+      console.log('✅ getSupabaseServer() workspace created:', organization.id);
+      await ensureCoreBasicInformationFields(getSupabaseServer(), organization.id);
       const baselineSeed = await seedDefaultMarketForWorkspace({
         organizationId: organization.id,
         countryCode: normalizedDefaultMarketCountryCode,
@@ -442,7 +443,7 @@ export async function POST(request: NextRequest) {
       try {
         console.log('Adding user to organization_members table as workspace owner');
 
-        const { data: memberDataRaw, error: memberError } = await supabase
+        const { data: memberDataRaw, error: memberError } = await getSupabaseServer()
           .from('organization_members')
           .insert({
             organization_id: organization.id,
@@ -481,13 +482,13 @@ export async function POST(request: NextRequest) {
       if (organization && organization.id) {
         try {
           // Clean up organization_members
-          await supabase
+          await getSupabaseServer()
             .from('organization_members')
             .delete()
             .eq('organization_id', organization.id);
           
           // Clean up organization
-          await supabase
+          await getSupabaseServer()
             .from('organizations')
             .delete()
             .eq('id', organization.id);

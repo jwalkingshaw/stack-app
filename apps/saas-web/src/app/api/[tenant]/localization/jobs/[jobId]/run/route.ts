@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { isMissingLocalizationFoundationError, requireLocalizationAccess } from "../../../_shared";
 import { POST as createLocalizationJob } from "../../route";
 
@@ -16,7 +16,7 @@ export async function POST(
     if (!access.ok) return access.response;
 
     const { organization } = access.context;
-    const { data: job, error: jobError } = await supabaseServer
+    const { data: job, error: jobError } = await getSupabaseServer()
       .from("translation_jobs")
       .select(
         "id,status,job_type,source_locale_id,target_locale_ids,scope,field_selection,product_ids,provider_meta"

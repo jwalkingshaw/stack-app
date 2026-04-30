@@ -1,10 +1,11 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient } from "@stack-app/database";
 import { kindeAPI } from "@/lib/kinde-management";
 
 const supabase = createServerClient();
-const db = new DatabaseQueries(supabase);
+const db = new DatabaseQueries(getSupabaseServer());
 
 // GET /api/organizations/check-availability?slug=example-org
 export async function GET(request: NextRequest) {
@@ -94,12 +95,12 @@ export async function GET(request: NextRequest) {
         });
       }
     } catch (kindeError) {
-      console.warn('⚠️ Kinde check failed, falling back to Supabase check:', kindeError);
+      console.warn('⚠️ Kinde check failed, falling back to getSupabaseServer() check:', kindeError);
       
-      // Fallback to Supabase only if Kinde fails
+      // Fallback to getSupabaseServer() only if Kinde fails
       const existingSupabaseOrg = await db.getOrganizationBySlug(slug);
       if (existingSupabaseOrg) {
-        console.log('❌ Slug taken in Supabase (fallback):', slug);
+        console.log('❌ Slug taken in getSupabaseServer() (fallback):', slug);
         return NextResponse.json({
           available: false,
           reason: "taken",

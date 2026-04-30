@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { applyRLSContext } from "@/lib/rls-context";
 import { evaluateProductCompleteness } from "@/lib/family-attributes";
 import { getChannelScopedProductIds, resolveProductChannelScope } from "@/lib/product-channel-scope";
@@ -18,7 +18,6 @@ const ALLOWED_STATUS = [
 
 type ProductStatus = (typeof ALLOWED_STATUS)[number];
 
-const supabase = supabaseServer;
 
 const isProductStatus = (value: string): value is ProductStatus =>
   (ALLOWED_STATUS as readonly string[]).includes(value);
@@ -82,7 +81,7 @@ async function evaluateRequiredDocumentRules(params: {
     return { missingDocuments: [] as Array<{ code: string; label: string }> };
   }
 
-  const { data: rawRules, error: rulesError } = await supabase
+  const { data: rawRules, error: rulesError } = await getSupabaseServer()
     .from("product_family_document_rules")
     .select(
       "product_field_id,enforcement_level,channel_id,market_id,destination_id,locale_id"
@@ -142,7 +141,7 @@ async function evaluateRequiredDocumentRules(params: {
     return { missingDocuments: [] as Array<{ code: string; label: string }> };
   }
 
-  const { data: requiredFields, error: requiredFieldsError } = await supabase
+  const { data: requiredFields, error: requiredFieldsError } = await getSupabaseServer()
     .from("product_fields")
     .select("id,code,name")
     .eq("organization_id", params.organizationId)
@@ -160,7 +159,7 @@ async function evaluateRequiredDocumentRules(params: {
     });
   });
 
-  const { data: rawValues, error: valuesError } = await supabase
+  const { data: rawValues, error: valuesError } = await getSupabaseServer()
     .from("product_field_values")
     .select(
       "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json"
@@ -200,7 +199,7 @@ async function evaluateRequiredDocumentRules(params: {
 
   // DAM link fallback when product-field values are not yet persisted.
   try {
-    const { data: linkedDocs, error: linkedDocsError } = await supabase
+    const { data: linkedDocs, error: linkedDocsError } = await getSupabaseServer()
       .from("product_asset_links")
       .select("product_field_id,asset_id")
       .eq("organization_id", params.organizationId)
@@ -258,7 +257,7 @@ export async function PATCH(
       );
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const auth = new AuthService(db);
 
     const user = await auth.getCurrentUser();
@@ -290,7 +289,7 @@ export async function PATCH(
     if (channelId || !legacyCanEdit) {
       const channelScope = await resolveProductChannelScope({
         authService: auth,
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         userId: user.id,
         organizationId: organization.id,
         permissionKey: ScopedPermission.ProductPublishState,
@@ -300,7 +299,7 @@ export async function PATCH(
         return channelScope.response;
       }
       channelProductIds = await getChannelScopedProductIds({
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         organizationId: organization.id,
         channelId: channelScope.channelId,
       });
@@ -309,14 +308,14 @@ export async function PATCH(
       }
     }
 
-    await applyRLSContext(supabaseServer, {
+    await applyRLSContext(getSupabaseServer(), {
       userId: user.id,
       organizationId: organization.id,
       organizationCode: organization.kindeOrgId,
     });
 
     if (channelProductIds) {
-      const { data: targetProduct, error: targetProductError } = await supabase
+      const { data: targetProduct, error: targetProductError } = await getSupabaseServer()
         .from("products")
         .select("id")
         .eq("id", productId)
@@ -328,7 +327,7 @@ export async function PATCH(
       }
     }
 
-    const { data: existingProduct, error: existingProductError } = await supabase
+    const { data: existingProduct, error: existingProductError } = await getSupabaseServer()
       .from("products")
       .select("id,type,status")
       .eq("id", productId)
@@ -362,7 +361,7 @@ export async function PATCH(
     }
 
     if (status === "Active") {
-      const { data: product, error: productError } = await supabase
+      const { data: product, error: productError } = await getSupabaseServer()
         .from("products")
         .select("id, family_id, product_name, sku, barcode")
         .eq("id", productId)
@@ -380,7 +379,7 @@ export async function PATCH(
         );
       }
 
-      const { data: familyRules } = await supabase
+      const { data: familyRules } = await getSupabaseServer()
         .from("product_families")
         .select("require_sku_on_active, require_barcode_on_active")
         .eq("id", product.family_id)

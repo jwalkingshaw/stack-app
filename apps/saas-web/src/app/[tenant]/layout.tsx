@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { redirect } from 'next/navigation'
 import { getSafeUserData, isAuthenticated, requireUser } from '@/lib/auth-server'
 import { createServerClient, DatabaseQueries } from '@stack-app/database'
@@ -27,7 +28,7 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
 
   try {
     const supabase = createServerClient()
-    const db = new DatabaseQueries(supabase)
+    const db = new DatabaseQueries(getSupabaseServer())
 
     const organization = await db.getOrganizationBySlug(tenantSlug)
     if (!organization) {
@@ -61,7 +62,7 @@ export default async function TenantLayout({ children, params }: TenantLayoutPro
     const effectiveWorkspaces = accessibleWorkspaces
 
     try {
-      await supabase.rpc('update_workspace_access', {
+      await (getSupabaseServer() as any).rpc('update_workspace_access', {
         user_id: user.id,
         workspace_id: organization.id,
       })

@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
@@ -20,10 +21,6 @@ import {
 } from '@/lib/invitation-share-sets';
 import { applyPartnerInvitationWorkspaceGrants } from '@/lib/partner-invitation-grants';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const COOKIE_SECURE = process.env.NODE_ENV === 'production';
 const PENDING_INVITE_COOKIE = 'pending_invitation_token';
@@ -156,7 +153,7 @@ export async function POST(request: NextRequest) {
       maxRequests: 12,
     });
     if (!acceptRateLimit.allowed) {
-      await logRateLimitSecurityEvent(supabase, {
+      await logRateLimitSecurityEvent(getSupabaseServer(), {
         action: 'invitation_accept',
         userAgent: request.headers.get('user-agent'),
         metadata: {
@@ -167,7 +164,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Look up the invitation
-    const { data: rawInvitation, error: invitationError } = await supabase
+    const { data: rawInvitation, error: invitationError } = await getSupabaseServer()
       .from('invitations')
       .select(`
         id,
@@ -225,7 +222,7 @@ export async function POST(request: NextRequest) {
     } as InvitationRow;
 
     const invitationShareSetSnapshot = await loadInvitationShareSetAssignments({
-      supabase,
+      supabase: getSupabaseServer(),
       organizationId: invitation.organization_id,
       invitationId: invitation.id,
     });
@@ -359,7 +356,7 @@ export async function POST(request: NextRequest) {
     // Team seats are hard-capped. Re-check at acceptance time in case limits changed
     // after invite creation or legacy invites bypassed create-time checks.
     if (invitation.invitation_type === 'team_member') {
-      const { data: existingMembership, error: membershipLookupError } = await supabase
+      const { data: existingMembership, error: membershipLookupError } = await getSupabaseServer()
         .from('organization_members')
         .select('id')
         .eq('organization_id', invitation.organization_id)
@@ -398,13 +395,13 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Accept invitation in Supabase
-    const { error: acceptError } = await supabase.rpc(
+    // Accept invitation in getSupabaseServer()
+    const { error: acceptError } = await getSupabaseServer().rpc(
       'accept_invitation',
       {
         invitation_token_param: invitationToken,
         kinde_user_id_param: user.id,
-        user_email: user.email,
+        user_email: user.email ?? "",
       }
     );
 
@@ -437,13 +434,13 @@ export async function POST(request: NextRequest) {
     console.log('[invitations] Invitation accepted via RPC');
 
     try {
-      await supabase.rpc('log_security_event', {
+      await getSupabaseServer().rpc('log_security_event', {
         organization_id_param: invitation.organization_id,
         actor_user_id_param: user.id,
         action_param: 'invite.accepted',
         resource_type_param: 'invitation',
         resource_id_param: invitation.id,
-        user_agent_param: request.headers.get('user-agent'),
+        user_agent_param: request.headers.get('user-agent') ?? undefined,
         metadata_param: {
           invitation_type: invitation.invitation_type,
           invited_email: invitation.email,
@@ -460,7 +457,7 @@ export async function POST(request: NextRequest) {
       name?: string | null;
       slug?: string | null;
     }) => {
-      const { error: relationshipError } = await supabase
+      const { error: relationshipError } = await getSupabaseServer()
         .from('brand_partner_relationships')
         .upsert(
           {
@@ -485,7 +482,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const { error: invitationFinalizeError } = await supabase
+      const { error: invitationFinalizeError } = await getSupabaseServer()
         .from('invitations')
         .update({
           partner_organization_id: partnerOrg.id,
@@ -509,7 +506,7 @@ export async function POST(request: NextRequest) {
       }
 
       const appliedPartnerGrants = await applyPartnerInvitationWorkspaceGrants({
-        supabase,
+        supabase: getSupabaseServer(),
         organizationId: invitation.organization_id,
         invitationId: invitation.id,
         partnerOrganizationId: partnerOrg.id,
@@ -556,7 +553,7 @@ export async function POST(request: NextRequest) {
 
     // Partner onboarding flow
     if (invitation.invitation_type === 'partner' && invitation.requires_onboarding) {
-      const { data: membershipRows, error: membershipError } = await supabase
+      const { data: membershipRows, error: membershipError } = await getSupabaseServer()
         .from('organization_members')
         .select('organization_id, joined_at')
         .eq('kinde_user_id', user.id)
@@ -583,7 +580,7 @@ export async function POST(request: NextRequest) {
 
       let partnerOrgs: Array<{ id: string; name: string | null; slug: string | null }> = [];
       if (candidateOrgIds.length > 0) {
-        const { data: partnerOrgRows, error: partnerOrgsError } = await supabase
+        const { data: partnerOrgRows, error: partnerOrgsError } = await getSupabaseServer()
           .from('organizations')
           .select('id, name, slug, organization_type')
           .in('id', candidateOrgIds)
@@ -685,7 +682,7 @@ export async function POST(request: NextRequest) {
       let partnerData = partnerOrg;
 
       if (!partnerData && invitation.partner_organization_id) {
-        const { data: fetchedPartner } = await supabase
+        const { data: fetchedPartner } = await getSupabaseServer()
           .from('organizations')
           .select('id, name, slug')
           .eq('id', invitation.partner_organization_id)
@@ -701,7 +698,7 @@ export async function POST(request: NextRequest) {
       }
 
       const appliedPartnerGrants = await applyPartnerInvitationWorkspaceGrants({
-        supabase,
+        supabase: getSupabaseServer(),
         organizationId: invitation.organization_id,
         invitationId: invitation.id,
         partnerOrganizationId: partnerData.id,
@@ -745,7 +742,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Team member flow
-    const { data: memberRows, error: memberError } = await supabase
+    const { data: memberRows, error: memberError } = await getSupabaseServer()
       .from('organization_members')
       .select(`
         id,
@@ -768,7 +765,7 @@ export async function POST(request: NextRequest) {
 
     const defaultRole = (invitation.role_or_access_level as 'admin' | 'editor' | 'viewer') || 'viewer';
     const appliedTeamPermissions = await applyInvitePermissions({
-      supabase,
+      supabase: getSupabaseServer(),
       organizationId: invitation.organization_id,
       userId: user.id,
       userEmail: user.email || invitation.email,
@@ -871,7 +868,7 @@ export async function GET(request: NextRequest) {
       maxRequests: 30,
     });
     if (!previewRateLimit.allowed) {
-      await logRateLimitSecurityEvent(supabase, {
+      await logRateLimitSecurityEvent(getSupabaseServer(), {
         action: 'invitation_preview',
         userAgent: request.headers.get('user-agent'),
         metadata: {
@@ -883,7 +880,7 @@ export async function GET(request: NextRequest) {
 
     console.log('[invitations] Loading invitation details for preview');
 
-    const { data: rawInvitation, error: invitationError } = await supabase
+    const { data: rawInvitation, error: invitationError } = await getSupabaseServer()
       .from('invitations')
       .select(`
         id,

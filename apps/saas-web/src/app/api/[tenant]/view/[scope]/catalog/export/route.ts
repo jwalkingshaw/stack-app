@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 import {
@@ -10,10 +11,6 @@ import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 import { resolveStorageDeliveryUrl } from "@/lib/storage-url";
 import { normalizeProductFieldValue } from "@/lib/product-field-options";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_PRODUCTS = 500;
@@ -240,7 +237,7 @@ async function resolveProfileFieldRules(params: {
     return params.directRules;
   }
 
-  const { data: fieldGroupsRaw, error } = await supabase
+  const { data: fieldGroupsRaw, error } = await getSupabaseServer()
     .from("field_groups")
     .select(`
       id,
@@ -442,7 +439,7 @@ export async function GET(
     }
 
     // Load channel first, then rules separately to avoid embedded relation failures.
-    const { data: profileRaw, error: profileError } = await supabase
+    const { data: profileRaw, error: profileError } = await getSupabaseServer()
       .from("output_channel_profiles")
       .select("id, name, code, profile_type")
       .eq("id", profileId)
@@ -454,7 +451,7 @@ export async function GET(
       return NextResponse.json({ error: "Channel profile not found" }, { status: 404 });
     }
 
-    const { data: ruleRowsRaw, error: rulesError } = await supabase
+    const { data: ruleRowsRaw, error: rulesError } = await getSupabaseServer()
       .from("output_profile_field_rules")
       .select("field_code, is_required, max_length, notes")
       .eq("profile_id", profileId);
@@ -488,7 +485,7 @@ export async function GET(
     }
 
     // Load field definitions (brand org)
-    const { data: fieldDefsRaw, error: fieldDefsError } = await supabase
+    const { data: fieldDefsRaw, error: fieldDefsError } = await getSupabaseServer()
       .from("product_fields")
       .select("id, code, name, field_type, options, is_localizable")
       .eq("organization_id", brandOrganizationId)
@@ -509,7 +506,7 @@ export async function GET(
     const fieldByCode = new Map(fieldDefs.map((f) => [f.code, f]));
     const fieldIds = fieldDefs.map((f) => f.id);
 
-    const { data: productsRaw, error: productsError } = await supabase
+    const { data: productsRaw, error: productsError } = await getSupabaseServer()
       .from("products")
       .select(
         "id, product_name, scin, sku, barcode, brand_line, short_description, long_description, meta_title, meta_description, features, specifications, keywords, dimensions, weight_g, launch_date, primary_image_url"
@@ -528,7 +525,7 @@ export async function GET(
     // Bulk load field values
     let allValues: FieldValueRow[] = [];
     if (fieldIds.length > 0) {
-      const { data: valuesRaw, error: valuesError } = await supabase
+      const { data: valuesRaw, error: valuesError } = await getSupabaseServer()
         .from("product_field_values")
         .select(
           "product_id, product_field_id, value_text, value_number, value_boolean, value_date, value_datetime, value_json, locale_id, market_id, channel_id, destination_id, channel, locale"
@@ -599,7 +596,7 @@ export async function GET(
     // Resolve asset CDN URLs
     const assetUrlById = new Map<string, string | null>();
     if (allAssetIds.size > 0) {
-      const { data: assetsRaw } = await supabase
+      const { data: assetsRaw } = await getSupabaseServer()
         .from("dam_assets")
         .select("id, s3_key, s3_url")
         .eq("organization_id", brandOrganizationId)

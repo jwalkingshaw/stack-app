@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { generateProductLinkSuggestions } from "@stack-app/ui";
@@ -8,10 +9,6 @@ import {
   resolveTenantBrandViewContext,
 } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type SuggestionProductRow = {
   id: string;
@@ -103,12 +100,12 @@ export async function GET(
       return NextResponse.json({ error: "Asset not found or access denied" }, { status: 404 });
     }
 
-    const { data: asset, error: assetError } = await supabase
+    const { data: asset, error: assetError } = await (getSupabaseServer() as any)
       .from("dam_assets")
       .select("id, filename, original_filename, file_type, auto_link_suggestions")
       .eq("id", assetId)
       .eq("organization_id", targetOrganizationId)
-      .single();
+      .single() as { data: { id: string; filename: string | null; original_filename: string | null; file_type: string | null; auto_link_suggestions: unknown[] | null } | null; error: unknown };
 
     if (assetError || !asset) {
       return NextResponse.json({ error: "Asset not found or access denied" }, { status: 404 });
@@ -126,7 +123,7 @@ export async function GET(
       });
     }
 
-    let productsQuery = supabase
+    let productsQuery = getSupabaseServer()
       .from("products")
       .select("id, sku, product_name, brand:brand_line")
       .eq("organization_id", targetOrganizationId)
@@ -157,12 +154,12 @@ export async function GET(
     }
 
     const suggestions = generateProductLinkSuggestions(
-      asset.original_filename || asset.filename,
+      asset.original_filename ?? asset.filename ?? "",
       mapSuggestionProducts((products || []) as SuggestionProductRow[])
     );
 
     if (suggestions.length > 0 && context.mode !== "partner_brand") {
-      await supabase
+      await getSupabaseServer()
         .from("dam_assets")
         .update({
           auto_link_suggestions: suggestions,
@@ -227,7 +224,7 @@ export async function POST(
     }
 
     const targetOrganizationId = context.targetOrganization.id;
-    const { data: asset, error: assetError } = await supabase
+    const { data: asset, error: assetError } = await getSupabaseServer()
       .from("dam_assets")
       .select("id, filename, original_filename, file_type")
       .eq("id", assetId)
@@ -238,7 +235,7 @@ export async function POST(
       return NextResponse.json({ error: "Asset not found or access denied" }, { status: 404 });
     }
 
-    const { data: products, error: productsError } = await supabase
+    const { data: products, error: productsError } = await getSupabaseServer()
       .from("products")
       .select("id, sku, product_name, brand:brand_line")
       .eq("organization_id", targetOrganizationId)
@@ -249,11 +246,11 @@ export async function POST(
     }
 
     const suggestions = generateProductLinkSuggestions(
-      asset.original_filename || asset.filename,
+      asset.original_filename ?? asset.filename ?? "",
       mapSuggestionProducts((products || []) as SuggestionProductRow[])
     );
 
-    await supabase
+    await getSupabaseServer()
       .from("dam_assets")
       .update({
         auto_link_suggestions: suggestions,

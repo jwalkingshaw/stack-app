@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
@@ -21,10 +22,6 @@ import {
   type OrganizationBaselineScope,
 } from '@/lib/default-market-locale';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const PRODUCT_SELECT_WITH_BARCODE = `
   id,
@@ -324,7 +321,7 @@ async function resolveAllowedFieldCodesForPartnerVisibility(params: {
     return allowedCodes;
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_family_field_groups")
     .select(
       "field_groups!field_group_id(code,product_field_group_assignments(product_fields!product_field_id(code)))"
@@ -595,7 +592,7 @@ async function resolveScopedFieldMap(params: {
   }
 
   const runFieldQuery = (select: string) =>
-    supabase
+    getSupabaseServer()
       .from("product_fields")
       .select(select)
       .eq("organization_id", params.organizationId)
@@ -618,7 +615,7 @@ async function resolveScopedFieldMap(params: {
   }
 
   const byCode = new Map<string, ProductFieldRow>();
-  ((data || []) as ProductFieldRow[]).forEach((row) => {
+  ((data || []) as unknown as ProductFieldRow[]).forEach((row) => {
     const code = String(row.code || "").trim().toLowerCase();
     if (!code) return;
     byCode.set(code, {
@@ -672,12 +669,12 @@ async function applyScopedProductValueOverrides<T extends Record<string, unknown
     return params.product;
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_field_values")
     .select(
       "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,channel,locale"
     )
-    .eq("product_id", params.product.id)
+    .eq("product_id", params.product.id as string)
     .in("product_field_id", fieldIds);
 
   if (error) {
@@ -748,7 +745,7 @@ async function loadScopedProductFieldValueMap(params: {
   includeSystemFields?: boolean;
   baseline: OrganizationBaselineScope | null;
 }): Promise<Record<string, unknown>> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_field_values")
     .select(
       "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,channel,locale,product_fields!inner(id,code,name,field_type,options,organization_id)"
@@ -815,7 +812,7 @@ async function validateScopedWriteScope(params: {
   }
 
   const validation = await validateAuthoringScope({
-    supabase,
+    supabase: getSupabaseServer(),
     organizationId: params.organizationId,
     rawScope: {
       mode: "scoped",
@@ -835,7 +832,7 @@ async function validateScopedWriteScope(params: {
   }
 
   if (params.scope.localeId) {
-    const { data: locale, error: localeError } = await supabase
+    const { data: locale, error: localeError } = await getSupabaseServer()
       .from("locales")
       .select("id")
       .eq("organization_id", params.organizationId)
@@ -926,7 +923,7 @@ async function persistScopedProductValueUpdates(params: {
     if (!didNormalizeBaselineScope) return;
     if (!params.scope.marketId && !params.scope.localeId && !params.scope.localeCode) return;
 
-    let cleanupQuery = supabase
+    let cleanupQuery = getSupabaseServer()
       .from("product_field_values")
       .delete()
       .eq("product_id", params.productId)
@@ -992,7 +989,7 @@ async function persistScopedProductValueUpdates(params: {
     const nextNormalizedValue = normalizedValueResult.value;
 
     if (nextNormalizedValue === null || typeof nextNormalizedValue === "undefined") {
-      let deleteQuery = supabase
+      let deleteQuery = getSupabaseServer()
         .from("product_field_values")
         .delete()
         .eq("product_id", params.productId)
@@ -1025,7 +1022,7 @@ async function persistScopedProductValueUpdates(params: {
       scope: normalizedScope,
     });
 
-    const { error: insertError } = await supabase.from("product_field_values").insert({
+    const { error: insertError } = await getSupabaseServer().from("product_field_values").insert({
       product_id: params.productId,
       product_field_id: field.id,
       ...scopedPayload,
@@ -1043,7 +1040,7 @@ async function persistScopedProductValueUpdates(params: {
         }
 
         // Retry as update for same scope tuple to handle concurrent save collisions.
-        let retryQuery = supabase
+        let retryQuery = getSupabaseServer()
           .from("product_field_values")
           .select("id")
           .eq("product_id", params.productId)
@@ -1067,7 +1064,7 @@ async function persistScopedProductValueUpdates(params: {
           .maybeSingle();
 
         if (!retryLookupError && retryExisting?.id) {
-          const { error: retryUpdateError } = await supabase
+          const { error: retryUpdateError } = await getSupabaseServer()
             .from("product_field_values")
             .update({
               ...scopedPayload,
@@ -1120,7 +1117,7 @@ async function resolveChannelScopedProductIds(params: {
     const scopedIds = new Set<string>();
     for (const channelId of scopedPermissions.channelIds) {
       const ids = await getChannelScopedProductIds({
-        supabase: supabase,
+        supabase: getSupabaseServer(),
         organizationId: params.organizationId,
         channelId,
       });
@@ -1144,7 +1141,7 @@ async function getProductByIdentifier(params: {
   const candidateId = uuidPrefixMatch?.[1] || normalizedIdentifier;
 
   if (UUID_PATTERN.test(candidateId)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from('products')
       .select(params.selectClause)
       .eq('id', candidateId)
@@ -1156,7 +1153,7 @@ async function getProductByIdentifier(params: {
     }
   }
 
-  return await supabase
+  return await getSupabaseServer()
     .from('products')
     .select(params.selectClause)
     .ilike('sku', normalizedIdentifier)
@@ -1186,7 +1183,7 @@ export async function GET(
 
     const { context } = contextResult;
     const targetOrganizationId = context.targetOrganization.id;
-    const baselineScope = await resolveOrganizationBaselineScope(supabase, targetOrganizationId);
+    const baselineScope = await resolveOrganizationBaselineScope(getSupabaseServer(), targetOrganizationId);
     let marketCatalogProductIds: string[] | null = null;
     if (requestScope.marketId) {
       const marketCatalog = await resolveMarketCatalogProductIds({
@@ -1351,7 +1348,7 @@ export async function GET(
     let variants = null;
     if (hydratedProduct.type === 'parent' && hydratedProduct.has_variants) {
       const buildVariantQuery = (selectClause: string) => {
-        let query = supabase
+        let query = getSupabaseServer()
           .from('products')
           .select(selectClause)
           .eq('parent_id', hydratedProduct.id)
@@ -1433,7 +1430,7 @@ export async function PUT(
     if (!organizationId) {
       return NextResponse.json({ error: 'Organization context is missing.' }, { status: 500 });
     }
-    const baselineScope = await resolveOrganizationBaselineScope(supabase, organizationId);
+    const baselineScope = await resolveOrganizationBaselineScope(getSupabaseServer(), organizationId);
 
     await setDatabaseUserContext(user.id, kindeOrg?.orgCode);
 
@@ -1471,7 +1468,7 @@ export async function PUT(
 
       if (hasMarketplaceAuthoringScope) {
         const validatedMarketplaceScope = await validateAuthoringScope({
-          supabase,
+          supabase: getSupabaseServer(),
           organizationId,
           rawScope: (normalizedMarketplaceContent as Record<string, unknown>).authoringScope ?? null,
         });
@@ -1489,7 +1486,7 @@ export async function PUT(
 
     if (hasInitialScope) {
       const validatedInitialScope = await validateAuthoringScope({
-        supabase,
+        supabase: getSupabaseServer(),
         organizationId,
         rawScope: updateData.initialScope ?? null,
       });
@@ -1509,11 +1506,11 @@ export async function PUT(
       updateData.marketplace_content = normalizedMarketplaceContent;
     }
 
-    const { data: existingProduct, error: existingProductError } = await supabase
+    const { data: existingProduct, error: existingProductError } = await getSupabaseServer()
       .from('products')
       .select('id,type,status')
       .eq('id', productId)
-      .eq('organization_id', access.organizationId)
+      .eq('organization_id', access.organizationId ?? "")
       .maybeSingle();
 
     if (existingProductError) {
@@ -1693,7 +1690,7 @@ export async function PUT(
           }
         }
 
-        const { error: rowScopedUpdateError } = await supabase
+        const { error: rowScopedUpdateError } = await getSupabaseServer()
           .from("products")
           .update({
             ...rowScopedUpdateData,
@@ -1865,7 +1862,7 @@ export async function PUT(
 
     let product: (Record<string, unknown> & { id: string; barcode: string | null }) | null = null;
     if (Object.keys(rowUpdateData).length > 0) {
-      let updateResult = await supabase
+      let updateResult = await getSupabaseServer()
         .from('products')
         .update(rowUpdateData)
         .eq('id', productId)
@@ -1881,7 +1878,7 @@ export async function PUT(
         } as Record<string, unknown>;
         delete legacyUpdateData.barcode;
 
-        updateResult = await supabase
+        updateResult = await getSupabaseServer()
           .from('products')
           .update(legacyUpdateData)
           .eq('id', productId)
@@ -2025,7 +2022,7 @@ export async function DELETE(
 
     await setDatabaseUserContext(user.id, kindeOrg?.orgCode);
 
-    const { data: product, error: checkError } = await supabase
+    const { data: product, error: checkError } = await getSupabaseServer()
       .from('products')
       .select('id, type, has_variants, variant_count, sku')
       .eq('id', productId)
@@ -2039,7 +2036,7 @@ export async function DELETE(
     if (product.type === 'parent') {
       // Use live child count instead of cached has_variants/variant_count so
       // parent deletes work immediately after variant deletes in the same workflow.
-      const { count: childCount, error: childCountError } = await supabase
+      const { count: childCount, error: childCountError } = await getSupabaseServer()
         .from('products')
         .select('id', { count: 'exact', head: true })
         .eq('organization_id', organizationId)
@@ -2067,7 +2064,7 @@ export async function DELETE(
       }
     }
 
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await getSupabaseServer()
       .from('products')
       .delete()
       .eq('id', productId)

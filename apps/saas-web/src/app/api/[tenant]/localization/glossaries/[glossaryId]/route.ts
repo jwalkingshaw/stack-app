@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   isMissingLocalizationFoundationError,
   isOwnerOrAdmin,
@@ -64,7 +64,7 @@ export async function PATCH(
       updatePayload.is_active = Boolean(body?.is_active);
     }
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("translation_glossaries")
       .update(updatePayload)
       .eq("organization_id", organization.id)
@@ -110,7 +110,7 @@ export async function DELETE(
       );
     }
 
-    const { error } = await supabaseServer
+    const { error } = await getSupabaseServer()
       .from("translation_glossaries")
       .delete()
       .eq("organization_id", organization.id)

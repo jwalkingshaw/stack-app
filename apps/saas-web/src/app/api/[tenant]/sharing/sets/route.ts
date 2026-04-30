@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import type { Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { logSecurityEvent } from "@/lib/security-audit";
 import {
   isMissingColumnError,
@@ -137,7 +137,7 @@ async function queryShareSetItemsIncludingDestinations(params: {
   organizationId: string;
   setIds: string[];
 }): Promise<ShareSetItemsSelectResult> {
-  const dynamicSupabase = supabaseServer as unknown as {
+  const dynamicSupabase = getSupabaseServer() as unknown as {
     from: (table: string) => {
       select: (columns: string) => {
         eq: (
@@ -178,7 +178,7 @@ async function queryAssetSets(params: {
   const rangeFrom = (page - 1) * pageSize;
   const rangeTo = rangeFrom + pageSize - 1;
 
-  let withFolders = supabaseServer
+  let withFolders = getSupabaseServer()
     .from("dam_collections")
     .select("id,name,asset_ids,folder_ids,created_at,updated_at", {
       count: "exact",
@@ -200,7 +200,7 @@ async function queryAssetSets(params: {
     return withFoldersResult;
   }
 
-  let withoutFolders = supabaseServer
+  let withoutFolders = getSupabaseServer()
     .from("dam_collections")
     .select("id,name,asset_ids,created_at,updated_at", {
       count: "exact",
@@ -227,7 +227,7 @@ async function queryShareSetSummaries(params: {
   const rangeFrom = (page - 1) * pageSize;
   const rangeTo = rangeFrom + pageSize - 1;
 
-  let query = supabaseServer
+  let query = getSupabaseServer()
     .from("share_sets")
     .select("id,module_key,name,description,created_at,updated_at", {
       count: "exact",
@@ -269,7 +269,7 @@ async function queryShareSetSummaries(params: {
       organizationId,
       setIds,
     }),
-    supabaseServer
+    getSupabaseServer()
       .from("partner_share_set_grants")
       .select("share_set_id,partner_organization_id,status")
       .eq("organization_id", organizationId)
@@ -279,7 +279,7 @@ async function queryShareSetSummaries(params: {
 
   let itemResult = itemResultWithDestination;
   if (itemResult.error && isMissingColumnError(itemResult.error)) {
-    const legacyItemResult = await supabaseServer
+    const legacyItemResult = await getSupabaseServer()
       .from("share_set_items")
       .select("share_set_id,resource_type,market_ids,channel_ids,locale_ids")
       .eq("organization_id", organizationId)
@@ -350,7 +350,7 @@ async function countShareSetsByModule(
   organizationId: string,
   moduleKey: ShareSetModule
 ): Promise<number> {
-  const { count, error } = await supabaseServer
+  const { count, error } = await getSupabaseServer()
     .from("share_sets")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", organizationId)
@@ -516,7 +516,7 @@ async function buildLegacyAssetSetSummaries(params: {
   const grantCounts = new Map<string, { memberIds: Set<string>; permissionCount: number }>();
 
   if (ids.length > 0) {
-    const { data: grants, error: grantsError } = await supabaseServer
+    const { data: grants, error: grantsError } = await getSupabaseServer()
       .from("member_scope_permissions")
       .select("collection_id,member_id,permission_key")
       .eq("organization_id", organizationId)
@@ -588,7 +588,7 @@ async function queryCompactShareSetOptions(params: {
   const rangeFrom = (page - 1) * pageSize;
   const rangeTo = rangeFrom + pageSize - 1;
 
-  let query = supabaseServer
+  let query = getSupabaseServer()
     .from("share_sets")
     .select("id,module_key,name", {
       count: "exact",
@@ -893,7 +893,7 @@ export async function POST(
         ? body.metadata
         : {};
 
-    const insertResult = await supabaseServer
+    const insertResult = await getSupabaseServer()
       .from("share_sets")
       .insert({
         organization_id: organization.id,
@@ -908,7 +908,7 @@ export async function POST(
 
     if (insertResult.error) {
       if (isMissingShareSetFoundationError(insertResult.error) && moduleValue === "assets") {
-        const legacyInsert = await supabaseServer
+        const legacyInsert = await getSupabaseServer()
           .from("dam_collections")
           .insert({
             organization_id: organization.id,
@@ -927,7 +927,7 @@ export async function POST(
           );
         }
 
-        await logSecurityEvent(supabaseServer, {
+        await logSecurityEvent(getSupabaseServer(), {
           organizationId: organization.id,
           actorUserId: userId,
           action: "sharing.set.created",
@@ -970,7 +970,7 @@ export async function POST(
       return NextResponse.json({ error: "Failed to create saved scope" }, { status: 500 });
     }
 
-    await logSecurityEvent(supabaseServer, {
+    await logSecurityEvent(getSupabaseServer(), {
       organizationId: organization.id,
       actorUserId: userId,
       action: "sharing.set.created",

@@ -1,13 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess, setDatabaseUserContext } from "@/lib/user-context";
 import { normalizeProductFieldValue } from "@/lib/product-field-options";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // Fields that live directly on the products table (base/unscoped only)
 const SYSTEM_PRODUCT_COLUMNS = new Set([
@@ -127,7 +124,7 @@ export async function POST(
     )];
     const fieldMap = new Map<string, { id: string; field_type: string; name: string | null; options: Record<string, unknown> | null }>();
     if (customCodes.length > 0) {
-      const { data: fields } = await supabase
+      const { data: fields } = await getSupabaseServer()
         .from("product_fields")
         .select("id, code, name, field_type, options")
         .eq("organization_id", organizationId)
@@ -161,7 +158,7 @@ export async function POST(
       try {
         if (isSystemField && isBaseScope) {
           // Write directly to products table
-          const { error } = await supabase
+          const { error } = await getSupabaseServer()
             .from("products")
             .update({ [fieldCode]: value, updated_at: new Date().toISOString() })
             .eq("id", productId)
@@ -174,7 +171,7 @@ export async function POST(
 
           if (isSystemField) {
             // System field with scope — look up or create the product_fields entry
-            const { data: existing } = await supabase
+            const { data: existing } = await getSupabaseServer()
               .from("product_fields")
               .select("id")
               .eq("organization_id", organizationId)
@@ -184,7 +181,7 @@ export async function POST(
             if (existing?.id) {
               productFieldId = existing.id as string;
             } else {
-              const { data: created, error: createError } = await supabase
+              const { data: created, error: createError } = await getSupabaseServer()
                 .from("product_fields")
                 .insert({
                   organization_id: organizationId,
@@ -224,7 +221,7 @@ export async function POST(
             throw new Error(normalizedValueResult.error);
           }
           if (normalizedValueResult.value === null || typeof normalizedValueResult.value === "undefined") {
-            let deleteQuery = supabase
+            let deleteQuery = getSupabaseServer()
               .from("product_field_values")
               .delete()
               .eq("product_id", productId)
@@ -250,7 +247,7 @@ export async function POST(
           };
 
           // Scope-aware lookup for existing row
-          let lookupQuery = supabase
+          let lookupQuery = getSupabaseServer()
             .from("product_field_values")
             .select("id")
             .eq("product_id", productId)
@@ -263,23 +260,23 @@ export async function POST(
           const { data: existingRow } = await lookupQuery.maybeSingle();
 
           if (existingRow?.id) {
-            const { error } = await supabase
+            const { error } = await getSupabaseServer()
               .from("product_field_values")
-              .update(record)
+              .update(record as never)
               .eq("id", existingRow.id);
             if (error) throw new Error(error.message);
           } else {
-            const { error } = await supabase
+            const { error } = await getSupabaseServer()
               .from("product_field_values")
-              .insert({ product_id: productId, product_field_id: productFieldId, ...record });
+              .insert({ product_id: productId, product_field_id: productFieldId, ...record } as never);
             if (error) {
               if (error.code === "23505") {
                 // Concurrent insert — retry as update
                 const { data: retryRow } = await lookupQuery.maybeSingle();
                 if (retryRow?.id) {
-                  const { error: retryError } = await supabase
+                  const { error: retryError } = await getSupabaseServer()
                     .from("product_field_values")
-                    .update(record)
+                    .update(record as never)
                     .eq("id", retryRow.id);
                   if (retryError) throw new Error(retryError.message);
                 }

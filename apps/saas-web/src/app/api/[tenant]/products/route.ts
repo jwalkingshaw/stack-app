@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess, setDatabaseUserContext } from "@/lib/user-context";
@@ -22,10 +23,6 @@ import { cache as redisCache, CacheKeys } from "@/lib/redis";
 import { normalizeProductFieldValue } from "@/lib/product-field-options";
 import { verifyTenantAccess } from "@/lib/tenant-auth";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const PRODUCT_SELECT_WITH_BARCODE = `
   id,
@@ -556,7 +553,7 @@ async function resolveScopedFieldMap(params: {
   );
   if (candidateCodes.length === 0) return new Map();
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_fields")
     .select("id,code,name,field_type,options")
     .eq("organization_id", params.organizationId)
@@ -616,7 +613,7 @@ async function applyScopedOverridesForOrganization(params: {
   const fieldIds = Array.from(new Set(Array.from(fieldMap.values()).map((row) => row.id)));
   if (fieldIds.length === 0) return params.products;
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_field_values")
     .select(
       "product_id,product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,channel,locale"
@@ -759,7 +756,7 @@ async function fetchProductsForOrganization(params: {
   const selectWithUpc = isTableMode ? PRODUCT_TABLE_SELECT_WITH_UPC : PRODUCT_SELECT_WITH_UPC;
 
   const buildProductQuery = (selectClause: string) => {
-    let query = supabase
+    let query = getSupabaseServer()
       .from("products")
       .select(selectClause)
       .eq("organization_id", params.organizationId)
@@ -796,7 +793,7 @@ async function resolveOrganizationLookup(organizationIds: string[]): Promise<Org
     return {};
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("organizations")
     .select("id,slug,name")
     .in("id", organizationIds);
@@ -1158,7 +1155,7 @@ export async function GET(
           const scopedIds = new Set<string>();
           for (const channelId of scopedPermissions.channelIds) {
             const productIds = await getChannelScopedProductIds({
-              supabase,
+              supabase: getSupabaseServer(),
               organizationId: targetOrganizationId,
               channelId,
             });
@@ -1353,7 +1350,7 @@ export async function POST(
 
     const validatedInitialScope = hasInitialScope
       ? await validateAuthoringScope({
-          supabase,
+          supabase: getSupabaseServer(),
           organizationId,
           rawScope: normalizedInitialScope,
         })
@@ -1439,7 +1436,7 @@ export async function POST(
       }
     }
 
-    const { data: family, error: familyError } = await supabase
+    const { data: family, error: familyError } = await getSupabaseServer()
       .from("product_families")
       .select("id")
       .eq("id", cleanFamilyId)
@@ -1488,9 +1485,9 @@ export async function POST(
       created_by: user.id,
     };
 
-    let productResult = await supabase
+    let productResult = await getSupabaseServer()
       .from("products")
-      .insert(insertPayload)
+      .insert(insertPayload as never)
       .select(PRODUCT_RETURN_SELECT_WITH_BARCODE)
       .single();
 
@@ -1502,9 +1499,9 @@ export async function POST(
       };
       delete legacyPayload["barcode"];
 
-      productResult = await supabase
+      productResult = await getSupabaseServer()
         .from("products")
-        .insert(legacyPayload)
+        .insert(legacyPayload as never)
         .select(PRODUCT_RETURN_SELECT_WITH_UPC)
         .single();
     }

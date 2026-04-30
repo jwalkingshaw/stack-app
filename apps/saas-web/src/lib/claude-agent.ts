@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@stack-app/database";
@@ -8,7 +9,11 @@ import {
   type AiTaskEnvelope,
 } from "@/lib/ai-foundation";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let _anthropic: Anthropic | null = null;
+function getAnthropic() {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _anthropic;
+}
 
 const MODEL = "claude-sonnet-4-6";
 const MAX_ITERATIONS = 15;
@@ -356,7 +361,7 @@ async function executeTool(
   switch (toolName) {
     case "query_products": {
       const limit = Number(toolInput.limit ?? 50);
-      let query = supabase
+      let query = getSupabaseServer()
         .from("products")
         .select("id, product_name, sku, type, status, short_description, long_description, family_id, product_families!family_id(name)")
         .eq("organization_id", organizationId)
@@ -379,7 +384,7 @@ async function executeTool(
 
     case "query_assets": {
       const limit = Number(toolInput.limit ?? 50);
-      let query = supabase
+      let query = getSupabaseServer()
         .from("dam_assets")
         .select("id, name, asset_category, s3_url, created_at, tags")
         .eq("organization_id", organizationId)
@@ -400,7 +405,7 @@ async function executeTool(
     case "check_eligibility": {
       const action = toolInput.action as string;
       if (action === "translate" && toolInput.locale_code) {
-        const { data } = await supabase
+        const { data } = await getSupabaseServer()
           .from("locales")
           .select("code, name")
           .eq("code", toolInput.locale_code as string)
@@ -420,7 +425,7 @@ async function executeTool(
     }
 
     case "get_output_profiles": {
-      const { data, error } = await supabase
+      const { data, error } = await getSupabaseServer()
         .from("output_channel_profiles")
         .select("id, name, delivery_target")
         .eq("organization_id", organizationId);
@@ -429,7 +434,7 @@ async function executeTool(
     }
 
     case "get_partners": {
-      const { data, error } = await supabase
+      const { data, error } = await getSupabaseServer()
         .from("brand_partner_relationships")
         .select("id, partner_organization_id")
         .eq("brand_organization_id", organizationId)
@@ -619,7 +624,7 @@ export async function runAgentTask(params: {
 
       onEvent({ type: "status", message: `Thinking… (step ${iterations})` });
 
-      const response = await anthropic.messages.create({
+      const response = await getAnthropic().messages.create({
         model: MODEL,
         max_tokens: 4096,
         system: [

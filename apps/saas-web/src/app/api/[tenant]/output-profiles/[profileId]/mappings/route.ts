@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 function normalizeToken(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -18,7 +15,7 @@ function normalizeNullableText(value: unknown): string | null {
 }
 
 async function verifyProfileOwnership(organizationId: string, profileId: string) {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("output_channel_profiles")
     .select("id")
     .eq("id", profileId)
@@ -47,8 +44,8 @@ export async function GET(
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
 
-    const { data, error } = await supabase
-      .from("output_profile_attribute_mappings" as never)
+    const { data, error } = await getSupabaseServer()
+      .from("output_profile_attribute_mappings")
       .select(
         "id,attribute_code,attribute_label,source_mode,source_field_code,override_field_code,source_slot_code,constant_value,resolution_rule,is_required,max_length,notes,sort_order,metadata"
       )
@@ -137,8 +134,8 @@ export async function POST(
       return NextResponse.json({ error: "No valid mappings provided" }, { status: 400 });
     }
 
-    const { data, error } = await supabase
-      .from("output_profile_attribute_mappings" as never)
+    const { data, error } = await getSupabaseServer()
+      .from("output_profile_attribute_mappings")
       .upsert(normalized as never, {
         onConflict: "profile_id,attribute_code",
       })
@@ -186,8 +183,8 @@ export async function DELETE(
       return NextResponse.json({ error: "attribute_code query param required" }, { status: 400 });
     }
 
-    const { error } = await supabase
-      .from("output_profile_attribute_mappings" as never)
+    const { error } = await getSupabaseServer()
+      .from("output_profile_attribute_mappings")
       .delete()
       .eq("profile_id", profileId)
       .eq("attribute_code", attributeCode)

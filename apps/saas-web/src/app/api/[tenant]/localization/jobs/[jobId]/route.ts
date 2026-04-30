@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { isMissingLocalizationFoundationError, requireLocalizationAccess } from "../../_shared";
 
 const JOB_SELECT = `
@@ -66,7 +66,7 @@ export async function GET(
     const limitRaw = Number(new URL(request.url).searchParams.get("limit") || 200);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, Math.floor(limitRaw))) : 200;
 
-    const { data: job, error: jobError } = await supabaseServer
+    const { data: job, error: jobError } = await getSupabaseServer()
       .from("translation_jobs")
       .select(JOB_SELECT)
       .eq("organization_id", organization.id)
@@ -88,7 +88,7 @@ export async function GET(
       return NextResponse.json({ error: "Localization job not found" }, { status: 404 });
     }
 
-    const { data: items, error: itemsError } = await supabaseServer
+    const { data: items, error: itemsError } = await getSupabaseServer()
       .from("translation_job_items")
       .select(ITEM_SELECT)
       .eq("organization_id", organization.id)

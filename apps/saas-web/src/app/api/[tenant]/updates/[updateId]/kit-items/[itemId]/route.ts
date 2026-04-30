@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   normalizeJsonObject,
   normalizeOptionalString,
@@ -12,7 +12,7 @@ async function ensureKitItem(params: {
   updateId: string;
   itemId: string;
 }) {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("partner_update_kit_items")
     .select("id,item_type")
     .eq("organization_id", params.organizationId)
@@ -47,7 +47,7 @@ async function validateReferencedResource(params: {
     if (!productId) {
       return { ok: false as const, status: 400, error: "productId cannot be empty" };
     }
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("products")
       .select("id")
       .eq("organization_id", organizationId)
@@ -67,7 +67,7 @@ async function validateReferencedResource(params: {
     if (!assetId) {
       return { ok: false as const, status: 400, error: "assetId cannot be empty" };
     }
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("dam_assets")
       .select("id")
       .eq("organization_id", organizationId)
@@ -229,7 +229,7 @@ export async function PATCH(
       return NextResponse.json({ error: "No mutable fields provided" }, { status: 400 });
     }
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_update_kit_items")
       .update(updatePayload)
       .eq("organization_id", access.context.organizationId)
@@ -269,7 +269,7 @@ export async function DELETE(
     });
     if (!access.ok) return access.response;
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_update_kit_items")
       .delete()
       .eq("organization_id", access.context.organizationId)

@@ -1,11 +1,8 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // GET /api/[tenant]/products/families - Fetch product families
 export async function GET(
@@ -25,7 +22,7 @@ export async function GET(
     }
 
     // Get organization by slug/tenant
-    const { data: organization, error: orgError } = await supabase
+    const { data: organization, error: orgError } = await getSupabaseServer()
       .from('organizations')
       .select('id, name, slug')
       .eq('slug', tenant)
@@ -37,7 +34,7 @@ export async function GET(
     }
 
     // Fetch product families for organization
-    const { data: families, error: familiesError } = await supabase
+    const { data: families, error: familiesError } = await getSupabaseServer()
       .from('product_families')
       .select(`
         id,

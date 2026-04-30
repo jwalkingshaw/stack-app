@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   ASSET_VIEW_PERMISSION_KEYS,
   getScopedPermissionSummary,
@@ -475,7 +475,7 @@ export async function GET(
     if (cachedPayload) {
       return NextResponse.json(cachedPayload);
     }
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const isPartnerAllViewRequest =
       requestedViewScope === "all" &&
       context.mode === "tenant" &&
@@ -559,7 +559,7 @@ export async function GET(
 
       if (selectedProductIds.length > 0) {
         const scopedOrganizationIds = [tenantOrganizationId, ...brandOrganizationIds];
-        const { data: productAssetLinks } = await supabaseServer
+        const { data: productAssetLinks } = await getSupabaseServer()
           .from("product_asset_links")
           .select("asset_id")
           .in("organization_id", scopedOrganizationIds)
@@ -601,12 +601,12 @@ export async function GET(
       const [folders, permissions, tagsResult, categoriesResult] = await Promise.all([
         db.getFoldersByOrganization(tenantOrganizationId),
         db.getUserPermissions(context.userId, tenantOrganizationId),
-        supabaseServer
+        getSupabaseServer()
           .from("asset_tags")
           .select("*")
           .eq("organization_id", tenantOrganizationId)
           .order("name", { ascending: true }),
-        supabaseServer
+        getSupabaseServer()
           .from("asset_categories")
           .select("*")
           .eq("organization_id", tenantOrganizationId)
@@ -741,7 +741,7 @@ export async function GET(
     }
 
     if (selectedProductIds.length > 0) {
-      const { data: productAssetLinks } = await supabaseServer
+      const { data: productAssetLinks } = await getSupabaseServer()
         .from("product_asset_links")
         .select("asset_id")
         .eq("organization_id", targetOrganizationId)
@@ -811,12 +811,12 @@ export async function GET(
     }
 
     const [{ data: tags }, { data: categories }] = await Promise.all([
-      supabaseServer
+      getSupabaseServer()
         .from("asset_tags")
         .select("*")
         .eq("organization_id", targetOrganizationId)
         .order("name", { ascending: true }),
-      supabaseServer
+      getSupabaseServer()
         .from("asset_categories")
         .select("*")
         .eq("organization_id", targetOrganizationId)

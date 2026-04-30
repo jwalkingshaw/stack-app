@@ -1,12 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { ensureFamilyAttributesFromFieldGroups } from "@/lib/family-attributes";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -27,7 +24,7 @@ async function resolveFamilyId(params: {
   const { organizationId, familyKey } = params;
 
   if (UUID_PATTERN.test(familyKey)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from("product_families")
       .select("id")
       .eq("organization_id", organizationId)
@@ -37,7 +34,7 @@ async function resolveFamilyId(params: {
     if (byId.data?.id) return byId.data.id;
   }
 
-  const byCode = await supabase
+  const byCode = await getSupabaseServer()
     .from("product_families")
     .select("id")
     .eq("organization_id", organizationId)
@@ -77,7 +74,7 @@ export async function GET(
 
     await ensureFamilyAttributesFromFieldGroups(resolvedFamilyId);
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("family_attributes")
       .select(
         "id,attribute_code,attribute_label,attribute_type,is_required,is_unique,help_text,inherit_level_1,inherit_level_2,display_order"

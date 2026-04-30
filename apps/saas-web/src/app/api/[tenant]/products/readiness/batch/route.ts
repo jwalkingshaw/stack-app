@@ -1,13 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -139,7 +136,7 @@ export async function POST(
     }
 
     // Load primary profile with its field rules
-    const { data: profilesRaw, error: profilesError } = await supabase
+    const { data: profilesRaw, error: profilesError } = await getSupabaseServer()
       .from("output_channel_profiles")
       .select(
         "id,name,code,profile_type,is_primary,field_rules:output_profile_field_rules(field_code,is_required,max_length)"
@@ -188,7 +185,7 @@ export async function POST(
     const requiredFieldCodes = requiredRules.map((r) => r.field_code);
 
     // Resolve field codes → IDs for this org
-    const { data: fieldsRaw, error: fieldsError } = await supabase
+    const { data: fieldsRaw, error: fieldsError } = await getSupabaseServer()
       .from("product_fields")
       .select("id,code")
       .eq("organization_id", organizationId)
@@ -220,7 +217,7 @@ export async function POST(
 
     let fieldValues: ValueRow[] = [];
     if (fieldIds.length > 0) {
-      const valQuery = supabase
+      const valQuery = getSupabaseServer()
         .from("product_field_values")
         .select(
           "product_id,product_field_id,value_text,value_number,value_boolean,value_json,locale_id,market_id,channel_id,destination_id"

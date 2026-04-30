@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getVariantAttributesCache,
@@ -5,7 +6,7 @@ import {
   isCrossTenantWrite,
   resolveVariantAttributeFamilyContext,
   setVariantAttributesCache,
-  supabase,
+  
   type VariantAttributeRecord,
 } from "./_shared";
 
@@ -78,7 +79,7 @@ function normalizeVariantAttributes(data: unknown[] | null): VariantAttributeRec
 
 async function fetchVariantAttributes(familyId: string) {
   const runQuery = (productFieldSelect: string) =>
-    supabase
+    getSupabaseServer()
       .from("product_family_variant_attributes")
       .select(
         `
@@ -107,7 +108,7 @@ async function isFieldAssignedToFamily(params: {
   familyId: string;
   productFieldId: string;
 }): Promise<boolean> {
-  const { data: familyGroups, error: groupsError } = await supabase
+  const { data: familyGroups, error: groupsError } = await getSupabaseServer()
     .from("product_family_field_groups")
     .select("field_group_id")
     .eq("product_family_id", params.familyId);
@@ -124,7 +125,7 @@ async function isFieldAssignedToFamily(params: {
     return false;
   }
 
-  const { data: assignment, error: assignmentError } = await supabase
+  const { data: assignment, error: assignmentError } = await getSupabaseServer()
     .from("product_field_group_assignments")
     .select("id")
     .eq("product_field_id", params.productFieldId)
@@ -220,7 +221,7 @@ export async function POST(
     const sortOrder = Number.isFinite(Number(body?.sort_order)) ? Number(body.sort_order) : 0;
     const isRequired = Boolean(body?.is_required);
 
-    const { data: field, error: fieldError } = await supabase
+    const { data: field, error: fieldError } = await getSupabaseServer()
       .from("product_fields")
       .select("id")
       .eq("id", productFieldId)
@@ -245,7 +246,7 @@ export async function POST(
       );
     }
 
-    const { error: upsertError } = await supabase
+    const { error: upsertError } = await getSupabaseServer()
       .from("product_family_variant_attributes")
       .upsert(
         {
@@ -353,7 +354,7 @@ export async function PUT(
           payload.is_required = attribute.is_required;
         }
 
-        return supabase
+        return getSupabaseServer()
           .from("product_family_variant_attributes")
           .update(payload)
           .eq("id", attribute.id)

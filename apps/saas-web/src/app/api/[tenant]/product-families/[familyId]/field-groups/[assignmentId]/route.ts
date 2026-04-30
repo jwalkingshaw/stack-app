@@ -1,9 +1,10 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import {
   invalidateFamilyFieldGroupsCache,
   isCrossTenantWrite,
   resolveFamilyContext,
-  supabase,
+  
 } from "../_shared";
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -23,7 +24,7 @@ async function fetchAssignment(params: {
   assignmentId: string;
   familyId: string;
 }) {
-  return await supabase
+  return await getSupabaseServer()
     .from("product_family_field_groups")
     .select("id,product_family_id,field_group_id,hidden_fields,sort_order")
     .eq("id", params.assignmentId)
@@ -81,7 +82,7 @@ export async function PATCH(
       return NextResponse.json(existing.data);
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_family_field_groups")
       .update(updates)
       .eq("id", assignmentId)
@@ -145,7 +146,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Assignment not found." }, { status: 404 });
     }
 
-    const { error } = await supabase
+    const { error } = await getSupabaseServer()
       .from("product_family_field_groups")
       .delete()
       .eq("id", assignmentId)

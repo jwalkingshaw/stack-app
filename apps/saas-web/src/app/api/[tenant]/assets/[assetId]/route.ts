@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
@@ -11,10 +12,6 @@ import {
 import { normalizeDamAssetRecord, normalizeDamEnumValue, type DamEnumField } from "@/lib/dam-enums";
 import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 type ProductSelection = {
   all: boolean;
@@ -41,7 +38,7 @@ async function requireAssetWritePermission(params: {
   organizationId: string;
   permissionKey: string;
 }) {
-  const db = new DatabaseQueries(supabase);
+  const db = new DatabaseQueries(getSupabaseServer());
   const authService = new AuthService(db);
   return evaluateScopedPermission({
     authService,
@@ -155,7 +152,7 @@ async function resolveSelectedProductIds(params: {
   let selectedRows: Array<{ id: string; type: string | null }> = [];
 
   if (selection.all) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("products")
       .select("id,type")
       .eq("organization_id", organizationId)
@@ -169,7 +166,7 @@ async function resolveSelectedProductIds(params: {
     if (explicitIds.length === 0) {
       return [];
     }
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("products")
       .select("id,type")
       .eq("organization_id", organizationId)
@@ -194,7 +191,7 @@ async function resolveSelectedProductIds(params: {
     return Array.from(selectedIds);
   }
 
-  const { data: descendants, error: descendantsError } = await supabase
+  const { data: descendants, error: descendantsError } = await getSupabaseServer()
     .from("products")
     .select("id")
     .eq("organization_id", organizationId)
@@ -223,7 +220,7 @@ async function syncUploadProductLinks(params: {
 }): Promise<void> {
   const { organizationId, userId, assetId, assetType, productIds, confidence, matchReason, linkType } = params;
 
-  const { data: existingLinks, error: existingLinksError } = await supabase
+  const { data: existingLinks, error: existingLinksError } = await getSupabaseServer()
     .from("product_asset_links")
     .select("id,product_id")
     .eq("organization_id", organizationId)
@@ -241,7 +238,7 @@ async function syncUploadProductLinks(params: {
     .map((link) => link.id);
 
   if (linksToDeactivate.length > 0) {
-    const { error: deactivateError } = await supabase
+    const { error: deactivateError } = await getSupabaseServer()
       .from("product_asset_links")
       .update({
         is_active: false,
@@ -270,7 +267,7 @@ async function syncUploadProductLinks(params: {
       created_by: userId,
     }));
 
-    const { error: upsertError } = await supabase
+    const { error: upsertError } = await getSupabaseServer()
       .from("product_asset_links")
       .upsert(linkRows, {
         onConflict: "organization_id,product_id,asset_id,link_context",
@@ -288,7 +285,7 @@ async function refreshAssetProductIdentifiers(params: {
 }): Promise<void> {
   const { organizationId, assetId } = params;
 
-  const { data: activeLinks, error: linksError } = await supabase
+  const { data: activeLinks, error: linksError } = await getSupabaseServer()
     .from("product_asset_links")
     .select("product_id")
     .eq("organization_id", organizationId)
@@ -310,7 +307,7 @@ async function refreshAssetProductIdentifiers(params: {
   const identifiers = new Set<string>();
 
   if (linkedProductIds.length > 0) {
-    const { data: productRows, error: productsError } = await supabase
+    const { data: productRows, error: productsError } = await getSupabaseServer()
       .from("products")
       .select("sku,scin")
       .eq("organization_id", organizationId)
@@ -326,7 +323,7 @@ async function refreshAssetProductIdentifiers(params: {
     }
   }
 
-  const { error: updateError } = await supabase
+  const { error: updateError } = await getSupabaseServer()
     .from("dam_assets")
     .update({
       product_identifiers: Array.from(identifiers),
@@ -364,7 +361,7 @@ export async function GET(
     if (!tenantAccess.ok) return tenantAccess.response;
     const { organization } = tenantAccess;
 
-    const { data: asset, error } = await supabase
+    const { data: asset, error } = await getSupabaseServer()
       .from("dam_assets")
       .select("*")
       .eq("id", assetId)
@@ -376,11 +373,11 @@ export async function GET(
     }
 
     const [{ data: tagRows }, { data: categoryRows }] = await Promise.all([
-      supabase
+      getSupabaseServer()
         .from("asset_tag_assignments")
         .select("id, asset_id, tag_id, assigned_by, assigned_at, asset_tags(id, name, slug, color, description)")
         .eq("asset_id", assetId),
-      supabase
+      getSupabaseServer()
         .from("asset_category_assignments")
         .select("id, asset_id, category_id, is_primary, asset_categories(id, name, slug, path, description)")
         .eq("asset_id", assetId),
@@ -614,7 +611,7 @@ export async function PATCH(
 
     const validatedAuthoringScope = hasAuthoringScope
       ? await validateAuthoringScope({
-          supabase,
+          supabase: getSupabaseServer(),
           organizationId: organization.id,
           rawScope: authoringScope,
         })
@@ -627,7 +624,7 @@ export async function PATCH(
       );
     }
 
-    const { data: existingAsset, error: existingAssetError } = await supabase
+    const { data: existingAsset, error: existingAssetError } = await getSupabaseServer()
       .from("dam_assets")
       .select("id,metadata,file_type,asset_type")
       .eq("id", assetId)
@@ -651,7 +648,7 @@ export async function PATCH(
     }
     if (hasFolderId) {
       if (folderId) {
-        const { data: matchingFolder, error: folderError } = await supabase
+        const { data: matchingFolder, error: folderError } = await getSupabaseServer()
           .from("dam_folders")
           .select("id")
           .eq("id", folderId)
@@ -781,7 +778,7 @@ export async function PATCH(
 
     let updatedAsset: unknown = existingAsset;
     if (Object.keys(updatePayload).length > 0) {
-      const { data, error: updateError } = await supabase
+      const { data, error: updateError } = await getSupabaseServer()
         .from("dam_assets")
         .update(updatePayload)
         .eq("id", assetId)
@@ -798,13 +795,13 @@ export async function PATCH(
 
     // Replace tag assignments via join table (trigger keeps dam_assets.tags[] in sync)
     if (hasTagIds && tagIds !== null) {
-      const db = new DatabaseQueries(supabase);
+      const db = new DatabaseQueries(getSupabaseServer());
       await db.replaceAssetTags(assetId, tagIds, userId);
     }
 
     // Replace category assignments via join table
     if (hasCategoryIds && categoryIds !== null) {
-      const db = new DatabaseQueries(supabase);
+      const db = new DatabaseQueries(getSupabaseServer());
       await db.replaceAssetCategories(assetId, categoryIds, userId, primaryCategoryId);
     }
 
@@ -876,7 +873,7 @@ export async function PATCH(
 
     if (hasAuthoringScope) {
       const scopeSyncResult = await replaceAssetScopeAssignments({
-        supabase,
+        supabase: getSupabaseServer(),
         organizationId: organization.id,
         assetId,
         rawScope:
@@ -956,7 +953,7 @@ export async function DELETE(
       );
     }
 
-    const { data: existingAsset, error: existingAssetError } = await supabase
+    const { data: existingAsset, error: existingAssetError } = await getSupabaseServer()
       .from("dam_assets")
       .select("id")
       .eq("id", assetId)
@@ -967,7 +964,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Asset not found" }, { status: 404 });
     }
 
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await getSupabaseServer()
       .from("dam_assets")
       .delete()
       .eq("id", assetId)

@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 
 export async function POST(
   request: NextRequest,
@@ -20,7 +20,7 @@ export async function POST(
     }
 
     // Check if user has voted for this feature
-    const { data: existingVote } = await supabaseServer
+    const { data: existingVote } = await getSupabaseServer()
       .from('feature_votes')
       .select('id')
       .eq('feature_request_id', featureId)

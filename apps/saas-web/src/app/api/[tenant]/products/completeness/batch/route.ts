@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { evaluateProductCompleteness } from "@/lib/family-attributes";
@@ -11,10 +12,6 @@ import {
 import { getChannelScopedProductIds } from "@/lib/product-channel-scope";
 import { cache as redisCache, CacheKeys } from "@/lib/redis";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -132,7 +129,7 @@ async function resolveChannelScopedProductIds(params: {
     const scopedIds = new Set<string>();
     for (const channelId of scopedPermissions.channelIds) {
       const ids = await getChannelScopedProductIds({
-        supabase: supabase,
+        supabase: getSupabaseServer(),
         organizationId: params.organizationId,
         channelId,
       });
@@ -161,7 +158,7 @@ async function resolveScopeIds(params: {
 
   let channelId = params.channelId;
   if (!channelId && params.channelCode) {
-    const { data } = await supabase
+    const { data } = await getSupabaseServer()
       .from("channels")
       .select("id")
       .eq("organization_id", params.organizationId)
@@ -172,7 +169,7 @@ async function resolveScopeIds(params: {
 
   let localeId = params.localeId;
   if (!localeId && params.localeCode) {
-    const { data } = await supabase
+    const { data } = await getSupabaseServer()
       .from("locales")
       .select("id")
       .ilike("code", params.localeCode)
@@ -182,7 +179,7 @@ async function resolveScopeIds(params: {
 
   let destinationId = params.destinationId;
   if (!destinationId && params.destinationCode) {
-    const { data } = await supabase
+    const { data } = await getSupabaseServer()
       .from("channel_destinations")
       .select("id")
       .eq("organization_id", params.organizationId)
@@ -360,7 +357,7 @@ export async function POST(
       });
     }
 
-    const { data: products, error: productsError } = await supabase
+    const { data: products, error: productsError } = await getSupabaseServer()
       .from("products")
       .select("id,family_id")
       .eq("organization_id", targetOrganizationId)

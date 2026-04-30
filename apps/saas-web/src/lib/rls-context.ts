@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@stack-app/database";
 
@@ -9,7 +10,7 @@ type ContextParams = {
 
 /**
  * Applies per-request Postgres settings so RLS policies can resolve the current user/tenant.
- * Supabase executes each RPC/update in its own transaction, so we call set_config before queries.
+ * getSupabaseServer() executes each RPC/update in its own transaction, so we call set_config before queries.
  */
 export async function applyRLSContext(
   client: SupabaseClient<Database>,

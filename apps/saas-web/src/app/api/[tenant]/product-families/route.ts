@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UNIQUE_VIOLATION_ERROR = "23505";
 const MISSING_COLUMN_ERROR = "42703";
@@ -51,14 +48,14 @@ export async function GET(
     }
 
     const targetOrganizationId = contextResult.context.targetOrganization.id;
-    const familyQueryWithStatus = await supabase
+    const familyQueryWithStatus = await getSupabaseServer()
       .from("product_families")
       .select(FAMILY_SELECT_WITH_STATUS)
       .eq("organization_id", targetOrganizationId)
       .order("name", { ascending: true });
 
     const familyQueryBase = isMissingColumnError(familyQueryWithStatus.error)
-      ? await supabase
+      ? await getSupabaseServer()
         .from("product_families")
         .select(FAMILY_SELECT_BASE)
         .eq("organization_id", targetOrganizationId)
@@ -87,11 +84,11 @@ export async function GET(
 
     const [{ data: groupAssignments, error: groupAssignmentsError }, { data: products, error: productsError }] =
       await Promise.all([
-        supabase
+        getSupabaseServer()
           .from("product_family_field_groups")
           .select("product_family_id")
           .in("product_family_id", familyIds),
-        supabase
+        getSupabaseServer()
           .from("products")
           .select("family_id")
           .eq("organization_id", targetOrganizationId)
@@ -180,18 +177,18 @@ export async function POST(
       is_active: true,
     };
 
-    let insertResult = await supabase
+    let insertResult = await getSupabaseServer()
       .from("product_families")
-      .insert(insertPayload)
+      .insert(insertPayload as never)
       .select(FAMILY_SELECT_WITH_STATUS)
       .single();
 
     if (isMissingColumnError(insertResult.error)) {
       const legacyPayload = { ...insertPayload };
       delete legacyPayload.is_active;
-      insertResult = await supabase
+      insertResult = await getSupabaseServer()
         .from("product_families")
-        .insert(legacyPayload)
+        .insert(legacyPayload as never)
         .select(FAMILY_SELECT_BASE)
         .single();
     }

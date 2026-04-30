@@ -1,3 +1,4 @@
+import { getSupabaseServer } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@stack-app/database";
 import {
@@ -621,7 +622,7 @@ async function loadProfileRules(
   supabase: SupabaseClient<Database>,
   profileId: string
 ): Promise<OutputProfileFieldRuleRow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("output_profile_field_rules")
     .select("field_code,is_required,max_length,notes")
     .eq("profile_id", profileId);
@@ -640,8 +641,8 @@ async function loadProfileAttributeMappings(
 ): Promise<DestinationAttributeMapping[]> {
   if (!profile) return [];
 
-  const { data, error } = await supabase
-    .from("output_profile_attribute_mappings" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("output_profile_attribute_mappings")
     .select(
       "id,attribute_code,attribute_label,source_mode,source_field_code,override_field_code,source_slot_code,constant_value,resolution_rule,is_required,max_length,notes,sort_order,metadata"
     )
@@ -671,8 +672,8 @@ async function loadFieldDefinitions(
   fieldCodes: string[]
 ): Promise<Map<string, ProductFieldDefinitionRow>> {
   if (fieldCodes.length === 0) return new Map();
-  const { data, error } = await supabase
-    .from("product_fields" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("product_fields")
     .select(
       "id,code,name,field_type,field_class,system_key,is_locked,is_override_capable,is_required,is_localizable,is_channelable,scope_policy,data_domain,value_storage_strategy,validation_rules,options"
     )
@@ -696,7 +697,7 @@ async function loadProductFieldValues(
 ): Promise<Map<string, ProductFieldValueRow[]>> {
   if (fieldIds.length === 0) return new Map();
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_field_values")
     .select(
       "product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,locale_id,destination_id,channel,locale"
@@ -723,8 +724,8 @@ async function loadOutputSlotDefinitions(
   organizationId: string,
   outputProfileId: string
 ): Promise<OutputSlotDefinitionRow[]> {
-  const { data, error } = await supabase
-    .from("output_slot_definitions" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("output_slot_definitions")
     .select(
       "id,slot_code,slot_name,asset_kind,document_type,certificate_type,label_panel_type,classification,is_required,allow_multiple,sort_order,metadata"
     )
@@ -746,8 +747,8 @@ async function loadProductOutputSlotAssignments(
   productId: string,
   outputProfileId: string
 ): Promise<ProductOutputSlotAssignmentRow[]> {
-  const { data, error } = await supabase
-    .from("product_output_slot_assignments" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("product_output_slot_assignments")
     .select(
       "id,slot_definition_id,asset_version_id,status,pinned_version,market_id,channel_id,locale_id,destination_id,dam_assets:asset_id(id,filename,original_filename,file_type,current_version_number,approval_status,document_type,certificate_type,label_panel_type,asset_kind,data_classification,effective_version_policy)"
     )
@@ -772,7 +773,7 @@ async function loadLegacyProductAssetLinks(
   relevantFieldIds: string[],
   relevantSlotCodes: string[]
 ): Promise<LegacyProductAssetLinkRow[]> {
-  let query = supabase
+  let query = getSupabaseServer()
     .from("product_asset_links")
     .select(
       "id,product_field_id,document_slot_code,output_profile_id,market_id,channel_id,locale_id,destination_id,variant_id,sort_order,document_expiry_date,dam_assets!inner(id,filename,original_filename,file_type,current_version_number,approval_status,document_type,certificate_type,label_panel_type,asset_kind,data_classification,effective_version_policy)"
@@ -807,8 +808,8 @@ async function loadPartnerDocuments(
   familyId: string | null,
   marketId: string | null
 ): Promise<PartnerRegulatoryDocument[]> {
-  const { data, error } = await supabase
-    .from("partner_documents" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("partner_documents")
     .select(
       "id,document_type,classification,approval_status,status,title,description,expires_at,valid_from,valid_to,metadata,asset_version_id,dam_assets:asset_id(id,filename,original_filename,file_type,current_version_number,approval_status,document_type,certificate_type,label_panel_type,asset_kind,data_classification,effective_version_policy),partner_document_product_assignments(product_id,family_id,market_id),partner_document_contract_assignments(output_profile_id,market_id)"
     )
@@ -895,7 +896,7 @@ async function loadProductFamilyId(
   organizationId: string,
   productId: string
 ): Promise<string | null> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("products")
     .select("family_id")
     .eq("organization_id", organizationId)
@@ -930,8 +931,8 @@ export async function getProductContract(params: {
   let attributeMappings: DestinationAttributeMapping[] = [];
 
   if (outputProfileId) {
-    const { data: profileData, error: profileError } = await supabase
-      .from("output_channel_profiles" as never)
+    const { data: profileData, error: profileError } = await getSupabaseServer()
+      .from("output_channel_profiles")
       .select("id,code,name,profile_type,template_key,share_with_partners,metadata")
       .eq("organization_id", organizationId)
       .eq("id", outputProfileId)
@@ -941,8 +942,8 @@ export async function getProductContract(params: {
       console.error("Failed to load destination profile:", profileError);
     } else if (profileData) {
       profile = (profileData as unknown) as OutputProfileRow;
-      rules = await loadProfileRules(supabase, outputProfileId);
-      attributeMappings = await loadProfileAttributeMappings(supabase, profile);
+      rules = await loadProfileRules(getSupabaseServer(), outputProfileId);
+      attributeMappings = await loadProfileAttributeMappings(getSupabaseServer(), profile);
     }
   }
 
@@ -981,11 +982,11 @@ export async function getProductContract(params: {
     ])
   );
 
-  const fieldsByCode = await loadFieldDefinitions(supabase, organizationId, allFieldCodes);
+  const fieldsByCode = await loadFieldDefinitions(getSupabaseServer(), organizationId, allFieldCodes);
   const fieldIds = Array.from(new Set(Array.from(fieldsByCode.values()).map((field) => field.id)));
-  const valuesByFieldId = await loadProductFieldValues(supabase, productId, fieldIds);
-  const familyId = await loadProductFamilyId(supabase, organizationId, productId);
-  const baselineScope = await resolveOrganizationBaselineScope(supabase, organizationId);
+  const valuesByFieldId = await loadProductFieldValues(getSupabaseServer(), productId, fieldIds);
+  const familyId = await loadProductFamilyId(getSupabaseServer(), organizationId, productId);
+  const baselineScope = await resolveOrganizationBaselineScope(getSupabaseServer(), organizationId);
 
   const normalizedFields = Array.from(fieldsByCode.values()).map((field) => {
     const rows = valuesByFieldId.get(field.id) || [];
@@ -1017,13 +1018,13 @@ export async function getProductContract(params: {
   const outputFields = normalizedFields.filter((field) => field.fieldClass === "output");
 
   const explicitSlotDefinitions = outputProfileId
-    ? await loadOutputSlotDefinitions(supabase, organizationId, outputProfileId)
+    ? await loadOutputSlotDefinitions(getSupabaseServer(), organizationId, outputProfileId)
     : [];
   const inferredSlots = inferLegacySlotDefinitions({ rules, fieldsByCode });
   const slots = mergeSlotDefinitions(explicitSlotDefinitions, inferredSlots);
 
   const explicitAssignments = outputProfileId
-    ? await loadProductOutputSlotAssignments(supabase, organizationId, productId, outputProfileId)
+    ? await loadProductOutputSlotAssignments(getSupabaseServer(), organizationId, productId, outputProfileId)
     : [];
   const legacyLinks = await loadLegacyProductAssetLinks(
     supabase,
@@ -1301,7 +1302,7 @@ export async function getProductContractReadinessList(params: {
   scope?: ContractScopeContext;
 }): Promise<ContractReadinessResult[]> {
   const { data, error } = await params.supabase
-    .from("output_channel_profiles" as never)
+    .from("output_channel_profiles")
     .select("id,code,name,profile_type,template_key,share_with_partners,metadata")
     .eq("organization_id", params.organizationId)
     .eq("is_active", true)

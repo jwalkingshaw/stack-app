@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { DatabaseQueries } from "@stack-app/database";
 import * as jwksClient from "jwks-rsa";
 import * as jwt from "jsonwebtoken";
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const { type, data } = event;
 
     switch (type) {
@@ -206,7 +206,7 @@ async function handleOrganizationUpdated(_db: DatabaseQueries, orgData: Record<s
       return;
     }
 
-    const { error } = await supabaseServer
+    const { error } = await getSupabaseServer()
       .from("organizations")
       .update(updatePayload)
       .eq("kinde_org_id", id);
@@ -230,7 +230,7 @@ async function handleOrganizationDeleted(_db: DatabaseQueries, orgData: Record<s
       return;
     }
 
-    const { error } = await supabaseServer
+    const { error } = await getSupabaseServer()
       .from("organizations")
       .delete()
       .eq("kinde_org_id", id);

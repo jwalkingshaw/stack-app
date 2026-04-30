@@ -1,13 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 import { isLockedFieldGroupCode as isLockedFieldGroupCodeShared } from "@/lib/field-group-codes";
 
-export const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
+export 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const CORE_SYSTEM_FIELD_CODES = new Set([
@@ -180,7 +177,7 @@ export async function resolveFieldGroupByKey(
   const key = groupKey.trim();
 
   const byCode = () =>
-    supabase
+    getSupabaseServer()
       .from("field_groups")
       .select(FIELD_GROUP_WITH_ASSIGNMENTS_SELECT)
       .eq("organization_id", organizationId)
@@ -188,7 +185,7 @@ export async function resolveFieldGroupByKey(
       .maybeSingle();
 
   if (UUID_PATTERN.test(key)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from("field_groups")
       .select(FIELD_GROUP_WITH_ASSIGNMENTS_SELECT)
       .eq("organization_id", organizationId)

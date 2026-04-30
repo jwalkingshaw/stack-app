@@ -1,9 +1,10 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import {
   invalidateFamilyFieldGroupsCache,
   isCrossTenantWrite,
   resolveFamilyContext,
-  supabase,
+  
 } from "../_shared";
 
 function parseHiddenFields(input: unknown): string[] {
@@ -79,7 +80,7 @@ export async function POST(
     }
 
     const assignmentIds = changes.map((change) => change.assignmentId);
-    const { data: existingAssignments, error: existingError } = await supabase
+    const { data: existingAssignments, error: existingError } = await getSupabaseServer()
       .from("product_family_field_groups")
       .select("id")
       .eq("product_family_id", familyContext.familyId)
@@ -94,7 +95,7 @@ export async function POST(
 
     const results = await Promise.all(
       filtered.map(async (change) =>
-        supabase
+        getSupabaseServer()
           .from("product_family_field_groups")
           .update({ hidden_fields: change.hiddenFields })
           .eq("id", change.assignmentId)

@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   isMissingLocalizationFoundationError,
   isOwnerOrAdmin,
@@ -56,7 +56,7 @@ export async function GET(
     if (!access.ok) return access.response;
 
     const { organization } = access.context;
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("translation_glossary_entries")
       .select(ENTRY_SELECT)
       .eq("organization_id", organization.id)
@@ -109,7 +109,7 @@ export async function PUT(
       return NextResponse.json({ error: "entries must include at least one source/target pair" }, { status: 400 });
     }
 
-    const { data: glossary, error: glossaryError } = await supabaseServer
+    const { data: glossary, error: glossaryError } = await getSupabaseServer()
       .from("translation_glossaries")
       .select("id")
       .eq("organization_id", organization.id)
@@ -130,7 +130,7 @@ export async function PUT(
       return NextResponse.json({ error: "Translation glossary not found" }, { status: 404 });
     }
 
-    const { error: deleteError } = await supabaseServer
+    const { error: deleteError } = await getSupabaseServer()
       .from("translation_glossary_entries")
       .delete()
       .eq("organization_id", organization.id)
@@ -141,7 +141,7 @@ export async function PUT(
       return NextResponse.json({ error: "Failed to replace translation glossary entries" }, { status: 500 });
     }
 
-    const { data: insertedEntries, error: insertError } = await supabaseServer
+    const { data: insertedEntries, error: insertError } = await getSupabaseServer()
       .from("translation_glossary_entries")
       .insert(
         entries.map((entry) => ({

@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextResponse } from "next/server";
 import { requireUser } from '@/lib/auth-server';
 import { createServerClient } from '@stack-app/database';
@@ -13,7 +14,7 @@ export async function GET() {
     const supabase = createServerClient();
 
     // Test the exact same query as SmartRouter
-    const { data: memberships, error } = await supabase
+    const { data: memberships, error } = await getSupabaseServer()
       .from('organization_members')
       .select(`
         id,
@@ -32,7 +33,7 @@ export async function GET() {
       .eq('status', 'active');
 
     // Also test without status filter
-    const { data: allMemberships, error: allError } = await supabase
+    const { data: allMemberships, error: allError } = await getSupabaseServer()
       .from('organization_members')
       .select(`
         id,

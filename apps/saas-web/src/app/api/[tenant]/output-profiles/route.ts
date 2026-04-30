@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const VALID_PROFILE_TYPES = ["portal", "marketplace", "retail", "export", "api"] as const;
 type ProfileType = (typeof VALID_PROFILE_TYPES)[number];
@@ -52,7 +49,7 @@ export async function GET(
     if (!contextResult.ok) return contextResult.response;
     const organizationId = contextResult.context.targetOrganization.id;
 
-    const { data: profiles, error } = await supabase
+    const { data: profiles, error } = await getSupabaseServer()
       .from("output_channel_profiles")
       .select(`
         id, name, code, profile_type, description, market_id, is_active, is_primary, sort_order, metadata, created_at, updated_at,
@@ -108,7 +105,7 @@ export async function POST(
     const description = normalizeToken(body.description) ?? null;
     const marketId = normalizeToken(body.market_id) ?? null;
 
-    const { data: profile, error } = await supabase
+    const { data: profile, error } = await getSupabaseServer()
       .from("output_channel_profiles")
       .insert({
         organization_id: organizationId,

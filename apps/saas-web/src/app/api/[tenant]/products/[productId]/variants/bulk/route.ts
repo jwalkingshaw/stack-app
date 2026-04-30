@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess, setDatabaseUserContext } from "@/lib/user-context";
@@ -8,10 +9,6 @@ import {
   isBillableSkuRecord,
 } from "@/lib/billing-policy";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,7 +62,7 @@ async function resolveProductByIdentifier(params: {
   const candidateId = uuidPrefixMatch?.[1] || normalizedIdentifier;
 
   if (UUID_PATTERN.test(candidateId)) {
-    const byId = await supabase
+    const byId = await getSupabaseServer()
       .from("products")
       .select("id,type,parent_id,family_id,product_name,sku")
       .eq("id", candidateId)
@@ -74,7 +71,7 @@ async function resolveProductByIdentifier(params: {
     if (byId.data || byId.error) return byId;
   }
 
-  return await supabase
+  return await getSupabaseServer()
     .from("products")
     .select("id,type,parent_id,family_id,product_name,sku")
     .ilike("sku", normalizedIdentifier)
@@ -155,7 +152,7 @@ export async function POST(
 
     // If a variant identifier is passed, use its parent product.
     if (parent.type === "variant" && parent.parent_id) {
-      const { data: parentRow, error: parentError } = await supabase
+      const { data: parentRow, error: parentError } = await getSupabaseServer()
         .from("products")
         .select("id,type,parent_id,family_id,product_name,sku")
         .eq("id", parent.parent_id)
@@ -171,7 +168,7 @@ export async function POST(
 
     // Promote standalone to parent before creating variants.
     if (parent.type === "standalone") {
-      const { data: promoted, error: promoteError } = await supabase
+      const { data: promoted, error: promoteError } = await getSupabaseServer()
         .from("products")
         .update({
           type: "parent",
@@ -191,7 +188,7 @@ export async function POST(
       parent = promoted as ParentProduct;
     }
 
-    const { data: existingVariants, error: existingError } = await supabase
+    const { data: existingVariants, error: existingError } = await getSupabaseServer()
       .from("products")
       .select("id,parent_id,scin,status")
       .eq("organization_id", organizationId)
@@ -301,7 +298,7 @@ export async function POST(
           projectedDeltaApplied = -1;
         }
 
-        const { data: nextVariant, error: updateError } = await supabase
+        const { data: nextVariant, error: updateError } = await getSupabaseServer()
           .from("products")
           .update(payload)
           .eq("id", existingVariant.id)
@@ -351,9 +348,9 @@ export async function POST(
         consumedActiveSlot = true;
       }
 
-      const { data: insertedVariant, error: insertError } = await supabase
+      const { data: insertedVariant, error: insertError } = await getSupabaseServer()
         .from("products")
-        .insert(insertPayload)
+        .insert(insertPayload as never)
         .select("id,scin,sku,product_name,status,parent_id,type,variant_attributes,variant_axis")
         .single();
 

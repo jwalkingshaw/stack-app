@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import {
   resolvePartnerSharedBrandOrganizationIds,
   resolveTenantBrandViewContext,
 } from "@/lib/partner-brand-view";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 
 type ScopeContext =
   | {
@@ -98,7 +98,7 @@ export async function ensurePartnerUpdateRecipient(params: {
     };
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("partner_update_recipients")
     .select(
       "id,organization_id,partner_update_id,partner_organization_id,delivery_channels,status,first_notified_at,opened_at,acknowledged_at,activated_at,due_at,metadata,created_at,updated_at"
@@ -118,7 +118,7 @@ export async function ensurePartnerUpdateRecipient(params: {
   if (!data) {
     // Fallback: if partner has an active relationship, auto-create the recipient row.
     // This handles cases where the share-link accept flow failed to insert the row.
-    const { data: updateRow } = await supabaseServer
+    const { data: updateRow } = await getSupabaseServer()
       .from("partner_updates")
       .select("id,organization_id")
       .eq("id", params.updateId)
@@ -136,7 +136,7 @@ export async function ensurePartnerUpdateRecipient(params: {
 
     const brandOrgId = String(updateRow.organization_id);
     const nowIso = new Date().toISOString();
-    const { data: created, error: createError } = await supabaseServer
+    const { data: created, error: createError } = await getSupabaseServer()
       .from("partner_update_recipients")
       .insert({
         organization_id: brandOrgId,

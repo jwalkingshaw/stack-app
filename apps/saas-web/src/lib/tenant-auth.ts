@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { DatabaseQueries } from "@stack-app/database";
 import type { Organization } from "@stack-app/types";
 import { evaluateTenantAccessDecision } from "@/lib/tenant-access-decision";
@@ -70,7 +70,7 @@ export async function verifyTenantAccess(
       };
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     
     // Step 1: Get organization by user-friendly slug
     const organization = await db.getOrganizationBySlug(tenantSlug);
@@ -85,7 +85,7 @@ export async function verifyTenantAccess(
     }
 
     const userId = session.user?.id || "";
-    const { data: membershipRows, error: membershipError } = await supabaseServer
+    const { data: membershipRows, error: membershipError } = await getSupabaseServer()
       .from("organization_members")
       .select("id")
       .eq("organization_id", organization.id)

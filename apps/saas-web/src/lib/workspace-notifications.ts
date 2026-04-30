@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { readOrganizationProfile } from "@/lib/organization-profile";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -82,7 +83,7 @@ export async function getActiveWorkspaceMemberships(
       organization:organizations (*)
     `;
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("organization_members")
     .select(membershipSelect)
     .eq("kinde_user_id", userId)
@@ -100,7 +101,7 @@ export async function getActiveWorkspaceMemberships(
   const includeEmailLookup = options?.includeEmailLookup ?? true;
   const normalizedEmail = (userEmail || "").trim().toLowerCase();
   if (includeEmailLookup && normalizedEmail.length > 0) {
-    const { data: emailData, error: emailError } = await supabase
+    const { data: emailData, error: emailError } = await getSupabaseServer()
       .from("organization_members")
       .select(membershipSelect)
       .ilike("email", normalizedEmail)
@@ -121,7 +122,7 @@ export async function getActiveWorkspaceMemberships(
     }
 
     if (relinkIds.length > 0) {
-      await supabase
+      await getSupabaseServer()
         .from("organization_members")
         .update({
           kinde_user_id: userId,
@@ -182,7 +183,7 @@ export async function getActiveWorkspaceMemberships(
   }
 
   // Primary path: current schema with explicit organization FK naming.
-  const { data: partnerRowsV2, error: partnerRowsV2Error } = await supabase
+  const { data: partnerRowsV2, error: partnerRowsV2Error } = await getSupabaseServer()
     .from("brand_partner_relationships")
     .select("id, access_level, created_at, brand_organization_id")
     .in("partner_organization_id", partnerOrganizationIds)
@@ -204,7 +205,7 @@ export async function getActiveWorkspaceMemberships(
       }));
   } else {
     // Fallback path: legacy schema variants used brand_id/partner_id columns.
-    const { data: partnerRowsV1, error: partnerRowsV1Error } = await supabase
+    const { data: partnerRowsV1, error: partnerRowsV1Error } = await getSupabaseServer()
       .from("brand_partner_relationships")
       .select("id, created_at, brand_id")
       .in("partner_id", partnerOrganizationIds)
@@ -226,7 +227,7 @@ export async function getActiveWorkspaceMemberships(
   }
 
   const brandIds = Array.from(new Set(partnerRows.map((row) => row.brand_id)));
-  const { data: brands, error: brandsError } = await supabase
+  const { data: brands, error: brandsError } = await getSupabaseServer()
     .from("organizations")
     .select("*")
     .in("id", brandIds);
@@ -293,7 +294,7 @@ export async function getWorkspaceNotificationStateMap(
     return stateByWorkspace;
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("user_workspace_notification_state")
     .select("organization_id,last_read_at")
     .eq("kinde_user_id", userId)
@@ -306,7 +307,7 @@ export async function getWorkspaceNotificationStateMap(
     throw error;
   }
 
-  for (const row of (data || []) as Array<{ organization_id: string; last_read_at: string }>) {
+  for (const row of (data || [])) {
     if (row.organization_id && row.last_read_at) {
       stateByWorkspace.set(row.organization_id, row.last_read_at);
     }
@@ -344,17 +345,17 @@ export async function getWorkspaceUnreadCounts(
         { count: shareCount },
         { count: updateCount },
       ] = await Promise.all([
-          supabase
+          getSupabaseServer()
             .from("dam_assets")
             .select("id", { count: "exact", head: true })
             .eq("organization_id", organizationId)
             .gt("created_at", sinceIso),
-          supabase
+          getSupabaseServer()
             .from("products")
             .select("id", { count: "exact", head: true })
             .eq("organization_id", organizationId)
             .gt("created_at", sinceIso),
-          supabase
+          getSupabaseServer()
             .from("security_audit_logs")
             .select("id", { count: "exact", head: true })
             .eq("organization_id", organizationId)
@@ -362,7 +363,7 @@ export async function getWorkspaceUnreadCounts(
             .gt("created_at", sinceIso),
           membership.organization.organizationType === "brand" &&
           partnerOrganizationIds.length > 0
-            ? supabase
+            ? getSupabaseServer()
                 .from("partner_update_recipients")
                 .select("id", { count: "exact", head: true })
                 .eq("organization_id", organizationId)
@@ -420,21 +421,21 @@ export async function getWorkspaceNotificationEvents(
     { data: updateRecipients },
     { data: reminderEvents },
   ] = await Promise.all([
-    supabase
+    getSupabaseServer()
       .from("dam_assets")
       .select("id,organization_id,filename,created_at")
       .in("organization_id", filteredOrganizationIds)
       .gte("created_at", fallbackWindowStart)
       .order("created_at", { ascending: false })
       .limit(queryLimit),
-    supabase
+    getSupabaseServer()
       .from("products")
       .select("id,organization_id,product_name,sku,created_at")
       .in("organization_id", filteredOrganizationIds)
       .gte("created_at", fallbackWindowStart)
       .order("created_at", { ascending: false })
       .limit(queryLimit),
-    supabase
+    getSupabaseServer()
       .from("security_audit_logs")
       .select("id,organization_id,action,metadata,created_at")
       .in("organization_id", filteredOrganizationIds)
@@ -443,7 +444,7 @@ export async function getWorkspaceNotificationEvents(
       .order("created_at", { ascending: false })
       .limit(queryLimit),
     partnerOrganizationIds.length > 0
-      ? supabase
+      ? getSupabaseServer()
           .from("partner_update_recipients")
           .select(
             "id,organization_id,partner_update_id,partner_organization_id,status,first_notified_at,updated_at,created_at"
@@ -456,7 +457,7 @@ export async function getWorkspaceNotificationEvents(
           .limit(queryLimit)
       : Promise.resolve({ data: [] }),
     partnerOrganizationIds.length > 0
-      ? supabase
+      ? getSupabaseServer()
           .from("partner_update_activity")
           .select("id,organization_id,partner_update_id,partner_organization_id,event_at,metadata")
           .in("organization_id", filteredOrganizationIds)
@@ -599,7 +600,7 @@ export async function getWorkspaceNotificationEvents(
     }
   >();
   if (updateIds.length > 0) {
-    const { data: updates } = await supabase
+    const { data: updates } = await getSupabaseServer()
       .from("partner_updates")
       .select("id,organization_id,title,urgency,due_at,published_at,status")
       .in("id", updateIds)
@@ -716,7 +717,7 @@ export async function markWorkspaceNotificationsRead(
     updated_at: nowIso,
   }));
 
-  const { error } = await supabase
+  const { error } = await getSupabaseServer()
     .from("user_workspace_notification_state")
     .upsert(rows, { onConflict: "kinde_user_id,organization_id" });
 

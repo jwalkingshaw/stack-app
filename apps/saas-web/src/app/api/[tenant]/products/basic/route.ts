@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import {
   PRODUCT_VIEW_PERMISSION_KEYS,
@@ -8,10 +9,6 @@ import {
 } from "@/lib/partner-brand-view";
 import { getChannelScopedProductIds } from "@/lib/product-channel-scope";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const BASIC_PRODUCTS_SELECT_WITH_BRAND = "id, sku, product_name, brand:brand_line, parent_id, type";
 const BASIC_PRODUCTS_SELECT_FALLBACK = "id, sku, product_name, parent_id, type";
@@ -86,7 +83,7 @@ export async function GET(
           const scopedIds = new Set<string>();
           for (const channelId of scopedPermissions.channelIds) {
             const productIds = await getChannelScopedProductIds({
-              supabase: supabase,
+              supabase: getSupabaseServer(),
               organizationId: targetOrganizationId,
               channelId,
             });
@@ -112,7 +109,7 @@ export async function GET(
     }
 
     const buildQuery = (selectClause: string) => {
-      let query = supabase
+      let query = getSupabaseServer()
         .from("products")
         .select(selectClause)
         .eq("organization_id", targetOrganizationId)

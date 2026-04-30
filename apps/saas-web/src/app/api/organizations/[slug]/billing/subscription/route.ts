@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
-import { stripe } from "@/lib/stripe";
+import { getSupabaseServer } from "@/lib/supabase";
+import { getStripe } from "@/lib/stripe";
 import {
   BILLING_PLAN_CATALOG,
   getOrganizationBillingLimits,
@@ -22,7 +22,7 @@ export async function GET(
   try {
     const resolvedParams = await params;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     
     const user = await authService.getCurrentUser();
@@ -48,7 +48,7 @@ export async function GET(
       );
     }
 
-    const { data: subscriptionRow, error: subscriptionError } = await supabaseServer
+    const { data: subscriptionRow, error: subscriptionError } = await getSupabaseServer()
       .from("organization_subscriptions")
       .select(`
         id,
@@ -139,7 +139,7 @@ export async function POST(
   try {
     const resolvedParams = await params;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     
     const user = await authService.getCurrentUser();
@@ -198,7 +198,7 @@ export async function POST(
 
     const targetStatus = useTrial ? "trialing" : "active";
 
-    const { data: currentRows, error: currentRowsError } = await supabaseServer
+    const { data: currentRows, error: currentRowsError } = await getSupabaseServer()
       .from("organization_subscriptions")
       .select("id,plan_id,status")
       .eq("organization_id", organization.id)
@@ -228,7 +228,7 @@ export async function POST(
 
     if (activeRows.length > 0) {
       const activeIds = activeRows.map((row) => row.id);
-      const { error: cancelExistingError } = await supabaseServer
+      const { error: cancelExistingError } = await getSupabaseServer()
         .from("organization_subscriptions")
         .update({
           status: "canceled",
@@ -266,7 +266,7 @@ export async function POST(
       updated_at: nowIso,
     };
 
-    const { data: insertedSubscription, error: subscriptionInsertError } = await supabaseServer
+    const { data: insertedSubscription, error: subscriptionInsertError } = await getSupabaseServer()
       .from("organization_subscriptions")
       .insert(subscriptionInsertPayload)
       .select("id,plan_id,status,current_period_start,current_period_end,trial_end,created_at,updated_at")
@@ -280,7 +280,7 @@ export async function POST(
       );
     }
 
-    const { error: billingEventError } = await supabaseServer
+    const { error: billingEventError } = await getSupabaseServer()
       .from("organization_billing_events")
       .insert({
         organization_id: organization.id,
@@ -304,7 +304,7 @@ export async function POST(
     // Update Stripe subscription metadata with Endorsely referrer ID
     if (endorselyReferrerId && providerSubscriptionId) {
       try {
-        await stripe.subscriptions.update(
+        await getStripe().subscriptions.update(
           providerSubscriptionId,
           {
             metadata: {

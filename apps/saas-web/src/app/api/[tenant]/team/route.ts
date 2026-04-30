@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@stack-app/auth';
 import { DatabaseQueries } from '@stack-app/database';
 import type { Database } from '@stack-app/database';
 
-import { supabaseServer } from '@/lib/supabase';
+import { getSupabaseServer } from '@/lib/supabase';
 import { sendInvitationEmail } from '@/lib/email';
 import { enforceRateLimit, rateLimitExceededResponse } from '@/lib/rate-limit';
 import { requireTenantAccess } from '@/lib/tenant-auth';
@@ -22,7 +22,6 @@ import {
 import { extractPartnerInvitationWorkspaceScope } from '@/lib/partner-invitation-grants';
 import { isUnlimitedBillingLimit } from '@/lib/billing-policy';
 
-const supabase = supabaseServer;
 
 type PartnerRelationshipRow = {
   id: string;
@@ -133,7 +132,7 @@ async function countPendingInvitesForType(
 ): Promise<number> {
   const nowIso = new Date().toISOString();
 
-  let result = await supabase
+  let result = await getSupabaseServer()
     .from('invitations')
     .select('id', { count: 'exact', head: true })
     .eq('organization_id', organizationId)
@@ -145,7 +144,7 @@ async function countPendingInvitesForType(
 
   // Backward compatibility for schemas before revoked_at.
   if (result.error?.code === '42703') {
-    result = await supabase
+    result = await getSupabaseServer()
       .from('invitations')
       .select('id', { count: 'exact', head: true })
       .eq('organization_id', organizationId)
@@ -169,7 +168,7 @@ export async function GET(
 ) {
   try {
     const resolvedParams = await params;
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const tenantAccess = await requireTenantAccess(request, resolvedParams.tenant);
@@ -195,7 +194,7 @@ export async function GET(
     const canManageInvites = permissions.is_admin || permissions.is_owner;
 
     if (canManageInvites) {
-      const { data: pendingInvites, error: invitesError } = await supabase
+      const { data: pendingInvites, error: invitesError } = await getSupabaseServer()
         .from('invitations')
         .select(`
           id,
@@ -262,7 +261,7 @@ export async function GET(
       ];
 
       for (const attempt of relationshipQueryAttempts) {
-        const result = await supabase
+        const result = await getSupabaseServer()
           .from('brand_partner_relationships')
           .select(attempt.select)
           .eq(attempt.brandColumn, organization.id)
@@ -298,7 +297,7 @@ export async function GET(
       }
 
       if (rawRelationships.length === 0) {
-        const rpcPartners = await supabase.rpc('get_brand_partners', {
+        const rpcPartners = await getSupabaseServer().rpc('get_brand_partners', {
           brand_org_id: organization.id,
         });
         if (!rpcPartners.error && Array.isArray(rpcPartners.data)) {
@@ -345,7 +344,7 @@ export async function GET(
         );
       }
       if (partnerOrgIds.length > 0) {
-        const { data: partnerRows } = await supabase
+        const { data: partnerRows } = await getSupabaseServer()
           .from('organizations')
           .select('id,name,slug,partner_category,organization_type')
           .in('id', partnerOrgIds);
@@ -355,7 +354,7 @@ export async function GET(
 
       let setCountByPartner = new Map<string, number>();
       if (partnerOrgIds.length > 0) {
-        const grants = await supabase
+        const grants = await getSupabaseServer()
           .from('partner_share_set_grants')
           .select('partner_organization_id,share_set_id')
           .eq('organization_id', organization.id)
@@ -437,7 +436,7 @@ export async function POST(
       maxRequests: 20,
     });
     if (!inviteLimit.allowed) {
-      await logRateLimitSecurityEvent(supabaseServer, {
+      await logRateLimitSecurityEvent(getSupabaseServer(), {
         action: 'team_invite_create',
         userAgent: request.headers.get('user-agent'),
         metadata: { tenant: resolvedParams.tenant },
@@ -445,7 +444,7 @@ export async function POST(
       return rateLimitExceededResponse(inviteLimit);
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const tenantAccess = await requireTenantAccess(request, resolvedParams.tenant);
@@ -503,7 +502,7 @@ export async function POST(
 
     const normalizedInvitePermissions = normalizeInvitePermissions(invite_permissions);
     const permissionsValidation = await validateInvitePermissionsForOrganization({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       permissions: normalizedInvitePermissions,
     });
@@ -512,7 +511,7 @@ export async function POST(
     }
 
     if (permission_bundle_id) {
-      const { data: bundle, error: bundleError } = await supabase
+      const { data: bundle, error: bundleError } = await getSupabaseServer()
         .from('permission_bundles')
         .select('id')
         .eq('id', permission_bundle_id)
@@ -627,7 +626,7 @@ export async function POST(
     }
 
     const shareSetValidation = await validateShareSetIdsForOrganization({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       shareSetIds: normalizedShareSetIds,
     });
@@ -638,7 +637,7 @@ export async function POST(
       );
     }
 
-    const { data: existingMemberRows, error: existingMemberLookupError } = await supabase
+    const { data: existingMemberRows, error: existingMemberLookupError } = await getSupabaseServer()
       .from('organization_members')
       .select('id')
       .eq('organization_id', organization.id)
@@ -663,7 +662,7 @@ export async function POST(
     let requiresOnboarding = false;
 
     if (invitation_type === 'partner') {
-      const { data: existingPartnerMemberRaw, error: partnerCheckError } = await supabase
+      const { data: existingPartnerMemberRaw, error: partnerCheckError } = await getSupabaseServer()
         .from('organization_members')
         .select(`
           organization_id,
@@ -716,7 +715,7 @@ export async function POST(
       invitationData.requires_onboarding = requiresOnboarding;
     }
 
-    const { data: invitationRaw, error: invitationError } = await supabase
+    const { data: invitationRaw, error: invitationError } = await getSupabaseServer()
       .from('invitations')
       .insert(invitationData as unknown as Database['public']['Tables']['invitations']['Insert'])
       .select()
@@ -737,7 +736,7 @@ export async function POST(
     let assignedShareSetIds: string[] = [];
     if (invitation_type === 'partner' && shareSetValidation.data.validatedIds.length > 0) {
       const assignmentResult = await replaceInvitationShareSetAssignments({
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         organizationId: organization.id,
         invitationId: invitation.id,
         shareSetIds: shareSetValidation.data.validatedIds,
@@ -746,7 +745,7 @@ export async function POST(
 
       if (!assignmentResult.ok) {
         // Keep invitation + assignment setup consistent on initial create failures.
-        await supabase
+        await getSupabaseServer()
           .from('invitations')
           .delete()
           .eq('id', invitation.id);
@@ -761,7 +760,7 @@ export async function POST(
     }
 
     try {
-      await supabase.rpc('log_security_event', {
+      await getSupabaseServer().rpc('log_security_event', {
         organization_id_param: organization.id,
         actor_user_id_param: userId,
         action_param: 'invite.created',
@@ -849,7 +848,7 @@ export async function DELETE(
       maxRequests: 30,
     });
     if (!inviteDeleteLimit.allowed) {
-      await logRateLimitSecurityEvent(supabaseServer, {
+      await logRateLimitSecurityEvent(getSupabaseServer(), {
         action: 'team_invite_delete',
         userAgent: request.headers.get('user-agent'),
         metadata: { tenant: resolvedParams.tenant },
@@ -857,7 +856,7 @@ export async function DELETE(
       return rateLimitExceededResponse(inviteDeleteLimit);
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const tenantAccess = await requireTenantAccess(request, resolvedParams.tenant);
@@ -892,7 +891,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Invitation ID is required' }, { status: 400 });
     }
 
-    const { data: invitationRaw, error: fetchError } = await supabase
+    const { data: invitationRaw, error: fetchError } = await getSupabaseServer()
       .from('invitations')
       .select('id, email, organization_id, accepted_at, declined_at, revoked_at')
       .eq('id', invitationId)
@@ -917,7 +916,7 @@ export async function DELETE(
       );
     }
 
-    const { error: revokeError } = await supabase
+    const { error: revokeError } = await getSupabaseServer()
       .from('invitations')
       .update({ revoked_at: new Date().toISOString() })
       .eq('id', invitationId)
@@ -930,7 +929,7 @@ export async function DELETE(
     }
 
     try {
-      await supabase.rpc('log_security_event', {
+      await getSupabaseServer().rpc('log_security_event', {
         organization_id_param: organization.id,
         actor_user_id_param: userId,
         action_param: 'invite.deleted',

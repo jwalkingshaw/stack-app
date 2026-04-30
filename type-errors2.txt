@@ -1,0 +1,19 @@
+﻿
+> @stack-app/saas-web@0.1.0 type-check
+> tsc --noEmit
+
+src/app/api/[tenant]/localization/settings/route.ts(103,9): error TS1109: Expression expected.
+src/app/api/[tenant]/sharing/sets/route.ts(273,7): error TS1109: Expression expected.
+node.exe : npm error Lifecycle script `type-check` failed with error:
+At C:\Program Files\nodejs\npm.ps1:29 char:3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm error Lifec...led with error::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm error code 2
+npm error path C:\Users\jason\tradetool\apps\saas-web
+npm error workspace @stack-app/saas-web@0.1.0
+npm error location C:\Users\jason\tradetool\apps\saas-web
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c tsc --noEmit

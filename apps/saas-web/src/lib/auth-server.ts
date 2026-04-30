@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 // Server-only utilities for Kinde authentication
 import "server-only";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
@@ -86,7 +87,7 @@ export const requireOrganization = cache(async () => {
 });
 
 /**
- * Get current user's organization details from Supabase
+ * Get current user's organization details from getSupabaseServer()
  * Cached with Redis for performance across requests
  * @returns Promise<Organization | null>
  */
@@ -106,9 +107,9 @@ export const getCurrentOrganization = cache(async () => {
     }
 
     const supabase = createServerClient();
-    const db = new DatabaseQueries(supabase);
+    const db = new DatabaseQueries(getSupabaseServer());
 
-    // Get organization from Supabase using Kinde org ID
+    // Get organization from getSupabaseServer() using Kinde org ID
     const organization = await db.getOrganizationByKindeId(kindeOrg.orgCode);
 
     // Cache the result

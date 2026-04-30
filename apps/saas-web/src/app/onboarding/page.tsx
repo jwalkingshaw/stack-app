@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+﻿import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { createServerClient } from "@stack-app/database";
 import OnboardingClient from "./OnboardingClient";

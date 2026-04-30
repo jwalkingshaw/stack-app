@@ -1,7 +1,7 @@
-import { createHash } from "crypto";
+﻿import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import type { Database, Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { assertBillingCapacity, getOrganizationBillingLimits } from "@/lib/billing-policy";
 import { canUseDeepL } from "@/lib/billing-policy";
 import { improveTextWithDeepL, isDeepLConfigured, translateWithDeepL } from "@/lib/deepl";
@@ -19,7 +19,6 @@ type LocaleRow = {
   name: string;
 };
 
-const supabase = supabaseServer;
 
 type GlossaryLookupRow = {
   id: string;
@@ -282,7 +281,7 @@ async function resolveLocalizationSettings(organizationId: string): Promise<{
   preferredTone: PreferredTone;
   foundationMissing: boolean;
 }> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("organization_localization_settings")
     .select("translation_enabled,write_assist_enabled,deepl_glossary_id,brand_instructions,preferred_tone")
     .eq("organization_id", organizationId)
@@ -323,7 +322,7 @@ async function resolveLocalizationSettings(organizationId: string): Promise<{
 }
 
 async function resolveLocales(organizationId: string): Promise<LocaleRow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("locales")
     .select("id,code,name")
     .eq("organization_id", organizationId)
@@ -360,7 +359,7 @@ async function resolveTargetGlossaryProviderSelection(params: {
   }
 
   const glossaryIds = Array.from(new Set(requestedEntries.map(([, glossaryId]) => glossaryId)));
-  const { data: glossaryRows, error: glossaryError } = await supabase
+  const { data: glossaryRows, error: glossaryError } = await getSupabaseServer()
     .from("translation_glossaries")
     .select("id,source_language_code,target_language_code,provider_glossary_id,is_active")
     .eq("organization_id", params.organizationId)
@@ -412,7 +411,7 @@ async function resolveTargetGlossaryProviderSelection(params: {
 }
 
 async function resolveProducts(organizationId: string, productIds: string[]): Promise<ProductRow[]> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("products")
     .select(
       "id,type,parent_id,product_name,short_description,long_description,features,meta_title,meta_description,created_by,last_modified_by"
@@ -442,7 +441,7 @@ async function resolveParentProductsForVariants(
     return new Map<string, ProductRow>();
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("products")
     .select(
       "id,type,parent_id,product_name,short_description,long_description,features,meta_title,meta_description,created_by,last_modified_by"
@@ -470,7 +469,7 @@ async function resolveTranslatableProductFields(params: {
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_fields")
     .select("id,code,field_type,is_localizable,is_translatable,is_write_assist_enabled,is_active")
     .eq("organization_id", params.organizationId)
@@ -497,7 +496,7 @@ async function resolveTranslatableProductFields(params: {
 async function resolveSystemFieldDefinitions(
   organizationId: string
 ): Promise<Array<Pick<ProductFieldRow, "id" | "code">>> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_fields")
     .select("id,code")
     .eq("organization_id", organizationId)
@@ -522,7 +521,7 @@ async function resolveProductFieldValues(params: {
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("product_field_values")
     .select(
       "product_id,product_field_id,value_text,value_number,value_boolean,value_date,value_datetime,value_json,market_id,channel_id,destination_id,locale_id"
@@ -1254,13 +1253,13 @@ async function runLocalizationJobGeneration(
     };
   });
 
-  const { error: itemInsertError } = await supabase
+  const { error: itemInsertError } = await getSupabaseServer()
     .from("translation_job_items")
     .insert(itemRows);
 
   if (itemInsertError) {
     console.error("Failed to create translation job items:", itemInsertError);
-    await supabase
+    await getSupabaseServer()
       .from("translation_jobs")
       .update({
         status: "failed",
@@ -1278,7 +1277,7 @@ async function runLocalizationJobGeneration(
   const errorSummary =
     failedCount > 0 ? `${failedCount} item(s) failed during generation. Review job items for details.` : null;
 
-  const { error: jobFinalizeError } = await supabase
+  const { error: jobFinalizeError } = await getSupabaseServer()
     .from("translation_jobs")
     .update({
       status: finalStatus,
@@ -1324,7 +1323,7 @@ async function executeLocalizationJobById(params: {
   generatedItems: number;
   failedItems: number;
 }> {
-  const { data: jobRow, error: jobError } = await supabase
+  const { data: jobRow, error: jobError } = await getSupabaseServer()
     .from("translation_jobs")
     .select(JOB_SELECT)
     .eq("organization_id", params.organizationId)
@@ -1483,7 +1482,7 @@ async function executeLocalizationJobById(params: {
   });
 
   if (workItems.length === 0) {
-    await supabase
+    await getSupabaseServer()
       .from("translation_jobs")
       .update({
         status: "failed",
@@ -1512,7 +1511,7 @@ async function executeLocalizationJobById(params: {
   }
 
   const nowIso = new Date().toISOString();
-  await supabase
+  await getSupabaseServer()
     .from("translation_jobs")
     .update({
       status: "running",
@@ -1524,7 +1523,7 @@ async function executeLocalizationJobById(params: {
     .eq("organization_id", params.organizationId)
     .eq("id", params.jobId);
 
-  const { error: clearItemsError } = await supabase
+  const { error: clearItemsError } = await getSupabaseServer()
     .from("translation_job_items")
     .delete()
     .eq("organization_id", params.organizationId)
@@ -1574,7 +1573,7 @@ export async function GET(
     const limitRaw = Number(new URL(request.url).searchParams.get("limit") || 25);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.floor(limitRaw))) : 25;
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("translation_jobs")
       .select(JOB_SELECT)
       .eq("organization_id", organization.id)
@@ -1599,7 +1598,7 @@ export async function GET(
 
     let itemCountsByJobId: Record<string, Record<string, number>> = {};
     if (jobIds.length > 0) {
-      const { data: itemRows, error: itemError } = await supabase
+      const { data: itemRows, error: itemError } = await getSupabaseServer()
         .from("translation_job_items")
         .select("job_id,status")
         .eq("organization_id", organization.id)
@@ -1937,7 +1936,7 @@ export async function POST(
       started_at: executionMode === "sync" ? nowIso : null,
     };
 
-    const { data: jobRow, error: jobInsertError } = await supabase
+    const { data: jobRow, error: jobInsertError } = await getSupabaseServer()
       .from("translation_jobs")
       .insert(jobInsertPayload)
       .select(JOB_SELECT)

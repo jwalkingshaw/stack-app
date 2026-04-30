@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import {
   CORE_SYSTEM_FIELD_CODES,
@@ -6,7 +7,7 @@ import {
   normalizeAssignment,
   resolveFieldGroupByKey,
   resolveTargetOrganization,
-  supabase,
+  
 } from "../../_shared";
 
 function parseSortOrder(value: unknown, fallback: number): number {
@@ -58,7 +59,7 @@ export async function GET(
       return NextResponse.json({ error: "Field group not found" }, { status: 404 });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_field_group_assignments")
       .select("*, product_fields!product_field_id(*)")
       .eq("field_group_id", groupResult.data.id)
@@ -136,7 +137,7 @@ export async function POST(
       );
     }
 
-    const { data: fieldRecord, error: fieldError } = await supabase
+    const { data: fieldRecord, error: fieldError } = await getSupabaseServer()
       .from("product_fields")
       .select("id")
       .eq("id", productFieldId)
@@ -159,7 +160,7 @@ export async function POST(
     }
 
     const sortOrder = parseSortOrder(body?.sort_order, 1);
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("product_field_group_assignments")
       .upsert(
         {
@@ -239,7 +240,7 @@ export async function DELETE(
       let targetFieldCode: string | null = null;
 
       if (assignmentId) {
-        const { data: assignmentRecord, error: assignmentError } = await supabase
+        const { data: assignmentRecord, error: assignmentError } = await getSupabaseServer()
           .from("product_field_group_assignments")
           .select("product_fields!product_field_id(code)")
           .eq("id", assignmentId)
@@ -256,7 +257,7 @@ export async function DELETE(
 
         targetFieldCode = extractRelationCode(assignmentRecord?.product_fields);
       } else if (fieldId) {
-        const { data: fieldRecord, error: fieldError } = await supabase
+        const { data: fieldRecord, error: fieldError } = await getSupabaseServer()
           .from("product_fields")
           .select("code")
           .eq("id", fieldId)
@@ -282,7 +283,7 @@ export async function DELETE(
       }
     }
 
-    let deleteQuery = supabase
+    let deleteQuery = getSupabaseServer()
       .from("product_field_group_assignments")
       .delete()
       .eq("field_group_id", groupResult.data.id);

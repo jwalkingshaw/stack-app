@@ -1,0 +1,430 @@
+﻿
+> @stack-app/saas-web@0.1.0 type-check
+> tsc --noEmit
+
+src/app/[tenant]/layout.tsx(30,36): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/[tenant]/layout.tsx(64,14): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/[tenant]/page.tsx(14,34): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/[tenant]/settings/layout.tsx(27,38): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/[tenant]/settings/localization/layout.tsx(14,34): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/assets/[assetId]/product-suggestions/route.ts(115,13): error TS2339: Property 'auto_link_suggestions' does not exist on type 'SelectQueryError<"column 'auto_link_suggestions' does not exist on 'dam_assets'.">'.
+src/app/api/[tenant]/assets/[assetId]/product-suggestions/route.ts(116,27): error TS2339: Property 'auto_link_suggestions' does not exist on type 'SelectQueryError<"column 'auto_link_suggestions' does not exist on 'dam_assets'.">'.
+src/app/api/[tenant]/assets/[assetId]/product-suggestions/route.ts(117,13): error TS2339: Property 'auto_link_suggestions' does not exist on type 'SelectQueryError<"column 'auto_link_suggestions' does not exist on 'dam_assets'.">'.
+src/app/api/[tenant]/assets/[assetId]/product-suggestions/route.ts(121,21): error TS2339: Property 'auto_link_suggestions' does not exist on type 'SelectQueryError<"column 'auto_link_suggestions' does not exist on 'dam_assets'.">'.
+src/app/api/[tenant]/assets/[assetId]/product-suggestions/route.ts(157,13): error TS2339: Property 'original_filename' does not exist on type 'SelectQueryError<"column 'auto_link_suggestions' does not exist on 'dam_assets'.">'.
+src/app/api/[tenant]/assets/[assetId]/product-suggestions/route.ts(157,40): error TS2339: Property 'filename' does not exist on type 'SelectQueryError<"column 'auto_link_suggestions' does not exist on 'dam_assets'.">'.
+src/app/api/[tenant]/assets/[assetId]/product-suggestions/route.ts(176,19): error TS2339: Property 'id' does not exist on type 'SelectQueryError<"column 'auto_link_suggestions' does not exist on 'dam_assets'.">'.
+src/app/api/[tenant]/assets/[assetId]/product-suggestions/route.ts(177,25): error TS2339: Property 'filename' does not exist on type 'SelectQueryError<"column 'auto_link_suggestions' does not exist on 'dam_assets'.">'.
+src/app/api/[tenant]/assets/[assetId]/product-suggestions/route.ts(178,26): error TS2339: Property 'file_type' does not exist on type 'SelectQueryError<"column 'auto_link_suggestions' does not exist on 'dam_assets'.">'.
+src/app/api/[tenant]/assets/[assetId]/route.ts(376,7): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/assets/[assetId]/route.ts(380,7): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/assets/[assetId]/route.ts(614,11): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/assets/[assetId]/route.ts(876,9): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/assets/[assetId]/versions/restore/route.ts(269,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { asset_id: string; change_comment?: string | null | undefined; created_at?: string | undefined; created_by: string; description?: string | null | undefined; effective_from?: string | null | undefined; ... 13 more ...; version_number: number; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ organization_id: string; asset_id: string; version_number: number; filename: string; original_filename: string; file_type: string; file_size: number; mime_type: string; s3_key: string; s3_url: string; ... 8 more ...; created_at: string; }' is not assignable to parameter of type '{ asset_id: string; change_comment?: string | null | undefined; created_at?: string | undefined; created_by: string; description?: string | null | undefined; effective_from?: string | null | undefined; ... 13 more ...; version_number: number; }'.
+      Types of property 'metadata' are incompatible.
+        Type 'Record<string, unknown>' is not assignable to type 'Json | undefined'.
+          Type 'Record<string, unknown>' is missing the following properties from type 'Json[]': length, pop, push, concat, and 29 more.
+  Overload 2 of 2, '(values: { asset_id: string; change_comment?: string | null | undefined; created_at?: string | undefined; created_by: string; description?: string | null | undefined; effective_from?: string | null | undefined; ... 13 more ...; version_number: number; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ organization_id: string; asset_id: string; version_number: number; filename: string; original_filename: string; file_type: string; file_size: number; mime_type: string; s3_key: string; s3_url: string; ... 8 more ...; created_at: string; }' is not assignable to parameter of type '{ asset_id: string; change_comment?: string | null | undefined; created_at?: string | undefined; created_by: string; description?: string | null | undefined; effective_from?: string | null | undefined; ... 13 more ...; version_number: number; }[]'.
+      Type '{ organization_id: string; asset_id: string; version_number: number; filename: string; original_filename: string; file_type: string; file_size: number; mime_type: string; s3_key: string; s3_url: string; ... 8 more ...; created_at: string; }' is missing the following properties from type '{ asset_id: string; change_comment?: string | null | undefined; created_at?: string | undefined; created_by: string; description?: string | null | undefined; effective_from?: string | null | undefined; ... 13 more ...; version_number: number; }[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/assets/[assetId]/versions/restore/route.ts(297,9): error TS2322: Type 'Record<string, unknown>' is not assignable to type 'Json | undefined'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'Json[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/assets/[assetId]/versions/restore/route.ts(298,9): error TS2322: Type 'Record<string, unknown>' is not assignable to type 'Json | undefined'.
+  Type 'Record<string, unknown>' is missing the following properties from type 'Json[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/assets/[assetId]/versions/route.ts(579,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { asset_id: string; change_comment?: string | null | undefined; created_at?: string | undefined; created_by: string; description?: string | null | undefined; effective_from?: string | null | undefined; ... 13 more ...; version_number: number; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ organization_id: string; asset_id: string; version_number: number; filename: string; original_filename: string; file_type: string; file_size: number; mime_type: string; s3_key: string; s3_url: string; ... 8 more ...; created_at: string; }' is not assignable to parameter of type '{ asset_id: string; change_comment?: string | null | undefined; created_at?: string | undefined; created_by: string; description?: string | null | undefined; effective_from?: string | null | undefined; ... 13 more ...; version_number: number; }'.
+      Types of property 'metadata' are incompatible.
+        Type 'Record<string, unknown>' is not assignable to type 'Json | undefined'.
+          Type 'Record<string, unknown>' is missing the following properties from type 'Json[]': length, pop, push, concat, and 29 more.
+  Overload 2 of 2, '(values: { asset_id: string; change_comment?: string | null | undefined; created_at?: string | undefined; created_by: string; description?: string | null | undefined; effective_from?: string | null | undefined; ... 13 more ...; version_number: number; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ organization_id: string; asset_id: string; version_number: number; filename: string; original_filename: string; file_type: string; file_size: number; mime_type: string; s3_key: string; s3_url: string; ... 8 more ...; created_at: string; }' is not assignable to parameter of type '{ asset_id: string; change_comment?: string | null | undefined; created_at?: string | undefined; created_by: string; description?: string | null | undefined; effective_from?: string | null | undefined; ... 13 more ...; version_number: number; }[]'.
+      Type '{ organization_id: string; asset_id: string; version_number: number; filename: string; original_filename: string; file_type: string; file_size: number; mime_type: string; s3_key: string; s3_url: string; ... 8 more ...; created_at: string; }' is missing the following properties from type '{ asset_id: string; change_comment?: string | null | undefined; created_at?: string | undefined; created_by: string; description?: string | null | undefined; effective_from?: string | null | undefined; ... 13 more ...; version_number: number; }[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/assets/upload/route.ts(239,19): error TS7022: 'inserted' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.
+src/app/api/[tenant]/assets/upload/route.ts(810,7): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/assets/upload/route.ts(1175,8): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { alt_text?: string | null | undefined; approval_status?: string | null | undefined; artwork_type?: string | null | undefined; asset_kind?: string | null | undefined; asset_ref: string; ... 60 more ...; width?: number | ... 1 more ... | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ organization_id: string; folder_id: string | null; filename: string; original_filename: string; file_type: string; file_size: number; mime_type: string; s3_key: string; s3_url: string; thumbnail_urls: ThumbnailMap; ... 32 more ...; height: number | null; }' is not assignable to parameter of type '{ alt_text?: string | null | undefined; approval_status?: string | null | undefined; artwork_type?: string | null | undefined; asset_kind?: string | null | undefined; asset_ref: string; ... 60 more ...; width?: number | ... 1 more ... | undefined; }'.
+      Property 'asset_ref' is missing in type '{ organization_id: string; folder_id: string | null; filename: string; original_filename: string; file_type: string; file_size: number; mime_type: string; s3_key: string; s3_url: string; thumbnail_urls: ThumbnailMap; ... 32 more ...; height: number | null; }' but required in type '{ alt_text?: string | null | undefined; approval_status?: string | null | undefined; artwork_type?: string | null | undefined; asset_kind?: string | null | undefined; asset_ref: string; ... 60 more ...; width?: number | ... 1 more ... | undefined; }'.
+  Overload 2 of 2, '(values: { alt_text?: string | null | undefined; approval_status?: string | null | undefined; artwork_type?: string | null | undefined; asset_kind?: string | null | undefined; asset_ref: string; ... 60 more ...; width?: number | ... 1 more ... | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Object literal may only specify known properties, and 'organization_id' does not exist in type '{ alt_text?: string | null | undefined; approval_status?: string | null | undefined; artwork_type?: string | null | undefined; asset_kind?: string | null | undefined; asset_ref: string; ... 60 more ...; width?: number | ... 1 more ... | undefined; }[]'.
+src/app/api/[tenant]/assets/upload/route.ts(1230,7): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/assets/upload/route.ts(1341,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { approved_for_market_ids?: string[] | undefined; asset_id: string; asset_type?: string | null | undefined; channel_id?: string | null | undefined; confidence?: number | null | undefined; ... 21 more ...; variant_id?: string | ... 1 more ... | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ approved_for_market_ids?: string[] | undefined; asset_id: string; asset_type?: string | null | undefined; channel_id?: string | null | undefined; confidence?: number | null | undefined; ... 21 more ...; variant_id?: string | ... 1 more ... | undefined; }'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ approved_for_market_ids?: string[] | undefined; asset_id: string; asset_type?: string | null | undefined; channel_id?: string | null | undefined; confidence?: number | null | undefined; ... 21 more ...; variant_id?: string | ... 1 more ... | undefined; }': asset_id, link_context, organization_id, product_id
+  Overload 2 of 2, '(values: { approved_for_market_ids?: string[] | undefined; asset_id: string; asset_type?: string | null | undefined; channel_id?: string | null | undefined; confidence?: number | null | undefined; ... 21 more ...; variant_id?: string | ... 1 more ... | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ approved_for_market_ids?: string[] | undefined; asset_id: string; asset_type?: string | null | undefined; channel_id?: string | null | undefined; confidence?: number | null | undefined; ... 21 more ...; variant_id?: string | ... 1 more ... | undefined; }[]'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ approved_for_market_ids?: string[] | undefined; asset_id: string; asset_type?: string | null | undefined; channel_id?: string | null | undefined; confidence?: number | null | undefined; ... 21 more ...; variant_id?: string | ... 1 more ... | undefined; }[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/field-groups/[groupKey]/available-fields/route.ts(4,3): error TS2305: Module '"../../_shared"' has no exported member 'supabase'.
+src/app/api/[tenant]/field-groups/[groupKey]/available-fields/route.ts(17,24): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/available-fields/route.ts(29,10): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/available-fields/route.ts(64,64): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/available-fields/route.ts(79,15): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/api/[tenant]/field-groups/[groupKey]/available-fields/route.ts(80,18): error TS7006: Parameter 'id' implicitly has an 'any' type.
+src/app/api/[tenant]/field-groups/[groupKey]/available-fields/route.ts(83,59): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/available-fields/route.ts(98,16): error TS7006: Parameter 'field' implicitly has an 'any' type.
+src/app/api/[tenant]/field-groups/[groupKey]/available-fields/route.ts(99,13): error TS7006: Parameter 'field' implicitly has an 'any' type.
+src/app/api/[tenant]/field-groups/[groupKey]/fields/route.ts(9,3): error TS2305: Module '"../../_shared"' has no exported member 'supabase'.
+src/app/api/[tenant]/field-groups/[groupKey]/fields/route.ts(61,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/fields/route.ts(77,13): error TS7006: Parameter 'assignment' implicitly has an 'any' type.
+src/app/api/[tenant]/field-groups/[groupKey]/fields/route.ts(79,10): error TS7006: Parameter 'assignment' implicitly has an 'any' type.
+src/app/api/[tenant]/field-groups/[groupKey]/fields/route.ts(139,60): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/fields/route.ts(162,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/fields/route.ts(242,74): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/fields/route.ts(259,64): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/fields/route.ts(285,23): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/route.ts(8,3): error TS2305: Module '"../_shared"' has no exported member 'supabase'.
+src/app/api/[tenant]/field-groups/[groupKey]/route.ts(130,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/[groupKey]/route.ts(203,29): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/route.ts(7,3): error TS2305: Module '"./_shared"' has no exported member 'supabase'.
+src/app/api/[tenant]/field-groups/route.ts(31,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/field-groups/route.ts(47,13): error TS7006: Parameter 'group' implicitly has an 'any' type.
+src/app/api/[tenant]/field-groups/route.ts(48,16): error TS7006: Parameter 'group' implicitly has an 'any' type.
+src/app/api/[tenant]/field-groups/route.ts(93,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(43,34): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(72,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(89,64): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(98,61): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(128,42): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(144,40): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(182,56): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(191,42): error TS7006: Parameter 'market' implicitly has an 'any' type.
+src/app/api/[tenant]/locales/route.ts(193,73): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(216,58): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(225,44): error TS7006: Parameter 'product' implicitly has an 'any' type.
+src/app/api/[tenant]/locales/route.ts(227,58): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(243,62): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(263,50): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(320,17): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(395,66): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(418,73): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(442,63): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(510,56): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(559,44): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/locales/route.ts(583,68): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/localization/settings/route.ts(97,7): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/localization/settings/route.ts(102,7): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/output-profiles/[profileId]/scaffold/route.ts(159,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ organization_id: string; code: string; name: string; description: string; field_type: "number" | "text" | "measurement" | "table" | "textarea" | "file" | "select" | "identifier"; is_required: boolean; ... 13 more ...; is_active: boolean; }[]' is not assignable to parameter of type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }'.
+      Type '{ organization_id: string; code: string; name: string; description: string; field_type: "number" | "text" | "measurement" | "table" | "textarea" | "file" | "select" | "identifier"; is_required: boolean; ... 13 more ...; is_active: boolean; }[]' is missing the following properties from type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }': code, field_type, name, organization_id
+  Overload 2 of 2, '(values: { allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ organization_id: string; code: string; name: string; description: string; field_type: "number" | "text" | "measurement" | "table" | "textarea" | "file" | "select" | "identifier"; is_required: boolean; ... 13 more ...; is_active: boolean; }[]' is not assignable to parameter of type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }[]'.
+      Type '{ organization_id: string; code: string; name: string; description: string; field_type: "number" | "text" | "measurement" | "table" | "textarea" | "file" | "select" | "identifier"; is_required: boolean; ... 13 more ...; is_active: boolean; }' is not assignable to type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }'.
+        Types of property 'options' are incompatible.
+          Type 'Record<string, unknown>' is not assignable to type 'Json | undefined'.
+            Type 'Record<string, unknown>' is missing the following properties from type 'Json[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/output-profiles/[profileId]/scaffold/route.ts(269,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { onConflict?: string | undefined; ignoreDuplicates?: boolean | undefined; count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ ...; }, ... 5 more ..., "POST">', gave the following error.
+    Argument of type '{ organization_id: string; output_profile_id: string; slot_code: string; slot_name: string; asset_kind: string; document_type: string | null; certificate_type: string | null; label_panel_type: string | null; ... 4 more ...; metadata: { ...; }; }[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { onConflict?: string | undefined; ignoreDuplicates?: boolean | undefined; count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ organization_id: string; output_profile_id: string; slot_code: string; slot_name: string; asset_kind: string; document_type: string | null; certificate_type: string | null; label_panel_type: string | null; ... 4 more ...; metadata: { ...; }; }[]' is not assignable to parameter of type 'never[]'.
+      Type '{ organization_id: string; output_profile_id: string; slot_code: string; slot_name: string; asset_kind: string; document_type: string | null; certificate_type: string | null; label_panel_type: string | null; ... 4 more ...; metadata: { ...; }; }' is not assignable to type 'never'.
+src/app/api/[tenant]/output-profiles/[profileId]/scaffold/route.ts(305,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: never, options?: { onConflict?: string | undefined; ignoreDuplicates?: boolean | undefined; count?: "exact" | "planned" | "estimated" | undefined; } | undefined): PostgrestFilterBuilder<{ ...; }, ... 5 more ..., "POST">', gave the following error.
+    Argument of type '{ organization_id: string; profile_id: string; attribute_code: string; attribute_label: string; source_mode: "slot" | "constant" | "shared_field" | "destination_field"; source_field_code: string | null; ... 8 more ...; metadata: { ...; }; }[]' is not assignable to parameter of type 'never'.
+  Overload 2 of 2, '(values: never[], options?: { onConflict?: string | undefined; ignoreDuplicates?: boolean | undefined; count?: "exact" | "planned" | "estimated" | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ organization_id: string; profile_id: string; attribute_code: string; attribute_label: string; source_mode: "slot" | "constant" | "shared_field" | "destination_field"; source_field_code: string | null; ... 8 more ...; metadata: { ...; }; }[]' is not assignable to parameter of type 'never[]'.
+      Type '{ organization_id: string; profile_id: string; attribute_code: string; attribute_label: string; source_mode: "slot" | "constant" | "shared_field" | "destination_field"; source_field_code: string | null; ... 8 more ...; metadata: { ...; }; }' is not assignable to type 'never'.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/[assignmentId]/route.ts(6,3): error TS2305: Module '"../_shared"' has no exported member 'supabase'.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/[assignmentId]/route.ts(26,16): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/[assignmentId]/route.ts(84,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/[assignmentId]/route.ts(148,29): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/batch-save/route.ts(6,3): error TS2305: Module '"../_shared"' has no exported member 'supabase'.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/batch-save/route.ts(82,71): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/batch-save/route.ts(92,62): error TS7006: Parameter 'row' implicitly has an 'any' type.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/batch-save/route.ts(105,36): error TS7006: Parameter 'result' implicitly has an 'any' type.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/route.ts(9,3): error TS2305: Module '"./_shared"' has no exported member 'supabase'.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/route.ts(376,64): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/field-groups/route.ts(397,42): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/[attributeId]/route.ts(6,3): error TS2305: Module '"../_shared"' has no exported member 'supabase'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/[attributeId]/route.ts(13,16): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/[attributeId]/route.ts(72,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/[attributeId]/route.ts(132,29): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts(8,3): error TS2305: Module '"./_shared"' has no exported member 'supabase'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts(110,60): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts(121,11): error TS7006: Parameter 'group' implicitly has an 'any' type.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts(122,14): error TS7006: Parameter 'id' implicitly has an 'any' type.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts(127,62): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts(223,54): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts(248,42): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts(356,16): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts(364,42): error TS7006: Parameter 'result' implicitly has an 'any' type.
+src/app/api/[tenant]/product-families/[familyId]/variant-attributes/route.ts(366,24): error TS7006: Parameter 'result' implicitly has an 'any' type.
+src/app/api/[tenant]/product-families/route.ts(182,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }': created_by, name
+  Overload 2 of 2, '(values: { code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }[]'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/product-families/route.ts(191,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ [x: string]: unknown; }' is not assignable to parameter of type '{ code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }'.
+      Type '{ [x: string]: unknown; }' is missing the following properties from type '{ code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }': created_by, name
+  Overload 2 of 2, '(values: { code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ [x: string]: unknown; }' is not assignable to parameter of type '{ code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }[]'.
+      Type '{ [x: string]: unknown; }' is missing the following properties from type '{ code?: string | null | undefined; created_at?: string | null | undefined; created_by: string; description?: string | null | undefined; family_type?: string | null | undefined; id?: string | undefined; ... 5 more ...; updated_at?: string | ... 1 more ... | undefined; }[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/product-fields/route.ts(388,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ field_class: string; system_key: null; is_locked: boolean; is_override_capable: boolean; organization_id: string; }' is not assignable to parameter of type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }'.
+      Type '{ field_class: string; system_key: null; is_locked: boolean; is_override_capable: boolean; organization_id: string; }' is missing the following properties from type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }': code, field_type, name
+  Overload 2 of 2, '(values: { allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ field_class: string; system_key: null; is_locked: boolean; is_override_capable: boolean; organization_id: string; }' is not assignable to parameter of type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }[]'.
+      Type '{ field_class: string; system_key: null; is_locked: boolean; is_override_capable: boolean; organization_id: string; }' is missing the following properties from type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/product-fields/route.ts(395,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }': code, field_type, name, organization_id
+  Overload 2 of 2, '(values: { allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }[]'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ allowed_channel_ids?: string[] | null | undefined; allowed_locale_ids?: string[] | null | undefined; allowed_market_ids?: string[] | null | undefined; code: string; created_at?: string | null | undefined; ... 25 more ...; value_storage_strategy?: string | undefined; }[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/product-links/[linkId]/route.ts(124,19): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/product-links/route.ts(190,19): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/product-table-templates/route.ts(84,24): error TS2352: Conversion of type '{ id: string; organization_id: string | null; code: string; version: string; kind: string; label: string; description: string | null; region: string | null; regulator: string | null; locale: string | null; ... 4 more ...; updated_at: string; }[]' to type 'ProductTableTemplateRow[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ id: string; organization_id: string | null; code: string; version: string; kind: string; label: string; description: string | null; region: string | null; regulator: string | null; locale: string | null; ... 4 more ...; updated_at: string; }' is not comparable to type 'ProductTableTemplateRow'.
+    Types of property 'version' are incompatible.
+      Type 'string' is not comparable to type 'number'.
+src/app/api/[tenant]/products/[productId]/completeness/route.ts(53,19): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/products/[productId]/contract/route.ts(33,7): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/products/[productId]/readiness/route.ts(34,7): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/products/[productId]/route.ts(595,5): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/products/[productId]/route.ts(677,23): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+src/app/api/[tenant]/products/[productId]/route.ts(815,5): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/products/[productId]/route.ts(926,24): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/products/[productId]/route.ts(992,25): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/products/[productId]/route.ts(1120,19): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/products/[productId]/route.ts(1471,11): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/products/[productId]/route.ts(1489,9): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/products/[productId]/route.ts(1513,30): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+src/app/api/[tenant]/products/[productId]/variants/bulk/route.ts(353,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | ... 1 more ... | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }': created_by, product_name, scin, type
+  Overload 2 of 2, '(values: { assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | ... 1 more ... | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }[]'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/products/[productId]/variants/route.ts(82,19): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/products/basic/route.ts(86,25): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/products/bulk-field-update/route.ts(265,23): error TS2345: Argument of type 'FieldValueRecord' is not assignable to parameter of type '{ channel?: string | null | undefined; channel_id?: string | null | undefined; created_at?: string | null | undefined; destination_id?: string | null | undefined; id?: string | undefined; ... 13 more ...; value_text?: string | ... 1 more ... | undefined; }'.
+  Types of property 'value_json' are incompatible.
+    Type 'unknown' is not assignable to type 'Json | undefined'.
+src/app/api/[tenant]/products/bulk-field-update/route.ts(271,16): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { channel?: string | null | undefined; channel_id?: string | null | undefined; created_at?: string | null | undefined; destination_id?: string | null | undefined; id?: string | undefined; ... 13 more ...; value_text?: string | ... 1 more ... | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type '{ value_text: string | null; value_number: number | null; value_boolean: boolean | null; value_date: string | null; value_datetime: string | null; value_json: unknown; locale_id: string | null; ... 5 more ...; product_field_id: string; }' is not assignable to parameter of type '{ channel?: string | null | undefined; channel_id?: string | null | undefined; created_at?: string | null | undefined; destination_id?: string | null | undefined; id?: string | undefined; ... 13 more ...; value_text?: string | ... 1 more ... | undefined; }'.
+      Types of property 'value_json' are incompatible.
+        Type 'unknown' is not assignable to type 'Json | undefined'.
+  Overload 2 of 2, '(values: { channel?: string | null | undefined; channel_id?: string | null | undefined; created_at?: string | null | undefined; destination_id?: string | null | undefined; id?: string | undefined; ... 13 more ...; value_text?: string | ... 1 more ... | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Object literal may only specify known properties, and 'product_id' does not exist in type '{ channel?: string | null | undefined; channel_id?: string | null | undefined; created_at?: string | null | undefined; destination_id?: string | null | undefined; id?: string | undefined; ... 13 more ...; value_text?: string | ... 1 more ... | undefined; }[]'.
+src/app/api/[tenant]/products/bulk-field-update/route.ts(279,29): error TS2345: Argument of type 'FieldValueRecord' is not assignable to parameter of type '{ channel?: string | null | undefined; channel_id?: string | null | undefined; created_at?: string | null | undefined; destination_id?: string | null | undefined; id?: string | undefined; ... 13 more ...; value_text?: string | ... 1 more ... | undefined; }'.
+  Types of property 'value_json' are incompatible.
+    Type 'unknown' is not assignable to type 'Json | undefined'.
+src/app/api/[tenant]/products/completeness/batch/route.ts(132,19): error TS2304: Cannot find name 'supabase'.
+src/app/api/[tenant]/products/route.ts(1158,15): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/products/route.ts(1353,11): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/[tenant]/products/route.ts(1490,15): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | ... 1 more ... | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }': created_by, product_name, scin, type
+  Overload 2 of 2, '(values: { assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | ... 1 more ... | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }[]'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/products/route.ts(1504,17): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | ... 1 more ... | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }, options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }': created_by, product_name, scin, type
+  Overload 2 of 2, '(values: { assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | ... 1 more ... | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }[], options?: { ...; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Argument of type 'Record<string, unknown>' is not assignable to parameter of type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }[]'.
+      Type 'Record<string, unknown>' is missing the following properties from type '{ assets_count?: number | null | undefined; barcode?: string | null | undefined; brand_line?: string | null | undefined; catalog_visibility?: string | undefined; content_score?: number | null | undefined; ... 34 more ...; weight_g?: number | ... 1 more ... | undefined; }[]': length, pop, push, concat, and 29 more.
+src/app/api/[tenant]/sharing/sets/route.ts(272,5): error TS2304: Cannot find name 'supabase'.
+src/app/api/debug/memberships/route.ts(16,48): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/debug/memberships/route.ts(35,61): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/health-check/route.ts(32,43): error TS2322: Type '"getSupabaseServer()"' is not assignable to type 'ServiceName'.
+src/app/api/health-check/route.ts(58,29): error TS2345: Argument of type '"getSupabaseServer()"' is not assignable to parameter of type 'ServiceName'.
+src/app/api/health-check/route.ts(60,9): error TS2345: Argument of type 'Promise<ServiceBatchResult | { service: "getSupabaseServer()"; results: ServiceTestResult[]; }>' is not assignable to parameter of type 'Promise<ServiceBatchResult>'.
+  Type 'ServiceBatchResult | { service: "getSupabaseServer()"; results: ServiceTestResult[]; }' is not assignable to type 'ServiceBatchResult'.
+    Type '{ service: "getSupabaseServer()"; results: ServiceTestResult[]; }' is not assignable to type 'ServiceBatchResult'.
+      Types of property 'service' are incompatible.
+        Type '"getSupabaseServer()"' is not assignable to type 'ServiceName'.
+src/app/api/invitations/accept/route.ts(225,7): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/invitations/accept/route.ts(404,9): error TS2322: Type 'string | null' is not assignable to type 'string'.
+  Type 'null' is not assignable to type 'string'.
+src/app/api/invitations/accept/route.ts(443,9): error TS2322: Type 'string | null' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/app/api/invitations/accept/route.ts(509,9): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/invitations/accept/route.ts(701,9): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/invitations/accept/route.ts(768,7): error TS18004: No value exists in scope for the shorthand property 'supabase'. Either declare one or provide an initializer.
+src/app/api/me/notifications/route.ts(79,59): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/me/notifications/route.ts(105,38): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/me/notifications/route.ts(106,32): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/me/notifications/route.ts(173,42): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/organizations/by-kinde-id/[kindeId]/route.ts(6,32): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/organizations/check-availability/route.ts(7,32): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/organizations/create/route.ts(10,32): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/organizations/create/route.ts(11,31): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/organizations/create/route.ts(96,46): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/organizations/create/route.ts(134,64): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/organizations/create/route.ts(172,17): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/organizations/create/route.ts(183,17): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/organizations/exists/route.ts(8,32): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/organizations/suggest-alternatives/route.ts(7,32): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/public/assets/[tenant]/[token]/download/route.ts(44,34): error TS2304: Cannot find name 'supabase'.
+src/app/api/reference/countries/route.ts(16,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/reference/locales/route.ts(19,36): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(15,32): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(59,70): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(78,70): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(102,34): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(127,59): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(140,57): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(159,73): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(202,46): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(217,46): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(239,27): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(417,46): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(445,67): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(484,17): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/api/workspaces/create/route.ts(490,17): error TS2304: Cannot find name 'getSupabaseServer'.
+src/app/test/page.tsx(219,69): error TS2339: Property 'getSupabaseServer' does not exist on type '{ supabase: Record<string, string>; kinde: Record<string, string>; aws: Record<string, string>; }'.
+src/app/test/page.tsx(220,74): error TS2339: Property 'getSupabaseServer' does not exist on type '{ supabase: Record<string, string>; kinde: Record<string, string>; aws: Record<string, string>; }'.
+src/app/test/page.tsx(221,77): error TS2339: Property 'getSupabaseServer' does not exist on type '{ supabase: Record<string, string>; kinde: Record<string, string>; aws: Record<string, string>; }'.
+src/app/u/[tenant]/[token]/page.tsx(181,34): error TS2304: Cannot find name 'supabase'.
+src/lib/ai-foundation.ts(70,40): error TS2339: Property 'getSupabaseServer' does not exist on type '{ supabase: SupabaseClient<Database, "public", "public", { Tables: { ai_action_audit_logs: { Row: { action: string; actor_user_id: string | null; ai_task_envelope_id: string | null; created_at: string; ... 5 more ...; status: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 97 more ...; va...'.
+src/lib/ai-foundation.ts(107,40): error TS2339: Property 'getSupabaseServer' does not exist on type '{ supabase: SupabaseClient<Database, "public", "public", { Tables: { ai_action_audit_logs: { Row: { action: string; actor_user_id: string | null; ai_task_envelope_id: string | null; created_at: string; ... 5 more ...; status: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 97 more ...; va...'.
+src/lib/ai-foundation.ts(139,40): error TS2339: Property 'getSupabaseServer' does not exist on type '{ supabase: SupabaseClient<Database, "public", "public", { Tables: { ai_action_audit_logs: { Row: { action: string; actor_user_id: string | null; ai_task_envelope_id: string | null; created_at: string; ... 5 more ...; status: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 97 more ...; va...'.
+src/lib/ai-foundation.ts(193,40): error TS2339: Property 'getSupabaseServer' does not exist on type '{ supabase: SupabaseClient<Database, "public", "public", { Tables: { ai_action_audit_logs: { Row: { action: string; actor_user_id: string | null; ai_task_envelope_id: string | null; created_at: string; ... 5 more ...; status: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 97 more ...; va...'.
+src/lib/auth-server.ts(109,36): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/authoring-scope.ts(203,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/authoring-scope.ts(226,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/authoring-scope.ts(249,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/authoring-scope.ts(276,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/authoring-scope.ts(303,35): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/authoring-scope.ts(397,47): error TS2339: Property 'getSupabaseServer' does not exist on type '{ supabase: SupabaseClient<Database, "public", "public", { Tables: { ai_action_audit_logs: { Row: { action: string; actor_user_id: string | null; ai_task_envelope_id: string | null; created_at: string; ... 5 more ...; status: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 97 more ...; va...'.
+src/lib/authoring-scope.ts(428,47): error TS2339: Property 'getSupabaseServer' does not exist on type '{ supabase: SupabaseClient<Database, "public", "public", { Tables: { ai_action_audit_logs: { Row: { action: string; actor_user_id: string | null; ai_task_envelope_id: string | null; created_at: string; ... 5 more ...; status: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 97 more ...; va...'.
+src/lib/claude-agent.ts(363,19): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/claude-agent.ts(386,19): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/claude-agent.ts(407,32): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/claude-agent.ts(427,37): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/claude-agent.ts(436,37): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/collection-scope.test.ts(87,101): error TS2339: Property 'getSupabaseServer()' does not exist on type 'CollectionScopeParams'.
+src/lib/collection-scope.test.ts(88,57): error TS2339: Property 'getSupabaseServer()' does not exist on type 'CollectionScopeParams'.
+src/lib/collection-scope.ts(41,48): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/collection-scope.ts(72,44): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/collection-scope.ts(94,46): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/collection-scope.ts(110,47): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/default-market-locale.ts(29,59): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/default-market-locale.ts(52,73): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/default-market-locale.ts(78,57): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invitation-share-sets.ts(58,25): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invitation-share-sets.ts(73,24): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invitation-share-sets.ts(98,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invitation-share-sets.ts(140,30): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invitation-share-sets.ts(170,30): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invitation-share-sets.ts(195,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invitation-share-sets.ts(268,28): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invitation-share-sets.ts(285,34): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invitation-share-sets.ts(303,32): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invite-permissions.ts(121,58): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invite-permissions.ts(137,66): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invite-permissions.ts(153,60): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invite-permissions.ts(230,69): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invite-permissions.ts(245,70): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invite-permissions.ts(273,42): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/invite-permissions.ts(335,48): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/market-scope.test.ts(80,97): error TS2339: Property 'getSupabaseServer()' does not exist on type 'MarketScopeParams'.
+src/lib/market-scope.test.ts(81,53): error TS2339: Property 'getSupabaseServer()' does not exist on type 'MarketScopeParams'.
+src/lib/pim-bootstrap.ts(22,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(339,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(362,62): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(411,46): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(744,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(772,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(790,62): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(791,63): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(792,59): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(793,57): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(795,29): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(796,29): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(797,29): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/pim-bootstrap.ts(798,29): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-channel-scope.test.ts(70,106): error TS2339: Property 'getSupabaseServer()' does not exist on type 'ResolveChannelScopeParams'.
+src/lib/product-channel-scope.test.ts(71,61): error TS2339: Property 'getSupabaseServer()' does not exist on type 'ResolveChannelScopeParams'.
+src/lib/product-channel-scope.test.ts(74,93): error TS2339: Property 'getSupabaseServer()' does not exist on type '{ supabase: SupabaseClient<Database, "public", "public", { Tables: { ai_action_audit_logs: { Row: { action: string; actor_user_id: string | null; ai_task_envelope_id: string | null; created_at: string; ... 5 more ...; status: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 97 more ...; va...'.
+src/lib/product-channel-scope.test.ts(75,52): error TS2339: Property 'getSupabaseServer()' does not exist on type '{ supabase: SupabaseClient<Database, "public", "public", { Tables: { ai_action_audit_logs: { Row: { action: string; actor_user_id: string | null; ai_task_envelope_id: string | null; created_at: string; ... 5 more ...; status: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 97 more ...; va...'.
+src/lib/product-contracts.ts(624,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(643,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(674,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(699,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(726,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(749,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(775,15): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(810,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(898,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(933,62): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(944,38): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(945,62): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(984,51): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(986,56): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(987,46): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(988,64): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(1020,39): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(1026,46): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/product-contracts.ts(1303,40): error TS2339: Property 'getSupabaseServer' does not exist on type '{ supabase: SupabaseClient<Database, "public", "public", { Tables: { ai_action_audit_logs: { Row: { action: string; actor_user_id: string | null; ai_task_envelope_id: string | null; created_at: string; ... 5 more ...; status: string; }; Insert: { ...; }; Update: { ...; }; Relationships: [...]; }; ... 97 more ...; va...'.
+src/lib/published-api.ts(2,10): error TS2300: Duplicate identifier 'getSupabaseServer'.
+src/lib/published-api.ts(4,10): error TS2300: Duplicate identifier 'getSupabaseServer'.
+src/lib/published-api.ts(818,15): error TS2304: Cannot find name 'supabase'.
+src/lib/user-context.ts(71,35): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | null' is not assignable to parameter of type 'string | number | Date'.
+      Type 'null' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | null' is not assignable to parameter of type 'string | number'.
+      Type 'null' is not assignable to type 'string | number'.
+src/lib/user-context.ts(72,14): error TS2352: Conversion of type 'string | number | boolean | { [key: string]: Json | undefined; } | Json[] | null' to type 'UserContext' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'Json[]' is missing the following properties from type 'UserContext': kindeUserId, email, ownedOrganizations, memberOrganizations, and 3 more.
+src/lib/user-context.ts(157,12): error TS2352: Conversion of type '{ brand_organization_id: string; access_level: string; organizations: { id: string; name: string; slug: string; }; }[]' to type 'BrandRelationshipRow[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ brand_organization_id: string; access_level: string; organizations: { id: string; name: string; slug: string; }; }' is not comparable to type 'BrandRelationshipRow'.
+    Types of property 'organizations' are incompatible.
+      Type '{ id: string; name: string; slug: string; }' is missing the following properties from type '{ id: string; name: string; slug: string; }[]': length, pop, push, concat, and 29 more.
+src/lib/user-context.ts(187,8): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(values: { context_data: Json; expires_at?: string | null | undefined; kinde_user_id: string; last_updated?: string | null | undefined; }, options?: { onConflict?: string | undefined; ignoreDuplicates?: boolean | undefined; count?: "exact" | ... 2 more ... | undefined; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Type 'UserContext' is not assignable to type 'Json'.
+      Type 'UserContext' is not assignable to type '{ [key: string]: Json | undefined; }'.
+        Index signature for type 'string' is missing in type 'UserContext'.
+  Overload 2 of 2, '(values: { context_data: Json; expires_at?: string | null | undefined; kinde_user_id: string; last_updated?: string | null | undefined; }[], options?: { onConflict?: string | undefined; ignoreDuplicates?: boolean | undefined; count?: "exact" | ... 2 more ... | undefined; defaultToNull?: boolean | undefined; } | undefined): PostgrestFilterBuilder<...>', gave the following error.
+    Object literal may only specify known properties, and 'kinde_user_id' does not exist in type '{ context_data: Json; expires_at?: string | null | undefined; kinde_user_id: string; last_updated?: string | null | undefined; }[]'.
+src/lib/workspace-notifications.ts(85,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(103,58): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(124,13): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(185,68): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(207,70): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(229,54): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(296,33): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(347,11): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(352,11): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(357,11): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(365,15): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(423,5): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(430,5): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(437,5): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(446,9): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(459,9): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(602,37): error TS2304: Cannot find name 'getSupabaseServer'.
+src/lib/workspace-notifications.ts(719,27): error TS2304: Cannot find name 'getSupabaseServer'.
+node.exe : npm error Lifecycle script `type-check` failed with error:
+At C:\Program Files\nodejs\npm.ps1:29 char:3
++   & $NODE_EXE $NPM_CLI_JS $args
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm error Lifec...led with error::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm error code 1
+npm error path C:\Users\jason\tradetool\apps\saas-web
+npm error workspace @stack-app/saas-web@0.1.0
+npm error location C:\Users\jason\tradetool\apps\saas-web
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c tsc --noEmit

@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   isMissingColumnError,
   normalizeUuidArray,
@@ -14,7 +14,7 @@ type CollectionRow = {
 };
 
 async function selectCollections(organizationId: string) {
-  const withFolders = await supabaseServer
+  const withFolders = await getSupabaseServer()
     .from("dam_collections")
     .select("id,name,asset_ids,folder_ids")
     .eq("organization_id", organizationId)
@@ -28,7 +28,7 @@ async function selectCollections(organizationId: string) {
     return withFolders;
   }
 
-  return supabaseServer
+  return getSupabaseServer()
     .from("dam_collections")
     .select("id,name,asset_ids")
     .eq("organization_id", organizationId)
@@ -52,7 +52,7 @@ async function validateScopedIds(params: {
   const { organizationId, folderIds, assetIds } = params;
 
   if (folderIds.length > 0) {
-    const { data: folders, error: folderError } = await supabaseServer
+    const { data: folders, error: folderError } = await getSupabaseServer()
       .from("dam_folders")
       .select("id")
       .eq("organization_id", organizationId)
@@ -67,7 +67,7 @@ async function validateScopedIds(params: {
   }
 
   if (assetIds.length > 0) {
-    const { data: assets, error: assetError } = await supabaseServer
+    const { data: assets, error: assetError } = await getSupabaseServer()
       .from("dam_assets")
       .select("id")
       .eq("organization_id", organizationId)
@@ -140,7 +140,7 @@ export async function POST(
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    let insertResult = await supabaseServer
+    let insertResult = await getSupabaseServer()
       .from("dam_collections")
       .insert({
         organization_id: organization.id,
@@ -153,7 +153,7 @@ export async function POST(
       .single();
 
     if (insertResult.error && isMissingColumnError(insertResult.error)) {
-      insertResult = await supabaseServer
+      insertResult = await getSupabaseServer()
         .from("dam_collections")
         .insert({
           organization_id: organization.id,

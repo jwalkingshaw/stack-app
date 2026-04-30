@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireUpdatesContext } from "../_shared";
 
 type UpdateSummaryRow = {
@@ -37,52 +37,52 @@ export async function GET(
       { data: recentUpdates, error: recentUpdatesError },
       { data: allKitRows, error: allKitRowsError },
     ] = await Promise.all([
-      supabaseServer
+      getSupabaseServer()
         .from("partner_updates")
         .select("id", { count: "exact", head: true })
         .eq("organization_id", organizationId),
-      supabaseServer
+      getSupabaseServer()
         .from("partner_updates")
         .select("id", { count: "exact", head: true })
         .eq("organization_id", organizationId)
         .eq("status", "published"),
-      supabaseServer
+      getSupabaseServer()
         .from("partner_updates")
         .select("id", { count: "exact", head: true })
         .eq("organization_id", organizationId)
         .eq("status", "draft"),
-      supabaseServer
+      getSupabaseServer()
         .from("partner_update_recipients")
         .select("id", { count: "exact", head: true })
         .eq("organization_id", organizationId),
-      supabaseServer
+      getSupabaseServer()
         .from("partner_update_recipients")
         .select("id", { count: "exact", head: true })
         .eq("organization_id", organizationId)
         .in("status", ["opened", "acknowledged", "activated"]),
-      supabaseServer
+      getSupabaseServer()
         .from("partner_update_recipients")
         .select("id", { count: "exact", head: true })
         .eq("organization_id", organizationId)
         .in("status", ["acknowledged", "activated"]),
-      supabaseServer
+      getSupabaseServer()
         .from("partner_update_recipients")
         .select("id", { count: "exact", head: true })
         .eq("organization_id", organizationId)
         .eq("status", "activated"),
-      supabaseServer
+      getSupabaseServer()
         .from("partner_update_recipients")
         .select("id", { count: "exact", head: true })
         .eq("organization_id", organizationId)
         .lt("due_at", nowIso)
         .not("status", "in", "(acknowledged,activated,muted)"),
-      supabaseServer
+      getSupabaseServer()
         .from("partner_updates")
         .select("id,title,status,urgency,due_at,published_at,updated_at")
         .eq("organization_id", organizationId)
         .order("updated_at", { ascending: false })
         .limit(8),
-      supabaseServer
+      getSupabaseServer()
         .from("partner_update_kit_items")
         .select("partner_update_id")
         .eq("organization_id", organizationId),
@@ -114,7 +114,7 @@ export async function GET(
       Array<{ status: string | null }>
     >();
     if (recentUpdateIds.length > 0) {
-      const { data: recipientRows, error: recipientRowsError } = await supabaseServer
+      const { data: recipientRows, error: recipientRowsError } = await getSupabaseServer()
         .from("partner_update_recipients")
         .select("partner_update_id,status")
         .eq("organization_id", organizationId)

@@ -2,7 +2,7 @@ import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Organization } from "@stack-app/types";
 import { verifyTenantAccess } from "@/lib/tenant-auth";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { blockPartnerBrandMutation } from "@/lib/partner-brand-mutation-guard";
 
 type ScopeType = "organization" | "market" | "channel" | "collection";
@@ -223,7 +223,7 @@ async function resolveActivePartnerShareSetIds(params: {
   const { brandOrganizationId, partnerOrganizationId, moduleKey } = params;
   const now = Date.now();
 
-  const { data: grants, error: grantsError } = await supabaseServer
+  const { data: grants, error: grantsError } = await getSupabaseServer()
     .from("partner_share_set_grants")
     .select("share_set_id,expires_at,valid_from")
     .eq("organization_id", brandOrganizationId)
@@ -261,7 +261,7 @@ async function resolveActivePartnerShareSetIds(params: {
     return { foundationAvailable: true, setIds: [] };
   }
 
-  const { data: sets, error: setsError } = await supabaseServer
+  const { data: sets, error: setsError } = await getSupabaseServer()
     .from("share_sets")
     .select("id")
     .eq("organization_id", brandOrganizationId)
@@ -374,7 +374,7 @@ export async function resolvePartnerProductVisibilityPolicy(params: {
     };
   }
 
-  const { data: setRows, error: setRowsError } = await supabaseServer
+  const { data: setRows, error: setRowsError } = await getSupabaseServer()
     .from("share_sets")
     .select("id,metadata")
     .eq("organization_id", params.brandOrganizationId)
@@ -451,7 +451,7 @@ async function hasActiveBrandRelationship(params: {
 }): Promise<boolean> {
   const { brandOrganizationId, partnerOrganizationId } = params;
 
-  const v2 = await supabaseServer
+  const v2 = await getSupabaseServer()
     .from("brand_partner_relationships")
     .select("id")
     .eq("brand_organization_id", brandOrganizationId)
@@ -467,7 +467,7 @@ async function hasActiveBrandRelationship(params: {
     return false;
   }
 
-  const v1 = await supabaseServer
+  const v1 = await getSupabaseServer()
     .from("brand_partner_relationships")
     .select("id")
     .eq("brand_id", brandOrganizationId)
@@ -487,7 +487,7 @@ export async function resolvePartnerSharedBrandOrganizationIds(params: {
 }): Promise<string[]> {
   const { partnerOrganizationId } = params;
 
-  const v2 = await supabaseServer
+  const v2 = await getSupabaseServer()
     .from("brand_partner_relationships")
     .select("brand_organization_id")
     .eq("partner_organization_id", partnerOrganizationId)
@@ -518,7 +518,7 @@ async function resolveBrandMemberId(params: {
 }): Promise<string | null> {
   const { organizationId, userId, userEmail } = params;
 
-  const byUser = await supabaseServer
+  const byUser = await getSupabaseServer()
     .from("organization_members")
     .select("id")
     .eq("organization_id", organizationId)
@@ -535,7 +535,7 @@ async function resolveBrandMemberId(params: {
     return null;
   }
 
-  const byEmail = await supabaseServer
+  const byEmail = await getSupabaseServer()
     .from("organization_members")
     .select("id,kinde_user_id")
     .eq("organization_id", organizationId)
@@ -549,7 +549,7 @@ async function resolveBrandMemberId(params: {
 
   const row = byEmail.data[0] as { id: string; kinde_user_id: string | null };
   if (row.kinde_user_id !== userId) {
-    await supabaseServer
+    await getSupabaseServer()
       .from("organization_members")
       .update({
         kinde_user_id: userId,
@@ -604,7 +604,7 @@ export async function resolveTenantBrandViewContext(params: {
     };
   }
 
-  const { data: brandOrg, error: brandOrgError } = await supabaseServer
+  const { data: brandOrg, error: brandOrgError } = await getSupabaseServer()
     .from("organizations")
     .select("id,name,slug,organization_type")
     .eq("slug", selectedBrandSlug)
@@ -695,7 +695,7 @@ export async function getScopedPermissionSummary(params: {
   }
 
   const nowIso = new Date().toISOString();
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("member_scope_permissions")
     .select("scope_type,market_id,channel_id,collection_id,expires_at")
     .eq("organization_id", organizationId)
@@ -797,7 +797,7 @@ async function loadPartnerShareSetItems(params: {
   setIds: string[];
   resourceTypes: string[];
 }): Promise<{ foundationAvailable: boolean; items: PartnerShareSetItemRow[] }> {
-  const withDestinationIds = await supabaseServer
+  const withDestinationIds = await getSupabaseServer()
     .from("share_set_items")
     .select(
     "resource_type,resource_id,include_descendants,market_ids,channel_ids,locale_ids,destination_ids"
@@ -807,7 +807,7 @@ async function loadPartnerShareSetItems(params: {
     .in("resource_type", params.resourceTypes);
 
   if (withDestinationIds.error && isMissingColumnError(withDestinationIds.error)) {
-    const withoutDestinationIds = await supabaseServer
+    const withoutDestinationIds = await getSupabaseServer()
       .from("share_set_items")
       .select("resource_type,resource_id,include_descendants,market_ids,channel_ids,locale_ids")
       .eq("organization_id", params.organizationId)
@@ -865,7 +865,7 @@ export async function resolveCollectionAssetIds(params: {
     return [];
   }
 
-  const { data: collections, error: collectionsError } = await supabaseServer
+  const { data: collections, error: collectionsError } = await getSupabaseServer()
     .from("dam_collections")
     .select("id,asset_ids,folder_ids")
     .eq("organization_id", organizationId)
@@ -891,7 +891,7 @@ export async function resolveCollectionAssetIds(params: {
     return Array.from(assetIds);
   }
 
-  const { data: rootFolders, error: rootFolderError } = await supabaseServer
+  const { data: rootFolders, error: rootFolderError } = await getSupabaseServer()
     .from("dam_folders")
     .select("id,path")
     .eq("organization_id", organizationId)
@@ -910,7 +910,7 @@ export async function resolveCollectionAssetIds(params: {
   }
 
   for (const path of folderPaths) {
-    const { data: descendants } = await supabaseServer
+    const { data: descendants } = await getSupabaseServer()
       .from("dam_folders")
       .select("id")
       .eq("organization_id", organizationId)
@@ -922,7 +922,7 @@ export async function resolveCollectionAssetIds(params: {
   }
 
   if (descendantFolderIds.size > 0) {
-    const { data: folderAssets } = await supabaseServer
+    const { data: folderAssets } = await getSupabaseServer()
       .from("dam_assets")
       .select("id")
       .eq("organization_id", organizationId)
@@ -989,7 +989,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
   }
 
   if (folderIdsDirect.size > 0) {
-    const { data: directAssets, error: directAssetsError } = await supabaseServer
+    const { data: directAssets, error: directAssetsError } = await getSupabaseServer()
       .from("dam_assets")
       .select("id")
       .eq("organization_id", params.brandOrganizationId)
@@ -1003,7 +1003,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
   }
 
   if (folderIdsRecursive.size > 0) {
-    const { data: rootFolders, error: rootFoldersError } = await supabaseServer
+    const { data: rootFolders, error: rootFoldersError } = await getSupabaseServer()
       .from("dam_folders")
       .select("id,path")
       .eq("organization_id", params.brandOrganizationId)
@@ -1019,7 +1019,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
       }
 
       for (const path of rootPaths) {
-        const { data: descendants } = await supabaseServer
+        const { data: descendants } = await getSupabaseServer()
           .from("dam_folders")
           .select("id")
           .eq("organization_id", params.brandOrganizationId)
@@ -1031,7 +1031,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
       }
 
       if (folderIds.size > 0) {
-        const { data: folderAssets } = await supabaseServer
+        const { data: folderAssets } = await getSupabaseServer()
           .from("dam_assets")
           .select("id")
           .eq("organization_id", params.brandOrganizationId)
@@ -1048,7 +1048,7 @@ async function resolvePartnerGrantedAssetIdsUncached(params: {
   // Older backfilled sets can carry metadata.legacy_collection_id while not yet
   // having explicit share_set_items rows. Include those assets so legacy data
   // remains visible during migration rollout.
-  const { data: setRows, error: setRowsError } = await supabaseServer
+  const { data: setRows, error: setRowsError } = await getSupabaseServer()
     .from("share_sets")
     .select("id,metadata")
     .eq("organization_id", params.brandOrganizationId)
@@ -1128,8 +1128,8 @@ async function resolvePartnerMarketSetIds(params: {
   scopeMarketId?: string | null;
 }): Promise<string[]> {
   // Resolve markets this partner is assigned to (Tier 2 access)
-  const { data: assignments, error } = await supabaseServer
-    .from("partner_market_assignments" as never)
+  const { data: assignments, error } = await getSupabaseServer()
+    .from("partner_market_assignments")
     .select("market_id,valid_from")
     .eq("organization_id", params.brandOrganizationId)
     .eq("partner_organization_id", params.partnerOrganizationId)
@@ -1224,7 +1224,7 @@ async function resolvePartnerGrantedProductIdsUncached(params: {
 
     if (parentIdsWithDescendants.size > 0) {
       // Exclude restricted variants from auto-expansion
-      const { data: descendants } = await supabaseServer
+      const { data: descendants } = await getSupabaseServer()
         .from("products")
         .select("id")
         .eq("organization_id", params.brandOrganizationId)
@@ -1241,7 +1241,7 @@ async function resolvePartnerGrantedProductIdsUncached(params: {
   // A restricted product must never be visible to a partner, even if explicitly in a set.
   const allIds = Array.from(productIds);
   if (allIds.length > 0) {
-    const { data: restrictedRows } = await supabaseServer
+    const { data: restrictedRows } = await getSupabaseServer()
       .from("products")
       .select("id")
       .eq("organization_id", params.brandOrganizationId)
@@ -1307,8 +1307,8 @@ export async function resolvePartnerMarketOutputProfileId(params: {
 }): Promise<string | null> {
   if (!params.marketId) return null;
 
-  const { data, error } = await supabaseServer
-    .from("partner_market_assignments" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("partner_market_assignments")
     .select("output_profile_id")
     .eq("organization_id", params.brandOrganizationId)
     .eq("partner_organization_id", params.partnerOrganizationId)
@@ -1334,7 +1334,7 @@ async function resolvePartnerShareSetOutputProfileId(params: {
     return null;
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("share_sets")
     .select("output_profile_id,updated_at")
     .eq("organization_id", params.brandOrganizationId)
@@ -1353,8 +1353,8 @@ async function resolvePartnerShareSetOutputProfileId(params: {
 }
 
 async function resolvePrimaryOutputProfileId(organizationId: string): Promise<string | null> {
-  const { data, error } = await supabaseServer
-    .from("output_channel_profiles" as never)
+  const { data, error } = await getSupabaseServer()
+    .from("output_channel_profiles")
     .select("id")
     .eq("organization_id", organizationId)
     .eq("is_primary", true)
@@ -1372,8 +1372,8 @@ export async function resolvePartnerEffectiveOutputProfileId(params: {
   destinationId?: string | null;
 }): Promise<string | null> {
   if (params.destinationId) {
-    const { data: directGrant, error: directGrantError } = await supabaseServer
-      .from("partner_contract_grants" as never)
+    const { data: directGrant, error: directGrantError } = await getSupabaseServer()
+      .from("partner_contract_grants")
       .select("output_profile_id")
       .eq("organization_id", params.brandOrganizationId)
       .eq("partner_organization_id", params.partnerOrganizationId)
@@ -1386,8 +1386,8 @@ export async function resolvePartnerEffectiveOutputProfileId(params: {
     }
   }
 
-  const { data: contractGrants, error: contractGrantError } = await supabaseServer
-    .from("partner_contract_grants" as never)
+  const { data: contractGrants, error: contractGrantError } = await getSupabaseServer()
+    .from("partner_contract_grants")
     .select("output_profile_id,updated_at")
     .eq("organization_id", params.brandOrganizationId)
     .eq("partner_organization_id", params.partnerOrganizationId)

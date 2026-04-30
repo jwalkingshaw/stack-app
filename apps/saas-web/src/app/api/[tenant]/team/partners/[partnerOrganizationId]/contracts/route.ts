@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 
 export async function GET(
@@ -20,8 +20,8 @@ export async function GET(
       );
     }
 
-    const { data, error } = await supabaseServer
-      .from("partner_contract_grants" as never)
+    const { data, error } = await getSupabaseServer()
+      .from("partner_contract_grants")
       .select(
         "id,partner_organization_id,output_profile_id,access_level,status,metadata,created_at,updated_at,output_channel_profiles!inner(id,name,code,profile_type)"
       )
@@ -66,10 +66,10 @@ export async function POST(
       return NextResponse.json({ error: "outputProfileId is required." }, { status: 400 });
     }
 
-    const { data, error } = await supabaseServer
-      .from("partner_contract_grants" as never)
+    const { data, error } = await getSupabaseServer()
+      .from("partner_contract_grants")
       .upsert(
-        ({
+        {
           organization_id: tenantAccess.organization.id,
           partner_organization_id: resolvedParams.partnerOrganizationId,
           output_profile_id: outputProfileId,
@@ -77,7 +77,7 @@ export async function POST(
           status: typeof body.status === "string" ? body.status : "active",
           metadata: typeof body.metadata === "object" && body.metadata ? body.metadata : {},
           created_by: tenantAccess.userId ?? null,
-        }) as never,
+        } as never,
         {
           onConflict: "organization_id,partner_organization_id,output_profile_id",
           ignoreDuplicates: false,

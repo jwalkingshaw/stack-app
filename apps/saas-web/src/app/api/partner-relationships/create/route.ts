@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
 import { DatabaseQueries } from '@stack-app/database';
-import { supabaseServer } from '@/lib/supabase';
+import { getSupabaseServer } from '@/lib/supabase';
 import { enforceRateLimit, rateLimitExceededResponse } from '@/lib/rate-limit';
 import { logRateLimitSecurityEvent } from '@/lib/security-audit';
 import {
@@ -11,7 +11,7 @@ import {
 import { normalizeInvitePermissions } from '@/lib/invite-permissions';
 import { applyPartnerInvitationWorkspaceGrants } from '@/lib/partner-invitation-grants';
 
-const db = new DatabaseQueries(supabaseServer);
+const db = new DatabaseQueries(getSupabaseServer());
 
 function invalidInvitationResponse() {
   return NextResponse.json(
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       maxRequests: 20,
     });
     if (!createRateLimit.allowed) {
-      await logRateLimitSecurityEvent(supabaseServer, {
+      await logRateLimitSecurityEvent(getSupabaseServer(), {
         action: 'partner_relationship_create',
         actorUserId: user.id,
         userAgent: request.headers.get('user-agent'),
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
       userId: user.id
     });
 
-    const { data: invitation, error: invitationError } = await supabaseServer
+    const { data: invitation, error: invitationError } = await getSupabaseServer()
       .from('invitations')
       .select(`
         id,
@@ -167,7 +167,7 @@ export async function POST(request: NextRequest) {
         resolvedAccessLevel
       );
 
-      const { error: invitationUpdateError } = await supabaseServer
+      const { error: invitationUpdateError } = await getSupabaseServer()
         .from('invitations')
         .update({
           partner_organization_id,
@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
       }
 
       const appliedPartnerGrants = await applyPartnerInvitationWorkspaceGrants({
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         organizationId: brand_organization_id,
         invitationId: invitation.id,
         partnerOrganizationId: partner_organization_id,
@@ -236,7 +236,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { error: invitationUpdateError } = await supabaseServer
+    const { error: invitationUpdateError } = await getSupabaseServer()
       .from('invitations')
       .update({
         partner_organization_id,
@@ -255,7 +255,7 @@ export async function POST(request: NextRequest) {
       throw new Error('Unable to update invitation status');
     }
     const appliedPartnerGrants = await applyPartnerInvitationWorkspaceGrants({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: brand_organization_id,
       invitationId: invitation.id,
       partnerOrganizationId: partner_organization_id,
@@ -269,7 +269,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { data: partnerOrg } = await supabaseServer
+    const { data: partnerOrg } = await getSupabaseServer()
       .from('organizations')
       .select('id, name, slug')
       .eq('id', partner_organization_id)

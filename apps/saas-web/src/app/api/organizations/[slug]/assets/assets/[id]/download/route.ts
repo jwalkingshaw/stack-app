@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { S3Service } from "@stack-app/storage";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { enforceCollectionScope } from "@/lib/collection-scope";
 import { enforceRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
 import { logRateLimitSecurityEvent } from "@/lib/security-audit";
@@ -21,7 +21,7 @@ export async function GET(
       maxRequests: 30,
     });
     if (!rateLimit.allowed) {
-      await logRateLimitSecurityEvent(supabaseServer, {
+      await logRateLimitSecurityEvent(getSupabaseServer(), {
         action: "org_asset_download_original",
         userAgent: request.headers.get("user-agent"),
         metadata: { slug: resolvedParams.slug, assetId: resolvedParams.id },
@@ -33,7 +33,7 @@ export async function GET(
     const channelId = searchParams.get("channelId");
     const collectionId = searchParams.get("collectionId");
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const user = await authService.getCurrentUser();
@@ -71,7 +71,7 @@ export async function GET(
     }
 
     const collectionScope = await enforceCollectionScope({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       collectionId,
       assetId: resolvedParams.id,

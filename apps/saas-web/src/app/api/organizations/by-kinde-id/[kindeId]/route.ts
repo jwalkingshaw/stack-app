@@ -1,9 +1,10 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient } from "@stack-app/database";
 
 const supabase = createServerClient();
-const db = new DatabaseQueries(supabase);
+const db = new DatabaseQueries(getSupabaseServer());
 
 export async function GET(
   request: NextRequest,
@@ -31,7 +32,7 @@ export async function GET(
       );
     }
 
-    // Get organization by Kinde ID from Supabase
+    // Get organization by Kinde ID from getSupabaseServer()
     const organization = await db.getOrganizationByKindeId(kindeId);
 
     if (!organization) {

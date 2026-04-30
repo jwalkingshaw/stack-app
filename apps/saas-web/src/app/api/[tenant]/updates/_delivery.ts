@@ -1,13 +1,12 @@
-import { Resend } from "resend";
+﻿import { Resend } from "resend";
 import type { Database, Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { normalizeUuidArray } from "./_shared";
 import {
   resolvePartnerGrantedAssetIds,
   resolvePartnerGrantedProductIds,
 } from "@/lib/partner-brand-view";
 
-const supabase = supabaseServer;
 
 export type DeliveryChannel = "in_app" | "email" | "sms";
 
@@ -187,7 +186,7 @@ async function resolveActiveBrandPartnerRows(params: {
 > {
   const { organizationId } = params;
 
-  const v2 = await supabase
+  const v2 = await getSupabaseServer()
     .from("brand_partner_relationships")
     .select("partner_organization_id,settings")
     .eq("brand_organization_id", organizationId)
@@ -236,7 +235,7 @@ async function filterPartnersByShareSetGrants(params: {
     return { ok: true, partnerOrganizationIds };
   }
 
-  const { data: sets, error: setsError } = await supabase
+  const { data: sets, error: setsError } = await getSupabaseServer()
     .from("share_sets")
     .select("id")
     .eq("organization_id", organizationId)
@@ -266,7 +265,7 @@ async function filterPartnersByShareSetGrants(params: {
     };
   }
 
-  const { data: grants, error: grantsError } = await supabase
+  const { data: grants, error: grantsError } = await getSupabaseServer()
     .from("partner_share_set_grants")
     .select("partner_organization_id,expires_at")
     .eq("organization_id", organizationId)
@@ -359,7 +358,7 @@ async function loadUpdateKitResourceIds(params: {
   | { ok: true; productIds: string[]; assetIds: string[] }
   | { ok: false; status: number; error: string }
 > {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("partner_update_kit_items")
     .select("product_id,asset_id")
     .eq("organization_id", params.organizationId)
@@ -506,7 +505,7 @@ export async function getUpdateForDelivery(params: {
   | { ok: true; update: PartnerUpdateRecord }
   | { ok: false; status: number; error: string }
 > {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("partner_updates")
     .select("id,title,summary,urgency,status,due_at,scheduled_for,published_at")
     .eq("organization_id", params.organizationId)
@@ -557,14 +556,14 @@ export async function resolveConsentDecisions(params: {
   if (partnerIds.length === 0) return decisions;
 
   const [globalRows, brandRows] = await Promise.all([
-    supabase
+    getSupabaseServer()
       .from("partner_message_preferences")
       .select("partner_organization_id,channel,status")
       .in("partner_organization_id", partnerIds)
       .eq("scope_type", "global")
       .is("brand_organization_id", null)
       .in("channel", ["email", "sms"]),
-    supabase
+    getSupabaseServer()
       .from("partner_message_preferences")
       .select("partner_organization_id,channel,status")
       .in("partner_organization_id", partnerIds)
@@ -686,7 +685,7 @@ export async function upsertPartnerUpdateRecipients(params: {
     },
   }));
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("partner_update_recipients")
     .upsert(rows, {
       onConflict: "partner_update_id,partner_organization_id",
@@ -736,7 +735,7 @@ export async function appendUpdateActivity(params: {
     metadata: (row.metadata || {}) as Json,
   }));
 
-  const { error } = await supabase.from("partner_update_activity").insert(inserts);
+  const { error } = await getSupabaseServer().from("partner_update_activity").insert(inserts);
   if (error) {
     console.error("Failed to append partner update activity:", error);
   }
@@ -748,7 +747,7 @@ export async function setPublishedUpdateState(params: {
   userId: string;
 }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const nowIso = new Date().toISOString();
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("partner_updates")
     .update({
       status: "published",
@@ -782,7 +781,7 @@ export async function setScheduledUpdateState(params: {
   userId: string;
   scheduledFor: string;
 }): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("partner_updates")
     .update({
       status: "scheduled",
@@ -815,7 +814,7 @@ export async function resolvePartnerEmailTargets(params: {
   const partnerOrganizationIds = Array.from(new Set(params.partnerOrganizationIds));
   if (partnerOrganizationIds.length === 0) return [];
 
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("organization_members")
     .select("organization_id,email,role,status")
     .in("organization_id", partnerOrganizationIds)
@@ -1038,7 +1037,7 @@ export async function sendUpdateEmails(params: {
   const partnerOrgIds = params.recipients.map((r) => r.partnerOrganizationId).filter(Boolean);
   const partnerSlugMap: Record<string, string> = {};
   if (partnerOrgIds.length > 0) {
-    const { data: orgRows } = await supabase
+    const { data: orgRows } = await getSupabaseServer()
       .from("organizations")
       .select("id,slug")
       .in("id", partnerOrgIds);
@@ -1117,7 +1116,7 @@ export async function markRecipientsNotified(params: {
   if (partnerIds.length === 0) return;
 
   const nowIso = new Date().toISOString();
-  const { error: statusError } = await supabase
+  const { error: statusError } = await getSupabaseServer()
     .from("partner_update_recipients")
     .update({
       status: "notified",
@@ -1131,7 +1130,7 @@ export async function markRecipientsNotified(params: {
     console.error("Failed to mark partner update recipients as notified:", statusError);
   }
 
-  const { error: firstNotifiedError } = await supabase
+  const { error: firstNotifiedError } = await getSupabaseServer()
     .from("partner_update_recipients")
     .update({
       first_notified_at: nowIso,
@@ -1161,7 +1160,7 @@ export async function loadExistingUpdateRecipients(params: {
     status: string;
   }>
 > {
-  let query = supabase
+  let query = getSupabaseServer()
     .from("partner_update_recipients")
     .select("id,partner_organization_id,delivery_channels,status")
     .eq("organization_id", params.organizationId)

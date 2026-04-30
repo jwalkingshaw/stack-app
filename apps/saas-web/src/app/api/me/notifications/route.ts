@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@stack-app/database";
 import { getCurrentOrganization, requireUser } from "@/lib/auth-server";
@@ -76,7 +77,7 @@ export async function GET(request: NextRequest) {
     const limit = parseLimit(url.searchParams.get("limit"));
     const compact = url.searchParams.get("compact") === "1";
     const organizationIds = memberships.map((membership) => membership.organization.id);
-    const states = await getWorkspaceNotificationStateMap(supabase, user.id, organizationIds);
+    const states = await getWorkspaceNotificationStateMap(getSupabaseServer(), user.id, organizationIds);
 
     if (
       workspaceSlug &&
@@ -102,8 +103,8 @@ export async function GET(request: NextRequest) {
     }
 
     const [notifications, unreadByWorkspace] = await Promise.all([
-      getWorkspaceNotificationEvents(supabase, memberships, states, limit, workspaceSlug),
-      getWorkspaceUnreadCounts(supabase, memberships, states),
+      getWorkspaceNotificationEvents(getSupabaseServer(), memberships, states, limit, workspaceSlug),
+      getWorkspaceUnreadCounts(getSupabaseServer(), memberships, states),
     ]);
 
     const workspaces = memberships.map((membership) => ({
@@ -170,7 +171,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "workspace_not_found" }, { status: 404 });
     }
 
-    await markWorkspaceNotificationsRead(supabase, user.id, targetOrganizationIds);
+    await markWorkspaceNotificationsRead(getSupabaseServer(), user.id, targetOrganizationIds);
 
     return NextResponse.json({
       success: true,

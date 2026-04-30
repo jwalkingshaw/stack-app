@@ -1,3 +1,4 @@
+import { getSupabaseServer } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@stack-app/database";
 
@@ -52,16 +53,15 @@ export async function applyPartnerInvitationWorkspaceGrants(params: {
     appliedShareSetGrantCount: number;
   }> | ResultErr
 > {
-  const { supabase, organizationId, invitationId, partnerOrganizationId, invitedBy, permissions } =
-    params;
+  const { supabase, organizationId, invitationId, partnerOrganizationId, invitedBy, permissions } = params;
   const scope = extractPartnerInvitationWorkspaceScope(permissions);
   let appliedProfileGrantCount = 0;
 
   for (const outputProfileId of scope.outputProfileIds) {
     const { error } = await supabase
-      .from("partner_contract_grants" as never)
+      .from("partner_contract_grants")
       .upsert(
-        ({
+        {
           organization_id: organizationId,
           partner_organization_id: partnerOrganizationId,
           output_profile_id: outputProfileId,
@@ -72,7 +72,7 @@ export async function applyPartnerInvitationWorkspaceGrants(params: {
             invitation_id: invitationId,
           },
           created_by: invitedBy,
-        }) as never,
+        },
         {
           onConflict: "organization_id,partner_organization_id,output_profile_id",
           ignoreDuplicates: false,
@@ -91,7 +91,7 @@ export async function applyPartnerInvitationWorkspaceGrants(params: {
   }
 
   const shareSetGrantResult = await applyInvitationShareSetGrants({
-    supabase,
+    supabase: getSupabaseServer(),
     organizationId,
     invitationId,
     partnerOrganizationId,

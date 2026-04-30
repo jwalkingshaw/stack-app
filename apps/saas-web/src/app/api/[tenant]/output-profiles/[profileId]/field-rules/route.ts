@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 function normalizeToken(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -14,7 +11,7 @@ function normalizeToken(value: unknown): string | null {
 }
 
 async function verifyProfileOwnership(organizationId: string, profileId: string) {
-  const { data, error } = await supabase
+  const { data, error } = await getSupabaseServer()
     .from("output_channel_profiles")
     .select("id")
     .eq("id", profileId)
@@ -44,7 +41,7 @@ export async function GET(
       return NextResponse.json({ error: "Profile not found" }, { status: 404 });
     }
 
-    const { data: rules, error } = await supabase
+    const { data: rules, error } = await getSupabaseServer()
       .from("output_profile_field_rules")
       .select("id, field_code, is_required, max_length, notes, created_at")
       .eq("profile_id", profileId)
@@ -124,7 +121,7 @@ export async function POST(
       notes: r.notes,
     }));
 
-    const { data: upserted, error } = await supabase
+    const { data: upserted, error } = await getSupabaseServer()
       .from("output_profile_field_rules")
       .upsert(rows, { onConflict: "profile_id,field_code" })
       .select();
@@ -170,7 +167,7 @@ export async function DELETE(
       return NextResponse.json({ error: "field_code query param required" }, { status: 400 });
     }
 
-    const { error } = await supabase
+    const { error } = await getSupabaseServer()
       .from("output_profile_field_rules")
       .delete()
       .eq("profile_id", profileId)

@@ -1,6 +1,6 @@
-// Backend validation for product data against field configurations
+﻿// Backend validation for product data against field configurations
 
-import { supabaseServer } from '@/lib/supabase';
+import { getSupabaseServer } from '@/lib/supabase';
 import type { Json } from '@stack-app/database';
 import { ProductField, validateProductData, ValidationResult } from '@/lib/field-validation';
 
@@ -94,7 +94,7 @@ const formatUniqueValue = (value: unknown): string => {
  * Fetch product fields for an organization
  */
 export async function getProductFieldsForOrganization(organizationId: string): Promise<ProductField[]> {
-  const { data: fields, error } = await supabaseServer
+  const { data: fields, error } = await getSupabaseServer()
     .from('product_fields')
     .select('*')
     .eq('organization_id', organizationId)
@@ -172,7 +172,7 @@ export async function checkUniqueFieldViolations(
         continue;
       }
 
-      let query = supabaseServer
+      let query = getSupabaseServer()
         .from('product_field_values')
         .select('id')
         .eq('product_field_id', field.id)

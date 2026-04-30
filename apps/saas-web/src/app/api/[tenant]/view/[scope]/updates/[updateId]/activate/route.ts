@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { logSecurityEvent } from "@/lib/security-audit";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { appendUpdateActivity } from "../../../../../updates/_delivery";
 import {
   ensurePartnerUpdateRecipient,
@@ -11,7 +11,7 @@ async function isActionableUpdate(params: {
   organizationId: string;
   updateId: string;
 }): Promise<boolean> {
-  const { count, error } = await supabaseServer
+  const { count, error } = await getSupabaseServer()
     .from("partner_update_kit_items")
     .select("id", { count: "exact", head: true })
     .eq("organization_id", params.organizationId)
@@ -60,7 +60,7 @@ export async function POST(
     }
 
     const nowIso = new Date().toISOString();
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_update_recipients")
       .update({
         status: "activated",
@@ -96,7 +96,7 @@ export async function POST(
       ],
     });
 
-    await logSecurityEvent(supabaseServer, {
+    await logSecurityEvent(getSupabaseServer(), {
       organizationId: recipient.organizationId,
       actorUserId: scopeAccess.userId,
       action: "partner_update.activate",

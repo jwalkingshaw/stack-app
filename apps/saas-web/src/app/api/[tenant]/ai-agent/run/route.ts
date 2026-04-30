@@ -1,7 +1,7 @@
-import { NextRequest } from "next/server";
+﻿import { NextRequest } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess } from "@/lib/user-context";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { assertBillingCapacity } from "@/lib/billing-policy";
 import { incrementAgentRunsUsage } from "@/lib/ai-agent-metering";
 import { runAgentTask, encodeSSE, type AgentStreamEvent } from "@/lib/claude-agent";
@@ -162,7 +162,7 @@ export async function POST(
           organizationId,
           orgContext,
           actorUserId,
-          supabase: supabaseServer,
+          supabase: getSupabaseServer(),
           onEvent: send,
         });
 

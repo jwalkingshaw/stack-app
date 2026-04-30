@@ -1,11 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const UNIQUE_VIOLATION_ERROR = "23505";
 const MISSING_TABLE_ERROR = "42P01";
@@ -46,7 +43,7 @@ export async function PUT(
 
     const targetOrganizationId = contextResult.context.targetOrganization.id;
     const body = await request.json();
-    const { data: existingDestination, error: existingDestinationError } = await supabase
+    const { data: existingDestination, error: existingDestinationError } = await getSupabaseServer()
       .from("channel_destinations")
       .select("id,channel_id,market_id")
       .eq("id", destinationId)
@@ -115,7 +112,7 @@ export async function PUT(
       return NextResponse.json({ error: "Destination requires a channel." }, { status: 400 });
     }
 
-    const { data: channel, error: channelError } = await supabase
+    const { data: channel, error: channelError } = await getSupabaseServer()
       .from("channels")
       .select("id")
       .eq("organization_id", targetOrganizationId)
@@ -137,7 +134,7 @@ export async function PUT(
           : null;
 
       if (marketId) {
-        const { data: market, error: marketError } = await supabase
+        const { data: market, error: marketError } = await getSupabaseServer()
           .from("markets")
           .select("id")
           .eq("organization_id", targetOrganizationId)
@@ -156,7 +153,7 @@ export async function PUT(
       return NextResponse.json({ error: "No valid fields to update." }, { status: 400 });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabaseServer()
       .from("channel_destinations")
       .update(updatePayload)
       .eq("id", destinationId)

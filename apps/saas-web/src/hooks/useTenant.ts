@@ -1,3 +1,4 @@
+﻿import { getSupabaseServer } from "@/lib/supabase";
 "use client";
 
 import { usePathname } from "next/navigation";
@@ -97,7 +98,7 @@ export function useTenant() {
         isValidTenant = orgCodeValue === tenantSlug;
         console.log('🔍 Using org_code validation:', { orgCode, orgCodeValue, tenantSlug, isValidTenant });
       } 
-      // Fallback: Use organization slug from Supabase
+      // Fallback: Use organization slug from getSupabaseServer()
       else if (userOrg) {
         isValidTenant = userOrg.slug === tenantSlug;
         console.log('🔍 Using organization slug validation:', { orgSlug: userOrg.slug, tenantSlug, isValidTenant });
@@ -133,7 +134,7 @@ export function useTenant() {
   return tenantState;
 }
 
-// Hook to get current organization with storage info from Supabase
+// Hook to get current organization with storage info from getSupabaseServer()
 export function useOrganization() {
   const { organization, isValidTenant } = useTenant();
   const [storageInfo, setStorageInfo] = useState({

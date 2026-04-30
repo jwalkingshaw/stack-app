@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { applyRLSContext } from "@/lib/rls-context";
 import { ensureSlug } from "@/lib/slug";
 import { enforceMarketScopedAccess } from "@/lib/market-scope";
@@ -24,7 +24,7 @@ export async function GET(
   try {
     const { slug } = await params;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const auth = new AuthService(db);
 
     const user = await auth.getCurrentUser();
@@ -41,7 +41,7 @@ export async function GET(
     const searchParams = new URL(request.url).searchParams;
     const scopeCheck = await enforceMarketScopedAccess({
       authService: auth,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetDownloadDerivative,
@@ -54,7 +54,7 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    await applyRLSContext(supabaseServer, {
+    await applyRLSContext(getSupabaseServer(), {
       userId: user.id,
       organizationId: organization.id,
       organizationCode: organization.kindeOrgId,
@@ -91,7 +91,7 @@ export async function POST(
       );
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const auth = new AuthService(db);
 
     const user = await auth.getCurrentUser();
@@ -109,7 +109,7 @@ export async function POST(
       auth.canEditProducts(user.id, organization.id),
       enforceMarketScopedAccess({
         authService: auth,
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         userId: user.id,
         organizationId: organization.id,
         permissionKey: ScopedPermission.AssetMetadataEdit,
@@ -123,7 +123,7 @@ export async function POST(
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
     }
 
-    await applyRLSContext(supabaseServer, {
+    await applyRLSContext(getSupabaseServer(), {
       userId: user.id,
       organizationId: organization.id,
       organizationCode: organization.kindeOrgId,

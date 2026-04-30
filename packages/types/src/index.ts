@@ -13,6 +13,7 @@ export interface Organization {
   type: string;
   organizationType?: 'brand' | 'partner';
   partnerCategory?: 'retailer' | 'distributor' | 'wholesaler' | null;
+  logoUrl?: string | null;
   kindeOrgId: string;
   storageUsed: number;
   storageLimit: number;

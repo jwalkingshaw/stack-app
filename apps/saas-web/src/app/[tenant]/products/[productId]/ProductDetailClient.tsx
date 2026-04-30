@@ -3949,7 +3949,7 @@ export function ProductDetailClient({
                       onChange={setSelectedLocaleIds}
                       placeholder="Locales"
                       showSelectedChips={false}
-                      className="h-7 w-auto min-w-[110px] border-border/60 bg-background px-2.5 text-xs shadow-none"
+                      className="h-7 w-auto min-w-[110px] border-border/60 bg-background px-2.5 text-xs font-medium shadow-none"
                       contentClassName="!w-auto min-w-[220px] whitespace-nowrap"
                     />
                   )}
@@ -5192,6 +5192,9 @@ export function ProductDetailClient({
                                                       disabled={!canEditLocaleVersion}
                                                       onClick={() => {
                                                         void addLocaleVersionEntry(field, locale);
+                                                        setSelectedLocaleIds((prev) =>
+                                                          prev.includes(locale.id) ? prev : [...prev, locale.id]
+                                                        );
                                                       }}
                                                       className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                                                     >

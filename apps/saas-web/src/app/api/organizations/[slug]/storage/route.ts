@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getAuthSession } from "@/lib/auth";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { DatabaseQueries } from "@stack-app/database";
 
 function getOrganizationCode(value: unknown): string | null {
@@ -35,7 +35,7 @@ export async function GET(
       );
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const organization = await db.getOrganizationBySlug(slug);
 
     if (!organization) {

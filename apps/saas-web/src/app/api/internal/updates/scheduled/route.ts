@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   appendUpdateActivity,
   loadExistingUpdateRecipients,
@@ -12,7 +12,7 @@ import {
 const DEFAULT_BATCH_SIZE = 50;
 const MAX_BATCH_SIZE = 200;
 const SCHEDULER_ACTOR_USER_ID = "system:scheduler";
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 function getSchedulerToken(request: NextRequest): string {
   const authHeader = request.headers.get("authorization") || "";

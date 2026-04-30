@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@stack-app/auth';
 import { DatabaseQueries } from '@stack-app/database';
 
-import { supabaseServer } from '@/lib/supabase';
+import { getSupabaseServer } from '@/lib/supabase';
 import { requireTenantAccess } from '@/lib/tenant-auth';
 import { canSendInvite } from '@/lib/security-permissions';
 
@@ -28,7 +28,7 @@ export async function GET(
 ) {
   try {
     const resolvedParams = await params;
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const tenantAccess = await requireTenantAccess(request, resolvedParams.tenant);
@@ -62,7 +62,7 @@ export async function GET(
       );
     }
 
-    let bundleQuery = supabaseServer
+    let bundleQuery = getSupabaseServer()
       .from('permission_bundles')
       .select('id, name, description, subject_type, is_default')
       .eq('organization_id', organization.id)
@@ -83,7 +83,7 @@ export async function GET(
     const rulesByBundleId = new Map<string, PermissionBundleRuleRow[]>();
 
     if (bundleIds.length > 0) {
-      const { data: rules, error: rulesError } = await supabaseServer
+      const { data: rules, error: rulesError } = await getSupabaseServer()
         .from('permission_bundle_rules')
         .select('id, permission_bundle_id, module_key, level, scope_defaults')
         .in('permission_bundle_id', bundleIds)

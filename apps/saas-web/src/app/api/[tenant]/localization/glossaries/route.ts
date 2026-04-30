@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { createDeepLGlossary, isDeepLConfigured } from "@/lib/deepl";
 import { normalizeAndValidateLocaleCode } from "@/lib/locale-code";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   isMissingLocalizationFoundationError,
   isOwnerOrAdmin,
@@ -73,7 +73,7 @@ async function fetchGlossaryEntryCounts(
   glossaryIds: string[]
 ): Promise<Record<string, number>> {
   if (glossaryIds.length === 0) return {};
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("translation_glossary_entries")
     .select("glossary_id")
     .eq("organization_id", organizationId)
@@ -102,7 +102,7 @@ async function resolveLocaleCodeById(params: {
     return normalizeAndValidateLocaleCode(params.explicitCode);
   }
   if (!params.localeId) return null;
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("locales")
     .select("code")
     .eq("organization_id", params.organizationId)
@@ -129,7 +129,7 @@ export async function GET(
     if (!access.ok) return access.response;
 
     const { organization } = access.context;
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("translation_glossaries")
       .select(GLOSSARY_SELECT)
       .eq("organization_id", organization.id)
@@ -263,7 +263,7 @@ export async function POST(
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: insertedGlossary, error: insertError } = await (supabaseServer as any)
+    const { data: insertedGlossary, error: insertError } = await (getSupabaseServer() as any)
       .from("translation_glossaries")
       .insert({
         organization_id: organization.id,
@@ -292,7 +292,7 @@ export async function POST(
 
     const glossary = insertedGlossary as GlossaryRow;
     if (entries.length > 0) {
-      const { error: entryInsertError } = await supabaseServer
+      const { error: entryInsertError } = await getSupabaseServer()
         .from("translation_glossary_entries")
         .insert(
           entries.map((entry) => ({

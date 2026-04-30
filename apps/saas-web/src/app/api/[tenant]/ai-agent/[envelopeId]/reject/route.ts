@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess } from "@/lib/user-context";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   getAiTaskEnvelope,
   updateAiTaskEnvelopeResult,
@@ -37,7 +37,7 @@ export async function POST(
 
   // Load envelope
   const envelope = await getAiTaskEnvelope({
-    supabase: supabaseServer,
+    supabase: getSupabaseServer(),
     organizationId,
     envelopeId,
   });
@@ -60,7 +60,7 @@ export async function POST(
   );
 
   await updateAiTaskEnvelopeResult({
-    supabase: supabaseServer,
+    supabase: getSupabaseServer(),
     organizationId,
     envelopeId: envelope.id,
     status: "rejected",
@@ -71,7 +71,7 @@ export async function POST(
   });
 
   await logAiActionAudit({
-    supabase: supabaseServer,
+    supabase: getSupabaseServer(),
     organizationId,
     aiTaskEnvelopeId: envelope.id,
     actorUserId,

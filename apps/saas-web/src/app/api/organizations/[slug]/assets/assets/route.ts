@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { enforceMarketScopedAccess } from "@/lib/market-scope";
 import { enforceCollectionScope } from "@/lib/collection-scope";
 
@@ -69,7 +69,7 @@ export async function GET(
       });
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     
     const user = await authService.getCurrentUser();
@@ -91,7 +91,7 @@ export async function GET(
 
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetDownloadDerivative,
@@ -109,7 +109,7 @@ export async function GET(
     const offset = parseInt(url.searchParams.get('offset') || '0');
 
     const collectionScope = await enforceCollectionScope({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       collectionId,
     });
@@ -151,7 +151,7 @@ export async function POST(
   try {
     const resolvedParams = await params;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     
     const user = await authService.getCurrentUser();
@@ -173,7 +173,7 @@ export async function POST(
 
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetUpload,

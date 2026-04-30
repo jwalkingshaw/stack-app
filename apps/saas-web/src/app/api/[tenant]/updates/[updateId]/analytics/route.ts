@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireUpdatesContext } from "../../_shared";
 
 function percentile50(values: number[]): number | null {
@@ -30,7 +30,7 @@ export async function GET(
     const access = await requireUpdatesContext(request, resolvedParams.tenant);
     if (!access.ok) return access.response;
 
-    const { data: updateRow, error: updateError } = await supabaseServer
+    const { data: updateRow, error: updateError } = await getSupabaseServer()
       .from("partner_updates")
       .select("id,title,status,urgency,due_at,published_at,created_at,updated_at")
       .eq("organization_id", access.context.organizationId)
@@ -45,7 +45,7 @@ export async function GET(
       return NextResponse.json({ error: "Partner update not found" }, { status: 404 });
     }
 
-    const { data: recipients, error: recipientsError } = await supabaseServer
+    const { data: recipients, error: recipientsError } = await getSupabaseServer()
       .from("partner_update_recipients")
       .select(
         "id,partner_organization_id,status,first_notified_at,opened_at,acknowledged_at,activated_at,due_at,created_at,updated_at"
@@ -59,7 +59,7 @@ export async function GET(
       return NextResponse.json({ error: "Failed to load update analytics" }, { status: 500 });
     }
 
-    const { data: publicShareActivity, error: publicShareActivityError } = await supabaseServer
+    const { data: publicShareActivity, error: publicShareActivityError } = await getSupabaseServer()
       .from("partner_update_activity")
       .select("event_type,metadata")
       .eq("organization_id", access.context.organizationId)
@@ -98,7 +98,7 @@ export async function GET(
     const partnerOrganizationNameById = new Map<string, string>();
 
     if (partnerOrganizationIds.length > 0) {
-      const { data: partnerOrganizations, error: partnerOrganizationsError } = await supabaseServer
+      const { data: partnerOrganizations, error: partnerOrganizationsError } = await getSupabaseServer()
         .from("organizations")
         .select("id,name")
         .in("id", partnerOrganizationIds);

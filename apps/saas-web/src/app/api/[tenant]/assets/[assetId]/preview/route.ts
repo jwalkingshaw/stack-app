@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { S3Service } from "@stack-app/storage";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { cache as redisCache, CacheKeys, CacheTTL } from "@/lib/redis";
 import { resolveStorageDeliveryUrl, rewriteStorageUrlToCloudFront } from "@/lib/storage-url";
 import {
@@ -55,7 +55,7 @@ async function getAssetById(params: {
   assetId: string;
   organizationId: string;
 }): Promise<AssetRow | null> {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("dam_assets")
     .select("id,organization_id,asset_scope,s3_key,s3_url,mime_type,thumbnail_urls")
     .eq("id", params.assetId)
@@ -105,7 +105,7 @@ export async function GET(
       });
       const scopedOrganizationIds = [tenantOrganizationId, ...brandOrganizationIds];
 
-      const { data: row, error: rowError } = await supabaseServer
+      const { data: row, error: rowError } = await getSupabaseServer()
         .from("dam_assets")
         .select("id,organization_id,asset_scope,s3_key,s3_url,mime_type,thumbnail_urls")
         .eq("id", assetId)

@@ -1,4 +1,4 @@
-import { supabaseServer } from "@/lib/supabase";
+﻿import { getSupabaseServer } from "@/lib/supabase";
 
 function toIsoDate(value: Date): string {
   return value.toISOString().slice(0, 10);
@@ -22,7 +22,7 @@ function isMissingUsageSchemaError(error: unknown): boolean {
 export async function getMonthlyAgentRunsUsage(organizationId: string): Promise<number> {
   const { periodStart } = getMonthWindow(new Date());
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("organization_usage_monthly_snapshots")
     .select("ai_agent_runs_count")
     .eq("organization_id", organizationId)
@@ -50,7 +50,7 @@ export async function incrementAgentRunsUsage(params: {
   const { periodStart, periodEnd } = getMonthWindow(occurredAt);
 
   // --- Daily row ---
-  const { data: dailyExisting, error: dailySelectError } = await supabaseServer
+  const { data: dailyExisting, error: dailySelectError } = await getSupabaseServer()
     .from("organization_usage_daily")
     .select("organization_id,usage_date,ai_agent_runs_count")
     .eq("organization_id", params.organizationId)
@@ -68,7 +68,7 @@ export async function incrementAgentRunsUsage(params: {
   const currentDaily = Number((dailyExisting as Record<string, unknown> | null)?.ai_agent_runs_count ?? 0);
 
   if (dailyExisting) {
-    const { error: dailyUpdateError } = await supabaseServer
+    const { error: dailyUpdateError } = await getSupabaseServer()
       .from("organization_usage_daily")
       .update({
         ai_agent_runs_count: currentDaily + 1,
@@ -82,7 +82,7 @@ export async function incrementAgentRunsUsage(params: {
       return { ok: false, reason: "daily_update_failed" };
     }
   } else {
-    const { error: dailyInsertError } = await supabaseServer
+    const { error: dailyInsertError } = await getSupabaseServer()
       .from("organization_usage_daily")
       .insert({
         organization_id: params.organizationId,
@@ -98,7 +98,7 @@ export async function incrementAgentRunsUsage(params: {
   }
 
   // --- Monthly snapshot row ---
-  const { data: monthlyExisting, error: monthlySelectError } = await supabaseServer
+  const { data: monthlyExisting, error: monthlySelectError } = await getSupabaseServer()
     .from("organization_usage_monthly_snapshots")
     .select("organization_id,period_start,ai_agent_runs_count")
     .eq("organization_id", params.organizationId)
@@ -121,7 +121,7 @@ export async function incrementAgentRunsUsage(params: {
   );
 
   if (monthlyExisting) {
-    const { error: monthlyUpdateError } = await supabaseServer
+    const { error: monthlyUpdateError } = await getSupabaseServer()
       .from("organization_usage_monthly_snapshots")
       .update({
         ai_agent_runs_count: currentMonthly + 1,
@@ -138,7 +138,7 @@ export async function incrementAgentRunsUsage(params: {
       return { ok: false, reason: "monthly_update_failed" };
     }
   } else {
-    const { error: monthlyInsertError } = await supabaseServer
+    const { error: monthlyInsertError } = await getSupabaseServer()
       .from("organization_usage_monthly_snapshots")
       .insert({
         organization_id: params.organizationId,

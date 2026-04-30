@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   isMissingTableError,
   requireSharingManagerContext,
@@ -9,7 +9,7 @@ import {
   parseShareScopeType,
 } from "@/lib/container-sharing";
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 type ScopeGrantRow = {
   id: string;

@@ -1,9 +1,9 @@
-import Image from "next/image";
+﻿import Image from "next/image";
 import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { isAuthenticated, requireOrganization, requireUser } from "@/lib/auth-server";
 import { canUsePublicShareLinks, getOrganizationBillingLimits } from "@/lib/billing-policy";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { DatabaseQueries } from "@stack-app/database";
 import { S3Service } from "@stack-app/storage";
 
@@ -37,13 +37,13 @@ const isShareExpired = (expiresAt?: string) => {
 };
 
 const findSharedAsset = async (tenant: string, token: string): Promise<ShareLookup | null> => {
-  const db = new DatabaseQueries(supabaseServer);
+  const db = new DatabaseQueries(getSupabaseServer());
   const org = await db.getOrganizationBySlug(tenant);
   if (!org) return null;
 
   const { planId } = await getOrganizationBillingLimits(org.id);
 
-  const { data: shareRowRaw } = await supabaseServer
+  const { data: shareRowRaw } = await getSupabaseServer()
     .from("asset_shares")
     .select("asset_id, public_enabled, allow_downloads, expires_at")
     .eq("organization_id", org.id)
@@ -54,7 +54,7 @@ const findSharedAsset = async (tenant: string, token: string): Promise<ShareLook
   const shareRow = shareRowRaw as Partial<AssetShareRow>;
   if (typeof shareRow.asset_id !== "string") return null;
 
-  const { data: assetRowRaw } = await supabaseServer
+  const { data: assetRowRaw } = await getSupabaseServer()
     .from("dam_assets")
     .select("id, original_filename, mime_type, s3_key")
     .eq("organization_id", org.id)
@@ -129,7 +129,7 @@ export default async function PublicAssetPage({
     const user = await requireUser();
     if (!user?.id) redirect("/api/auth/login");
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const organization = await db.getOrganizationBySlug(tenant);
     if (!organization) redirect("/unauthorized");
 

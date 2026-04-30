@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { canManageContainerSharing } from "@/lib/security-permissions";
 
@@ -186,7 +186,7 @@ async function loadPartnerRelationship(params: {
   ];
 
   for (const attempt of attempts) {
-    const result = await (supabaseServer)
+    const result = await (getSupabaseServer())
       .from("brand_partner_relationships")
       .select(attempt.select)
       .eq(attempt.brandColumn, organizationId)
@@ -260,7 +260,7 @@ async function updateRelationshipById(params: {
   if (accessLevel) v2Payload.access_level = accessLevel;
   if (action) v2Payload.status = statusByAction[action];
 
-  const v2 = await (supabaseServer)
+  const v2 = await (getSupabaseServer())
     .from("brand_partner_relationships")
     .update(v2Payload)
     .eq("id", relationshipId)
@@ -299,7 +299,7 @@ export async function GET(
       );
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     const canManage = await canManageContainerSharing({
       authService,
@@ -316,7 +316,7 @@ export async function GET(
       return NextResponse.json({ error: "Partner relationship not found" }, { status: 404 });
     }
 
-    const { data: partnerOrganization } = await (supabaseServer)
+    const { data: partnerOrganization } = await (getSupabaseServer())
       .from("organizations")
       .select("id,name,slug,organization_type,partner_category")
       .eq("id", resolvedParams.partnerOrganizationId)
@@ -328,7 +328,7 @@ export async function GET(
     let contractGrants: ContractGrantSummary[] = [];
     let portalPublishes: PortalPublishSummary[] = [];
 
-    const grantsResult = await (supabaseServer)
+    const grantsResult = await (getSupabaseServer())
       .from("partner_share_set_grants")
       .select(
         "id,share_set_id,access_level,status,created_at,updated_at,share_sets(id,name,module_key)"
@@ -370,7 +370,7 @@ export async function GET(
     }
 
     if (shareSetsEnabled) {
-      const shareSetsResult = await (supabaseServer)
+      const shareSetsResult = await (getSupabaseServer())
         .from("share_sets")
         .select("id,name,module_key")
         .eq("organization_id", organization.id)
@@ -390,7 +390,7 @@ export async function GET(
       }
     }
 
-    const contractGrantsResult = await (supabaseServer)
+    const contractGrantsResult = await (getSupabaseServer())
       .from("partner_contract_grants" as never)
       .select(
         "id,output_profile_id,access_level,status,created_at,updated_at,output_channel_profiles!inner(id,name,code,profile_type)"
@@ -436,7 +436,7 @@ export async function GET(
       contractGrants = normalizedContractGrants;
     }
 
-    const portalPublishesResult = await (supabaseServer)
+    const portalPublishesResult = await (getSupabaseServer())
       .from("portal_publish_audiences" as never)
       .select(
         "portal_publishes!inner(id,output_profile_id,publish_state,published_at,output_channel_profiles!inner(id,name,code,profile_type))"
@@ -558,7 +558,7 @@ export async function PATCH(
       );
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     const canManage = await canManageContainerSharing({
       authService,

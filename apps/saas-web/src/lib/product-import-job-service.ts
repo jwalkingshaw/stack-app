@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
+﻿import { createHash } from "node:crypto";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import type { Database, Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { setDatabaseUserContext } from "@/lib/user-context";
 import { ensureFamilyAttributesFromFieldGroups } from "@/lib/family-attributes";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
@@ -28,7 +28,7 @@ import {
   type TemplateSource,
 } from "@/lib/product-imports";
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 type ImportContext = {
   tenant: string;

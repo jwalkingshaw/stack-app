@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { enforceMarketScopedAccess } from "@/lib/market-scope";
 
 export async function GET(
@@ -48,7 +48,7 @@ export async function GET(
       });
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     
     const user = await authService.getCurrentUser();
@@ -65,7 +65,7 @@ export async function GET(
     const searchParams = new URL(request.url).searchParams;
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetDownloadDerivative,
@@ -99,7 +99,7 @@ export async function POST(
   try {
     const resolvedParams = await params;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     
     const user = await authService.getCurrentUser();
@@ -116,7 +116,7 @@ export async function POST(
     const searchParams = new URL(request.url).searchParams;
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetMetadataEdit,

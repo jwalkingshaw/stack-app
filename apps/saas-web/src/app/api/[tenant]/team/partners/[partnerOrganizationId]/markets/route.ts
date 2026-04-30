@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
 function normalizeToken(value: unknown): string | null {
@@ -33,7 +33,7 @@ export async function GET(
     const organizationId = contextResult.context.targetOrganization.id;
 
     // Load all active markets for this org
-    const { data: markets, error: marketsError } = await supabaseServer
+    const { data: markets, error: marketsError } = await getSupabaseServer()
       .from("markets")
       .select("id,name,code")
       .eq("organization_id", organizationId)
@@ -48,7 +48,7 @@ export async function GET(
     // Load active market assignments for this partner.
     // Legacy output_profile_id values are kept for compatibility and represent
     // market-level destination assignments.
-    const { data: assignments, error: assignmentsError } = await supabaseServer
+    const { data: assignments, error: assignmentsError } = await getSupabaseServer()
       .from("partner_market_assignments" as never)
       .select("id,market_id,valid_from,created_at,output_profile_id")
       .eq("organization_id", organizationId)
@@ -78,7 +78,7 @@ export async function GET(
     const profileIds = [...new Set(assignmentRows.map((r) => r.output_profile_id).filter(Boolean))] as string[];
     const profileById = new Map<string, { id: string; name: string; code: string; profile_type: string }>();
     if (profileIds.length > 0) {
-      const { data: profileRowsRaw } = await supabaseServer
+      const { data: profileRowsRaw } = await getSupabaseServer()
         .from("output_channel_profiles" as never)
         .select("id,name,code,profile_type")
         .in("id", profileIds as never);

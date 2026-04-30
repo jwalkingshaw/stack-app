@@ -1,4 +1,4 @@
-import { supabaseServer } from "@/lib/supabase";
+﻿import { getSupabaseServer } from "@/lib/supabase";
 
 export type DeliveryTarget = "portal" | "file_export" | "direct_channel";
 export type SyndicationRunStatus = "completed" | "failed";
@@ -143,7 +143,7 @@ export async function createSyndicationRun(params: {
   createdBy?: string | null;
   deliveredAt?: string | null;
 }): Promise<SyndicationRunRecord> {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("syndication_runs" as never)
     .insert(
       ({
@@ -187,7 +187,7 @@ export async function createPortalPublish(params: {
   metadata?: Record<string, unknown>;
   createdBy?: string | null;
 }): Promise<PortalPublishRecord> {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("portal_publishes" as never)
     .insert(
       ({
@@ -220,7 +220,7 @@ export async function createPortalPublish(params: {
       is_active: true,
     }));
 
-    const { error: audienceError } = await supabaseServer
+    const { error: audienceError } = await getSupabaseServer()
       .from("portal_publish_audiences" as never)
       .upsert(audienceRows as never, {
         onConflict: "portal_publish_id,partner_organization_id",
@@ -239,7 +239,7 @@ export async function listRecentSyndicationRuns(params: {
   organizationId: string;
   limit?: number;
 }): Promise<SyndicationRunRecord[]> {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("syndication_runs" as never)
     .select("*")
     .eq("organization_id", params.organizationId)
@@ -259,7 +259,7 @@ export async function listRecentPortalPublishes(params: {
   limit?: number;
 }): Promise<PortalPublishRecord[]> {
   if (params.partnerOrganizationId) {
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("portal_publish_audiences" as never)
       .select("portal_publishes!inner(*)")
       .eq("organization_id", params.organizationId)
@@ -283,7 +283,7 @@ export async function listRecentPortalPublishes(params: {
       .slice(0, params.limit ?? 10);
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("portal_publishes" as never)
     .select("*")
     .eq("organization_id", params.organizationId)

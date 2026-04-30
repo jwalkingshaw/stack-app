@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import type { Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   extractKindeBillingRefs,
   KindeBillingRefs,
@@ -8,7 +8,7 @@ import {
   VerifiedKindeWebhookEvent,
 } from "@/lib/kinde-billing-webhooks";
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 const PROVIDER = "kinde";
 const RETRYABLE_EVENT_STATUSES = new Set(["received", "failed"]);

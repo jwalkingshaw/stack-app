@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess } from "@/lib/user-context";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { getAiTaskEnvelope } from "@/lib/ai-foundation";
 
 // ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ export async function GET(
 
   // Fetch envelope — org_id is always in the query so cross-org leakage is impossible
   const envelope = await getAiTaskEnvelope({
-    supabase: supabaseServer,
+    supabase: getSupabaseServer(),
     organizationId,
     envelopeId,
   });

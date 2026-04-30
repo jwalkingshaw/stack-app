@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 
 export async function GET(
@@ -20,7 +20,7 @@ export async function GET(
       );
     }
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_contract_grants" as never)
       .select(
         "id,partner_organization_id,output_profile_id,access_level,status,metadata,created_at,updated_at,output_channel_profiles!inner(id,name,code,profile_type)"
@@ -66,7 +66,7 @@ export async function POST(
       return NextResponse.json({ error: "outputProfileId is required." }, { status: 400 });
     }
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_contract_grants" as never)
       .upsert(
         ({

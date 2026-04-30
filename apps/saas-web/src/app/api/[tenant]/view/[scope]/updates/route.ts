@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   parsePositiveInt,
   requirePartnerUpdatesScopeContext,
@@ -40,7 +40,7 @@ export async function GET(
       .toLowerCase();
     const search = (requestUrl.searchParams.get("search") || "").trim().toLowerCase();
 
-    let recipientQuery = supabaseServer
+    let recipientQuery = getSupabaseServer()
       .from("partner_update_recipients")
       .select(
         "id,organization_id,partner_update_id,status,delivery_channels,first_notified_at,opened_at,acknowledged_at,activated_at,due_at,updated_at",
@@ -94,7 +94,7 @@ export async function GET(
       });
     }
 
-    let updatesQuery = supabaseServer
+    let updatesQuery = getSupabaseServer()
       .from("partner_updates")
       .select(
         "id,organization_id,title,summary,urgency,status,event_label,labels,due_at,published_at,scheduled_for,updated_at"
@@ -136,7 +136,7 @@ export async function GET(
           .filter((id): id is string => Boolean(id))
       )
     );
-    const { data: organizationRows } = await supabaseServer
+    const { data: organizationRows } = await getSupabaseServer()
       .from("organizations")
       .select("id,name,slug")
       .in("id", brandIds);

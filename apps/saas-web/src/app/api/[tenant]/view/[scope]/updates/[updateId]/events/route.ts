@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { appendUpdateActivity } from "../../../../../updates/_delivery";
 import {
   ensurePartnerUpdateRecipient,
@@ -70,7 +70,7 @@ export async function POST(
         recipient.status === "queued" || recipient.status === "notified"
           ? "opened"
           : recipient.status;
-      await supabaseServer
+      await getSupabaseServer()
         .from("partner_update_recipients")
         .update({
           status: nextStatus,

@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { requireTenantAccess } from "@/lib/tenant-auth";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 
 const MANAGER_ROLES = new Set(["owner", "admin"]);
 const UUID_REGEX =
@@ -83,7 +83,7 @@ async function getMembershipRole(params: {
 }): Promise<string | null> {
   const { organizationId, userId } = params;
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("organization_members")
     .select("role")
     .eq("organization_id", organizationId)

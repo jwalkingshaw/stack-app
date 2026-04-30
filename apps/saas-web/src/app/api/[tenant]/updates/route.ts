@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import type { Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   normalizeJsonObject,
   normalizeOptionalString,
@@ -43,7 +43,7 @@ export async function GET(
     const urgencyFilter = (url.searchParams.get("urgency") || "").trim().toLowerCase();
     const search = (url.searchParams.get("search") || "").trim();
 
-    let query = supabaseServer
+    let query = getSupabaseServer()
       .from("partner_updates")
       .select(
         "id,title,summary,urgency,status,event_label,labels,due_at,published_at,scheduled_for,created_by,updated_by,created_at,updated_at",
@@ -78,7 +78,7 @@ export async function GET(
     const analyticsMap: Record<string, { total: number; opened: number; acknowledged: number; activated: number }> = {};
     if (rows.length > 0) {
       const updateIds = rows.map((r: Record<string, unknown>) => String(r.id)).filter(Boolean);
-      const { data: recipientRows } = await supabaseServer
+      const { data: recipientRows } = await getSupabaseServer()
         .from("partner_update_recipients")
         .select("partner_update_id,opened_at,acknowledged_at,activated_at")
         .eq("organization_id", access.context.organizationId)
@@ -172,7 +172,7 @@ export async function POST(
       metadata: normalizeJsonObject(body.metadata) as Json,
     };
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_updates")
       .insert(insertPayload)
       .select(

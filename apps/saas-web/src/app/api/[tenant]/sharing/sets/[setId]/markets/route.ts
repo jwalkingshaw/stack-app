@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { resolveTenantBrandViewContext } from "@/lib/partner-brand-view";
 
 function normalizeToken(value: unknown): string | null {
@@ -33,7 +33,7 @@ export async function GET(
     const organizationId = contextResult.context.targetOrganization.id;
 
     // Find markets that have this set in their catalog
-    const { data: assignments, error: assignmentsError } = await supabaseServer
+    const { data: assignments, error: assignmentsError } = await getSupabaseServer()
       .from("market_set_assignments" as never)
       .select("market_id")
       .eq("organization_id", organizationId)
@@ -54,7 +54,7 @@ export async function GET(
 
     let markets: Array<{ id: string; name: string; code: string }> = [];
     if (marketIds.length > 0) {
-      const { data: marketRows } = await supabaseServer
+      const { data: marketRows } = await getSupabaseServer()
         .from("markets")
         .select("id,name,code")
         .eq("organization_id", organizationId)

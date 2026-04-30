@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { S3Service, ThumbnailService } from "@stack-app/storage";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { enforceMarketScopedAccess } from "@/lib/market-scope";
 import { enforceCollectionScope } from "@/lib/collection-scope";
 
@@ -13,7 +13,7 @@ export async function GET(
   try {
     const resolvedParams = await params;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     
     const user = await authService.getCurrentUser();
@@ -34,7 +34,7 @@ export async function GET(
     const collectionId = searchParams.get("collectionId");
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetDownloadDerivative,
@@ -48,7 +48,7 @@ export async function GET(
     }
 
     const collectionScope = await enforceCollectionScope({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       collectionId,
     });
@@ -84,7 +84,7 @@ export async function PUT(
   try {
     const resolvedParams = await params;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     
     const user = await authService.getCurrentUser();
@@ -105,7 +105,7 @@ export async function PUT(
     const collectionId = searchParams.get("collectionId");
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetMetadataEdit,
@@ -119,7 +119,7 @@ export async function PUT(
     }
 
     const collectionScope = await enforceCollectionScope({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       collectionId,
     });
@@ -165,7 +165,7 @@ export async function DELETE(
   try {
     const resolvedParams = await params;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     
     const user = await authService.getCurrentUser();
@@ -186,7 +186,7 @@ export async function DELETE(
     const collectionId = searchParams.get("collectionId");
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetMetadataEdit,
@@ -200,7 +200,7 @@ export async function DELETE(
     }
 
     const collectionScope = await enforceCollectionScope({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       collectionId,
     });

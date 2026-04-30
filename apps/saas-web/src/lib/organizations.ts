@@ -1,8 +1,8 @@
-import { supabaseServer } from '@/lib/supabase';
+﻿import { getSupabaseServer } from '@/lib/supabase';
 
 export async function getOrganizationBySlug(slug: string): Promise<{ id: string; name: string; slug: string } | null> {
   try {
-    const supabase = supabaseServer;
+    const supabase = getSupabaseServer();
 
     const { data: organization, error } = await supabase
       .from('organizations')

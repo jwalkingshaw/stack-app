@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { getPartnerRegulatoryPackage } from "@/lib/product-contracts";
 
@@ -47,7 +47,7 @@ export async function GET(
     }
 
     const data = await getPartnerRegulatoryPackage({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: tenantAccess.organization.id,
       partnerOrganizationId: resolvedParams.partnerOrganizationId,
       outputProfileId,
@@ -94,7 +94,7 @@ export async function POST(
       );
     }
 
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("partner_documents" as never)
       .insert(({
         organization_id: tenantAccess.organization.id,

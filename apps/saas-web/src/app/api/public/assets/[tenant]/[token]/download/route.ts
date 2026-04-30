@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { DatabaseQueries } from "@stack-app/database";
 import { S3Service } from "@stack-app/storage";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 import { enforceRateLimit, rateLimitExceededResponse } from "@/lib/rate-limit";
 import { logRateLimitSecurityEvent } from "@/lib/security-audit";
@@ -41,12 +41,12 @@ type ShareLookup = {
 };
 
 const findSharedAsset = async (tenant: string, token: string): Promise<ShareLookup | null> => {
-  const db = new DatabaseQueries(supabaseServer);
+  const db = new DatabaseQueries(getSupabaseServer());
   const org = await db.getOrganizationBySlug(tenant);
   if (!org) return null;
   const { planId } = await getOrganizationBillingLimits(org.id);
 
-  const { data: shareRow } = await supabaseServer
+  const { data: shareRow } = await getSupabaseServer()
     .from("asset_shares")
     .select("asset_id, public_enabled, allow_downloads, expires_at")
     .eq("organization_id", org.id)
@@ -56,7 +56,7 @@ const findSharedAsset = async (tenant: string, token: string): Promise<ShareLook
     return null;
   }
 
-  const { data: assetRow } = await supabaseServer
+  const { data: assetRow } = await getSupabaseServer()
     .from("dam_assets")
     .select("id, original_filename, mime_type, s3_key, file_size")
     .eq("organization_id", org.id)
@@ -90,7 +90,7 @@ export async function GET(
       maxRequests: 20,
     });
     if (!rateLimit.allowed) {
-      await logRateLimitSecurityEvent(supabaseServer, {
+      await logRateLimitSecurityEvent(getSupabaseServer(), {
         action: "public_asset_download_token",
         userAgent: request.headers.get("user-agent"),
         metadata: { tenant, tokenPrefix: token.slice(0, 8) },

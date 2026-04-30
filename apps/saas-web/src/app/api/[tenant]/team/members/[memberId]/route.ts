@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService, canChangeRole } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireTenantAccess } from "@/lib/tenant-auth";
 
 type MemberRole = "owner" | "admin" | "editor" | "viewer";
@@ -45,7 +45,7 @@ async function loadMemberById(params: {
   memberId: string;
 }): Promise<TeamMemberRow | null> {
   const { organizationId, memberId } = params;
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("organization_members")
     .select(
       "id,organization_id,kinde_user_id,email,role,status,joined_at,can_download_assets,can_edit_products,can_manage_team,created_at,updated_at"
@@ -78,7 +78,7 @@ export async function GET(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     const permissions = await authService.getUserPermissions(userId, organization.id);
     const canManageMembers = Boolean(permissions.is_owner || permissions.is_admin);
@@ -137,7 +137,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     const permissions = await authService.getUserPermissions(userId, organization.id);
     const canManageMembers = Boolean(permissions.is_owner || permissions.is_admin);
@@ -210,7 +210,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
     const permissions = await authService.getUserPermissions(userId, organization.id);
     const canManageMembers = Boolean(permissions.is_owner || permissions.is_admin);

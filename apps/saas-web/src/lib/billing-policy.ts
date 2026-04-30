@@ -1,11 +1,11 @@
-import { supabaseServer } from "@/lib/supabase";
+﻿import { getSupabaseServer } from "@/lib/supabase";
 import { bytesToBillingGb, getMonthlyDeliveryBandwidthUsage } from "@/lib/bandwidth-metering";
 import {
   type BillingPlanId as PlanId,
   type SubscriptionPlan,
 } from "@stack-app/types";
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 type LimitSet = {
   activeSkuCount: number;

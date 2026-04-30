@@ -1,4 +1,4 @@
-import { supabaseServer } from "@/lib/supabase";
+﻿import { getSupabaseServer } from "@/lib/supabase";
 
 type LocalizationMeter = "translation" | "write";
 
@@ -51,7 +51,7 @@ export async function getMonthlyLocalizationUsage(params: {
   const { periodStart } = getMonthWindow(onDate);
   const meterColumn = resolveMeterColumn(params.meter);
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("organization_usage_monthly_snapshots")
     .select(meterColumn)
     .eq("organization_id", params.organizationId)
@@ -86,7 +86,7 @@ export async function incrementLocalizationUsage(params: {
   const meterColumn = resolveMeterColumn(params.meter);
   const source = String(params.source || "translation_job").trim() || "translation_job";
 
-  const { data: dailyExisting, error: dailySelectError } = await supabaseServer
+  const { data: dailyExisting, error: dailySelectError } = await getSupabaseServer()
     .from("organization_usage_daily")
     .select("organization_id,usage_date,translation_chars,write_chars")
     .eq("organization_id", params.organizationId)
@@ -103,7 +103,7 @@ export async function incrementLocalizationUsage(params: {
 
   if (dailyExisting) {
     const nextDailyValue = getMeterValue(dailyExisting, meterColumn) + chars;
-    const { error: dailyUpdateError } = await supabaseServer
+    const { error: dailyUpdateError } = await getSupabaseServer()
       .from("organization_usage_daily")
       .update({
         [meterColumn]: nextDailyValue,
@@ -118,7 +118,7 @@ export async function incrementLocalizationUsage(params: {
       return { ok: false, reason: "daily_update_failed" };
     }
   } else {
-    const { error: dailyInsertError } = await supabaseServer
+    const { error: dailyInsertError } = await getSupabaseServer()
       .from("organization_usage_daily")
       .insert({
         organization_id: params.organizationId,
@@ -133,7 +133,7 @@ export async function incrementLocalizationUsage(params: {
     }
   }
 
-  const { data: monthlyExisting, error: monthlySelectError } = await supabaseServer
+  const { data: monthlyExisting, error: monthlySelectError } = await getSupabaseServer()
     .from("organization_usage_monthly_snapshots")
     .select("organization_id,period_start,translation_chars,write_chars")
     .eq("organization_id", params.organizationId)
@@ -150,7 +150,7 @@ export async function incrementLocalizationUsage(params: {
 
   if (monthlyExisting) {
     const nextMonthlyValue = getMeterValue(monthlyExisting, meterColumn) + chars;
-    const { error: monthlyUpdateError } = await supabaseServer
+    const { error: monthlyUpdateError } = await getSupabaseServer()
       .from("organization_usage_monthly_snapshots")
       .update({
         [meterColumn]: nextMonthlyValue,
@@ -168,7 +168,7 @@ export async function incrementLocalizationUsage(params: {
       return { ok: false, reason: "monthly_update_failed" };
     }
   } else {
-    const { error: monthlyInsertError } = await supabaseServer
+    const { error: monthlyInsertError } = await getSupabaseServer()
       .from("organization_usage_monthly_snapshots")
       .insert({
         organization_id: params.organizationId,

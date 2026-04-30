@@ -1,7 +1,7 @@
-import { createHash } from "crypto";
+﻿import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import type { Database, Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { assertBillingCapacity, getOrganizationBillingLimits } from "@/lib/billing-policy";
 import { canUseDeepL } from "@/lib/billing-policy";
 import { improveTextWithDeepL, isDeepLConfigured, translateWithDeepL } from "@/lib/deepl";
@@ -19,7 +19,7 @@ type LocaleRow = {
   name: string;
 };
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 type GlossaryLookupRow = {
   id: string;

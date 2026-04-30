@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { isMissingLocalizationFoundationError, requireLocalizationAccess } from "../../../../_shared";
 
 type ItemStatus =
@@ -66,7 +66,7 @@ async function refreshJobStatus(params: {
   organizationId: string;
   jobId: string;
 }): Promise<void> {
-  const { data: itemRows, error: itemError } = await supabaseServer
+  const { data: itemRows, error: itemError } = await getSupabaseServer()
     .from("translation_job_items")
     .select("status")
     .eq("organization_id", params.organizationId)
@@ -104,7 +104,7 @@ async function refreshJobStatus(params: {
   const completedAt =
     nextStatus === "completed" || nextStatus === "failed" ? new Date().toISOString() : null;
 
-  const { error: updateError } = await supabaseServer
+  const { error: updateError } = await getSupabaseServer()
     .from("translation_jobs")
     .update({
       status: nextStatus,
@@ -136,7 +136,7 @@ export async function POST(
     }
 
     const itemIds = normalizeStringArray(body?.itemIds ?? body?.item_ids);
-    let query = supabaseServer
+    let query = getSupabaseServer()
       .from("translation_job_items")
       .select(ITEM_SELECT)
       .eq("organization_id", organization.id)
@@ -205,7 +205,7 @@ export async function POST(
         }
 
         if (action === "reject") {
-          const { error: updateError } = await supabaseServer
+          const { error: updateError } = await getSupabaseServer()
             .from("translation_job_items")
             .update({
               status: "rejected",
@@ -240,7 +240,7 @@ export async function POST(
         }
 
         const finalValue = { text: editedText };
-        const { error: updateError } = await supabaseServer
+        const { error: updateError } = await getSupabaseServer()
           .from("translation_job_items")
           .update({
             status: "approved",

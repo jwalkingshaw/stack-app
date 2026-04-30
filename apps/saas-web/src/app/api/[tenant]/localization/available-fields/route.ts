@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireLocalizationAccess } from "../_shared";
 
 type ProductRow = {
@@ -43,7 +43,7 @@ type AvailableFieldsPayload = {
   customFields: Array<{ id: string; code: string; name: string }>;
 };
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 const AVAILABLE_FIELDS_CACHE_TTL_MS = 5_000;
 const availableFieldsCache = new Map<string, { expiresAt: number; value: AvailableFieldsPayload }>();
 const availableFieldsInFlight = new Map<string, Promise<AvailableFieldsPayload>>();

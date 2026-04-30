@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { applyRLSContext } from "@/lib/rls-context";
 import { ensureSlug } from "@/lib/slug";
 import { enforceMarketScopedAccess } from "@/lib/market-scope";
@@ -48,7 +48,7 @@ export async function PATCH(
       );
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const auth = new AuthService(db);
 
     const user = await auth.getCurrentUser();
@@ -66,7 +66,7 @@ export async function PATCH(
       auth.canEditProducts(user.id, organization.id),
       enforceMarketScopedAccess({
         authService: auth,
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         userId: user.id,
         organizationId: organization.id,
         permissionKey: ScopedPermission.AssetMetadataEdit,
@@ -80,7 +80,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
     }
 
-    await applyRLSContext(supabaseServer, {
+    await applyRLSContext(getSupabaseServer(), {
       userId: user.id,
       organizationId: organization.id,
       organizationCode: organization.kindeOrgId,
@@ -126,7 +126,7 @@ export async function DELETE(
   try {
     const { slug, tagId } = await params;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const auth = new AuthService(db);
 
     const user = await auth.getCurrentUser();
@@ -144,7 +144,7 @@ export async function DELETE(
       auth.canEditProducts(user.id, organization.id),
       enforceMarketScopedAccess({
         authService: auth,
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         userId: user.id,
         organizationId: organization.id,
         permissionKey: ScopedPermission.AssetMetadataEdit,
@@ -158,7 +158,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
     }
 
-    await applyRLSContext(supabaseServer, {
+    await applyRLSContext(getSupabaseServer(), {
       userId: user.id,
       organizationId: organization.id,
       organizationCode: organization.kindeOrgId,

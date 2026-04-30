@@ -1,4 +1,4 @@
-import { supabaseServer } from "@/lib/supabase";
+﻿import { getSupabaseServer } from "@/lib/supabase";
 
 type ShareSetModule = "assets" | "products";
 
@@ -104,7 +104,7 @@ function buildGlobalSetSeedRow(params: {
 async function resolveGlobalSetIds(params: {
   organizationId: string;
 }): Promise<{ foundationAvailable: boolean; productSetId: string | null; assetSetId: string | null }> {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("share_sets")
     .select("id,module_key,name")
     .eq("organization_id", params.organizationId)
@@ -167,7 +167,7 @@ export async function ensureDefaultGlobalCatalogSets(params: {
 
   if (missingRows.length === 0) return initial;
 
-  const { error } = await supabaseServer
+  const { error } = await getSupabaseServer()
     .from("share_sets")
     .upsert(missingRows as never, { onConflict: "organization_id,module_key,name" });
 
@@ -207,7 +207,7 @@ export async function addResourceToGlobalCatalogSet(params: {
     return { foundationAvailable: true, applied: false };
   }
 
-  const { error } = await supabaseServer
+  const { error } = await getSupabaseServer()
     .from("share_set_items")
     .upsert(
       [
@@ -244,7 +244,7 @@ export async function addResourceToGlobalCatalogSet(params: {
 
 async function insertMissingGlobalShareSetItems(rows: Array<Record<string, unknown>>): Promise<void> {
   for (const batch of chunkArray(rows, 500)) {
-    const { error } = await supabaseServer.from("share_set_items").insert(batch as never);
+    const { error } = await getSupabaseServer().from("share_set_items").insert(batch as never);
     if (error) {
       console.error("Failed to insert missing global catalog set membership:", error);
       return;
@@ -259,13 +259,13 @@ async function syncGlobalProductSetItems(params: {
   let productRowsRaw: unknown[] | null = null;
   let productsError: { code?: string; message?: string } | null = null;
 
-  const productsWithVisibility = await supabaseServer
+  const productsWithVisibility = await getSupabaseServer()
     .from("products")
     .select("id,parent_id,catalog_visibility")
     .eq("organization_id", params.organizationId);
 
   if (productsWithVisibility.error?.code === "42703") {
-    const productsWithoutVisibility = await supabaseServer
+    const productsWithoutVisibility = await getSupabaseServer()
       .from("products")
       .select("id,parent_id")
       .eq("organization_id", params.organizationId);
@@ -276,7 +276,7 @@ async function syncGlobalProductSetItems(params: {
     productsError = productsWithVisibility.error;
   }
 
-  const { data: existingRows, error: existingError } = await supabaseServer
+  const { data: existingRows, error: existingError } = await getSupabaseServer()
     .from("share_set_items")
     .select("resource_type,resource_id")
     .eq("organization_id", params.organizationId)
@@ -350,11 +350,11 @@ async function syncGlobalAssetSetItems(params: {
 }): Promise<void> {
   const [{ data: assets, error: assetsError }, { data: existingRows, error: existingError }] =
     await Promise.all([
-      supabaseServer
+      getSupabaseServer()
         .from("dam_assets")
         .select("id")
         .eq("organization_id", params.organizationId),
-      supabaseServer
+      getSupabaseServer()
         .from("share_set_items")
         .select("resource_id")
         .eq("organization_id", params.organizationId)
@@ -409,7 +409,7 @@ async function maybeSyncAssignedGlobalSetMembership(params: {
 
   const globalSetName =
     params.moduleKey === "products" ? GLOBAL_PRODUCTS_SET_NAME : GLOBAL_ASSETS_SET_NAME;
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("share_sets")
     .select("id,metadata")
     .eq("organization_id", params.organizationId)
@@ -461,7 +461,7 @@ async function maybeSyncAssignedGlobalSetMembership(params: {
       ...(metadata || {}),
       global_backfill_completed_at: new Date().toISOString(),
     };
-    const { error: metadataError } = await supabaseServer
+    const { error: metadataError } = await getSupabaseServer()
       .from("share_sets")
       .update({ metadata: nextMetadata } as never)
       .eq("organization_id", params.organizationId)
@@ -481,7 +481,7 @@ async function resolveAssignedSetIdsByModule(params: {
 }): Promise<{ foundationAvailable: boolean; setIds: string[] }> {
   const { organizationId, marketId, moduleKey } = params;
 
-  const { data: assignmentRows, error: assignmentError } = await supabaseServer
+  const { data: assignmentRows, error: assignmentError } = await getSupabaseServer()
     .from("market_set_assignments" as never)
     .select("share_set_id")
     .eq("organization_id", organizationId)
@@ -506,7 +506,7 @@ async function resolveAssignedSetIdsByModule(params: {
     return { foundationAvailable: true, setIds: [] };
   }
 
-  const { data: setRows, error: setError } = await supabaseServer
+  const { data: setRows, error: setError } = await getSupabaseServer()
     .from("share_sets")
     .select("id")
     .eq("organization_id", organizationId)
@@ -536,7 +536,7 @@ export async function resolveMarketCatalogAssignments(params: {
 }): Promise<CatalogSetAssignments> {
   const { organizationId, marketId } = params;
 
-  const { data: assignmentRows, error: assignmentError } = await supabaseServer
+  const { data: assignmentRows, error: assignmentError } = await getSupabaseServer()
     .from("market_set_assignments" as never)
     .select("share_set_id")
     .eq("organization_id", organizationId)
@@ -579,7 +579,7 @@ export async function resolveMarketCatalogAssignments(params: {
     };
   }
 
-  const { data: setRows, error: setError } = await supabaseServer
+  const { data: setRows, error: setError } = await getSupabaseServer()
     .from("share_sets")
     .select("id,name,module_key")
     .eq("organization_id", organizationId)
@@ -640,7 +640,7 @@ async function resolveMarketCatalogIds(params: {
     return { foundationAvailable: true, ids: [] };
   }
 
-  const { data: assignedSetRows, error: assignedSetRowsError } = await supabaseServer
+  const { data: assignedSetRows, error: assignedSetRowsError } = await getSupabaseServer()
     .from("share_sets")
     .select("id,name,metadata")
     .eq("organization_id", params.organizationId)
@@ -698,7 +698,7 @@ async function resolveMarketCatalogIds(params: {
         )
       );
 
-      let globalProductsQuery = supabaseServer
+      let globalProductsQuery = getSupabaseServer()
         .from("products")
         .select("id")
         .eq("organization_id", params.organizationId);
@@ -711,7 +711,7 @@ async function resolveMarketCatalogIds(params: {
         .not("catalog_visibility", "in", '("restricted")');
 
       if (globalProductsError?.code === "42703") {
-        const { data: fallbackProducts, error: fallbackError } = await supabaseServer
+        const { data: fallbackProducts, error: fallbackError } = await getSupabaseServer()
           .from("products")
           .select("id")
           .eq("organization_id", params.organizationId);
@@ -731,7 +731,7 @@ async function resolveMarketCatalogIds(params: {
       }
     }
 
-    const { data: itemRows, error: itemError } = await supabaseServer
+    const { data: itemRows, error: itemError } = await getSupabaseServer()
       .from("share_set_items")
       .select("resource_type,resource_id,include_descendants")
       .eq("organization_id", params.organizationId)
@@ -762,7 +762,7 @@ async function resolveMarketCatalogIds(params: {
 
     if (parentIdsWithDescendants.size > 0) {
       // Exclude partner_exclusive and restricted variants — they must be granted directly
-      const { data: descendants, error: descendantsError } = await supabaseServer
+      const { data: descendants, error: descendantsError } = await getSupabaseServer()
         .from("products")
         .select("id")
         .eq("organization_id", params.organizationId)
@@ -781,7 +781,7 @@ async function resolveMarketCatalogIds(params: {
     return { foundationAvailable: true, ids: Array.from(productIds) };
   }
 
-  const { data: itemRows, error: itemError } = await supabaseServer
+  const { data: itemRows, error: itemError } = await getSupabaseServer()
     .from("share_set_items")
     .select("resource_type,resource_id,include_descendants")
     .eq("organization_id", params.organizationId)
@@ -812,7 +812,7 @@ async function resolveMarketCatalogIds(params: {
   }
 
   if (folderIds.size > 0) {
-    const { data: folderAssets, error: folderAssetsError } = await supabaseServer
+    const { data: folderAssets, error: folderAssetsError } = await getSupabaseServer()
       .from("dam_assets")
       .select("id")
       .eq("organization_id", params.organizationId)
@@ -863,7 +863,7 @@ async function validateSetIdsByModule(params: {
     return { foundationAvailable: true, validIds: [], invalidIds: [] };
   }
 
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("share_sets")
     .select("id")
     .eq("organization_id", params.organizationId)
@@ -930,7 +930,7 @@ export async function replaceMarketCatalogAssignments(params: {
 
   const desiredSetIds = dedupe([...validatedProducts.validIds, ...validatedAssets.validIds]);
 
-  const { data: existingRows, error: existingError } = await supabaseServer
+  const { data: existingRows, error: existingError } = await getSupabaseServer()
     .from("market_set_assignments" as never)
     .select("share_set_id")
     .eq("organization_id", params.organizationId)
@@ -977,7 +977,7 @@ export async function replaceMarketCatalogAssignments(params: {
       },
     }));
 
-    const { error: upsertError } = await supabaseServer
+    const { error: upsertError } = await getSupabaseServer()
       .from("market_set_assignments" as never)
       .upsert(upsertRows as never, { onConflict: "organization_id,market_id,share_set_id" });
 
@@ -998,7 +998,7 @@ export async function replaceMarketCatalogAssignments(params: {
   }
 
   if (toDeactivate.length > 0) {
-    const { error: deactivateError } = await supabaseServer
+    const { error: deactivateError } = await getSupabaseServer()
       .from("market_set_assignments" as never)
       .update(
         {

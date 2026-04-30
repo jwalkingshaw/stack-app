@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { applyRLSContext } from "@/lib/rls-context";
 import { evaluateProductCompleteness } from "@/lib/family-attributes";
 import { getChannelScopedProductIds, resolveProductChannelScope } from "@/lib/product-channel-scope";
@@ -18,7 +18,7 @@ const ALLOWED_STATUS = [
 
 type ProductStatus = (typeof ALLOWED_STATUS)[number];
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 const isProductStatus = (value: string): value is ProductStatus =>
   (ALLOWED_STATUS as readonly string[]).includes(value);
@@ -258,7 +258,7 @@ export async function PATCH(
       );
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const auth = new AuthService(db);
 
     const user = await auth.getCurrentUser();
@@ -290,7 +290,7 @@ export async function PATCH(
     if (channelId || !legacyCanEdit) {
       const channelScope = await resolveProductChannelScope({
         authService: auth,
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         userId: user.id,
         organizationId: organization.id,
         permissionKey: ScopedPermission.ProductPublishState,
@@ -300,7 +300,7 @@ export async function PATCH(
         return channelScope.response;
       }
       channelProductIds = await getChannelScopedProductIds({
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         organizationId: organization.id,
         channelId: channelScope.channelId,
       });
@@ -309,7 +309,7 @@ export async function PATCH(
       }
     }
 
-    await applyRLSContext(supabaseServer, {
+    await applyRLSContext(getSupabaseServer(), {
       userId: user.id,
       organizationId: organization.id,
       organizationCode: organization.kindeOrgId,

@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService, ScopedPermission } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { enforceMarketScopedAccess } from "@/lib/market-scope";
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 export async function PATCH(
   request: NextRequest,
@@ -14,7 +14,7 @@ export async function PATCH(
     const resolvedParams = await params;
     const { slug, folderId } = resolvedParams;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const user = await authService.getCurrentUser();
@@ -31,7 +31,7 @@ export async function PATCH(
     const searchParams = new URL(request.url).searchParams;
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetMetadataEdit,
@@ -124,7 +124,7 @@ export async function DELETE(
     const resolvedParams = await params;
     const { slug, folderId } = resolvedParams;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const user = await authService.getCurrentUser();
@@ -141,7 +141,7 @@ export async function DELETE(
     const searchParams = new URL(request.url).searchParams;
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetMetadataEdit,
@@ -196,7 +196,7 @@ export async function POST(
     const resolvedParams = await params;
     const { slug, folderId } = resolvedParams;
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const user = await authService.getCurrentUser();
@@ -213,7 +213,7 @@ export async function POST(
     const searchParams = new URL(request.url).searchParams;
     const scopeCheck = await enforceMarketScopedAccess({
       authService,
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       userId: user.id,
       organizationId: organization.id,
       permissionKey: ScopedPermission.AssetMetadataEdit,

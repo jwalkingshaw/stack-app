@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { requireTenantAccess } from "@/lib/tenant-auth";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   DEFAULT_UI_LOCALE,
   UI_LOCALE_COOKIE_NAME,
@@ -29,12 +29,12 @@ export async function GET(
     }
 
     const [organizationResult, memberResult] = await Promise.all([
-      supabaseServer
+      getSupabaseServer()
         .from("organizations")
         .select("default_ui_locale")
         .eq("id", access.organization.id)
         .single(),
-      supabaseServer
+      getSupabaseServer()
         .from("organization_members")
         .select("role,ui_locale_override")
         .eq("organization_id", access.organization.id)
@@ -108,7 +108,7 @@ export async function PATCH(
       );
     }
 
-    const { error: updateError } = await supabaseServer
+    const { error: updateError } = await getSupabaseServer()
       .from("organization_members")
       .update({
         ui_locale_override: normalizedOverride,
@@ -125,7 +125,7 @@ export async function PATCH(
       );
     }
 
-    const { data: organizationRow } = await supabaseServer
+    const { data: organizationRow } = await getSupabaseServer()
       .from("organizations")
       .select("default_ui_locale")
       .eq("id", access.organization.id)

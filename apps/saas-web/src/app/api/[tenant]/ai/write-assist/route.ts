@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { requireTenantAccess } from "@/lib/tenant-auth";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { cache, REDIS_KEY_PREFIX_SAAS } from "@/lib/redis";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -59,7 +59,7 @@ export async function POST(
   const { organization, userId } = tenantAccess;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: memberRow } = await supabaseServer
+  const { data: memberRow } = await getSupabaseServer()
     .from("organization_members")
     .select("role")
     .eq("organization_id", organization.id)
@@ -100,12 +100,12 @@ export async function POST(
 
   // Fetch org localization settings and locale regulatory rules in parallel
   const [{ data: locSettings }, { data: rulesData }] = await Promise.all([
-    supabaseServer
+    getSupabaseServer()
       .from("organization_localization_settings")
       .select("brand_instructions,preferred_tone")
       .eq("organization_id", organization.id)
       .maybeSingle(),
-    supabaseServer
+    getSupabaseServer()
       .from("locale_regulatory_rules")
       .select("claim_type,rule_action,rule_description,example_violations,example_compliant,regulatory_reference,severity")
       .eq("active", true)

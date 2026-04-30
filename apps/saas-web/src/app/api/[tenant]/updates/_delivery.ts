@@ -1,13 +1,13 @@
-import { Resend } from "resend";
+﻿import { Resend } from "resend";
 import type { Database, Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { normalizeUuidArray } from "./_shared";
 import {
   resolvePartnerGrantedAssetIds,
   resolvePartnerGrantedProductIds,
 } from "@/lib/partner-brand-view";
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 export type DeliveryChannel = "in_app" | "email" | "sms";
 

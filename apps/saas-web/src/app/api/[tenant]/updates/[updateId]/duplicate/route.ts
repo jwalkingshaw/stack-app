@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import type { Json } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { requireUpdatesContext } from "../../_shared";
 
 // POST /api/[tenant]/updates/[updateId]/duplicate
@@ -15,7 +15,7 @@ export async function POST(
     if (!access.ok) return access.response;
 
     // Fetch source update
-    const { data: source, error: sourceError } = await supabaseServer
+    const { data: source, error: sourceError } = await getSupabaseServer()
       .from("partner_updates")
       .select(
         "id,title,summary,urgency,event_label,labels,message_json,due_at,metadata"
@@ -29,7 +29,7 @@ export async function POST(
     }
 
     // Create the duplicate as a draft
-    const { data: newUpdate, error: insertError } = await supabaseServer
+    const { data: newUpdate, error: insertError } = await getSupabaseServer()
       .from("partner_updates")
       .insert({
         organization_id: access.context.organizationId,
@@ -54,7 +54,7 @@ export async function POST(
     }
 
     // Fetch source kit items
-    const { data: kitItems } = await supabaseServer
+    const { data: kitItems } = await getSupabaseServer()
       .from("partner_update_kit_items")
       .select(
         "item_type,product_id,asset_id,url,title,description,content_json,sort_order,market_ids,channel_ids,locale_ids,metadata"
@@ -82,7 +82,7 @@ export async function POST(
         created_by: access.context.userId,
       }));
 
-      const { error: kitError } = await supabaseServer
+      const { error: kitError } = await getSupabaseServer()
         .from("partner_update_kit_items")
         .insert(itemRows);
 

@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { applyRLSContext } from "@/lib/rls-context";
 
 export async function PUT(
@@ -24,7 +24,7 @@ export async function PUT(
       .map((value: string) => value.trim())
       .filter(Boolean);
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const auth = new AuthService(db);
 
     const user = await auth.getCurrentUser();
@@ -42,7 +42,7 @@ export async function PUT(
       return NextResponse.json({ error: "Insufficient permissions" }, { status: 403 });
     }
 
-    await applyRLSContext(supabaseServer, {
+    await applyRLSContext(getSupabaseServer(), {
       userId: user.id,
       organizationId: organization.id,
       organizationCode: organization.kindeOrgId,

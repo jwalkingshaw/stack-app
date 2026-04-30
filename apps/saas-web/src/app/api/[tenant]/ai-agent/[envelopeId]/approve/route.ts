@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { hasOrganizationAccess } from "@/lib/user-context";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   getAiTaskEnvelope,
   updateAiTaskEnvelopeResult,
@@ -51,7 +51,7 @@ export async function POST(
 
   // Load envelope
   const envelope = await getAiTaskEnvelope({
-    supabase: supabaseServer,
+    supabase: getSupabaseServer(),
     organizationId,
     envelopeId,
   });
@@ -76,10 +76,10 @@ export async function POST(
   // Commit each change in sequence
   for (const change of toApprove) {
     try {
-      await commitChange(change, organizationId, supabaseServer, actorUserId);
+      await commitChange(change, organizationId, getSupabaseServer(), actorUserId);
 
       await logAiActionAudit({
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         organizationId,
         aiTaskEnvelopeId: envelope.id,
         actorUserId,
@@ -112,7 +112,7 @@ export async function POST(
   const newStatus = allDone && failed.length === 0 ? "completed" : "pending";
 
   await updateAiTaskEnvelopeResult({
-    supabase: supabaseServer,
+    supabase: getSupabaseServer(),
     organizationId,
     envelopeId: envelope.id,
     status: newStatus,
@@ -139,7 +139,7 @@ export async function POST(
 async function commitChange(
   change: StagedChange,
   organizationId: string,
-  supabase: typeof supabaseServer,
+  supabase: ReturnType<typeof getSupabaseServer>,
   actorUserId: string
 ): Promise<void> {
   switch (change.type) {

@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import type { TenantBrandViewContext } from "@/lib/partner-brand-view";
 import { logSecurityEvent } from "@/lib/security-audit";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 
 type PartnerBrandMutationGuardParams = {
   request: NextRequest;
@@ -20,7 +20,7 @@ export async function blockPartnerBrandMutation(
   }
 
   try {
-    await logSecurityEvent(supabaseServer, {
+    await logSecurityEvent(getSupabaseServer(), {
       organizationId: params.context.targetOrganization.id,
       actorUserId: params.context.userId,
       action: "security.partner_brand_mutation_blocked",

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { logSecurityEvent } from "@/lib/security-audit";
 import { requireUpdatesContext, toIsoOrNull } from "../../_shared";
 import {
@@ -12,7 +12,7 @@ import {
   upsertPartnerUpdateRecipients,
   validateRecipientKitAccess,
 } from "../../_delivery";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 
 // POST /api/[tenant]/updates/[updateId]/schedule
 export async function POST(
@@ -172,7 +172,7 @@ export async function POST(
       ],
     });
 
-    await logSecurityEvent(supabaseServer, {
+    await logSecurityEvent(getSupabaseServer(), {
       organizationId: access.context.organizationId,
       actorUserId: access.context.userId,
       action: "partner_update.schedule",

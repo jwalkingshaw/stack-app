@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 import { isMissingLocalizationFoundationError, requireLocalizationAccess } from "../../../../../_shared";
 
 type ItemStatus =
@@ -239,7 +239,7 @@ function toRowText(row: {
   return normalizeValueText(value);
 }
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 type ScopedValueRow = {
   value_text: string | null;

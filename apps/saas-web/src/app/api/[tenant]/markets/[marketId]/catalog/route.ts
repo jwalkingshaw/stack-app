@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseServer } from "@/lib/supabase";
+﻿import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseServer } from "@/lib/supabase";
 import {
   invalidatePartnerGrantCachesForBrand,
   resolveTenantBrandViewContext,
@@ -38,7 +38,7 @@ async function ensureMarketExists(params: {
   organizationId: string;
   marketId: string;
 }): Promise<boolean> {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("markets")
     .select("id")
     .eq("organization_id", params.organizationId)

@@ -1,9 +1,9 @@
-import {
+﻿import {
   resolvePartnerGrantedAssetIds,
   resolvePartnerGrantedProductIds,
 } from "@/lib/partner-brand-view";
 import { listRecentPortalPublishes, type PortalPublishRecord } from "@/lib/syndication-runs";
-import { supabaseServer } from "@/lib/supabase";
+import { getSupabaseServer } from "@/lib/supabase";
 
 export type PartnerDestinationView = {
   id: string;
@@ -82,7 +82,7 @@ async function resolveActivePartnerShareSetIds(params: {
   moduleKey: "assets" | "products";
 }): Promise<string[]> {
   const now = Date.now();
-  const { data: grants, error } = await supabaseServer
+  const { data: grants, error } = await getSupabaseServer()
     .from("partner_share_set_grants" as never)
     .select("share_set_id,expires_at,valid_from")
     .eq("organization_id", params.brandOrganizationId)
@@ -113,7 +113,7 @@ async function resolveActivePartnerShareSetIds(params: {
 
   if (unexpiredSetIds.length === 0) return [];
 
-  const { data: sets, error: setsError } = await supabaseServer
+  const { data: sets, error: setsError } = await getSupabaseServer()
     .from("share_sets")
     .select("id")
     .eq("organization_id", params.brandOrganizationId)
@@ -142,12 +142,12 @@ async function resolveLinkedAssetIdsForProducts(params: {
   const assetIds = new Set<string>();
 
   const [productLinks, slotAssignments] = await Promise.all([
-    supabaseServer
+    getSupabaseServer()
       .from("product_asset_links")
       .select("asset_id")
       .eq("organization_id", params.organizationId)
       .in("product_id", params.productIds),
-    supabaseServer
+    getSupabaseServer()
       .from("product_output_slot_assignments" as never)
       .select("asset_id,product_id,status")
       .eq("organization_id", params.organizationId)
@@ -189,7 +189,7 @@ async function resolvePortalPublishedProductIds(params: {
   }
 
   if (runIdsToLoad.size > 0) {
-    const { data, error } = await supabaseServer
+    const { data, error } = await getSupabaseServer()
       .from("syndication_runs" as never)
       .select("id,source_metadata")
       .eq("organization_id", params.organizationId)
@@ -223,7 +223,7 @@ async function resolveLegacyDestinationViews(params: {
 }): Promise<PartnerDestinationView[]> {
   const destinationIds = new Set<string>();
 
-  const { data: marketAssignments } = await supabaseServer
+  const { data: marketAssignments } = await getSupabaseServer()
     .from("partner_market_assignments" as never)
     .select("output_profile_id,market_id")
     .eq("organization_id", params.brandOrganizationId)
@@ -238,7 +238,7 @@ async function resolveLegacyDestinationViews(params: {
     if (row.output_profile_id) destinationIds.add(row.output_profile_id);
   }
 
-  const { data: shareSetGrantRows } = await supabaseServer
+  const { data: shareSetGrantRows } = await getSupabaseServer()
     .from("partner_share_set_grants" as never)
     .select("share_set_id")
     .eq("organization_id", params.brandOrganizationId)
@@ -254,7 +254,7 @@ async function resolveLegacyDestinationViews(params: {
   );
 
   if (shareSetIds.length > 0) {
-    const { data: shareSets } = await supabaseServer
+    const { data: shareSets } = await getSupabaseServer()
       .from("share_sets" as never)
       .select("output_profile_id")
       .eq("organization_id", params.brandOrganizationId)
@@ -268,7 +268,7 @@ async function resolveLegacyDestinationViews(params: {
 
   if (destinationIds.size === 0) return [];
 
-  const { data: profiles } = await supabaseServer
+  const { data: profiles } = await getSupabaseServer()
     .from("output_channel_profiles" as never)
     .select("id,name,code,profile_type")
     .eq("organization_id", params.brandOrganizationId)
@@ -297,7 +297,7 @@ export async function resolvePartnerGrantedDestinationViews(params: {
   partnerOrganizationId: string;
   scope?: PartnerGrantScopeSelection;
 }): Promise<PartnerDestinationView[]> {
-  const { data, error } = await supabaseServer
+  const { data, error } = await getSupabaseServer()
     .from("partner_contract_grants" as never)
     .select(
       "output_profile_id,access_level,status,output_channel_profiles!inner(id,name,code,profile_type)"

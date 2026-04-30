@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+﻿import { NextRequest, NextResponse } from 'next/server';
 import { AuthService } from '@stack-app/auth';
 import { DatabaseQueries } from '@stack-app/database';
 import type { Database } from '@stack-app/database';
 
-import { supabaseServer } from '@/lib/supabase';
+import { getSupabaseServer } from '@/lib/supabase';
 import { sendInvitationEmail } from '@/lib/email';
 import { enforceRateLimit, rateLimitExceededResponse } from '@/lib/rate-limit';
 import { requireTenantAccess } from '@/lib/tenant-auth';
@@ -22,7 +22,7 @@ import {
 import { extractPartnerInvitationWorkspaceScope } from '@/lib/partner-invitation-grants';
 import { isUnlimitedBillingLimit } from '@/lib/billing-policy';
 
-const supabase = supabaseServer;
+const supabase = getSupabaseServer();
 
 type PartnerRelationshipRow = {
   id: string;
@@ -169,7 +169,7 @@ export async function GET(
 ) {
   try {
     const resolvedParams = await params;
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const tenantAccess = await requireTenantAccess(request, resolvedParams.tenant);
@@ -437,7 +437,7 @@ export async function POST(
       maxRequests: 20,
     });
     if (!inviteLimit.allowed) {
-      await logRateLimitSecurityEvent(supabaseServer, {
+      await logRateLimitSecurityEvent(getSupabaseServer(), {
         action: 'team_invite_create',
         userAgent: request.headers.get('user-agent'),
         metadata: { tenant: resolvedParams.tenant },
@@ -445,7 +445,7 @@ export async function POST(
       return rateLimitExceededResponse(inviteLimit);
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const tenantAccess = await requireTenantAccess(request, resolvedParams.tenant);
@@ -503,7 +503,7 @@ export async function POST(
 
     const normalizedInvitePermissions = normalizeInvitePermissions(invite_permissions);
     const permissionsValidation = await validateInvitePermissionsForOrganization({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       permissions: normalizedInvitePermissions,
     });
@@ -627,7 +627,7 @@ export async function POST(
     }
 
     const shareSetValidation = await validateShareSetIdsForOrganization({
-      supabase: supabaseServer,
+      supabase: getSupabaseServer(),
       organizationId: organization.id,
       shareSetIds: normalizedShareSetIds,
     });
@@ -737,7 +737,7 @@ export async function POST(
     let assignedShareSetIds: string[] = [];
     if (invitation_type === 'partner' && shareSetValidation.data.validatedIds.length > 0) {
       const assignmentResult = await replaceInvitationShareSetAssignments({
-        supabase: supabaseServer,
+        supabase: getSupabaseServer(),
         organizationId: organization.id,
         invitationId: invitation.id,
         shareSetIds: shareSetValidation.data.validatedIds,
@@ -849,7 +849,7 @@ export async function DELETE(
       maxRequests: 30,
     });
     if (!inviteDeleteLimit.allowed) {
-      await logRateLimitSecurityEvent(supabaseServer, {
+      await logRateLimitSecurityEvent(getSupabaseServer(), {
         action: 'team_invite_delete',
         userAgent: request.headers.get('user-agent'),
         metadata: { tenant: resolvedParams.tenant },
@@ -857,7 +857,7 @@ export async function DELETE(
       return rateLimitExceededResponse(inviteDeleteLimit);
     }
 
-    const db = new DatabaseQueries(supabaseServer);
+    const db = new DatabaseQueries(getSupabaseServer());
     const authService = new AuthService(db);
 
     const tenantAccess = await requireTenantAccess(request, resolvedParams.tenant);

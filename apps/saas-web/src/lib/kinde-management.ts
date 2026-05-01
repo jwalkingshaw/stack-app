@@ -229,7 +229,7 @@ class KindeManagementAPI {
    * Delete organization
    */
   async deleteOrganization(id: string): Promise<void> {
-    await this.makeRequest(`/organizations/${id}`, {
+    await this.makeRequest(`/organization?code=${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
   }

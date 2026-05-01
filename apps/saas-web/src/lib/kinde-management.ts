@@ -515,7 +515,7 @@ class KindeManagementAPI {
     userId: string;
     organizationCode?: string;
     returnUrl?: string;
-    subNav?: 'organization_billing' | 'profile';
+    subNav?: string;
   }): Promise<string> {
     const body: Record<string, string> = { user_id: params.userId };
     if (params.organizationCode) body.organization_code = params.organizationCode;

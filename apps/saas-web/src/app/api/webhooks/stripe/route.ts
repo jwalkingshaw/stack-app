@@ -43,8 +43,15 @@ async function upsertSubscription(
     trial_end: subscription.trial_end
       ? new Date(subscription.trial_end * 1000).toISOString()
       : null,
-    current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-    current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+    // current_period_start/end were removed from Stripe.Subscription type in API v2026-03-25.dahlia
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    current_period_start: (subscription as any).current_period_start
+      ? new Date((subscription as any).current_period_start * 1000).toISOString()
+      : null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    current_period_end: (subscription as any).current_period_end
+      ? new Date((subscription as any).current_period_end * 1000).toISOString()
+      : null,
     cancel_at_period_end: subscription.cancel_at_period_end,
     canceled_at: subscription.canceled_at
       ? new Date(subscription.canceled_at * 1000).toISOString()
@@ -169,7 +176,12 @@ export async function POST(request: NextRequest) {
 
       case "invoice.payment_failed": {
         const invoice = event.data.object as Stripe.Invoice;
-        const subscriptionId = invoice.subscription as string | null;
+        // In Stripe API v2026-03-25.dahlia, subscription moved to invoice.parent.subscription_details.subscription
+        const subscriptionId = (
+          (invoice.parent?.subscription_details?.subscription as string | null) ??
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ((invoice as any).subscription as string | null)
+        );
         if (subscriptionId) {
           await supabase
             .from("organization_subscriptions")

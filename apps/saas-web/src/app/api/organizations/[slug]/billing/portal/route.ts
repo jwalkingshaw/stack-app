@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { getSupabaseServer } from "@/lib/supabase";
@@ -73,7 +74,7 @@ export async function GET(
         );
       }
 
-      const sessionParams: Parameters<typeof getStripe().checkout.sessions.create>[0] = {
+      const sessionParams: Stripe.Checkout.SessionCreateParams = {
         mode: "subscription",
         line_items: [{ price: priceId, quantity: 1 }],
         success_url: `${returnUrl}?checkout=success`,

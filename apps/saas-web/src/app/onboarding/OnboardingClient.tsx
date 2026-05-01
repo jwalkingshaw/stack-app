@@ -303,10 +303,13 @@ export default function OnboardingPage() {
       const billingUrl = `/${createdOrgSlug}/settings/billing?source=${billingSource}${planParam}`;
 
       if (createdKindeOrgId) {
-        // Force a token refresh scoped to the new org so billing permissions are active
-        window.location.assign(
-          `/api/auth/login?org_code=${encodeURIComponent(createdKindeOrgId)}&post_login_redirect_url=${encodeURIComponent(billingUrl)}`
-        );
+        // Scope token to the new org, then land on billing settings.
+        // The user chooses to upgrade from the billing page — no forced plan gate.
+        const authParams = new URLSearchParams({
+          org_code: createdKindeOrgId,
+          post_login_redirect_url: billingUrl,
+        });
+        window.location.assign(`/api/auth/login?${authParams.toString()}`);
       } else {
         router.push(billingUrl);
       }

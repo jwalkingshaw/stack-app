@@ -14,6 +14,7 @@ interface BillingSettingsProps {
   tenantSlug: string;
   source?: string;
   planIntent?: string;
+  checkoutStatus?: string;
 }
 
 type SubscriptionResponse = {
@@ -83,7 +84,7 @@ function meterTone(percent: number): 'success' | 'warning' | 'error' {
   return 'success';
 }
 
-export default function BillingSettings({ tenantSlug, source, planIntent }: BillingSettingsProps) {
+export default function BillingSettings({ tenantSlug, source, planIntent, checkoutStatus }: BillingSettingsProps) {
   const [loading, setLoading] = useState(true);
   const [plansLoading, setPlansLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -163,7 +164,8 @@ export default function BillingSettings({ tenantSlug, source, planIntent }: Bill
       setOpeningPortal(intentPlanId || 'manage');
       setError(null);
 
-      const response = await fetch(`/api/organizations/${tenantSlug}/billing/portal`);
+      const planParam = intentPlanId && intentPlanId !== "manage" ? `?plan=${intentPlanId}` : "";
+      const response = await fetch(`/api/organizations/${tenantSlug}/billing/portal${planParam}`);
 
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -267,6 +269,15 @@ export default function BillingSettings({ tenantSlug, source, planIntent }: Bill
 
   return (
     <SettingsPageContent page="billing">
+      {checkoutStatus === 'success' && (
+        <div className="rounded-lg border border-green-200 bg-green-50 px-5 py-4">
+          <p className="text-base font-semibold text-green-900">Payment successful!</p>
+          <p className="text-sm text-green-800 mt-0.5">
+            Your plan is being activated — this page will reflect your new subscription shortly.
+          </p>
+        </div>
+      )}
+
       {source === 'signup' && (
         <div className="rounded-lg border border-green-200 bg-green-50 px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-4">

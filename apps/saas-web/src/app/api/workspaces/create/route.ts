@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient, type Database } from "@stack-app/database";
 import { kindeAPI } from "@/lib/kinde-management";
-import { syncKindeBillingRoleForMember } from "@/lib/kinde-billing-role-sync";
 import { ensureCoreBasicInformationFields } from "@/lib/pim-bootstrap";
 import {
   DEFAULT_UI_LOCALE,
@@ -463,13 +462,6 @@ export async function POST(request: NextRequest) {
         }
 
         console.log('✅ User successfully added to organization_members as owner:', memberData.id);
-        await syncKindeBillingRoleForMember({
-          kindeOrgId,
-          kindeUserId: userId,
-          appRole: 'owner',
-          status: 'active',
-          context: 'workspace_create',
-        });
       } catch (error) {
         console.error('Error adding user to organization_members:', error);
         throw new Error('Failed to create workspace member record');

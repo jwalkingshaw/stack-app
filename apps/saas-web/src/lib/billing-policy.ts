@@ -88,8 +88,8 @@ export const BILLING_PLAN_CATALOG: BillingPlan[] = [
     id: "starter",
     name: "Starter",
     description: "Ideal for single-brand founders",
-    price: 49,
-    monthlyPriceCents: 4900,
+    price: 59,
+    monthlyPriceCents: 5900,
     currency: "USD",
     interval: "month",
     features: [
@@ -114,8 +114,8 @@ export const BILLING_PLAN_CATALOG: BillingPlan[] = [
     id: "growth",
     name: "Growth",
     description: "Ideal for established teams",
-    price: 129,
-    monthlyPriceCents: 12900,
+    price: 149,
+    monthlyPriceCents: 14900,
     currency: "USD",
     interval: "month",
     features: [
@@ -140,8 +140,8 @@ export const BILLING_PLAN_CATALOG: BillingPlan[] = [
     id: "scale",
     name: "Scale",
     description: "Ideal for global brands and retailers",
-    price: 299,
-    monthlyPriceCents: 29900,
+    price: 349,
+    monthlyPriceCents: 34900,
     currency: "USD",
     interval: "month",
     features: [

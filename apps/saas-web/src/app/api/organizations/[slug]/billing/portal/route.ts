@@ -38,11 +38,15 @@ export async function GET(
     const origin = new URL(request.url).origin;
     const returnUrl = `${origin}/${resolvedParams.slug}/settings/billing`;
     const kindeOrgId = (organization as { kindeOrgId?: string }).kindeOrgId;
-    const orgCodeParam = kindeOrgId
-      ? `&org_code=${encodeURIComponent(kindeOrgId)}`
-      : "";
-    const portalUrl =
-      `/api/auth/portal?subNav=organization_plan_selection&returnUrl=${encodeURIComponent(returnUrl)}${orgCodeParam}`;
+
+    // Build the Kinde portal URL scoped to the correct org
+    const portalDestination = `/api/auth/portal?subNav=organization_plan_selection&returnUrl=${encodeURIComponent(returnUrl)}`;
+
+    // Force a token refresh scoped to this org before opening the portal,
+    // so Kinde sees the org:write:billing permission in the correct org context
+    const portalUrl = kindeOrgId
+      ? `/api/auth/login?org_code=${encodeURIComponent(kindeOrgId)}&post_login_redirect_url=${encodeURIComponent(portalDestination)}`
+      : portalDestination;
 
     return NextResponse.json({
       ok: true,

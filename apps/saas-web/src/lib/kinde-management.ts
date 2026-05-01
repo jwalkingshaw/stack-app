@@ -62,6 +62,7 @@ class KindeManagementAPI {
       'read:users',
       'create:users',
       'update:users',
+      'create:user_portal_links',
     ];
     const extraScopes = (process.env.KINDE_MANAGEMENT_EXTRA_SCOPES || '')
       .split(/\s+/)
@@ -504,6 +505,31 @@ class KindeManagementAPI {
       console.error('Failed to fetch user from Kinde:', error);
       return null;
     }
+  }
+
+  /**
+   * Generate a one-time self-service portal URL for a user via the Management API.
+   * sub_nav: "organization_billing" opens the billing/plan section.
+   */
+  async generatePortalUrl(params: {
+    userId: string;
+    organizationCode?: string;
+    returnUrl?: string;
+    subNav?: 'organization_billing' | 'profile';
+  }): Promise<string> {
+    const body: Record<string, string> = { user_id: params.userId };
+    if (params.organizationCode) body.organization_code = params.organizationCode;
+    if (params.returnUrl) body.return_url = params.returnUrl;
+    if (params.subNav) body.sub_nav = params.subNav;
+
+    const result = await this.makeRequest('/portal/generate_url', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+
+    const url = result?.url || result?.data?.url;
+    if (!url) throw new Error(`No portal URL returned from Kinde: ${JSON.stringify(result)}`);
+    return url;
   }
 
   /**

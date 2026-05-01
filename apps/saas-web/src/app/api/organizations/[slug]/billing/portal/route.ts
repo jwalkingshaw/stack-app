@@ -1,10 +1,14 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { getSupabaseServer } from "@/lib/supabase";
-import { kindeAPI } from "@/lib/kinde-management";
+import { getStripe } from "@/lib/stripe";
 
-const KINDE_PRICING_TABLE_KEY = "organization_plans";
+const PLAN_PRICE_MAP: Record<string, string | undefined> = {
+  starter: process.env.STRIPE_PRICE_ID_STARTER,
+  growth: process.env.STRIPE_PRICE_ID_GROWTH,
+  scale: process.env.STRIPE_PRICE_ID_SCALE,
+};
 
 export async function GET(
   request: NextRequest,
@@ -33,19 +37,19 @@ export async function GET(
     const permissions = await authService.getUserPermissions(user.id, organization.id);
     if (!permissions?.is_owner && !permissions?.is_admin) {
       return NextResponse.json(
-        { error: "Only owners or admins can manage billing settings" },
+        { error: "Only owners or admins can manage billing" },
         { status: 403 }
       );
     }
 
     const origin = new URL(request.url).origin;
     const returnUrl = `${origin}/${resolvedParams.slug}/settings/billing`;
-    const kindeOrgId = (organization as { kindeOrgId?: string }).kindeOrgId;
+    const requestedPlanId = new URL(request.url).searchParams.get("plan") ?? "";
 
-    // Check if the org has an active paid subscription
+    // Check for an active paid subscription
     const { data: subscriptionRow } = await getSupabaseServer()
       .from("organization_subscriptions")
-      .select("plan_id, status")
+      .select("plan_id, status, provider_customer_id")
       .eq("organization_id", organization.id)
       .in("status", ["active", "trialing", "past_due"])
       .order("created_at", { ascending: false })
@@ -53,34 +57,59 @@ export async function GET(
       .maybeSingle();
 
     const isFreePlan = !subscriptionRow || subscriptionRow.plan_id === "free";
+    const stripeCustomerId = subscriptionRow?.provider_customer_id ?? null;
 
     let portalUrl: string;
 
     if (isFreePlan) {
-      // Free orgs: redirect through Kinde auth with pricing_table_key so Kinde
-      // shows the plan selector during authentication, then returns to billing.
-      const authParams = new URLSearchParams({
-        ...(kindeOrgId ? { org_code: kindeOrgId } : {}),
-        pricing_table_key: KINDE_PRICING_TABLE_KEY,
-        post_login_redirect_url: returnUrl,
-      });
-      portalUrl = `/api/auth/login?${authParams.toString()}`;
+      // Resolve which Stripe price to use — fall back to Growth as the default upgrade
+      const planId = PLAN_PRICE_MAP[requestedPlanId] ? requestedPlanId : "growth";
+      const priceId = PLAN_PRICE_MAP[planId];
+
+      if (!priceId) {
+        return NextResponse.json(
+          { error: "Stripe price not configured. Add STRIPE_PRICE_ID_* env vars." },
+          { status: 500 }
+        );
+      }
+
+      const sessionParams: Parameters<typeof getStripe().checkout.sessions.create>[0] = {
+        mode: "subscription",
+        line_items: [{ price: priceId, quantity: 1 }],
+        success_url: `${returnUrl}?checkout=success`,
+        cancel_url: returnUrl,
+        client_reference_id: organization.id,
+        metadata: { organizationId: organization.id, planId },
+      };
+
+      if (stripeCustomerId) {
+        sessionParams.customer = stripeCustomerId;
+      } else {
+        sessionParams.customer_email = user.email;
+      }
+
+      const session = await getStripe().checkout.sessions.create(sessionParams);
+      if (!session.url) throw new Error("Stripe did not return a checkout URL");
+      portalUrl = session.url;
     } else {
-      // Paid orgs: use Kinde Management API to open the subscription management portal.
-      portalUrl = await kindeAPI.generatePortalUrl({
-        userId: user.id,
-        organizationCode: kindeOrgId || undefined,
-        returnUrl,
-        subNav: "organization_billing",
+      // Paid org — open Stripe Customer Portal to manage existing subscription
+      if (!stripeCustomerId) {
+        return NextResponse.json(
+          { error: "No Stripe customer found for this organisation" },
+          { status: 400 }
+        );
+      }
+
+      const portalSession = await getStripe().billingPortal.sessions.create({
+        customer: stripeCustomerId,
+        return_url: returnUrl,
       });
+      portalUrl = portalSession.url;
     }
 
     return NextResponse.json({ ok: true, portalUrl });
   } catch (error) {
-    console.error("Failed to generate billing portal URL:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    console.error("Failed to create billing session:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

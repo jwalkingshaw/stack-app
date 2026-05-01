@@ -62,7 +62,7 @@ class KindeManagementAPI {
       'read:users',
       'create:users',
       'update:users',
-      'create:user_portal_links',
+      'create:portal_url',
     ];
     const extraScopes = (process.env.KINDE_MANAGEMENT_EXTRA_SCOPES || '')
       .split(/\s+/)

@@ -526,6 +526,7 @@ export async function POST(request: NextRequest) {
           id: organization.id,
           name: organization.name,
           slug: organization.slug,
+          kinde_org_id: kindeOrgId,
           type: organization.type,
           organization_type: organization.organizationType || organization.type,
           partner_category: organization.partnerCategory ?? null,

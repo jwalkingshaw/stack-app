@@ -772,13 +772,22 @@ async function ensureComplianceGroup(
 ): Promise<string> {
   const { data, error } = await getSupabaseServer()
     .from('field_groups')
+    .upsert(
+      {
+        organization_id: organizationId,
+        code: 'compliance',
+        name: 'Compliance',
+        description: 'Regulatory compliance fields including allergens, warnings, certifications, and directions for use',
+        sort_order: 10,
+        is_active: true,
+      },
+      { onConflict: 'organization_id,code', ignoreDuplicates: false }
+    )
     .select('id')
-    .eq('organization_id', organizationId)
-    .eq('code', 'compliance')
     .single();
 
   if (error || !data?.id) {
-    throw error || new Error('Compliance field group not found — ensure it exists before running bootstrap');
+    throw error || new Error('Failed to ensure Compliance field group');
   }
 
   return data.id as string;

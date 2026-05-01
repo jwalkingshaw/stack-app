@@ -40,8 +40,9 @@ interface LocaleOption {
 
 export default function OnboardingPage() {
   const t = useTranslations("Onboarding");
-  const tenantBaseDomain =
-    process.env.NEXT_PUBLIC_TENANT_BASE_DOMAIN || "stackcess.com";
+  const tenantBaseDomain = (
+    process.env.NEXT_PUBLIC_TENANT_BASE_DOMAIN || "stackcess.com"
+  ).replace(/^https?:\/\//, "");
   const { user, isAuthenticated, isLoading } = useAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -265,6 +266,7 @@ export default function OnboardingPage() {
       const result = await response.json();
       const createdOrgId = result.data?.organization?.id;
       const createdOrgSlug = result.data?.organization?.slug || formData.companySlug;
+      const createdKindeOrgId = result.data?.organization?.kinde_org_id as string | undefined;
 
       if (isPartnerOnboarding && brandId && createdOrgId) {
         const relationshipResponse = await fetch("/api/partner-relationships/create", {
@@ -291,10 +293,16 @@ export default function OnboardingPage() {
 
       const isSelfServePartnerWorkspace =
         organizationType === "partner" && !hasPartnerInviteContext;
-      if (isSelfServePartnerWorkspace) {
-        router.push(`/${createdOrgSlug}/settings/billing?source=partner_signup`);
+      const billingSource = isSelfServePartnerWorkspace ? "partner_signup" : "signup";
+      const billingUrl = `/${createdOrgSlug}/settings/billing?source=${billingSource}`;
+
+      if (createdKindeOrgId) {
+        // Force a token refresh scoped to the new org so billing permissions are active
+        window.location.assign(
+          `/api/auth/login?org_code=${encodeURIComponent(createdKindeOrgId)}&post_login_redirect_url=${encodeURIComponent(billingUrl)}`
+        );
       } else {
-        router.push(`/${createdOrgSlug}`);
+        router.push(billingUrl);
       }
     } catch (error) {
       console.error("Organization creation error:", error);
@@ -360,6 +368,9 @@ export default function OnboardingPage() {
                   {t("fields.workspaceUrl")}
                 </label>
                 <div className="flex items-center">
+                  <div className="inline-flex h-12 items-center rounded-l-[0.5rem] border border-r-0 border-muted/30 bg-muted/40 px-4 text-sm text-muted-foreground whitespace-nowrap">
+                    {tenantBaseDomain}/
+                  </div>
                   <div className="relative flex-1">
                     <Input
                       type="text"
@@ -367,7 +378,7 @@ export default function OnboardingPage() {
                       onChange={(e) => handleInputChange("companySlug", e.target.value)}
                       placeholder="acme"
                       className={cn(
-                        "h-12 rounded-r-none border-r-0 pr-10",
+                        "h-12 rounded-l-none border-l-0 pr-10",
                         availability?.available === false
                           ? "border-red-300"
                           : availability?.available === true
@@ -378,9 +389,6 @@ export default function OnboardingPage() {
                     <div className="absolute right-3 top-1/2 -translate-y-1/2">
                       {getSlugStatusIcon()}
                     </div>
-                  </div>
-                  <div className="inline-flex h-12 items-center rounded-r-[0.5rem] border border-l-0 border-muted/30 bg-muted/40 px-4 text-sm text-muted-foreground">
-                    .{tenantBaseDomain}
                   </div>
                 </div>
                 <div className="mt-2 min-h-[20px]">{getSlugStatusMessage()}</div>
@@ -505,6 +513,9 @@ export default function OnboardingPage() {
                 {isPartnerOnboarding ? t("fields.partnerUrl") : t("fields.workspaceUrl")}
               </label>
               <div className="flex items-center">
+                <div className="inline-flex h-12 items-center rounded-l-[0.5rem] border border-r-0 border-muted/30 bg-muted/40 px-4 text-sm text-muted-foreground whitespace-nowrap">
+                  {tenantBaseDomain}/
+                </div>
                 <div className="relative flex-1">
                   <Input
                     type="text"
@@ -512,7 +523,7 @@ export default function OnboardingPage() {
                     onChange={(e) => handleInputChange("companySlug", e.target.value)}
                     placeholder="acme"
                     className={cn(
-                      "h-12 rounded-r-none border-r-0 pr-10",
+                      "h-12 rounded-l-none border-l-0 pr-10",
                       availability?.available === false
                         ? "border-red-300"
                         : availability?.available === true
@@ -523,9 +534,6 @@ export default function OnboardingPage() {
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
                     {getSlugStatusIcon()}
                   </div>
-                </div>
-                <div className="inline-flex h-12 items-center rounded-r-[0.5rem] border border-l-0 border-muted/30 bg-muted/40 px-4 text-sm text-muted-foreground">
-                  .{tenantBaseDomain}
                 </div>
               </div>
               <div className="mt-2 min-h-[20px]">{getSlugStatusMessage()}</div>

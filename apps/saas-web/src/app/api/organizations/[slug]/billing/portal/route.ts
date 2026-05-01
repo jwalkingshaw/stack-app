@@ -53,7 +53,7 @@ export async function GET(
     const origin = new URL(request.url).origin;
     const returnUrl = `${origin}/${resolvedParams.slug}/settings/billing`;
     const portalUrl =
-      `/api/auth/portal?subNav=organization_billing&returnUrl=${encodeURIComponent(returnUrl)}`;
+      `/api/auth/portal?subNav=organization_plan_selection&returnUrl=${encodeURIComponent(returnUrl)}`;
 
     return NextResponse.json({
       ok: true,

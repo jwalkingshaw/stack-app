@@ -258,6 +258,19 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
 
   return (
     <SettingsPageContent page="billing">
+      {source === 'signup' && (
+        <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-green-900">Your workspace is ready</p>
+              <p className="text-xs text-green-800">
+                You&apos;re on the Free plan. Choose a plan below to unlock more SKUs, storage, and team seats.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {source === 'partner_signup' && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">

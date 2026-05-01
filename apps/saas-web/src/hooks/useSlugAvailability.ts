@@ -55,7 +55,12 @@ export function useSlugAvailability(): UseSlugAvailabilityReturn {
 
         try {
           // Use the fast exists endpoint for real-time checking
-          const response = await fetch(`/api/organizations/exists?slug=${encodeURIComponent(slug)}`);
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+          const response = await fetch(`/api/organizations/exists?slug=${encodeURIComponent(slug)}`, {
+            signal: controller.signal,
+          });
+          clearTimeout(timeoutId);
           const result = await response.json();
 
           // Always update since we debounced properly
@@ -67,10 +72,13 @@ export function useSlugAvailability(): UseSlugAvailabilityReturn {
           });
         } catch (error) {
           console.error('Availability check failed:', error);
+          const isTimeout = error instanceof Error && error.name === 'AbortError';
           setAvailability({
             available: false,
             reason: 'network_error',
-            message: 'Unable to check availability. Please try again.'
+            message: isTimeout
+              ? 'Availability check timed out. Please try again.'
+              : 'Unable to check availability. Please try again.'
           });
         } finally {
           setIsCheckingAvailability(false);

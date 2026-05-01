@@ -13,6 +13,7 @@ import { isUnlimitedBillingLimit } from '@/lib/billing-policy';
 interface BillingSettingsProps {
   tenantSlug: string;
   source?: string;
+  planIntent?: string;
 }
 
 type SubscriptionResponse = {
@@ -82,7 +83,7 @@ function meterTone(percent: number): 'success' | 'warning' | 'error' {
   return 'success';
 }
 
-export default function BillingSettings({ tenantSlug, source }: BillingSettingsProps) {
+export default function BillingSettings({ tenantSlug, source, planIntent }: BillingSettingsProps) {
   const [loading, setLoading] = useState(true);
   const [plansLoading, setPlansLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +149,14 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
   useEffect(() => {
     fetchBillingData();
   }, [fetchBillingData]);
+
+  // Auto-open portal for paid plan intent from marketing links
+  useEffect(() => {
+    if (!planIntent || planIntent === 'free') return;
+    if (loading || plansLoading) return;
+    handleOpenPortal(planIntent);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, plansLoading]);
 
   const handleOpenPortal = async (intentPlanId?: string) => {
     try {
@@ -259,14 +268,26 @@ export default function BillingSettings({ tenantSlug, source }: BillingSettingsP
   return (
     <SettingsPageContent page="billing">
       {source === 'signup' && (
-        <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="rounded-lg border border-green-200 bg-green-50 px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium text-green-900">Your workspace is ready</p>
-              <p className="text-xs text-green-800">
-                You&apos;re on the Free plan. Choose a plan below to unlock more SKUs, storage, and team seats.
+              <p className="text-base font-semibold text-green-900">Your workspace is ready</p>
+              <p className="text-sm text-green-800 mt-0.5">
+                {planIntent && planIntent !== 'free'
+                  ? `Opening the ${planIntent.charAt(0).toUpperCase() + planIntent.slice(1)} plan for you…`
+                  : "You're on the Free plan. Choose a paid plan below to unlock more SKUs, storage, and team seats."}
               </p>
             </div>
+            {(!planIntent || planIntent === 'free') && (
+              <Button
+                variant="default"
+                onClick={() => handleOpenPortal()}
+                disabled={Boolean(openingPortal)}
+                className="shrink-0"
+              >
+                {openingPortal ? 'Opening…' : 'Choose a plan →'}
+              </Button>
+            )}
           </div>
         </div>
       )}

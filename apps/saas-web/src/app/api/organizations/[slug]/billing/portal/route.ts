@@ -4,6 +4,8 @@ import { DatabaseQueries } from "@stack-app/database";
 import { getSupabaseServer } from "@/lib/supabase";
 import { kindeAPI } from "@/lib/kinde-management";
 
+const KINDE_PRICING_TABLE_KEY = "organization_plans";
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -40,13 +42,38 @@ export async function GET(
     const returnUrl = `${origin}/${resolvedParams.slug}/settings/billing`;
     const kindeOrgId = (organization as { kindeOrgId?: string }).kindeOrgId;
 
-    // Use Kinde Management API to generate a one-time portal URL scoped to this org.
-    // No sub_nav — let Kinde show the default org portal landing page.
-    const portalUrl = await kindeAPI.generatePortalUrl({
-      userId: user.id,
-      organizationCode: kindeOrgId || undefined,
-      returnUrl,
-    });
+    // Check if the org has an active paid subscription
+    const { data: subscriptionRow } = await getSupabaseServer()
+      .from("organization_subscriptions")
+      .select("plan_id, status")
+      .eq("organization_id", organization.id)
+      .in("status", ["active", "trialing", "past_due"])
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const isFreePlan = !subscriptionRow || subscriptionRow.plan_id === "free";
+
+    let portalUrl: string;
+
+    if (isFreePlan) {
+      // Free orgs: redirect through Kinde auth with pricing_table_key so Kinde
+      // shows the plan selector during authentication, then returns to billing.
+      const authParams = new URLSearchParams({
+        ...(kindeOrgId ? { org_code: kindeOrgId } : {}),
+        pricing_table_key: KINDE_PRICING_TABLE_KEY,
+        post_login_redirect_url: returnUrl,
+      });
+      portalUrl = `/api/auth/login?${authParams.toString()}`;
+    } else {
+      // Paid orgs: use Kinde Management API to open the subscription management portal.
+      portalUrl = await kindeAPI.generatePortalUrl({
+        userId: user.id,
+        organizationCode: kindeOrgId || undefined,
+        returnUrl,
+        subNav: "organization_billing",
+      });
+    }
 
     return NextResponse.json({ ok: true, portalUrl });
   } catch (error) {

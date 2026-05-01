@@ -41,12 +41,11 @@ export async function GET(
     const kindeOrgId = (organization as { kindeOrgId?: string }).kindeOrgId;
 
     // Use Kinde Management API to generate a one-time portal URL scoped to this org.
-    // organization_plan_selection opens the plan chooser; organization_billing manages existing subscriptions.
+    // No sub_nav — let Kinde show the default org portal landing page.
     const portalUrl = await kindeAPI.generatePortalUrl({
       userId: user.id,
       organizationCode: kindeOrgId || undefined,
       returnUrl,
-      subNav: 'organization_plan_selection',
     });
 
     return NextResponse.json({ ok: true, portalUrl });

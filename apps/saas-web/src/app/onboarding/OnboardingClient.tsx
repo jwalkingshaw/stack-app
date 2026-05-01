@@ -40,8 +40,9 @@ interface LocaleOption {
 
 export default function OnboardingPage() {
   const t = useTranslations("Onboarding");
-  const tenantBaseDomain =
-    process.env.NEXT_PUBLIC_TENANT_BASE_DOMAIN || "stackcess.com";
+  const tenantBaseDomain = (
+    process.env.NEXT_PUBLIC_TENANT_BASE_DOMAIN || "stackcess.com"
+  ).replace(/^https?:\/\//, "");
   const { user, isAuthenticated, isLoading } = useAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -265,6 +266,7 @@ export default function OnboardingPage() {
       const result = await response.json();
       const createdOrgId = result.data?.organization?.id;
       const createdOrgSlug = result.data?.organization?.slug || formData.companySlug;
+      const createdKindeOrgId = result.data?.organization?.kinde_org_id as string | undefined;
 
       if (isPartnerOnboarding && brandId && createdOrgId) {
         const relationshipResponse = await fetch("/api/partner-relationships/create", {
@@ -291,10 +293,16 @@ export default function OnboardingPage() {
 
       const isSelfServePartnerWorkspace =
         organizationType === "partner" && !hasPartnerInviteContext;
-      if (isSelfServePartnerWorkspace) {
-        router.push(`/${createdOrgSlug}/settings/billing?source=partner_signup`);
+      const billingSource = isSelfServePartnerWorkspace ? "partner_signup" : "signup";
+      const billingUrl = `/${createdOrgSlug}/settings/billing?source=${billingSource}`;
+
+      if (createdKindeOrgId) {
+        // Force a token refresh scoped to the new org so billing permissions are active
+        window.location.assign(
+          `/api/auth/login?org_code=${encodeURIComponent(createdKindeOrgId)}&post_login_redirect_url=${encodeURIComponent(billingUrl)}`
+        );
       } else {
-        router.push(`/${createdOrgSlug}`);
+        router.push(billingUrl);
       }
     } catch (error) {
       console.error("Organization creation error:", error);

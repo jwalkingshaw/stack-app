@@ -10,7 +10,8 @@ function withPrefix(key: string): string {
 const redis = process.env.REDIS_URL_SAAS ? createClient({
   url: process.env.REDIS_URL_SAAS,
   socket: {
-    connectTimeout: 5000,
+    connectTimeout: 2000,
+    reconnectStrategy: false, // Don't auto-reconnect in serverless
   }
 }) : null
 
@@ -18,13 +19,21 @@ const redis = process.env.REDIS_URL_SAAS ? createClient({
 if (redis) {
   redis.on('error', (err) => {
     console.error('SAAS Redis Client Error:', err)
-    // Don't crash the process, just log the error
   })
 }
 
 // Connect to Redis with fallback
 let isConnected = false
 let hasWarnedNoRedisConfig = false
+let connectionFailed = false // Avoid retrying a broken connection on every request
+
+const timeout = <T>(ms: number, promise: Promise<T>): Promise<T> =>
+  Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Redis operation timed out after ${ms}ms`)), ms)
+    ),
+  ])
 
 const connectRedis = async () => {
   if (!redis) {
@@ -35,17 +44,20 @@ const connectRedis = async () => {
     return null
   }
 
+  if (connectionFailed) return null
+
   if (!isConnected && !redis.isOpen) {
     try {
-      await redis.connect()
+      await timeout(3000, redis.connect())
       isConnected = true
       console.log('Connected to SAAS Redis Cloud for caching')
     } catch (error) {
       console.error('Failed to connect to SAAS Redis, continuing without cache:', error)
+      connectionFailed = true
       return null
     }
   }
-  return redis
+  return redis.isOpen ? redis : null
 }
 
 // Cache utilities with fallback
@@ -56,7 +68,7 @@ class CacheService {
     try {
       const client = await connectRedis()
       if (client) {
-        const value = await client.get(key)
+        const value = await timeout(3000, client.get(key))
         return value ? JSON.parse(value) : null
       }
     } catch (error) {
@@ -78,7 +90,7 @@ class CacheService {
     try {
       const client = await connectRedis()
       if (client) {
-        await client.setEx(key, ttlSeconds, JSON.stringify(value))
+        await timeout(3000, client.setEx(key, ttlSeconds, JSON.stringify(value)))
         return
       }
     } catch (error) {
@@ -101,10 +113,9 @@ class CacheService {
     try {
       const client = await connectRedis()
       if (client) {
-        const count = await client.incr(key)
+        const count = await timeout(3000, client.incr(key))
         if (count === 1) {
-          // Key was just created — set TTL atomically on first use
-          await client.expire(key, ttlSeconds)
+          await timeout(3000, client.expire(key, ttlSeconds))
         }
         return count
       }

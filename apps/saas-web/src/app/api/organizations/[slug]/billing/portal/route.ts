@@ -2,6 +2,7 @@
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { getSupabaseServer } from "@/lib/supabase";
+import { kindeAPI } from "@/lib/kinde-management";
 
 export async function GET(
   request: NextRequest,
@@ -39,21 +40,18 @@ export async function GET(
     const returnUrl = `${origin}/${resolvedParams.slug}/settings/billing`;
     const kindeOrgId = (organization as { kindeOrgId?: string }).kindeOrgId;
 
-    // Build the Kinde portal URL scoped to the correct org
-    const portalDestination = `/api/auth/portal?subNav=organization_plan_selection&returnUrl=${encodeURIComponent(returnUrl)}`;
-
-    // Force a token refresh scoped to this org before opening the portal,
-    // so Kinde sees the org:write:billing permission in the correct org context
-    const portalUrl = kindeOrgId
-      ? `/api/auth/login?org_code=${encodeURIComponent(kindeOrgId)}&post_login_redirect_url=${encodeURIComponent(portalDestination)}`
-      : portalDestination;
-
-    return NextResponse.json({
-      ok: true,
-      portalUrl,
+    // Use Kinde Management API to generate a one-time portal URL scoped to this org.
+    // sub_nav "organization_billing" is the documented value for the billing/plan page.
+    const portalUrl = await kindeAPI.generatePortalUrl({
+      userId: user.id,
+      organizationCode: kindeOrgId || undefined,
+      returnUrl,
+      subNav: 'organization_billing',
     });
+
+    return NextResponse.json({ ok: true, portalUrl });
   } catch (error) {
-    console.error("Failed to build billing portal URL:", error);
+    console.error("Failed to generate billing portal URL:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

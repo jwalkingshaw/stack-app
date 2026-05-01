@@ -368,6 +368,9 @@ export default function OnboardingPage() {
                   {t("fields.workspaceUrl")}
                 </label>
                 <div className="flex items-center">
+                  <div className="inline-flex h-12 items-center rounded-l-[0.5rem] border border-r-0 border-muted/30 bg-muted/40 px-4 text-sm text-muted-foreground whitespace-nowrap">
+                    {tenantBaseDomain}/
+                  </div>
                   <div className="relative flex-1">
                     <Input
                       type="text"
@@ -375,7 +378,7 @@ export default function OnboardingPage() {
                       onChange={(e) => handleInputChange("companySlug", e.target.value)}
                       placeholder="acme"
                       className={cn(
-                        "h-12 rounded-r-none border-r-0 pr-10",
+                        "h-12 rounded-l-none border-l-0 pr-10",
                         availability?.available === false
                           ? "border-red-300"
                           : availability?.available === true
@@ -386,9 +389,6 @@ export default function OnboardingPage() {
                     <div className="absolute right-3 top-1/2 -translate-y-1/2">
                       {getSlugStatusIcon()}
                     </div>
-                  </div>
-                  <div className="inline-flex h-12 items-center rounded-r-[0.5rem] border border-l-0 border-muted/30 bg-muted/40 px-4 text-sm text-muted-foreground">
-                    .{tenantBaseDomain}
                   </div>
                 </div>
                 <div className="mt-2 min-h-[20px]">{getSlugStatusMessage()}</div>
@@ -513,6 +513,9 @@ export default function OnboardingPage() {
                 {isPartnerOnboarding ? t("fields.partnerUrl") : t("fields.workspaceUrl")}
               </label>
               <div className="flex items-center">
+                <div className="inline-flex h-12 items-center rounded-l-[0.5rem] border border-r-0 border-muted/30 bg-muted/40 px-4 text-sm text-muted-foreground whitespace-nowrap">
+                  {tenantBaseDomain}/
+                </div>
                 <div className="relative flex-1">
                   <Input
                     type="text"
@@ -520,7 +523,7 @@ export default function OnboardingPage() {
                     onChange={(e) => handleInputChange("companySlug", e.target.value)}
                     placeholder="acme"
                     className={cn(
-                      "h-12 rounded-r-none border-r-0 pr-10",
+                      "h-12 rounded-l-none border-l-0 pr-10",
                       availability?.available === false
                         ? "border-red-300"
                         : availability?.available === true
@@ -531,9 +534,6 @@ export default function OnboardingPage() {
                   <div className="absolute right-3 top-1/2 -translate-y-1/2">
                     {getSlugStatusIcon()}
                   </div>
-                </div>
-                <div className="inline-flex h-12 items-center rounded-r-[0.5rem] border border-l-0 border-muted/30 bg-muted/40 px-4 text-sm text-muted-foreground">
-                  .{tenantBaseDomain}
                 </div>
               </div>
               <div className="mt-2 min-h-[20px]">{getSlugStatusMessage()}</div>

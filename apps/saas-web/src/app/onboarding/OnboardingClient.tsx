@@ -72,6 +72,7 @@ export default function OnboardingPage() {
   const accessLevel = searchParams.get("access_level") as "view" | "edit" | null;
   const invitationToken = searchParams.get("token");
   const returnTo = searchParams.get("return_to");
+  const planInterest = searchParams.get("plan_interest");
   const hasPartnerInviteContext =
     typeof invitationToken === "string" &&
     invitationToken.trim().length > 0 &&
@@ -294,7 +295,12 @@ export default function OnboardingPage() {
       const isSelfServePartnerWorkspace =
         organizationType === "partner" && !hasPartnerInviteContext;
       const billingSource = isSelfServePartnerWorkspace ? "partner_signup" : "signup";
-      const billingUrl = `/${createdOrgSlug}/settings/billing?source=${billingSource}`;
+      const validPlans = ["free", "starter", "growth", "scale"];
+      const planParam =
+        planInterest && validPlans.includes(planInterest.toLowerCase())
+          ? `&plan_intent=${encodeURIComponent(planInterest.toLowerCase())}`
+          : "";
+      const billingUrl = `/${createdOrgSlug}/settings/billing?source=${billingSource}${planParam}`;
 
       if (createdKindeOrgId) {
         // Force a token refresh scoped to the new org so billing permissions are active

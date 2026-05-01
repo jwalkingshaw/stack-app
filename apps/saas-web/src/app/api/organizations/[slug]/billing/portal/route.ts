@@ -1,5 +1,4 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
-import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { AuthService } from "@stack-app/auth";
 import { DatabaseQueries } from "@stack-app/database";
 import { getSupabaseServer } from "@/lib/supabase";
@@ -32,20 +31,6 @@ export async function GET(
     if (!permissions?.is_owner && !permissions?.is_admin) {
       return NextResponse.json(
         { error: "Only owners or admins can manage billing settings" },
-        { status: 403 }
-      );
-    }
-
-    const { getPermission } = getKindeServerSession();
-    const billingPermission = await getPermission("org:write:billing");
-    if (!billingPermission?.isGranted) {
-      return NextResponse.json(
-        {
-          error:
-            "Your account is missing the Kinde billing permission for this organization.",
-          code: "KINDE_BILLING_PERMISSION_REQUIRED",
-          requiredPermission: "org:write:billing",
-        },
         { status: 403 }
       );
     }

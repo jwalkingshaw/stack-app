@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getKindeServerSession } from '@kinde-oss/kinde-auth-nextjs/server';
 import { kindeAPI } from '@/lib/kinde-management';
-import { syncKindeBillingRoleForMember } from '@/lib/kinde-billing-role-sync';
 import { enforceRateLimit, rateLimitExceededResponse } from '@/lib/rate-limit';
 import { logRateLimitSecurityEvent } from '@/lib/security-audit';
 import {
@@ -780,14 +779,6 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-
-    await syncKindeBillingRoleForMember({
-      kindeOrgId: invitation.brand_org?.kinde_org_id,
-      kindeUserId: user.id,
-      appRole: member?.role || defaultRole,
-      status: 'active',
-      context: 'invitation_accept_team_member',
-    });
 
     if (memberError || !member) {
       console.error('Unable to load member record after acceptance:', memberError);

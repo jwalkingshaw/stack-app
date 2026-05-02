@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CreditCard, HardDrive, Languages, Package, Sparkles, Users } from 'lucide-react';
+import { CreditCard, HardDrive, Languages, Package, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -99,17 +99,12 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
     setPlansLoading(true);
     try {
       const plansResponse = await fetch(`/api/organizations/${tenantSlug}/billing/plans`);
-      if (!plansResponse.ok) {
-        throw new Error('Failed to load billing plans');
-      }
+      if (!plansResponse.ok) throw new Error('Failed to load billing plans');
       const plansPayload = (await plansResponse.json()) as PlansResponse;
       setPlans(plansPayload.plans || []);
       setCurrentPlanId((current) => plansPayload.currentPlanId || current);
     } catch (fetchError) {
       console.error('Failed to load billing plans:', fetchError);
-      setError((current) =>
-        current || (fetchError instanceof Error ? fetchError.message : 'Failed to load billing plans')
-      );
     } finally {
       setPlansLoading(false);
     }
@@ -128,13 +123,9 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
       void fetchPlansData();
 
       const subscriptionResponse = await fetch(`/api/organizations/${tenantSlug}/billing/subscription`);
-
-      if (!subscriptionResponse.ok) {
-        throw new Error('Failed to load subscription');
-      }
+      if (!subscriptionResponse.ok) throw new Error('Failed to load subscription');
 
       const subscriptionPayload = (await subscriptionResponse.json()) as SubscriptionResponse;
-
       setSubscription(subscriptionPayload.subscription);
       setSubscriptionPlan(subscriptionPayload.plan || null);
       setUsage(subscriptionPayload.usage);
@@ -164,7 +155,7 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
       setOpeningPortal(intentPlanId || 'manage');
       setError(null);
 
-      const planParam = intentPlanId && intentPlanId !== "manage" ? `?plan=${intentPlanId}` : "";
+      const planParam = intentPlanId && intentPlanId !== 'manage' ? `?plan=${intentPlanId}` : '';
       const response = await fetch(`/api/organizations/${tenantSlug}/billing/portal${planParam}`);
 
       if (!response.ok) {
@@ -173,9 +164,7 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
       }
 
       const payload = (await response.json()) as { portalUrl?: string };
-      if (!payload.portalUrl) {
-        throw new Error('Billing portal URL was not returned');
-      }
+      if (!payload.portalUrl) throw new Error('Billing portal URL was not returned');
       window.location.assign(payload.portalUrl);
     } catch (portalError) {
       console.error('Failed to open billing portal:', portalError);
@@ -188,6 +177,8 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
   const handleContactSales = () => {
     window.location.href = 'mailto:sales@stackcess.com?subject=Enterprise%20Plan%20Inquiry';
   };
+
+  const isFreePlan = !currentPlanId || currentPlanId === 'free';
 
   const activePlan = useMemo(() => {
     if (!plans.length) return subscriptionPlan;
@@ -241,19 +232,11 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
         unit: '',
       },
       {
-        key: 'translation_char_count',
-        label: 'Translation characters',
+        key: 'ai_tasks',
+        label: 'AI Tasks',
         icon: <Languages className="h-4 w-4" />,
         usage: Number(usage?.translationCharCount || 0),
         limit: activePlan?.deeplTotalCharLimit ?? null,
-        unit: '',
-      },
-      {
-        key: 'agent_runs_count',
-        label: 'Agent tasks',
-        icon: <Sparkles className="h-4 w-4" />,
-        usage: Number(usage?.agentRunsCount || 0),
-        limit: activePlan?.agentRunLimit ?? null,
         unit: '',
       },
     ];
@@ -269,6 +252,8 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
 
   return (
     <SettingsPageContent page="billing">
+
+      {/* Payment success banner */}
       {checkoutStatus === 'success' && (
         <div className="rounded-lg border border-green-200 bg-green-50 px-5 py-4">
           <p className="text-base font-semibold text-green-900">Payment successful!</p>
@@ -278,6 +263,7 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
         </div>
       )}
 
+      {/* Post-signup banner */}
       {source === 'signup' && (
         <div className="rounded-lg border border-green-200 bg-green-50 px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -289,57 +275,30 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
                   : "You're on the Free plan. Choose a paid plan below to unlock more SKUs, storage, and team seats."}
               </p>
             </div>
-            {(!planIntent || planIntent === 'free') && (
-              <Button
-                variant="default"
-                onClick={() => handleOpenPortal()}
-                disabled={Boolean(openingPortal)}
-                className="shrink-0"
-              >
-                {openingPortal ? 'Opening…' : 'Choose a plan →'}
-              </Button>
-            )}
           </div>
         </div>
       )}
 
+      {/* Post-partner-signup banner */}
       {source === 'partner_signup' && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-medium text-blue-900">Partner workspace created</p>
               <p className="text-xs text-blue-800">
-                Invited brand content remains free. Upgrade this workspace to unlock full partner features for your own products and assets.
+                Invited brand content remains free. Upgrade this workspace to unlock full partner features.
               </p>
             </div>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => handleOpenPortal()}
-              disabled={Boolean(openingPortal)}
-            >
-              {openingPortal === 'manage' ? 'Opening...' : 'Upgrade Workspace'}
-            </Button>
           </div>
         </div>
       )}
 
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Billing</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage plans, track usage caps, and control subscription status.
-          </p>
-        </div>
-        <div className="flex items-center">
-          <Button
-            variant="default"
-            onClick={() => handleOpenPortal()}
-            disabled={Boolean(openingPortal)}
-          >
-            {openingPortal === 'manage' ? 'Opening...' : 'Open Billing Portal'}
-          </Button>
-        </div>
+      {/* Page header */}
+      <div>
+        <h1 className="text-2xl font-semibold text-foreground">Billing</h1>
+        <p className="text-sm text-muted-foreground">
+          Manage your plan, track usage, and update payment details.
+        </p>
       </div>
 
       {error && (
@@ -348,26 +307,60 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
         </div>
       )}
 
+      {/* Current plan card */}
       <Card>
         <CardHeader>
-          <CardTitle>Current Subscription</CardTitle>
-          <CardDescription>Plan and billing date for this workspace.</CardDescription>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle>Current Plan</CardTitle>
+              <CardDescription>Your active subscription for this workspace.</CardDescription>
+            </div>
+            {!isFreePlan && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleOpenPortal('manage')}
+                disabled={Boolean(openingPortal)}
+                className="shrink-0"
+              >
+                {openingPortal === 'manage' ? 'Opening…' : 'Manage Subscription'}
+              </Button>
+            )}
+          </div>
         </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-2">
+        <CardContent className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-md border border-border/60 p-3">
             <div className="text-xs text-muted-foreground">Plan</div>
-            <div className="mt-1 text-base font-semibold">{activePlan?.name || '-'}</div>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-base font-semibold">{activePlan?.name || 'Free (Sandbox)'}</span>
+              {isFreePlan && (
+                <Badge variant="secondary">Free</Badge>
+              )}
+              {subscription?.cancelAtPeriodEnd && (
+                <Badge variant="warning">Cancelling</Badge>
+              )}
+            </div>
+          </div>
+          <div className="rounded-md border border-border/60 p-3">
+            <div className="text-xs text-muted-foreground">Status</div>
+            <div className="mt-1 text-sm font-medium capitalize">
+              {isFreePlan ? 'Active' : (subscription?.status || '-')}
+            </div>
           </div>
           <div className="rounded-md border border-border/60 p-3">
             <div className="text-xs text-muted-foreground">{nextDateLabel}</div>
-            <div className="mt-1 text-sm font-medium">{formatDate(subscription?.currentPeriodEnd)}</div>
+            <div className="mt-1 text-sm font-medium">
+              {isFreePlan ? '—' : formatDate(subscription?.currentPeriodEnd)}
+            </div>
           </div>
         </CardContent>
       </Card>
 
+      {/* Usage meters */}
       <Card>
         <CardHeader>
-          <CardTitle>Usage Against Plan Limits</CardTitle>
+          <CardTitle>Usage</CardTitle>
+          <CardDescription>Current usage against your plan limits this billing period.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           {meterCards.map((meter) => {
@@ -382,6 +375,9 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
                   ? `${limit.toFixed(0)} ${meter.unit}`
                   : formatNumber(limit);
 
+            // Free plan shows 0 for AI Tasks — show "Not included" instead of a bar
+            const isNotIncluded = limit === 0;
+
             return (
               <div key={meter.key} className="rounded-md border border-border/60 p-3">
                 <div className="flex items-center justify-between">
@@ -389,18 +385,28 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
                     {meter.icon}
                     {meter.label}
                   </div>
-                  <Badge variant={meterTone(percent)}>
-                    {limit == null ? 'Unlimited' : `${percent.toFixed(0)}%`}
-                  </Badge>
+                  {isNotIncluded ? (
+                    <Badge variant="secondary">Not included</Badge>
+                  ) : (
+                    <Badge variant={meterTone(percent)}>
+                      {limit == null ? 'Unlimited' : `${percent.toFixed(0)}%`}
+                    </Badge>
+                  )}
                 </div>
                 <div className="mt-2 text-sm text-muted-foreground">
-                  {formattedUsage}
-                  {meter.unit ? ` ${meter.unit}` : ''} / {formattedLimit}
+                  {isNotIncluded ? (
+                    <span>Upgrade to a paid plan to unlock</span>
+                  ) : (
+                    <>
+                      {formattedUsage}
+                      {meter.unit ? ` ${meter.unit}` : ''} / {formattedLimit}
+                    </>
+                  )}
                 </div>
-                {limit != null && (
+                {!isNotIncluded && limit != null && (
                   <div className="mt-2 h-2 w-full overflow-hidden rounded bg-muted">
                     <div
-                      className={`h-full ${
+                      className={`h-full transition-all ${
                         percent >= 100
                           ? 'bg-destructive'
                           : percent >= 80
@@ -417,73 +423,109 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
         </CardContent>
       </Card>
 
+      {/* Plan options */}
       <Card>
         <CardHeader>
-          <CardTitle>Plan Options</CardTitle>
+          <CardTitle>{isFreePlan ? 'Upgrade Your Plan' : 'Plans'}</CardTitle>
+          <CardDescription>
+            {isFreePlan
+              ? 'Choose a paid plan to unlock more SKUs, storage, users, and AI features.'
+              : 'Switch or manage your subscription through the Stripe portal.'}
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 lg:grid-cols-2">
           {plansLoading ? (
             <div className="rounded-md border border-border/60 p-4 text-sm text-muted-foreground">
-              Loading plans...
+              Loading plans…
             </div>
           ) : plans.length === 0 ? (
             <div className="rounded-md border border-border/60 p-4 text-sm text-muted-foreground">
               No plans available right now.
             </div>
-          ) : plans.map((plan) => {
-            const isCurrent = plan.id === currentPlanId;
-            const isOpening = openingPortal === plan.id;
-            const isEnterprise = plan.id === 'enterprise';
-            const planRank = PLAN_RANK[plan.id] ?? -1;
-            const isDowngrade = !isCurrent && currentPlanRank >= 0 && planRank >= 0 && planRank < currentPlanRank;
-            const buttonLabel = isEnterprise
-              ? 'Contact Sales'
-              : isCurrent
-                ? 'Manage Plan'
-                : isDowngrade
-                  ? 'Downgrade'
-                  : 'Upgrade';
-            const buttonVariant: 'default' | 'secondary' =
-              isEnterprise ? 'default' : isCurrent || isDowngrade ? 'secondary' : 'default';
+          ) : plans
+              .filter((plan) => plan.id !== 'free') // Never show the free plan card here
+              .map((plan) => {
+                const isCurrent = plan.id === currentPlanId;
+                const isOpening = openingPortal === plan.id;
+                const isEnterprise = plan.id === 'enterprise';
+                const planRank = PLAN_RANK[plan.id] ?? -1;
+                const isDowngrade = !isCurrent && !isFreePlan && planRank < currentPlanRank;
 
-            return (
-              <div
-                key={plan.id}
-                className={`rounded-md border p-4 ${
-                  isCurrent ? 'border-primary/50 bg-primary/5' : 'border-border/60'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-base font-semibold">{plan.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {plan.price > 0 ? `${formatMoney(plan.price, plan.currency)} / ${plan.interval}` : 'Custom'}
+                // Free users: Upgrade to Checkout for that plan
+                // Paid users: all actions go through Stripe Customer Portal
+                const buttonLabel = isEnterprise
+                  ? 'Contact Sales'
+                  : isCurrent
+                    ? 'Current Plan'
+                    : isFreePlan
+                      ? `Upgrade to ${plan.name}`
+                      : isDowngrade
+                        ? 'Switch Plan'
+                        : 'Switch Plan';
+
+                const buttonVariant: 'default' | 'secondary' | 'outline' =
+                  isEnterprise
+                    ? 'default'
+                    : isCurrent
+                      ? 'outline'
+                      : isFreePlan && !isDowngrade
+                        ? 'default'
+                        : 'secondary';
+
+                const handleClick = () => {
+                  if (isEnterprise) return handleContactSales();
+                  if (isCurrent && !isFreePlan) return handleOpenPortal('manage');
+                  // Free users go to Checkout for the selected plan; paid users go to Portal
+                  return handleOpenPortal(isFreePlan ? plan.id : 'manage');
+                };
+
+                return (
+                  <div
+                    key={plan.id}
+                    className={`rounded-md border p-4 ${
+                      isCurrent
+                        ? 'border-primary/50 bg-primary/5'
+                        : isEnterprise
+                          ? 'border-border/60'
+                          : 'border-border/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-base font-semibold">{plan.name}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {plan.price > 0
+                            ? `${formatMoney(plan.price, plan.currency)} / ${plan.interval}`
+                            : 'Custom pricing'}
+                        </div>
+                      </div>
+                      {isCurrent ? <Badge>Current</Badge> : null}
+                    </div>
+                    <p className="mt-2 text-sm text-muted-foreground">{plan.description}</p>
+                    <ul className="mt-3 space-y-1 text-sm text-foreground">
+                      {plan.features.slice(0, 5).map((feature) => (
+                        <li key={feature} className="flex items-start gap-1.5">
+                          <span className="mt-0.5 text-muted-foreground">–</span>
+                          {feature}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="mt-4">
+                      <Button
+                        variant={buttonVariant}
+                        className="w-full"
+                        disabled={isEnterprise ? false : (isCurrent && isFreePlan) || Boolean(openingPortal)}
+                        onClick={handleClick}
+                      >
+                        {!isEnterprise && isOpening ? 'Opening…' : buttonLabel}
+                      </Button>
                     </div>
                   </div>
-                  {isCurrent ? <Badge>Current</Badge> : null}
-                </div>
-                <p className="mt-2 text-sm text-muted-foreground">{plan.description}</p>
-                <ul className="mt-3 space-y-1 text-sm text-foreground">
-                  {plan.features.slice(0, 5).map((feature) => (
-                    <li key={feature}>- {feature}</li>
-                  ))}
-                </ul>
-                <div className="mt-4">
-                  <Button
-                    variant={buttonVariant}
-                    className="w-full"
-                    disabled={isEnterprise ? false : Boolean(openingPortal)}
-                    onClick={isEnterprise ? handleContactSales : () => handleOpenPortal(plan.id)}
-                  >
-                    {isEnterprise ? buttonLabel : isOpening ? 'Opening...' : buttonLabel}
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
+                );
+              })}
         </CardContent>
       </Card>
+
     </SettingsPageContent>
   );
 }
-

@@ -174,3 +174,128 @@ export async function sendPasswordResetEmail({
     throw error;
   }
 }
+
+interface SendNewSignupNotificationParams {
+  signupEmail: string;
+  organizationName: string;
+  createdAt?: Date;
+  to?: string;
+}
+
+export async function sendNewSignupNotification({
+  signupEmail,
+  organizationName,
+  createdAt = new Date(),
+  to = "jason@stackcess.com",
+}: SendNewSignupNotificationParams) {
+  try {
+    const createdAtIso = createdAt.toISOString();
+    const createdAtUtc = new Intl.DateTimeFormat("en-US", {
+      dateStyle: "medium",
+      timeStyle: "medium",
+      timeZone: "UTC",
+    }).format(createdAt);
+
+    const { data, error } = await getResend().emails.send({
+      from: process.env.RESEND_FROM_EMAIL || "onboarding@getResend().dev",
+      to: [to],
+      subject: `New signup: ${organizationName}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>New signup</title>
+          </head>
+          <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background-color: #f8f9fa; border-radius: 8px; padding: 24px;">
+              <h1 style="margin: 0 0 16px 0; color: #1a1a1a; font-size: 22px;">New signup</h1>
+              <p style="margin: 0 0 10px 0; font-size: 15px;"><strong>Sign up:</strong> ${signupEmail}</p>
+              <p style="margin: 0 0 10px 0; font-size: 15px;"><strong>Organization:</strong> ${organizationName}</p>
+              <p style="margin: 0 0 10px 0; font-size: 15px;"><strong>Date/time:</strong> ${createdAtUtc} UTC</p>
+              <p style="margin: 0; font-size: 13px; color: #666;"><strong>ISO:</strong> ${createdAtIso}</p>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    if (error) {
+      console.error("Resend error:", error);
+      throw new Error(`Failed to send email: ${error.message}`);
+    }
+
+    console.log("✅ New signup notification sent:", data?.id);
+    return { success: true, messageId: data?.id };
+  } catch (error) {
+    console.error("Error sending new signup notification:", error);
+    throw error;
+  }
+}
+
+interface SendWelcomeSignupEmailParams {
+  to: string;
+  organizationName: string;
+  recipientName?: string | null;
+}
+
+export async function sendWelcomeSignupEmail({
+  to,
+  organizationName,
+  recipientName,
+}: SendWelcomeSignupEmailParams) {
+  try {
+    const greetingName =
+      typeof recipientName === "string" && recipientName.trim().length > 0
+        ? recipientName.trim()
+        : "there";
+
+    const { data, error } = await getResend().emails.send({
+      from: process.env.RESEND_WELCOME_FROM_EMAIL || "Jason at Stackcess <jason@stackcess.com>",
+      to: [to],
+      replyTo: "jason@stackcess.com",
+      subject: "Welcome to Stackcess",
+      html: `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Welcome to Stackcess</title>
+          </head>
+          <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background-color: #f8f9fa; border-radius: 8px; padding: 24px;">
+              <h1 style="margin: 0 0 16px 0; color: #1a1a1a; font-size: 22px;">Welcome to Stackcess</h1>
+              <p style="margin: 0 0 14px 0; font-size: 15px;">Hi ${greetingName},</p>
+              <p style="margin: 0 0 14px 0; font-size: 15px;">
+                Welcome to Stackcess. Your workspace <strong>${organizationName}</strong> is now set up and ready.
+              </p>
+              <p style="margin: 0 0 14px 0; font-size: 15px;">
+                We built Stackcess to make it easier for teams to organize product content and get it where it needs to go without the usual mess.
+              </p>
+              <p style="margin: 0 0 14px 0; font-size: 15px;">
+                If you want a hand getting started, reply to this email. I'm happy to walk you through your product setup and system as part of onboarding.
+              </p>
+              <p style="margin: 0; font-size: 15px;">
+                Thanks for signing up.<br>
+                Jason
+              </p>
+            </div>
+          </body>
+        </html>
+      `,
+    });
+
+    if (error) {
+      console.error("Resend error:", error);
+      throw new Error(`Failed to send email: ${error.message}`);
+    }
+
+    console.log("✅ Welcome signup email sent:", data?.id);
+    return { success: true, messageId: data?.id };
+  } catch (error) {
+    console.error("Error sending welcome signup email:", error);
+    throw error;
+  }
+}

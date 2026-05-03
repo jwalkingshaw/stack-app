@@ -4,6 +4,7 @@ import { getKindeServerSession } from "@kinde-oss/kinde-auth-nextjs/server";
 import { DatabaseQueries, createServerClient, type Database } from "@stack-app/database";
 import { kindeAPI } from "@/lib/kinde-management";
 import { ensureCoreBasicInformationFields } from "@/lib/pim-bootstrap";
+import { sendNewSignupNotification, sendWelcomeSignupEmail } from "@/lib/email";
 import {
   DEFAULT_UI_LOCALE,
   UI_LOCALE_COOKIE_NAME,
@@ -465,6 +466,32 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error('Error adding user to organization_members:', error);
         throw new Error('Failed to create workspace member record');
+      }
+
+      if (userEmail) {
+        try {
+          await sendWelcomeSignupEmail({
+            to: userEmail,
+            organizationName: organization.name,
+            recipientName:
+              typeof user.given_name === "string" && user.given_name.trim().length > 0
+                ? user.given_name
+                : typeof user.family_name === "string" && user.family_name.trim().length > 0
+                  ? user.family_name
+                  : null,
+          });
+        } catch (welcomeEmailError) {
+          console.error("Failed to send welcome signup email:", welcomeEmailError);
+        }
+
+        try {
+          await sendNewSignupNotification({
+            signupEmail: userEmail,
+            organizationName: organization.name,
+          });
+        } catch (notificationError) {
+          console.error("Failed to send new signup notification:", notificationError);
+        }
       }
 
     } catch (error) {

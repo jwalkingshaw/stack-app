@@ -10,7 +10,7 @@ export default async function LocalizationGlossariesPage({ params }: Localizatio
   const { tenant } = await params;
 
   return (
-    <Suspense fallback={<PageSkeleton text="Loading glossaries..." size="lg" />}>
+    <Suspense fallback={<PageSkeleton text="Loading glossaries..." size="lg" variant="settings-detail" />}>
       <LocalizationGlossariesSettings tenantSlug={tenant} />
     </Suspense>
   );

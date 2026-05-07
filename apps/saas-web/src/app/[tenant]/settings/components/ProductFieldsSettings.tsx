@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Type,
   FileText,
@@ -118,10 +119,6 @@ interface ActiveRecord {
   is_active?: boolean;
 }
 
-interface FieldGroupAssignment {
-  id: string;
-  product_fields?: Array<{ id?: string }>;
-}
 
 const SYSTEM_FIELD_CODES = new Set([
   'facts_panel',
@@ -212,6 +209,7 @@ const supportsAIAssist = (fieldType: string | null | undefined) =>
   Boolean(fieldType && AI_ASSIST_FIELD_TYPES.has(fieldType));
 
 export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSettingsProps) {
+  const router = useRouter();
   // State
   const [fields, setFields] = useState<ProductField[]>([]);
   const [fieldGroups, setFieldGroups] = useState<FieldGroup[]>([]);
@@ -228,10 +226,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
 
   // Dialog states
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [showEditDialog, setShowEditDialog] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showTypeSelector, setShowTypeSelector] = useState(false);
-  const [selectedField, setSelectedField] = useState<ProductField | null>(null);
   const [selectedFieldType, setSelectedFieldType] = useState<FieldTypeOption | null>(null);
 
   // Form states
@@ -368,15 +363,12 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
 
   // Auto-generate code when name changes
   useEffect(() => {
-    if (!formData.name || (selectedField && showEditDialog)) {
-      return;
-    }
-
+    if (!formData.name) return;
     if (!hasCustomCode) {
       const autoCode = generateCode(formData.name);
       setFormData(prev => (prev.code === autoCode ? prev : { ...prev, code: autoCode }));
     }
-  }, [formData.name, selectedField, showEditDialog, hasCustomCode]);
+  }, [formData.name, hasCustomCode]);
 
   // Create field
   const handleCreate = async () => {
@@ -431,75 +423,6 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
   };
 
   // Update field
-  const handleUpdate = async () => {
-    if (!selectedField || !formData.name.trim() || !formData.code.trim()) return;
-
-    try {
-      setFormLoading(true);
-      setError(null);
-
-      const response = await fetch(`/api/${tenantSlug}/product-fields/${selectedField.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-
-      const responsePayload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(readApiError(responsePayload, 'Failed to update attribute'));
-      }
-
-      const assignmentResponse = await fetch(
-        `/api/${tenantSlug}/product-fields/${selectedField.id}/field-group`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ field_group_id: selectedFieldGroupId })
-        }
-      );
-
-      if (!assignmentResponse.ok) {
-        const errorData = await assignmentResponse.json().catch(() => null);
-        throw new Error(readApiError(errorData, 'Failed to update attribute group'));
-      }
-
-      await fetchData(); // Refresh list
-      setShowEditDialog(false);
-      resetForm();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update attribute');
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
-  // Delete field
-  const handleDelete = async () => {
-    if (!selectedField) return;
-
-    try {
-      setFormLoading(true);
-      setError(null);
-
-      const response = await fetch(`/api/${tenantSlug}/product-fields/${selectedField.id}`, {
-        method: 'DELETE'
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(readApiError(errorData, 'Failed to delete attribute'));
-      }
-
-      await fetchData(); // Refresh list
-      setShowDeleteDialog(false);
-      setSelectedField(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete attribute');
-    } finally {
-      setFormLoading(false);
-    }
-  };
-
   // Helper functions
   const resetForm = () => {
     setFormData({
@@ -523,7 +446,6 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
       options: {},
       table_definition: undefined
     });
-    setSelectedField(null);
     setSelectedFieldType(null);
     setSelectedFieldGroupId(null);
     setError(null);
@@ -599,54 +521,6 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
     setShowAdvancedSettings(false);
   };
 
-  const openEditDialog = (field: ProductField) => {
-    void fetchScopeData();
-    setSelectedField(field);
-    setSelectedFieldType(FIELD_TYPES.find(t => t.id === field.field_type) ?? null);
-    const tableDefinition = field.options?.table_definition
-      ? JSON.parse(JSON.stringify(field.options.table_definition))
-      : undefined;
-    setFormData({
-      name: field.name,
-      code: field.code,
-      description: field.description ?? '',
-      field_type: field.field_type,
-      is_required: field.is_required,
-      is_unique: field.is_unique,
-      is_localizable: field.is_localizable,
-      is_channelable: field.is_channelable,
-      allowed_channel_ids: field.allowed_channel_ids || [],
-      allowed_locale_ids: field.allowed_locale_ids || [],
-      allowed_market_ids: field.allowed_market_ids || [],
-      sort_order: field.sort_order,
-      default_value: field.default_value || '',
-      is_override_capable: field.is_override_capable === true,
-      is_write_assist_enabled: field.is_write_assist_enabled === true,
-      is_translatable: field.is_translatable === true,
-      validation_rules: field.validation_rules || {},
-      options: field.options || {},
-      table_definition: tableDefinition
-    });
-    setHasCustomCode(true);
-    setShowAdvancedSettings(false);
-    setShowEditDialog(true);
-  };
-
-  const getAssignedGroupId = useCallback((fieldId: string) => {
-    const assigned = (fieldGroups as unknown as FieldGroupAssignment[])
-      .filter((group) =>
-        Array.isArray(group.product_fields) &&
-        group.product_fields.some((field) => field?.id === fieldId)
-      )
-      .map((group) => group.id);
-    return assigned[0] || null;
-  }, [fieldGroups]);
-
-  useEffect(() => {
-    if (showEditDialog && selectedField) {
-      setSelectedFieldGroupId(getAssignedGroupId(selectedField.id));
-    }
-  }, [showEditDialog, selectedField, getAssignedGroupId]);
 
   const filteredFields = useMemo(
     () => fields
@@ -691,7 +565,7 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
           return `${typeLabel} • ${classLabel}`;
         }}
         getStatus={(f) => (f.is_active ? 'active' : 'inactive')}
-        onClickItem={openEditDialog}
+        onClickItem={(f) => router.push(`/${tenantSlug}/settings/product-fields/${f.id}`)}
         isLocked={isSystemAttribute}
         loading={loading}
         loadingRows={8}
@@ -732,27 +606,25 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         </div>
       </FullscreenFormModal>
 
-      {/* Create/Edit Dialog */}
+      {/* Create Dialog */}
       <FullscreenFormModal
-        open={showCreateDialog || showEditDialog}
-        title={`${showEditDialog ? 'Edit' : 'Create'} ${selectedFieldType?.label ?? ''} Attribute`}
+        open={showCreateDialog}
+        title={`Create ${selectedFieldType?.label ?? ''} Attribute`}
         onOpenChange={(open) => {
           if (!open) {
             setShowCreateDialog(false);
-            setShowEditDialog(false);
             resetForm();
           }
         }}
         onBack={() => {
           setShowCreateDialog(false);
-          setShowEditDialog(false);
           resetForm();
         }}
-        primaryActionLabel={showEditDialog ? 'Update Attribute' : 'Create Attribute'}
-        onPrimaryAction={() => void (showEditDialog ? handleUpdate() : handleCreate())}
+        primaryActionLabel="Create Attribute"
+        onPrimaryAction={() => void handleCreate()}
         primaryActionDisabled={formLoading || !formData.name.trim() || !formData.code.trim() || !formData.field_type}
         primaryActionLoading={formLoading}
-        primaryActionLoadingLabel={showEditDialog ? 'Updating...' : 'Creating...'}
+        primaryActionLoadingLabel="Creating..."
       >
         {error && (
           <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -1290,31 +1162,6 @@ export default function ProductFieldsSettings({ tenantSlug }: ProductFieldsSetti
         </div>
       </FullscreenFormModal>
 
-      {/* Delete Dialog */}
-      <DeleteConfirmDialog
-        open={showDeleteDialog}
-        onOpenChange={(open) => {
-          setShowDeleteDialog(open);
-          if (!open) {
-            setSelectedField(null);
-          }
-        }}
-        title="Delete Attribute"
-        description={`Are you sure you want to delete ${selectedField?.name || 'this attribute'}? This action cannot be undone.`}
-        confirmLabel="Delete Attribute"
-        confirmDisabled={formLoading}
-        confirmLoading={formLoading}
-        confirmLoadingLabel="Deleting..."
-        onConfirm={() => void handleDelete()}
-        safetyMode="typed"
-        confirmPhrase="delete"
-      >
-        {error && (
-          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        )}
-      </DeleteConfirmDialog>
     </SettingsPageContent>
   );
 }

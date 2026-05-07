@@ -2630,6 +2630,7 @@ export default function PIMGridTable({
       <div className="min-w-0 rounded-lg border border-muted/30 [overflow:clip]">
         <AgGridReact<PIMProduct>
           ref={gridRef}
+          className={cn(gridRowData.length === 0 && "pim-grid-empty")}
           theme={pimTheme}
           rowData={gridRowData}
           columnDefs={columnDefs}

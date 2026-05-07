@@ -2,15 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import {
-  ArrowRight,
-  ExternalLink,
-  FileJson,
-  FileOutput,
-  Layers3,
-  Radio,
-  Send,
-} from 'lucide-react'
+import { ArrowLeft, ArrowRight, ExternalLink, Layers3, Radio } from 'lucide-react'
 import { useMarketContext } from '@/components/market-context'
 import { Button } from '@/components/ui/button'
 import { MultiSelect } from '@/components/ui/multi-select'
@@ -93,8 +85,6 @@ type PreviewPayload = {
   rows: PreviewRow[]
 }
 
-type DeliveryTarget = 'portal' | 'file_export' | 'direct_channel'
-
 type PartnerRelationshipOption = {
   id: string
   name: string
@@ -105,7 +95,7 @@ type PartnerRelationshipOption = {
 type RecentSyndicationRun = {
   id: string
   outputProfileId: string
-  deliveryTarget: DeliveryTarget
+  deliveryTarget: string
   productCount: number
   readyCount: number
   warningCount: number
@@ -124,37 +114,49 @@ interface SyndicationClientProps {
   initialProfileId?: string | null
 }
 
-function downloadTextFile(params: {
-  content: string
-  mimeType: string
-  filename: string
-}) {
-  const blob = new Blob([params.content], { type: params.mimeType })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = params.filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
-function prettyProfileType(value: string | null | undefined) {
-  switch (value) {
-    case 'portal':
-      return 'Partner Portal'
-    case 'marketplace':
-      return 'Marketplace'
-    case 'retail':
-      return 'Retail'
-    case 'export':
-      return 'Export / File'
-    case 'api':
-      return 'API Integration'
-    default:
-      return value || 'Destination'
-  }
+function StepIndicator({ current }: { current: 1 | 2 | 3 }) {
+  const steps = [
+    { label: 'Scope', number: 1 as const },
+    { label: 'Partners', number: 2 as const },
+    { label: 'Publish', number: 3 as const },
+  ]
+  return (
+    <div className="flex items-center gap-1">
+      {steps.map(({ label, number }, index) => {
+        const isActive = number === current
+        const isDone = number < current
+        return (
+          <div key={label} className="flex items-center gap-1">
+            <div
+              className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-foreground text-background'
+                  : isDone
+                    ? 'text-foreground'
+                    : 'text-muted-foreground'
+              }`}
+            >
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-semibold ${
+                  isActive
+                    ? 'bg-background text-foreground'
+                    : isDone
+                      ? 'bg-muted text-foreground'
+                      : 'bg-muted/50 text-muted-foreground'
+                }`}
+              >
+                {isDone ? '✓' : number}
+              </span>
+              {label}
+            </div>
+            {index < steps.length - 1 && (
+              <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 export default function SyndicationClient({
@@ -169,6 +171,7 @@ export default function SyndicationClient({
     selectedLocaleId,
   } = useMarketContext()
 
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
   const [profiles, setProfiles] = useState<OutputProfileSummary[]>([])
   const [profilesLoading, setProfilesLoading] = useState(true)
   const [profilesError, setProfilesError] = useState<string | null>(null)
@@ -187,8 +190,6 @@ export default function SyndicationClient({
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [previewPayload, setPreviewPayload] = useState<PreviewPayload | null>(null)
-  const [exportingCsv, setExportingCsv] = useState(false)
-  const [deliveryTarget, setDeliveryTarget] = useState<DeliveryTarget>('portal')
   const [partners, setPartners] = useState<PartnerRelationshipOption[]>([])
   const [partnersLoading, setPartnersLoading] = useState(true)
   const [selectedPartnerIds, setSelectedPartnerIds] = useState<string[]>([])
@@ -276,12 +277,6 @@ export default function SyndicationClient({
     }
   }, [profileDetail])
 
-  const previewJsonString = useMemo(() => {
-    if (!previewPayload) return ''
-    const json = JSON.stringify(previewPayload, null, 2)
-    return json.length > 12000 ? `${json.slice(0, 12000)}\n…` : json
-  }, [previewPayload])
-
   const partnerOptions = useMemo(
     () =>
       partners.map((partner) => ({
@@ -299,54 +294,6 @@ export default function SyndicationClient({
     [partners, selectedPartnerIds]
   )
 
-  const runSummaryRows = useMemo(
-    () => [
-      {
-        label: 'Destination',
-        value: selectedProfile?.name || 'Choose where this is going',
-      },
-      {
-        label: 'Source',
-        value:
-          selectedSource === 'selection'
-            ? hasSelectionSource
-              ? `Current selection (${activeProductIds.length})`
-              : 'Choose a saved scope'
-            : selectedSet?.name || 'Choose a saved scope',
-      },
-      {
-        label: 'Perspective',
-        value: `${selectedMarket?.name || 'All markets'} · ${selectedLocale?.name || 'Default language'}`,
-      },
-      {
-        label: 'Delivery',
-        value:
-          deliveryTarget === 'portal'
-            ? 'Partner Portal'
-            : deliveryTarget === 'direct_channel'
-              ? 'Direct Channel'
-              : 'File Export',
-      },
-    ],
-    [
-      activeProductIds.length,
-      deliveryTarget,
-      hasSelectionSource,
-      selectedLocale?.name,
-      selectedMarket?.name,
-      selectedProfile?.name,
-      selectedSet?.name,
-      selectedSource,
-    ]
-  )
-
-  const primaryActionLabel =
-    deliveryTarget === 'portal'
-      ? 'Publish to Partner Portal'
-      : deliveryTarget === 'direct_channel'
-        ? 'Record Direct Delivery'
-        : 'Save File Export Run'
-
   const fetchProfiles = useCallback(async () => {
     setProfilesLoading(true)
     setProfilesError(null)
@@ -354,12 +301,16 @@ export default function SyndicationClient({
       const response = await fetch(`/api/${tenantSlug}/output-profiles`)
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to load destinations')
+        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to load channels')
       }
       const items = Array.isArray(payload?.data) ? (payload.data as OutputProfileSummary[]) : []
-      setProfiles(items.filter((item: OutputProfileSummary) => item?.is_active !== false))
+      setProfiles(
+        items.filter(
+          (item: OutputProfileSummary) => item?.is_active !== false && item?.profile_type === 'portal'
+        )
+      )
     } catch (error) {
-      setProfilesError(error instanceof Error ? error.message : 'Failed to load destinations')
+      setProfilesError(error instanceof Error ? error.message : 'Failed to load channels')
     } finally {
       setProfilesLoading(false)
     }
@@ -427,6 +378,13 @@ export default function SyndicationClient({
     void fetchPartners()
     void fetchRecentRuns()
   }, [fetchPartners, fetchProductSets, fetchProfiles, fetchRecentRuns])
+
+  // Auto-select the first profile when only one channel exists (portal-only launch)
+  useEffect(() => {
+    if (!selectedProfileId && profiles.length > 0) {
+      setSelectedProfileId(profiles[0].id)
+    }
+  }, [profiles, selectedProfileId])
 
   useEffect(() => {
     if (!hasSelectionSource && selectedSource === 'selection') {
@@ -511,7 +469,7 @@ export default function SyndicationClient({
 
   const requestPreview = useCallback(async (): Promise<PreviewPayload> => {
     if (!selectedProfileId || activeProductIds.length === 0) {
-      throw new Error('Choose a destination and a product source first.')
+      throw new Error('Choose a channel and a product scope first.')
     }
 
     const response = await fetch(`/api/${tenantSlug}/products/export/batch`, {
@@ -527,12 +485,12 @@ export default function SyndicationClient({
     })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok) {
-      throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to prepare syndication preview')
+      throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to prepare readiness preview')
     }
     return payload.data as PreviewPayload
   }, [activeProductIds, selectedLocaleId, selectedMarketId, selectedProfileId, tenantSlug])
 
-  const handlePreviewJson = useCallback(async () => {
+  const handleLoadPreview = useCallback(async () => {
     setPreviewLoading(true)
     setPreviewError(null)
     try {
@@ -545,64 +503,6 @@ export default function SyndicationClient({
     }
   }, [requestPreview])
 
-  const handleExportCsv = useCallback(async () => {
-    if (!selectedProfileId || activeProductIds.length === 0) return
-
-    setExportingCsv(true)
-    setPreviewError(null)
-    try {
-      const response = await fetch(`/api/${tenantSlug}/products/export/batch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profile_id: selectedProfileId,
-          product_ids: activeProductIds,
-          market_id: selectedMarketId,
-          locale_id: selectedLocaleId,
-          format: 'csv',
-        }),
-      })
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}))
-        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to export CSV')
-      }
-
-      const blob = await response.blob()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      const filenameMatch = response.headers
-        .get('content-disposition')
-        ?.match(/filename=\"?([^\";]+)\"?/i)
-      link.download = filenameMatch?.[1] ?? `syndication-${selectedProfile?.code || 'export'}.csv`
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-    } catch (error) {
-      setPreviewError(error instanceof Error ? error.message : 'Failed to export CSV')
-    } finally {
-      setExportingCsv(false)
-    }
-  }, [
-    activeProductIds,
-    selectedLocaleId,
-    selectedMarketId,
-    selectedProfile?.code,
-    selectedProfileId,
-    tenantSlug,
-  ])
-
-  const handleDownloadJson = useCallback(() => {
-    if (!previewPayload) return
-    downloadTextFile({
-      content: JSON.stringify(previewPayload, null, 2),
-      mimeType: 'application/json;charset=utf-8',
-      filename: `syndication-${previewPayload.profile_code}-${Date.now()}.json`,
-    })
-  }, [previewPayload])
-
   const handleCreateSyndicationRun = useCallback(async () => {
     if (!selectedProfileId || activeProductIds.length === 0 || publishing) return
 
@@ -611,7 +511,7 @@ export default function SyndicationClient({
     setPublishResult(null)
 
     try {
-      const preview = previewPayload ?? (deliveryTarget === 'portal' ? await requestPreview() : null)
+      const preview = previewPayload ?? (await requestPreview())
       if (!previewPayload && preview) {
         setPreviewPayload(preview)
       }
@@ -623,11 +523,11 @@ export default function SyndicationClient({
           outputProfileId: selectedProfileId,
           shareSetId: selectedSource === 'saved_scope' ? selectedSetId : null,
           sourceType: selectedSource,
-          deliveryTarget,
+          deliveryTarget: 'portal',
           productIds: activeProductIds,
           marketId: selectedMarketId,
           localeId: selectedLocaleId,
-          partnerOrganizationIds: deliveryTarget === 'portal' ? selectedPartnerIds : [],
+          partnerOrganizationIds: selectedPartnerIds,
           previewSummary: preview
             ? {
                 readyCount: preview.rows.filter((row) => row.missing.length === 0).length,
@@ -647,7 +547,7 @@ export default function SyndicationClient({
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
-        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to create syndication run')
+        throw new Error(typeof payload?.error === 'string' ? payload.error : 'Failed to publish to portal')
       }
       setPublishResult({
         run: payload?.data?.run || null,
@@ -655,14 +555,13 @@ export default function SyndicationClient({
       })
       await fetchRecentRuns()
     } catch (error) {
-      setPreviewError(error instanceof Error ? error.message : 'Failed to create syndication run')
+      setPreviewError(error instanceof Error ? error.message : 'Failed to publish to portal')
     } finally {
       setPublishing(false)
     }
   }, [
     activeProductIds,
     aggregatedMissingFields,
-    deliveryTarget,
     fetchRecentRuns,
     previewPayload,
     publishing,
@@ -678,14 +577,17 @@ export default function SyndicationClient({
     warningCount,
   ])
 
+  const step1Valid = activeProductIds.length > 0 && Boolean(selectedProfileId)
+  const step2Valid = selectedPartnerIds.length > 0
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Syndication"
-        description="Choose where this content is going, confirm what is included, review readiness, and then publish or export the resolved destination view."
+        description="Select a scope and partner audience, then publish to the Partner Portal."
         actions={[
           {
-            label: 'Manage destinations',
+            label: 'Channels',
             href: `/${tenantSlug}/settings/output-profiles`,
             icon: ExternalLink,
             variant: 'outline',
@@ -695,223 +597,170 @@ export default function SyndicationClient({
       />
 
       <PageContentContainer mode="content" padding="page" className="space-y-5">
-        <div className="hidden grid gap-3 md:grid-cols-3">
-          <div className="rounded-lg border border-border/60 bg-card p-4">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">Destinations</div>
-            <div className="mt-2 text-2xl font-semibold text-foreground">{profiles.length}</div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {selectedProfile ? `${selectedProfile.name} selected` : 'Choose a destination to continue.'}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border/60 bg-card p-4">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">Products</div>
-            <div className="mt-2 text-2xl font-semibold text-foreground">{activeProductIds.length}</div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {selectedSource === 'selection'
-                ? 'Using the current product selection.'
-                : selectedSet
-                  ? `Using ${selectedSet.name}.`
-                  : 'Choose a saved scope to begin.'}
-            </p>
-          </div>
-          <div className="rounded-lg border border-border/60 bg-card p-4">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">Required Attributes</div>
-            <div className="mt-2 text-2xl font-semibold text-foreground">
-              {profileDetailLoading ? '…' : requiredAttributeCount}
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {selectedProfile ? `Defined by ${selectedProfile.name}.` : 'Destination requirements load here.'}
-            </p>
-          </div>
+        {/* Step indicator */}
+        <div className="flex items-center rounded-2xl border border-border/60 bg-card px-5 py-4">
+          <StepIndicator current={currentStep} />
         </div>
 
-        <section className="rounded-2xl border border-border/60 bg-card p-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="max-w-2xl space-y-1.5">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Current Run</p>
-              <h2 className="text-lg font-semibold text-foreground">Send one destination view of your structured product record</h2>
+        {/* Step 1: Scope */}
+        {currentStep === 1 && (
+          <section className="rounded-2xl border border-border/60 bg-card p-5">
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Step 1</p>
+              <h2 className="text-lg font-semibold text-foreground">What are you publishing?</h2>
               <p className="text-sm text-muted-foreground">
-                Product Detail is where the record is authored. Syndication resolves that record for a destination, applies the current perspective, and packages what partners or channels should receive.
+                Choose your product scope and confirm the market and language context.
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {runSummaryRows.map((item) => (
-                <div key={item.label} className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{item.label}</div>
-                  <div className="mt-1 text-sm font-medium text-foreground">{item.value}</div>
+
+            <div className="mt-6 space-y-5">
+              {/* Channel — select only when multiple channels exist */}
+              {profiles.length > 1 ? (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium text-foreground">Channel</label>
+                  <Select value={selectedProfileId} onValueChange={setSelectedProfileId} disabled={profilesLoading}>
+                    <SelectTrigger>
+                      <SelectValue placeholder={profilesLoading ? 'Loading…' : 'Select channel'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profiles.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {profilesError ? <p className="text-xs text-destructive">{profilesError}</p> : null}
                 </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.95fr)]">
-          <section className="space-y-5 rounded-2xl border border-border/60 bg-card p-5">
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">1. Where is this going?</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Start with the destination, then confirm the content source and choose what should happen next.
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-foreground">Destination</label>
-              <Select value={selectedProfileId} onValueChange={setSelectedProfileId} disabled={profilesLoading || profiles.length === 0}>
-                <SelectTrigger>
-                  <SelectValue placeholder={profilesLoading ? 'Loading destinations...' : 'Select destination'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {profiles.map((profile) => (
-                    <SelectItem key={profile.id} value={profile.id}>
-                      {profile.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {profilesError ? <p className="text-xs text-destructive">{profilesError}</p> : null}
-              {selectedProfile ? (
-                <p className="text-xs text-muted-foreground">
-                  {prettyProfileType(selectedProfile.profile_type)} - {selectedProfile.code}
-                </p>
               ) : (
-                <p className="text-xs text-muted-foreground">
-                  Choose the destination view first. Everything else on this page follows from that decision.
-                </p>
-              )}
-            </div>
-
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">2. What content is included?</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Use the current product selection for one-off runs, or choose a saved scope for repeat deliveries.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {hasSelectionSource ? (
-                <button
-                  type="button"
-                  onClick={() => setSelectedSource('selection')}
-                  className={`inline-flex h-8 items-center rounded-md border px-3 text-sm transition-colors ${
-                    selectedSource === 'selection'
-                      ? 'border-foreground/20 bg-muted text-foreground'
-                      : 'border-border/70 bg-background text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Current selection
-                </button>
-              ) : null}
-              <button
-                type="button"
-                  onClick={() => setSelectedSource('saved_scope')}
-                  className={`inline-flex h-8 items-center rounded-md border px-3 text-sm transition-colors ${
-                    selectedSource === 'saved_scope'
-                      ? 'border-foreground/20 bg-muted text-foreground'
-                      : 'border-border/70 bg-background text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  Saved scope
-                </button>
-              </div>
-
-            {selectedSource === 'selection' ? (
-              <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
-                      Using {initialProductIds.length} selected product{initialProductIds.length === 1 ? '' : 's'}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Selected in Products. Return to Products if you want to change the selection.
-                    </p>
-                  </div>
-                  <Link
-                    href={`/${tenantSlug}/products`}
-                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    Open products
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </Link>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-foreground">Channel:</span>
+                  <span className="rounded-full border border-border/70 bg-muted/20 px-3 py-1 text-sm text-foreground">
+                    {profilesLoading ? '…' : (selectedProfile?.name ?? 'Portal')}
+                  </span>
                 </div>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-foreground">Saved scope</label>
-                <Select value={selectedSetId} onValueChange={setSelectedSetId} disabled={setsLoading || productSets.length === 0}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={setsLoading ? 'Loading saved scopes…' : 'Select saved scope'} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {productSets.map((productSet) => (
-                      <SelectItem key={productSet.id} value={productSet.id}>
-                        {productSet.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {setsError ? <p className="text-xs text-destructive">{setsError}</p> : null}
-                {selectedSet ? (
-                  <p className="text-xs text-muted-foreground">
-                    {selectedSet.product_count} products, {selectedSet.variant_count} variants in this saved scope
-                  </p>
-                ) : null}
-              </div>
-            )}
+              )}
 
-            <div className="hidden">
-              <label className="text-sm font-medium text-foreground">Destination</label>
-              <Select value={selectedProfileId} onValueChange={setSelectedProfileId} disabled={profilesLoading || profiles.length === 0}>
-                <SelectTrigger>
-                  <SelectValue placeholder={profilesLoading ? 'Loading destinations…' : 'Select destination'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {profiles.map((profile) => (
-                    <SelectItem key={profile.id} value={profile.id}>
-                      {profile.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {profilesError ? <p className="text-xs text-destructive">{profilesError}</p> : null}
-              {selectedProfile ? (
-                <p className="text-xs text-muted-foreground">
-                  {prettyProfileType(selectedProfile.profile_type)} · {selectedProfile.code}
+              {/* Scope source toggle */}
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-foreground">Products</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  {hasSelectionSource ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedSource('selection')}
+                      className={`inline-flex h-8 items-center rounded-md border px-3 text-sm transition-colors ${
+                        selectedSource === 'selection'
+                          ? 'border-foreground/20 bg-muted text-foreground'
+                          : 'border-border/70 bg-background text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      Current selection
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSource('saved_scope')}
+                    className={`inline-flex h-8 items-center rounded-md border px-3 text-sm transition-colors ${
+                      selectedSource === 'saved_scope'
+                        ? 'border-foreground/20 bg-muted text-foreground'
+                        : 'border-border/70 bg-background text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    Saved scope
+                  </button>
+                </div>
+
+                {selectedSource === 'selection' ? (
+                  <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          Using {initialProductIds.length} selected product{initialProductIds.length === 1 ? '' : 's'}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Selected in Products. Return to Products if you want to change the selection.
+                        </p>
+                      </div>
+                      <Link
+                        href={`/${tenantSlug}/products`}
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        Open products
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Select
+                      value={selectedSetId}
+                      onValueChange={setSelectedSetId}
+                      disabled={setsLoading || productSets.length === 0}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder={setsLoading ? 'Loading saved scopes…' : 'Select saved scope'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {productSets.map((productSet) => (
+                          <SelectItem key={productSet.id} value={productSet.id}>
+                            {productSet.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {setsError ? <p className="text-xs text-destructive">{setsError}</p> : null}
+                    {selectedSet ? (
+                      <p className="text-xs text-muted-foreground">
+                        {selectedSet.product_count} products, {selectedSet.variant_count} variants in this saved scope
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+
+              {/* Market + locale context */}
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
+                    Market: {selectedMarket?.name || 'All markets'}
+                  </span>
+                  <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
+                    Language: {selectedLocale?.name || 'Default language'}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Market and language shape the resolved payload. Change them in the market context selector above.
                 </p>
-              ) : null}
-            </div>
+              </div>
 
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">3. What should happen now?</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Choose how this resolved destination view should be delivered.
-              </p>
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  disabled={!step1Valid}
+                  onClick={() => setCurrentStep(2)}
+                  className="gap-2"
+                >
+                  Next
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
+          </section>
+        )}
 
+        {/* Step 2: Partners */}
+        {currentStep === 2 && (
+          <section className="rounded-2xl border border-border/60 bg-card p-5">
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-foreground">Delivery target</label>
-              <Select
-                value={deliveryTarget}
-                onValueChange={(value) => setDeliveryTarget(value as DeliveryTarget)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose delivery target" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="portal">Partner Portal</SelectItem>
-                  <SelectItem value="file_export">File Export</SelectItem>
-                  <SelectItem value="direct_channel">Direct Channel</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                {deliveryTarget === 'portal'
-                  ? 'Create a syndication run and publish the destination view into the Partner Portal.'
-                  : deliveryTarget === 'direct_channel'
-                    ? 'Record a direct destination delivery run for this scope.'
-                    : 'Record a file-delivery syndication run while keeping export actions available below.'}
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Step 2</p>
+              <h2 className="text-lg font-semibold text-foreground">Who sees this?</h2>
+              <p className="text-sm text-muted-foreground">
+                Choose which partner organizations will have access to this portal publish.
               </p>
             </div>
 
-            {deliveryTarget === 'portal' ? (
+            <div className="mt-6 space-y-5">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-foreground">Partner audience</label>
                 <MultiSelect
@@ -924,153 +773,94 @@ export default function SyndicationClient({
                 <p className="text-xs text-muted-foreground">
                   {selectedPartnerIds.length > 0
                     ? `Publishing to ${selectedPartnerNames.join(', ')}${selectedPartnerIds.length > 3 ? ` +${selectedPartnerIds.length - 3}` : ''}.`
-                    : 'Portal publishes become visible only to the selected partner organizations.'}
+                    : 'Select at least one partner to continue. Portal publishes are visible only to the selected partner organizations.'}
                 </p>
               </div>
-            ) : null}
 
-            <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
-                  Market: {selectedMarket?.name || 'All markets'}
-                </span>
-                <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
-                  Language: {selectedLocale?.name || 'Default language'}
-                </span>
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Market and language shape the resolved payload, but they do not create a second product record. Product Detail remains the source of truth.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                disabled={!selectedProfileId || activeProductIds.length === 0 || previewLoading}
-                onClick={() => void handlePreviewJson()}
-              >
-                <FileJson className="h-4 w-4" />
-                {previewLoading ? 'Preparing…' : 'Preview JSON'}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                disabled={!selectedProfileId || activeProductIds.length === 0 || exportingCsv}
-                onClick={() => void handleExportCsv()}
-              >
-                <FileOutput className="h-4 w-4" />
-                {exportingCsv ? 'Exporting…' : 'Export CSV'}
-              </Button>
-              {previewPayload ? (
-                <Button type="button" variant="ghost" className="gap-2" onClick={handleDownloadJson}>
-                  <Send className="h-4 w-4" />
-                  Download JSON
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant={deliveryTarget === 'portal' ? 'default' : 'secondary'}
-                className="gap-2"
-                disabled={
-                  !selectedProfileId ||
-                  activeProductIds.length === 0 ||
-                  publishing ||
-                  (deliveryTarget === 'portal' && selectedPartnerIds.length === 0)
-                }
-                onClick={() => void handleCreateSyndicationRun()}
-              >
-                <Radio className="h-4 w-4" />
-                {publishing
-                  ? 'Running…'
-                  : deliveryTarget === 'portal'
-                    ? 'Publish to Portal'
-                    : deliveryTarget === 'direct_channel'
-                      ? 'Record Direct Delivery'
-                      : 'Save Syndication Run'}
-              </Button>
-            </div>
-
-            {(publishResult?.run || recentRuns.length > 0 || recentPublishes.length > 0) ? (
-              <div className="hidden rounded-lg border border-border/60 bg-background p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Recent syndication activity</p>
-                    <p className="text-xs text-muted-foreground">
-                      Runs record delivery intent across portal, direct channel, and file export workflows.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {recentRuns.slice(0, 2).map((run) => (
-                      <span
-                        key={run.id}
-                        className="rounded-full border border-border/70 bg-muted/20 px-2.5 py-1 text-xs text-muted-foreground"
-                      >
-                        {run.deliveryTarget === 'portal' ? 'Portal' : run.deliveryTarget === 'direct_channel' ? 'Direct' : 'Export'} · {run.productCount}
-                      </span>
-                    ))}
-                    {recentPublishes.slice(0, 1).map((publish) => (
-                      <span
-                        key={publish.id}
-                        className="rounded-full border border-border/70 bg-muted/20 px-2.5 py-1 text-xs text-muted-foreground"
-                      >
-                        Portal publish
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                {publishResult?.run ? (
-                  <p className="mt-3 text-sm text-foreground">
-                    Latest run recorded for this destination. {publishResult.portalPublish ? 'A portal publish was also created for the selected partner audience.' : 'No portal publish was created for this delivery target.'}
+              {partnerOptions.length === 0 && !partnersLoading ? (
+                <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
+                  <p className="text-sm text-muted-foreground">
+                    No partners found. Add partner organizations in Team settings before publishing.
                   </p>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
+                </div>
+              ) : null}
 
-          <section className="space-y-4 rounded-2xl border border-border/60 bg-card p-5">
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">4. Is it ready?</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Review destination requirements and preview the missing fields before delivering anything downstream.
+              <div className="flex items-center justify-between">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCurrentStep(1)}
+                  className="gap-2"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </Button>
+                <Button
+                  type="button"
+                  disabled={!step2Valid}
+                  onClick={() => {
+                    setCurrentStep(3)
+                    if (!previewPayload && !previewLoading) {
+                      void handleLoadPreview()
+                    }
+                  }}
+                  className="gap-2"
+                >
+                  Next
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Step 3: Publish */}
+        {currentStep === 3 && (
+          <section className="rounded-2xl border border-border/60 bg-card p-5">
+            <div className="space-y-1.5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Step 3</p>
+              <h2 className="text-lg font-semibold text-foreground">Ready to publish?</h2>
+              <p className="text-sm text-muted-foreground">
+                Review readiness before publishing to the Partner Portal.
               </p>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-3">
-              <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Ready</div>
-                <div className="mt-1 text-lg font-semibold text-foreground">{readyCount}</div>
-              </div>
-              <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Warnings</div>
-                <div className="mt-1 text-lg font-semibold text-foreground">{warningCount}</div>
-              </div>
-              <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Required</div>
-                <div className="mt-1 text-lg font-semibold text-foreground">
-                  {profileDetailLoading ? '...' : requiredAttributeCount}
+            <div className="mt-6 space-y-5">
+              {/* Readiness summary grid */}
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Ready</div>
+                  <div className="mt-1 text-lg font-semibold text-foreground">
+                    {previewLoading ? '…' : readyCount}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Missing</div>
+                  <div className="mt-1 text-lg font-semibold text-foreground">
+                    {previewLoading ? '…' : previewPayload ? previewPayload.count - readyCount : '–'}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Required</div>
+                  <div className="mt-1 text-lg font-semibold text-foreground">
+                    {profileDetailLoading ? '…' : requiredAttributeCount}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {selectedSource === 'saved_scope' && setItemsLoading ? (
-              <div className="space-y-2">
+              {/* Scope summary */}
+              {selectedSource === 'saved_scope' && setItemsLoading ? (
                 <div className="h-16 animate-pulse rounded-lg bg-muted/60" />
-                <div className="h-16 animate-pulse rounded-lg bg-muted/60" />
-              </div>
-            ) : (
-              <>
+              ) : (
                 <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
                   <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                     <Layers3 className="h-4 w-4 text-muted-foreground" />
-                    Source summary
+                    Scope summary
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">
                     {activeProductIds.length === 0
-                      ? 'No products in scope yet.'
-                      : `${activeProductIds.length} product${activeProductIds.length === 1 ? '' : 's'} currently in scope.`}
+                      ? 'No products in scope.'
+                      : `${activeProductIds.length} product${activeProductIds.length === 1 ? '' : 's'} in scope.`}
                   </p>
                   {previewProductLabels.length > 0 ? (
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1085,118 +875,136 @@ export default function SyndicationClient({
                     </div>
                   ) : null}
                 </div>
+              )}
 
-                <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
-                  <p className="text-sm font-medium text-foreground">Destination requirements</p>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {selectedProfile
-                      ? `${requiredAttributeCount} required attribute${requiredAttributeCount === 1 ? '' : 's'} defined for ${selectedProfile.name}.`
-                      : 'Choose a destination to load requirements.'}
+              {/* Readiness detail — channel requirements + missing fields */}
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-4">
+                <p className="text-sm font-medium text-foreground">Channel requirements</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {selectedProfile
+                    ? `${requiredAttributeCount} required attribute${requiredAttributeCount === 1 ? '' : 's'} defined for ${selectedProfile.name}.`
+                    : 'Channel requirements load here.'}
+                </p>
+                {selectedProfile && requiredFileCount > 0 ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {requiredFileCount} required file slot{requiredFileCount === 1 ? '' : 's'} also drive readiness.
                   </p>
-                  {selectedProfile && requiredFileCount > 0 ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {requiredFileCount} required file slot{requiredFileCount === 1 ? '' : 's'} also drive readiness.
-                    </p>
-                  ) : null}
-                  {mappingModeSummary ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
+                ) : null}
+                {mappingModeSummary ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
+                      Shared {mappingModeSummary.shared}
+                    </span>
+                    <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
+                      Channel {mappingModeSummary.destination}
+                    </span>
+                    {mappingModeSummary.slots > 0 ? (
                       <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
-                        Shared {mappingModeSummary.shared}
+                        Files {mappingModeSummary.slots}
                       </span>
-                      <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
-                        Destination {mappingModeSummary.destination}
-                      </span>
-                      {mappingModeSummary.slots > 0 ? (
-                        <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
-                          Files {mappingModeSummary.slots}
-                        </span>
-                      ) : null}
-                      {mappingModeSummary.constants > 0 ? (
-                        <span className="rounded-full border border-border/70 bg-background px-2.5 py-1 text-xs text-muted-foreground">
-                          Constants {mappingModeSummary.constants}
-                        </span>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {selectedProfile ? (
-                    <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-                      <span>{prettyProfileType(selectedProfile.profile_type)}</span>
-                      <Link href={`/${tenantSlug}/settings/output-profiles/${selectedProfile.id}`} className="inline-flex items-center gap-1 hover:text-foreground">
-                        Open destination
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </Link>
-                    </div>
-                  ) : null}
-                </div>
-
-                {previewPayload ? (
-                  <div className="space-y-3 rounded-lg border border-border/60 bg-background p-4">
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-                        <div className="text-xs uppercase tracking-wide text-muted-foreground">Ready</div>
-                        <div className="mt-1 text-xl font-semibold text-foreground">{readyCount}</div>
-                      </div>
-                      <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-                        <div className="text-xs uppercase tracking-wide text-muted-foreground">Needs attention</div>
-                        <div className="mt-1 text-xl font-semibold text-foreground">
-                          {previewPayload.count - readyCount}
-                        </div>
-                      </div>
-                      <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-                        <div className="text-xs uppercase tracking-wide text-muted-foreground">Warnings</div>
-                        <div className="mt-1 text-xl font-semibold text-foreground">{warningCount}</div>
-                      </div>
-                    </div>
-
-                    {aggregatedMissingFields.length > 0 ? (
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Most-missing attributes
-                        </p>
-                        <div className="mt-2 space-y-2">
-                          {aggregatedMissingFields.map(([fieldCode, count]) => (
-                            <div
-                              key={fieldCode}
-                              className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2 text-sm"
-                            >
-                              <code className="font-mono text-foreground">{fieldCode}</code>
-                              <span className="text-muted-foreground">{count} product{count === 1 ? '' : 's'}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-emerald-700">
-                        This package has no missing required attributes for the selected destination.
-                      </p>
-                    )}
+                    ) : null}
                   </div>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-border/60 bg-muted/10 px-4 py-8 text-center">
-                    <p className="text-sm font-medium text-foreground">Choose a destination and scope to preview the final payload</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Preview the JSON payload to see missing attributes, warnings, and the final structure before publishing or export.
-                    </p>
+                ) : null}
+                {selectedProfile ? (
+                  <div className="mt-3 flex items-center justify-end text-xs text-muted-foreground">
+                    <Link
+                      href={`/${tenantSlug}/settings/output-profiles/${selectedProfile.id}`}
+                      className="inline-flex items-center gap-1 hover:text-foreground"
+                    >
+                      Open channel
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
                   </div>
-                )}
-              </>
-            )}
-
-            {previewError ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {previewError}
+                ) : null}
               </div>
-            ) : null}
-          </section>
-        </div>
 
+              {/* Missing fields from preview */}
+              {previewLoading ? (
+                <div className="space-y-2">
+                  <div className="h-20 animate-pulse rounded-lg bg-muted/60" />
+                  <div className="h-12 animate-pulse rounded-lg bg-muted/60" />
+                </div>
+              ) : previewPayload ? (
+                <div className="space-y-3 rounded-lg border border-border/60 bg-background p-4">
+                  {aggregatedMissingFields.length > 0 ? (
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Most-missing attributes
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        {aggregatedMissingFields.map(([fieldCode, count]) => (
+                          <div
+                            key={fieldCode}
+                            className="flex items-center justify-between rounded-md border border-border/60 px-3 py-2 text-sm"
+                          >
+                            <code className="font-mono text-foreground">{fieldCode}</code>
+                            <span className="text-muted-foreground">{count} product{count === 1 ? '' : 's'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-emerald-700">
+                      All products in this scope meet channel requirements.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
+              {previewError ? (
+                <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                  {previewError}
+                </div>
+              ) : null}
+
+              {publishResult?.run ? (
+                <div className="rounded-lg border border-border/60 bg-background p-4">
+                  <p className="text-sm font-medium text-foreground">Published to Partner Portal</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {publishResult.portalPublish
+                      ? `Portal publish created for ${selectedPartnerNames.join(', ')}${selectedPartnerIds.length > 3 ? ` +${selectedPartnerIds.length - 3}` : ''}.`
+                      : 'Syndication run recorded.'}
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="flex items-center justify-between">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCurrentStep(2)}
+                  className="gap-2"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </Button>
+                <Button
+                  type="button"
+                  className="gap-2"
+                  disabled={
+                    !selectedProfileId ||
+                    activeProductIds.length === 0 ||
+                    publishing ||
+                    selectedPartnerIds.length === 0
+                  }
+                  onClick={() => void handleCreateSyndicationRun()}
+                >
+                  <Radio className="h-4 w-4" />
+                  {publishing ? 'Publishing…' : 'Publish to Partner Portal'}
+                </Button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Recent activity */}
         {(publishResult?.run || recentRuns.length > 0 || recentPublishes.length > 0) ? (
           <section className="rounded-2xl border border-border/60 bg-card p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-sm font-semibold text-foreground">Recent Syndication Activity</h2>
+                <h2 className="text-sm font-semibold text-foreground">Recent Activity</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Runs record delivery intent across portal, direct channel, and file export workflows.
+                  Portal publishes and syndication runs for this account.
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -1205,7 +1013,7 @@ export default function SyndicationClient({
                     key={run.id}
                     className="rounded-full border border-border/70 bg-muted/20 px-2.5 py-1 text-xs text-muted-foreground"
                   >
-                    {run.deliveryTarget === 'portal' ? 'Portal' : run.deliveryTarget === 'direct_channel' ? 'Direct' : 'Export'} · {run.productCount}
+                    Portal · {run.productCount}
                   </span>
                 ))}
                 {recentPublishes.slice(0, 2).map((publish) => (
@@ -1218,30 +1026,6 @@ export default function SyndicationClient({
                 ))}
               </div>
             </div>
-            {publishResult?.run ? (
-              <p className="mt-3 text-sm text-foreground">
-                Latest run recorded for this destination. {publishResult.portalPublish ? 'A portal publish was also created for the selected partner audience.' : 'No portal publish was created for this delivery target.'}
-              </p>
-            ) : null}
-          </section>
-        ) : null}
-
-        {previewPayload ? (
-          <section className="rounded-lg border border-border/60 bg-card p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">JSON preview</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Inspect the generated payload before pushing it to a feed, file export, or partner-facing delivery surface.
-                </p>
-              </div>
-              <div className="rounded-full border border-border/70 bg-muted/20 px-3 py-1 text-xs text-muted-foreground">
-                {previewPayload.count} row{previewPayload.count === 1 ? '' : 's'}
-              </div>
-            </div>
-            <pre className="mt-4 overflow-x-auto rounded-lg border border-border/60 bg-muted/20 p-4 text-xs leading-5 text-foreground">
-              {previewJsonString}
-            </pre>
           </section>
         ) : null}
       </PageContentContainer>

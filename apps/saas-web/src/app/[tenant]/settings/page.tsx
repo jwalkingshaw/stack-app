@@ -11,7 +11,7 @@ export default async function SettingsPage({ params }: SettingsPageProps) {
 
   return (
     <Suspense fallback={
-      <PageSkeleton text="Loading settings..." size="lg" />
+      <PageSkeleton text="Loading settings..." size="lg" variant="settings-page" />
     }>
       <SettingsClient tenantSlug={tenant} />
     </Suspense>

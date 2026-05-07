@@ -11,6 +11,7 @@ export type SettingsPageKey =
   | "localization"
   | "sets"
   | "product-fields"
+  | "product-field-detail"
   | "field-groups"
   | "product-families"
   | "field-group-detail"
@@ -58,12 +59,12 @@ const SETTINGS_WIDTH_MAP: Record<SettingsPageKey, SettingsWidthConfig> = {
   "output-profiles": {
     mode: "form",
     defaultClassName: "space-y-6",
-    helperIntro: "Define the destinations your team syndicates to so readiness is clear before delivery.",
+    helperIntro: "Configure the channels you publish product content to.",
   },
   "output-profile-detail": {
     mode: "form",
     defaultClassName: "space-y-6",
-    helperIntro: "Fine-tune this destination so teams know what must be complete before syndication.",
+    helperIntro: "Add fields and mark which are required — this drives readiness scores before syndication.",
   },
   markets: {
     mode: "form",
@@ -84,6 +85,11 @@ const SETTINGS_WIDTH_MAP: Record<SettingsPageKey, SettingsWidthConfig> = {
     mode: "form",
     defaultClassName: "space-y-6",
     helperIntro: "Manage the fields your team uses to capture product data.",
+  },
+  "product-field-detail": {
+    mode: "form",
+    defaultClassName: "space-y-6",
+    helperIntro: "",
   },
   "field-groups": {
     mode: "form",

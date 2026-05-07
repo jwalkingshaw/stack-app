@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, Save } from 'lucide-react';
+import { Save } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DeleteConfirmDialog } from '@/components/ui/modal-shells';
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SettingsActionsDropdown } from '../settings-actions-dropdown';
 import { SettingsSecondLevelPage } from '../settings-page-content';
+import { SettingsDetailHeader } from '../settings-detail-header';
 import { toMap } from './types';
 import { useMarketsSettingsData } from './use-markets-settings-data';
 
@@ -395,6 +396,14 @@ export default function MarketDetailSettings({ tenantSlug, marketId }: MarketDet
     }
   }, [loadPartners, marketId, tenantSlug]);
 
+  const handleRenameMarket = useCallback((newName: string) => {
+    if (!market) return;
+    void runAction(
+      () => patchMarket(market.id, { name: newName }),
+      'Failed to rename market.'
+    );
+  }, [market, patchMarket, runAction]);
+
   const handleDeleteMarket = useCallback(async () => {
     if (!market || deleteSubmitting) return;
     try {
@@ -413,25 +422,19 @@ export default function MarketDetailSettings({ tenantSlug, marketId }: MarketDet
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading market..." size="lg" />
+        <PageSkeleton text="Loading market..." size="lg" variant="settings-detail" />
       </div>
     );
   }
 
   if (!market) {
     return (
-      <SettingsSecondLevelPage
-        page="markets"
-        backLink={
-          <Link
-            href={`/${tenantSlug}/settings/markets`}
-            className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            <span>Markets</span>
-          </Link>
-        }
-      >
+      <SettingsSecondLevelPage page="markets">
+        <SettingsDetailHeader
+          backHref={`/${tenantSlug}/settings/markets`}
+          backLabel="Markets"
+          title="Market not found"
+        />
         <div className="rounded-md border border-border/60 bg-card p-4 text-sm text-muted-foreground">
           Market not found.
         </div>
@@ -440,67 +443,62 @@ export default function MarketDetailSettings({ tenantSlug, marketId }: MarketDet
   }
 
   return (
-    <SettingsSecondLevelPage
-      page="markets"
-      backLink={
-        <Link
-          href={`/${tenantSlug}/settings/markets`}
-          className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          <span>Markets</span>
-        </Link>
-      }
-    >
+    <SettingsSecondLevelPage page="markets">
       <div className="space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-semibold text-foreground">{market.name}</h2>
-          </div>
-          <div className="flex items-center gap-2">
-            {market.is_default ? <Badge variant="success">Default</Badge> : null}
-            {!market.is_active ? <Badge variant="neutral">Inactive</Badge> : null}
-            <SettingsActionsDropdown
-              label="Actions"
-              disabled={saving || catalogSaving || deleteSubmitting}
-              items={[
-                {
-                  id: 'set-default',
-                  label: 'Set as default',
-                  disabled: market.is_default || saving || catalogSaving || deleteSubmitting,
-                  onSelect: () => {
-                    void runAction(
-                      () => patchMarket(market.id, { is_default: true }),
-                      'Failed to set default market.'
-                    );
+        <SettingsDetailHeader
+          backHref={`/${tenantSlug}/settings/markets`}
+          backLabel="Markets"
+          title={market.name}
+          onRename={handleRenameMarket}
+          meta={[
+            ...(market.is_default ? [{ label: 'Default' }] : []),
+          ]}
+          actions={
+            <div className="flex items-center gap-2">
+              {market.is_default ? <Badge variant="success">Default</Badge> : null}
+              {!market.is_active ? <Badge variant="neutral">Inactive</Badge> : null}
+              <SettingsActionsDropdown
+                label="Actions"
+                disabled={saving || catalogSaving || deleteSubmitting}
+                items={[
+                  {
+                    id: 'set-default',
+                    label: 'Set as default',
+                    disabled: market.is_default || saving || catalogSaving || deleteSubmitting,
+                    onSelect: () => {
+                      void runAction(
+                        () => patchMarket(market.id, { is_default: true }),
+                        'Failed to set default market.'
+                      );
+                    },
                   },
-                },
-                {
-                  id: 'toggle-active',
-                  label: market.is_active ? 'Disable market' : 'Enable market',
-                  disabled: saving || catalogSaving || deleteSubmitting,
-                  onSelect: () => {
-                    void runAction(
-                      () => patchMarket(market.id, { is_active: !market.is_active }),
-                      'Failed to update market status.'
-                    );
+                  {
+                    id: 'toggle-active',
+                    label: market.is_active ? 'Disable market' : 'Enable market',
+                    disabled: saving || catalogSaving || deleteSubmitting,
+                    onSelect: () => {
+                      void runAction(
+                        () => patchMarket(market.id, { is_active: !market.is_active }),
+                        'Failed to update market status.'
+                      );
+                    },
                   },
-                },
-                {
-                  id: 'delete-market',
-                  label: 'Delete market',
-                  separatorBefore: true,
-                  destructive: true,
-                  disabled: !canDeleteMarket || deleteSubmitting,
-                  onSelect: () => {
-                    setDeleteError(null);
-                    setDeleteDialogOpen(true);
+                  {
+                    id: 'delete-market',
+                    label: 'Delete market',
+                    separatorBefore: true,
+                    destructive: true,
+                    disabled: !canDeleteMarket || deleteSubmitting,
+                    onSelect: () => {
+                      setDeleteError(null);
+                      setDeleteDialogOpen(true);
+                    },
                   },
-                },
-              ]}
-            />
-          </div>
-        </div>
+                ]}
+              />
+            </div>
+          }
+        />
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList>

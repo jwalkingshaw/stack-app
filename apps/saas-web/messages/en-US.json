@@ -102,13 +102,13 @@
     "loadingRedirecting": "Redirecting to authentication...",
     "loadingPreparing": "Preparing your workspace...",
     "title": "Welcome back",
-    "subtitle": "Sign in to manage products, assets, and partner distribution.",
+    "subtitle": "Sign in to manage product content, assets, localization, and partner syndication.",
     "actions": {
       "signIn": "Sign in",
       "createFreeAccount": "Create free account",
       "joinAsPartner": "Join as a partner (retailer / distributor)"
     },
-    "helper": "New to Stackcess? Create a free account in under a minute. No credit card required. Retailers and distributors can use one free partner workspace to receive content from all brand partners in one place."
+    "helper": "New to Stackcess? Create a free account to explore a unified PIM and DAM, adapt content for each market with AI, and share approved product content with retailers, distributors, and agencies. No credit card required."
   },
   "Shell": {
     "Header": {
@@ -151,7 +151,7 @@
         "product-fields": "Attributes",
         "markets": "Markets",
         "localization": "Localization",
-        "output-profiles": "Syndication",
+        "output-profiles": "Channels",
         "team": "Team",
         "sets": "Saved Scopes",
         "billing": "Billing"

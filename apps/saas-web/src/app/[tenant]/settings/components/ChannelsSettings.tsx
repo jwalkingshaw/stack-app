@@ -165,7 +165,7 @@ export default function ChannelsSettings({ tenantSlug }: ChannelsSettingsProps) 
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading channels..." size="lg" />
+        <PageSkeleton text="Loading channels..." size="lg" variant="settings-page" />
       </div>
     );
   }

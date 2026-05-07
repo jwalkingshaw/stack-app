@@ -1,8 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { ChevronLeft } from 'lucide-react';
+import { SettingsDetailHeader } from './settings-detail-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -391,30 +390,17 @@ export default function LocalizationLocaleDetail({
     }
   }, [fetchAll, selectedGlossary, tenantSlug]);
 
-  const backLink = (
-    <Link
-      href={`/${tenantSlug}/settings/localization`}
-      className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-    >
-      <ChevronLeft className="h-4 w-4" />
-      Back to Localization
-    </Link>
-  );
-
   return (
-    <SettingsSecondLevelPage page="localization" backLink={backLink}>
+    <SettingsSecondLevelPage page="localization">
+      <SettingsDetailHeader
+        backHref={`/${tenantSlug}/settings/localization`}
+        backLabel="Localization"
+        title={loading ? 'Loading…' : locale ? localeDisplayName(locale) : 'Locale'}
+        meta={locale ? [{ label: locale.code, mono: true }] : undefined}
+      />
       {loading ? (
         <PageSkeleton text="Loading locale setup..." size="lg" />
-      ) : (
-        <div>
-          <h2 className="text-2xl font-semibold text-foreground">
-            {locale ? localeDisplayName(locale) : 'Locale'}
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Configure terminology and adaptation for this locale.
-          </p>
-        </div>
-      )}
+      ) : null}
 
       {error ? (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">

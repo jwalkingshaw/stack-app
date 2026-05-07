@@ -22,7 +22,7 @@ type CreateRunBody = {
   previewSummary?: unknown;
 };
 
-const DELIVERY_TARGETS = new Set<DeliveryTarget>(["portal", "file_export", "direct_channel"]);
+const DELIVERY_TARGETS = new Set<DeliveryTarget>(["portal"]);
 
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -184,57 +184,54 @@ export async function POST(
       createdBy: tenantAccess.userId ?? null,
     });
 
-    let portalPublish = null;
-    if (deliveryTarget === "portal") {
-      const { error: contractGrantError } = await getSupabaseServer()
-        .from("partner_contract_grants")
-        .upsert(
-          partnerOrganizationIds.map((partnerOrganizationId) => ({
-            organization_id: tenantAccess.organization.id,
-            partner_organization_id: partnerOrganizationId,
-            output_profile_id: outputProfileId,
-            access_level: "view",
-            status: "active",
-            metadata: {
-              source: "syndication",
-              delivery_target: "portal",
-              syndication_run_id: run.id,
-            },
-            created_by: tenantAccess.userId ?? null,
-          })),
-          {
-            onConflict: "organization_id,partner_organization_id,output_profile_id",
-            ignoreDuplicates: false,
-          }
-        );
+    const { error: contractGrantError } = await getSupabaseServer()
+      .from("partner_contract_grants")
+      .upsert(
+        partnerOrganizationIds.map((partnerOrganizationId) => ({
+          organization_id: tenantAccess.organization.id,
+          partner_organization_id: partnerOrganizationId,
+          output_profile_id: outputProfileId,
+          access_level: "view",
+          status: "active",
+          metadata: {
+            source: "syndication",
+            delivery_target: "portal",
+            syndication_run_id: run.id,
+          },
+          created_by: tenantAccess.userId ?? null,
+        })),
+        {
+          onConflict: "organization_id,partner_organization_id,output_profile_id",
+          ignoreDuplicates: false,
+        }
+      );
 
-      if (contractGrantError) {
-        console.error("Failed to upsert partner destination grants:", contractGrantError);
-        return NextResponse.json({ error: "Failed to save destination grants." }, { status: 500 });
-      }
-
-      portalPublish = await createPortalPublish({
-        organizationId: tenantAccess.organization.id,
-        syndicationRunId: run.id,
-        outputProfileId,
-        partnerOrganizationIds,
-        marketId,
-        localeId,
-        scopeMetadata: {
-          source_type: sourceType,
-          share_set_id: shareSetId,
-          saved_scope_id: shareSetId,
-          product_count: productIds.length,
-          product_ids: productIds,
-        },
-        readinessSnapshot: previewSummary,
-        metadata: {
-          partner_organization_ids: partnerOrganizationIds,
-          delivery_target: "portal",
-        },
-        createdBy: tenantAccess.userId ?? null,
-      });
+    if (contractGrantError) {
+      console.error("Failed to upsert partner destination grants:", contractGrantError);
+      return NextResponse.json({ error: "Failed to save destination grants." }, { status: 500 });
     }
+
+    const portalPublish = await createPortalPublish({
+      organizationId: tenantAccess.organization.id,
+      syndicationRunId: run.id,
+      outputProfileId,
+      partnerOrganizationIds,
+      marketId,
+      localeId,
+      scopeMetadata: {
+        source_type: sourceType,
+        share_set_id: shareSetId,
+        saved_scope_id: shareSetId,
+        product_count: productIds.length,
+        product_ids: productIds,
+      },
+      readinessSnapshot: previewSummary,
+      metadata: {
+        partner_organization_ids: partnerOrganizationIds,
+        delivery_target: "portal",
+      },
+      createdBy: tenantAccess.userId ?? null,
+    });
 
     return NextResponse.json(
       {

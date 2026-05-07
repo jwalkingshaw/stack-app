@@ -4,9 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SettingsPageContent } from "../settings/components/settings-page-content";
+import { SettingsSecondLevelPage } from "../settings/components/settings-page-content";
+import { SettingsDetailHeader } from "../settings/components/settings-detail-header";
 
 type OutputChannel = {
   id: string;
@@ -265,21 +265,26 @@ export default function PartnerRelationshipClient({
 
   if (loading) {
     return (
-      <SettingsPageContent page="team-partner-detail" className="space-y-4">
+      <SettingsSecondLevelPage page="team-partner-detail">
         <div className="h-10 w-64 animate-pulse rounded bg-muted" />
         <div className="h-28 animate-pulse rounded-lg border border-border bg-muted/40" />
         <div className="h-36 animate-pulse rounded-lg border border-border bg-muted/40" />
-      </SettingsPageContent>
+      </SettingsSecondLevelPage>
     );
   }
 
   if (!data) {
     return (
-      <SettingsPageContent page="team-partner-detail" className="space-y-4">
+      <SettingsSecondLevelPage page="team-partner-detail">
+        <SettingsDetailHeader
+          backHref={`/${tenantSlug}/settings/team/partners`}
+          backLabel="Partners"
+          title="Partner"
+        />
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error || "Partner relationship was not found."}
         </div>
-      </SettingsPageContent>
+      </SettingsSecondLevelPage>
     );
   }
 
@@ -288,24 +293,17 @@ export default function PartnerRelationshipClient({
   const statusBadgeClass = getStatusBadgeClass(relationship.status);
 
   return (
-    <SettingsPageContent page="team-partner-detail">
-      <PageHeader
-        title={partner.name}
-        description={partner.slug ? `/${partner.slug}` : undefined}
+    <SettingsSecondLevelPage page="team-partner-detail">
+      <SettingsDetailHeader
         backHref={`/${tenantSlug}/settings/team/partners`}
-        backLabel="Back to Partners"
+        backLabel="Partners"
+        title={partner.name}
+        meta={partner.slug ? [{ label: partner.slug, mono: true }] : undefined}
       />
 
       <div className="rounded-lg border border-border bg-background p-4">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-sm text-muted-foreground">
-              Review Portal access, assigned Product Scopes, assigned Brand Library Scopes, and recent partner-facing publishes.
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Shared brand content stays view-only for this partner workspace, even if the partner later upgrades their own workspace.
-            </p>
-          </div>
           <span className={`rounded border px-2 py-1 text-xs font-medium ${statusBadgeClass}`}>
             status: {relationship.status}
           </span>
@@ -648,6 +646,6 @@ export default function PartnerRelationshipClient({
           {error}
         </div>
       ) : null}
-    </SettingsPageContent>
+    </SettingsSecondLevelPage>
   );
 }

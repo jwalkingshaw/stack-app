@@ -10,7 +10,7 @@ export default async function LocalizationActivityPage({ params }: LocalizationA
   const { tenant } = await params;
 
   return (
-    <Suspense fallback={<PageSkeleton text="Loading translation activity..." size="lg" />}>
+    <Suspense fallback={<PageSkeleton text="Loading translation activity..." size="lg" variant="settings-detail" />}>
       <LocalizationSettings tenantSlug={tenant} focusOverride="jobs" />
     </Suspense>
   );

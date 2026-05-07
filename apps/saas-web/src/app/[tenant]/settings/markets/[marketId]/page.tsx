@@ -12,7 +12,7 @@ export default async function MarketDetailPage({ params }: MarketDetailPageProps
   return (
     <Suspense
       fallback={
-        <PageSkeleton text="Loading market..." size="lg" />
+        <PageSkeleton text="Loading market..." size="lg" variant="settings-detail" />
       }
     >
       <MarketDetailSettings tenantSlug={tenant} marketId={marketId} />

@@ -87,7 +87,7 @@ export default async function SettingsLayout({ children, params }: SettingsLayou
                 <div className="w-full">
                   <main className="min-h-full">
                     <Suspense fallback={
-                      <PageSkeleton text="Loading..." size="lg" />
+                      <PageSkeleton text="Loading..." size="lg" variant="settings-page" />
                     }>
                       {children}
                     </Suspense>

@@ -11,7 +11,7 @@ export default async function MarketsPage({ params }: MarketsPageProps) {
 
   return (
     <Suspense fallback={
-      <PageSkeleton text="Loading markets..." size="lg" />
+      <PageSkeleton text="Loading markets..." size="lg" variant="settings-page" />
     }>
       <MarketsSettings tenantSlug={tenant} />
     </Suspense>

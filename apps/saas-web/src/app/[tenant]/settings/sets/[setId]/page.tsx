@@ -10,7 +10,7 @@ export default async function SetDetailPage({ params }: SetDetailPageProps) {
   const { tenant, setId } = await params;
 
   return (
-    <Suspense fallback={<PageSkeleton text="Loading set..." size="lg" />}>
+    <Suspense fallback={<PageSkeleton text="Loading set..." size="lg" variant="settings-detail" />}>
       <SetDetailSettings tenantSlug={tenant} setId={setId} />
     </Suspense>
   );

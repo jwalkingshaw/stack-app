@@ -11,7 +11,7 @@ export default async function ProductFamiliesPage({ params }: ProductFamiliesPag
 
   return (
     <Suspense fallback={
-      <PageSkeleton text="Loading product families..." size="lg" />
+      <PageSkeleton text="Loading product families..." size="lg" variant="settings-page" />
     }>
       <ProductFamiliesSettings tenantSlug={tenant} />
     </Suspense>

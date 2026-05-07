@@ -153,7 +153,7 @@ export default function LocalizationDefaultsSettings({ tenantSlug }: Localizatio
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading localization defaults..." size="lg" />
+        <PageSkeleton text="Loading localization defaults..." size="lg" variant="settings-detail" />
       </div>
     );
   }

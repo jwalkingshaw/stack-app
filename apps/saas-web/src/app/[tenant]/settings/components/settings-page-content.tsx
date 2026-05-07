@@ -95,7 +95,7 @@ export function SettingsContentBoundary({
 
 interface SettingsSecondLevelPageProps {
   page: SettingsPageKey;
-  backLink: ReactNode;
+  backLink?: ReactNode;
   children: ReactNode;
   className?: string;
 }
@@ -106,12 +106,13 @@ export function SettingsSecondLevelPage({
   children,
   className,
 }: SettingsSecondLevelPageProps) {
+  const config = getSettingsWidthConfig(page);
   return (
-    <SettingsPageContent page={page} padding="page">
+    <PageContentContainer mode={config.mode} padding="page" className={config.defaultClassName}>
       <div className={cn("space-y-5", className)}>
         {backLink ? <div>{backLink}</div> : null}
         {children}
       </div>
-    </SettingsPageContent>
+    </PageContentContainer>
   );
 }

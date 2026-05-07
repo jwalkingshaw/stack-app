@@ -428,6 +428,12 @@ p {
 .ag-layout-auto-height .ag-center-cols-container {
   min-height: 0 !important;
 }
+/* Empty PIM grids still need some body height so the no-rows overlay does not collapse. */
+.pim-grid-empty.ag-layout-auto-height .ag-center-cols-clipper,
+.pim-grid-empty.ag-layout-auto-height .ag-center-cols-viewport,
+.pim-grid-empty.ag-layout-auto-height .ag-center-cols-container {
+  min-height: 9rem !important;
+}
 /* AG Grid fills the container — ensure the root wrapper doesn't escape the border-radius clip */
 .ag-root-wrapper {
   border-radius: inherit;

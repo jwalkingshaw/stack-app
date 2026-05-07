@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/page-header";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { SettingsPageContent } from "../settings/components/settings-page-content";
+import { SettingsSecondLevelPage } from "../settings/components/settings-page-content";
+import { SettingsDetailHeader } from "../settings/components/settings-detail-header";
 
 type EditableRole = "admin" | "editor" | "viewer";
 type MemberRole = "owner" | EditableRole;
@@ -137,25 +136,25 @@ export default function TeamMemberClient({
 
   if (loading) {
     return (
-      <SettingsPageContent page="team-member-detail" className="space-y-4">
+      <SettingsSecondLevelPage page="team-member-detail">
         <div className="h-10 w-64 animate-pulse rounded bg-muted" />
         <div className="h-32 animate-pulse rounded-lg border border-border bg-muted/40" />
-      </SettingsPageContent>
+      </SettingsSecondLevelPage>
     );
   }
 
   if (!data) {
     return (
-      <SettingsPageContent page="team-member-detail" className="space-y-4">
-        <PageHeader
-          title="Team Member"
+      <SettingsSecondLevelPage page="team-member-detail">
+        <SettingsDetailHeader
           backHref={`/${tenantSlug}/settings/team`}
-          backLabel="Back to Team"
+          backLabel="Team"
+          title="Team Member"
         />
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error || "Team member not found."}
         </div>
-      </SettingsPageContent>
+      </SettingsSecondLevelPage>
     );
   }
 
@@ -163,12 +162,25 @@ export default function TeamMemberClient({
   const role = member.role;
 
   return (
-    <SettingsPageContent page="team-member-detail">
-      <PageHeader
-        title={member.email}
-        description="Manage role and workspace access for this member."
+    <SettingsSecondLevelPage page="team-member-detail">
+      <SettingsDetailHeader
         backHref={`/${tenantSlug}/settings/team`}
-        backLabel="Back to Team"
+        backLabel="Team"
+        title={member.email}
+        meta={[{ label: ROLE_LABELS[role] }]}
+        actions={
+          data.capabilities.can_remove ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+              onClick={() => void handleRemoveMember()}
+              disabled={removing}
+            >
+              {removing ? 'Removing...' : 'Remove member'}
+            </Button>
+          ) : null
+        }
       />
       <div className="rounded-lg border border-border bg-background p-4">
         <div className="flex items-center justify-between gap-4">
@@ -231,36 +243,11 @@ export default function TeamMemberClient({
         )}
       </div>
 
-      <div className="rounded-lg border border-red-200 bg-red-50 p-4 space-y-3">
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-4 w-4 text-red-600" />
-          <div>
-            <p className="text-sm font-medium text-red-700">Remove Team Member</p>
-            <p className="text-xs text-red-700/80">
-              Removing a member revokes workspace access immediately.
-            </p>
-          </div>
-        </div>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => void handleRemoveMember()}
-          disabled={!data.capabilities.can_remove || removing}
-        >
-          {removing ? "Removing..." : "Remove Member"}
-        </Button>
-        {!data.capabilities.can_remove && (
-          <p className="text-xs text-red-700/80">
-            You cannot remove this member with your current permissions.
-          </p>
-        )}
-      </div>
-
       {error && (
         <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       )}
-    </SettingsPageContent>
+    </SettingsSecondLevelPage>
   );
 }

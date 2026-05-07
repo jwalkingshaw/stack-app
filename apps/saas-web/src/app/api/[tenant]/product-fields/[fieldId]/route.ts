@@ -371,6 +371,33 @@ function buildUpdatePayload(
   return { payload, hasValues: Object.keys(payload).length > 0 };
 }
 
+// GET /api/[tenant]/product-fields/[fieldId]
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ tenant: string; fieldId: string }> }
+) {
+  try {
+    const { tenant, fieldId } = await params;
+    const contextResult = await resolveContext(request, tenant);
+    if (!contextResult.ok) {
+      return contextResult.response;
+    }
+
+    const fieldResult = await fetchProductFieldById(contextResult.targetOrganizationId, fieldId);
+
+    if (fieldResult.error?.code === "PGRST116" || !fieldResult.data) {
+      return NextResponse.json({ error: "Attribute not found." }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      data: normalizeProductFieldRow(fieldResult.data as unknown as ProductFieldRow),
+    });
+  } catch (error) {
+    console.error("Error in product field GET:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
 // PUT /api/[tenant]/product-fields/[fieldId]
 export async function PUT(
   request: NextRequest,

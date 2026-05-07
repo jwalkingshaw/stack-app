@@ -668,186 +668,11 @@ const WALMART_RULES: TemplateFieldRule[] = [
 ];
 
 // ─── Generic Portal ───────────────────────────────────────────────────────────
-// For branded retailer portals, distributor portals, and custom B2B portals.
-// Covers the full marketing asset set a retail or wholesale partner needs:
-// content fields, product imagery, label artwork, sell sheet, spec sheet,
-// and references to existing system fields (COA, certifications).
-//
-// NOTE: coa_documents and certifications are NOT created by this template —
-// they already exist as system fields in the Compliance group. The field_rules
-// below reference them by code (loose coupling). The scaffold endpoint will
-// skip creating them and only add the rules.
-
-const PORTAL_FIELDS: TemplateFieldSeed[] = [
-  // ── Content fields ──────────────────────────────────────────────────────────
-  {
-    code: 'portal_title',
-    name: 'Portal Title',
-    description: 'Product title as it should appear in the partner portal. May differ from the storefront or marketplace title.',
-    field_type: 'text',
-    is_localizable: true,
-    sort_order: 10,
-    validation_rules: { max_length: 255 },
-    options: { max_length: 255 },
-  },
-  {
-    code: 'portal_short_description',
-    name: 'Short Description',
-    description: 'One or two sentence product summary for portal listing pages and sell sheets.',
-    field_type: 'text',
-    is_localizable: true,
-    sort_order: 20,
-    validation_rules: { max_length: 500 },
-    options: { max_length: 500 },
-  },
-  {
-    code: 'portal_description',
-    name: 'Description',
-    description: 'Full product description for the partner portal product detail page.',
-    field_type: 'textarea',
-    is_localizable: true,
-    sort_order: 30,
-    validation_rules: {},
-    options: { rows: 8 },
-  },
-  {
-    code: 'portal_brand',
-    name: 'Brand',
-    description: 'Brand name for the portal product record.',
-    field_type: 'text',
-    is_localizable: false,
-    sort_order: 40,
-    validation_rules: { max_length: 100 },
-    options: { max_length: 100 },
-  },
-  {
-    code: 'portal_category',
-    name: 'Category',
-    description: "Product category as used by this partner's portal (e.g. \"Sports Nutrition > Protein\").",
-    field_type: 'text',
-    is_localizable: false,
-    sort_order: 50,
-    validation_rules: { max_length: 255 },
-    options: { max_length: 255 },
-  },
-  {
-    code: 'portal_upc',
-    name: 'UPC / Barcode',
-    description: 'UPC or GTIN required by this portal for inventory matching.',
-    field_type: 'text',
-    is_localizable: false,
-    sort_order: 60,
-    validation_rules: { max_length: 14 },
-    options: { max_length: 14 },
-  },
-  // ── Product imagery ─────────────────────────────────────────────────────────
-  {
-    code: 'portal_hero_image',
-    name: 'Hero Image',
-    description: 'Primary product image for the portal. Lifestyle or clean product shot. No background restriction.',
-    field_type: 'file',
-    is_localizable: false,
-    sort_order: 70,
-    validation_rules: {},
-    options: { asset_type: 'product_image', allow_multiple: false, allowed_mime_groups: ['image'] },
-  },
-  {
-    code: 'portal_lifestyle_image_1',
-    name: 'Lifestyle Image 1',
-    description: 'Lifestyle or in-use product image for the portal gallery.',
-    field_type: 'file',
-    is_localizable: false,
-    sort_order: 80,
-    validation_rules: {},
-    options: { asset_type: 'product_image', allow_multiple: false, allowed_mime_groups: ['image'] },
-  },
-  {
-    code: 'portal_lifestyle_image_2',
-    name: 'Lifestyle Image 2',
-    description: 'Second lifestyle image.',
-    field_type: 'file',
-    is_localizable: false,
-    sort_order: 90,
-    validation_rules: {},
-    options: { asset_type: 'product_image', allow_multiple: false, allowed_mime_groups: ['image'] },
-  },
-  {
-    code: 'portal_lifestyle_image_3',
-    name: 'Lifestyle Image 3',
-    description: 'Third lifestyle image.',
-    field_type: 'file',
-    is_localizable: false,
-    sort_order: 100,
-    validation_rules: {},
-    options: { asset_type: 'product_image', allow_multiple: false, allowed_mime_groups: ['image'] },
-  },
-  // ── Label artwork ───────────────────────────────────────────────────────────
-  {
-    code: 'portal_label_front',
-    name: 'Label — Front',
-    description: 'Front panel label artwork. High-res PNG, PDF, or AI file. Used by retailers for print-ready or digital display.',
-    field_type: 'file',
-    is_localizable: false,
-    sort_order: 110,
-    validation_rules: {},
-    options: { asset_type: 'label_artwork', allow_multiple: false, allowed_mime_groups: ['image', 'pdf'] },
-  },
-  {
-    code: 'portal_label_back',
-    name: 'Label — Back',
-    description: 'Back panel label artwork showing Supplement Facts, ingredients, directions, and warnings.',
-    field_type: 'file',
-    is_localizable: false,
-    sort_order: 120,
-    validation_rules: {},
-    options: { asset_type: 'label_artwork', allow_multiple: false, allowed_mime_groups: ['image', 'pdf'] },
-  },
-  // ── Marketing documents ─────────────────────────────────────────────────────
-  {
-    code: 'portal_sell_sheet',
-    name: 'Sell Sheet',
-    description: 'One or two-page product sell sheet PDF. Used by partners for internal sales and buyer presentations.',
-    field_type: 'file',
-    is_localizable: true,
-    sort_order: 130,
-    validation_rules: {},
-    options: { asset_type: 'sell_sheet', allow_multiple: false, allowed_mime_groups: ['pdf'] },
-  },
-  {
-    code: 'portal_spec_sheet',
-    name: 'Product Spec Sheet',
-    description: 'Technical product specification document — dimensions, weight, case pack, storage requirements.',
-    field_type: 'file',
-    is_localizable: false,
-    sort_order: 140,
-    validation_rules: {},
-    options: { asset_type: 'spec_sheet', allow_multiple: false, allowed_mime_groups: ['pdf', 'document'] },
-  },
-];
-
-const PORTAL_RULES: TemplateFieldRule[] = [
-  // Content
-  { field_code: 'portal_title',              is_required: true,  max_length: 255, notes: null },
-  { field_code: 'portal_short_description',  is_required: true,  max_length: 500, notes: null },
-  { field_code: 'portal_description',        is_required: false, max_length: null,notes: null },
-  { field_code: 'portal_brand',              is_required: false, max_length: 100, notes: null },
-  { field_code: 'portal_category',           is_required: false, max_length: 255, notes: null },
-  { field_code: 'portal_upc',                is_required: false, max_length: 14,  notes: 'GTIN-12 or GTIN-14.' },
-  // Product imagery
-  { field_code: 'portal_hero_image',          is_required: true,  max_length: null,notes: null },
-  { field_code: 'portal_lifestyle_image_1',   is_required: false, max_length: null,notes: null },
-  { field_code: 'portal_lifestyle_image_2',   is_required: false, max_length: null,notes: null },
-  { field_code: 'portal_lifestyle_image_3',   is_required: false, max_length: null,notes: null },
-  // Label artwork
-  { field_code: 'portal_label_front',         is_required: false, max_length: null,notes: 'Required by some retail portals for planogram and print use.' },
-  { field_code: 'portal_label_back',          is_required: false, max_length: null,notes: null },
-  // Marketing documents
-  { field_code: 'portal_sell_sheet',          is_required: false, max_length: null,notes: null },
-  { field_code: 'portal_spec_sheet',          is_required: false, max_length: null,notes: null },
-  // Cross-group system fields — NOT created by scaffold, already exist in Compliance group
-  { field_code: 'coa_documents',              is_required: false, max_length: null,notes: 'COA from the Compliance group. Required by some retail partners.' },
-  { field_code: 'certifications',             is_required: false, max_length: null,notes: 'NSF, Informed Sport, etc. from the Compliance group.' },
-];
+// The portal channel is a blank slate — each brand configures their own
+// attribute mappings pointing to their own base product fields.
+// No portal_* override fields are scaffolded. The portal resolves whatever
+// base fields (with locale variations) the brand has created.
+// Configure mappings via Settings → Channels → Portal.
 
 // ─── Mercado Libre ────────────────────────────────────────────────────────────
 // Sources: MercadoLibre Items API v1 + Listing Content Policy (2024).
@@ -1075,22 +900,6 @@ const SHOPIFY_ATTRIBUTE_MAPPINGS: TemplateAttributeMapping[] = [
   { attribute_code: 'image_5', attribute_label: 'Image 5', source_mode: 'destination_field', source_field_code: 'shopify_image_5', resolution_rule: 'destination_only', is_required: false, max_length: null, notes: null, sort_order: 130 },
 ];
 
-const PORTAL_ATTRIBUTE_MAPPINGS: TemplateAttributeMapping[] = [
-  { attribute_code: 'title', attribute_label: 'Title', source_mode: 'shared_field', source_field_code: 'title', override_field_code: 'portal_title', resolution_rule: 'destination_override_then_base', is_required: true, max_length: 255, notes: null, sort_order: 10 },
-  { attribute_code: 'short_description', attribute_label: 'Short Description', source_mode: 'shared_field', source_field_code: 'short_description', override_field_code: 'portal_short_description', resolution_rule: 'destination_override_then_base', is_required: true, max_length: 500, notes: null, sort_order: 20 },
-  { attribute_code: 'description', attribute_label: 'Description', source_mode: 'shared_field', source_field_code: 'long_description', override_field_code: 'portal_description', resolution_rule: 'destination_override_then_base', is_required: false, max_length: null, notes: null, sort_order: 30 },
-  { attribute_code: 'brand', attribute_label: 'Brand', source_mode: 'shared_field', source_field_code: 'brand_name', override_field_code: 'portal_brand', resolution_rule: 'destination_override_then_base', is_required: false, max_length: 100, notes: null, sort_order: 40 },
-  { attribute_code: 'category', attribute_label: 'Category', source_mode: 'destination_field', source_field_code: 'portal_category', resolution_rule: 'destination_only', is_required: false, max_length: 255, notes: null, sort_order: 50 },
-  { attribute_code: 'upc', attribute_label: 'UPC / Barcode', source_mode: 'shared_field', source_field_code: 'barcode', override_field_code: 'portal_upc', resolution_rule: 'destination_override_then_base', is_required: false, max_length: 14, notes: null, sort_order: 60 },
-  { attribute_code: 'hero_image', attribute_label: 'Hero Image', source_mode: 'destination_field', source_field_code: 'portal_hero_image', resolution_rule: 'destination_only', is_required: true, max_length: null, notes: null, sort_order: 70 },
-  { attribute_code: 'lifestyle_image_1', attribute_label: 'Lifestyle Image 1', source_mode: 'destination_field', source_field_code: 'portal_lifestyle_image_1', resolution_rule: 'destination_only', is_required: false, max_length: null, notes: null, sort_order: 80 },
-  { attribute_code: 'lifestyle_image_2', attribute_label: 'Lifestyle Image 2', source_mode: 'destination_field', source_field_code: 'portal_lifestyle_image_2', resolution_rule: 'destination_only', is_required: false, max_length: null, notes: null, sort_order: 90 },
-  { attribute_code: 'lifestyle_image_3', attribute_label: 'Lifestyle Image 3', source_mode: 'destination_field', source_field_code: 'portal_lifestyle_image_3', resolution_rule: 'destination_only', is_required: false, max_length: null, notes: null, sort_order: 100 },
-  { attribute_code: 'label_front', attribute_label: 'Label Front', source_mode: 'destination_field', source_field_code: 'portal_label_front', resolution_rule: 'destination_only', is_required: false, max_length: null, notes: null, sort_order: 110 },
-  { attribute_code: 'label_back', attribute_label: 'Label Back', source_mode: 'destination_field', source_field_code: 'portal_label_back', resolution_rule: 'destination_only', is_required: false, max_length: null, notes: null, sort_order: 120 },
-  { attribute_code: 'sell_sheet', attribute_label: 'Sell Sheet', source_mode: 'destination_field', source_field_code: 'portal_sell_sheet', resolution_rule: 'destination_only', is_required: false, max_length: null, notes: null, sort_order: 130 },
-  { attribute_code: 'spec_sheet', attribute_label: 'Spec Sheet', source_mode: 'destination_field', source_field_code: 'portal_spec_sheet', resolution_rule: 'destination_only', is_required: false, max_length: null, notes: null, sort_order: 140 },
-];
 
 const MERCADO_LIBRE_ATTRIBUTE_MAPPINGS: TemplateAttributeMapping[] = [
   { attribute_code: 'title', attribute_label: 'Title', source_mode: 'shared_field', source_field_code: 'title', override_field_code: 'meli_title', resolution_rule: 'destination_override_then_base', is_required: true, max_length: 60, notes: null, sort_order: 10 },
@@ -1109,23 +918,6 @@ const MERCADO_LIBRE_ATTRIBUTE_MAPPINGS: TemplateAttributeMapping[] = [
   { attribute_code: 'image_6', attribute_label: 'Image 6', source_mode: 'destination_field', source_field_code: 'meli_image_6', resolution_rule: 'destination_only', is_required: false, max_length: null, notes: null, sort_order: 140 },
 ];
 
-const EXCEL_RULES: TemplateFieldRule[] = [
-  { field_code: 'title', is_required: true, max_length: 255, notes: 'Exported as the main title column.' },
-  { field_code: 'sku', is_required: true, max_length: 255, notes: 'Exported as SKU.' },
-  { field_code: 'scin', is_required: true, max_length: 255, notes: 'Exported as SCIN.' },
-  { field_code: 'barcode', is_required: false, max_length: 255, notes: 'Exported when present.' },
-  { field_code: 'brand_name', is_required: false, max_length: 255, notes: 'Exported when present.' },
-  { field_code: 'long_description', is_required: false, max_length: null, notes: 'Plain-text product description.' },
-];
-
-const EXCEL_ATTRIBUTE_MAPPINGS: TemplateAttributeMapping[] = [
-  { attribute_code: 'title', attribute_label: 'Title', source_mode: 'shared_field', source_field_code: 'title', resolution_rule: 'base_only', is_required: true, max_length: 255, notes: null, sort_order: 10 },
-  { attribute_code: 'sku', attribute_label: 'SKU', source_mode: 'shared_field', source_field_code: 'sku', resolution_rule: 'base_only', is_required: true, max_length: 255, notes: null, sort_order: 20 },
-  { attribute_code: 'scin', attribute_label: 'SCIN', source_mode: 'shared_field', source_field_code: 'scin', resolution_rule: 'base_only', is_required: true, max_length: 255, notes: null, sort_order: 30 },
-  { attribute_code: 'barcode', attribute_label: 'Barcode', source_mode: 'shared_field', source_field_code: 'barcode', resolution_rule: 'base_only', is_required: false, max_length: 255, notes: null, sort_order: 40 },
-  { attribute_code: 'brand', attribute_label: 'Brand', source_mode: 'shared_field', source_field_code: 'brand_name', resolution_rule: 'base_only', is_required: false, max_length: 255, notes: null, sort_order: 50 },
-  { attribute_code: 'description', attribute_label: 'Description', source_mode: 'shared_field', source_field_code: 'long_description', resolution_rule: 'base_only', is_required: false, max_length: null, notes: null, sort_order: 60 },
-];
 
 // ─── Template registry ────────────────────────────────────────────────────────
 
@@ -1142,7 +934,8 @@ export const OUTPUT_PROFILE_TEMPLATES: OutputProfileTemplate[] = [
     field_rules: AMAZON_RULES,
     attribute_mappings: AMAZON_ATTRIBUTE_MAPPINGS,
   }, */
-  {
+  // Commented out for Portal-only launch. Re-enable when multi-channel is activated.
+  /* {
     key: 'ecommerce-catalog',
     name: 'Ecommerce Catalog',
     description: 'Shopify storefront fields — HTML description, vendor, product type, SEO title and meta description.',
@@ -1153,7 +946,7 @@ export const OUTPUT_PROFILE_TEMPLATES: OutputProfileTemplate[] = [
     fields: SHOPIFY_FIELDS,
     field_rules: SHOPIFY_RULES,
     attribute_mappings: SHOPIFY_ATTRIBUTE_MAPPINGS,
-  },
+  }, */
   /* {
     key: 'walmart',
     name: 'Walmart',
@@ -1167,15 +960,15 @@ export const OUTPUT_PROFILE_TEMPLATES: OutputProfileTemplate[] = [
   }, */
   {
     key: 'portal-catalog',
-    name: 'Portal Catalog',
-    description: 'Core fields for a branded retailer or distributor portal — title, short description, full description, brand, and category.',
+    name: 'Portal',
+    description: 'Partner-facing portal. Configure attribute mappings for your own product fields.',
     profile_type: 'portal',
     group_code: 'partner_portal',
     group_name: 'Partner Portal',
-    group_description: 'Retail and distributor portal content — title, descriptions, brand, and category.',
-    fields: PORTAL_FIELDS,
-    field_rules: PORTAL_RULES,
-    attribute_mappings: PORTAL_ATTRIBUTE_MAPPINGS,
+    group_description: 'Partner portal channel — add attribute mappings for your field structure.',
+    fields: [],
+    field_rules: [],
+    attribute_mappings: [],
   },
   /* {
     key: 'mercado_libre',
@@ -1189,7 +982,8 @@ export const OUTPUT_PROFILE_TEMPLATES: OutputProfileTemplate[] = [
     field_rules: MERCADO_LIBRE_RULES,
     attribute_mappings: MERCADO_LIBRE_ATTRIBUTE_MAPPINGS,
   }, */
-  {
+  // Commented out for Portal-only launch. Re-enable when multi-channel is activated.
+  /* {
     key: 'excel_export',
     name: 'Excel Export',
     description: 'Reusable Excel export columns for bulk review, partner handoff, and downstream editing.',
@@ -1200,7 +994,7 @@ export const OUTPUT_PROFILE_TEMPLATES: OutputProfileTemplate[] = [
     fields: [],
     field_rules: EXCEL_RULES,
     attribute_mappings: EXCEL_ATTRIBUTE_MAPPINGS,
-  },
+  }, */
 ];
 
 const OUTPUT_PROFILE_TEMPLATE_ALIASES: Record<string, string> = {

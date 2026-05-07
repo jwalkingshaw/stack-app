@@ -3650,7 +3650,7 @@ export function ProductDetailClient({
   if (loading) {
     return (
       <div className="h-full">
-        <PageSkeleton text="Loading product..." size="lg" />
+        <PageSkeleton text="Loading product..." size="lg" variant="product-detail" />
       </div>
     );
   }

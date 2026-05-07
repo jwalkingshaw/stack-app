@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ChevronLeft, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,7 @@ import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SettingsSecondLevelPage } from '../settings-page-content';
+import { SettingsDetailHeader } from '../settings-detail-header';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -214,6 +215,22 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
   // ---------------------------------------------------------------------------
   // Fetch functions
   // ---------------------------------------------------------------------------
+
+  const handleRenameSet = useCallback(async (newName: string) => {
+    if (!setInfo) return;
+    const prev = setInfo.name;
+    setSetInfo((s) => s ? { ...s, name: newName } : s);
+    try {
+      const res = await fetch(`/api/${tenantSlug}/sharing/sets/${setId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName }),
+      });
+      if (!res.ok) setSetInfo((s) => s ? { ...s, name: prev } : s);
+    } catch {
+      setSetInfo((s) => s ? { ...s, name: prev } : s);
+    }
+  }, [setInfo, setId, tenantSlug]);
 
   const fetchGrants = useCallback(async () => {
     setGrantsLoading(true);
@@ -681,24 +698,19 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
   if (pageLoading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading..." size="lg" />
+        <PageSkeleton text="Loading..." size="lg" variant="settings-detail" />
       </div>
     );
   }
 
-  const backLink = (
-    <Link
-      href={`/${tenantSlug}/settings/sets`}
-      className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-    >
-      <ChevronLeft className="h-4 w-4" />
-      <span>Scopes</span>
-    </Link>
-  );
-
   if (!setInfo) {
     return (
-      <SettingsSecondLevelPage page="sets" backLink={backLink}>
+      <SettingsSecondLevelPage page="sets">
+        <SettingsDetailHeader
+          backHref={`/${tenantSlug}/settings/sets`}
+          backLabel="Scopes"
+          title="Scope not found"
+        />
         <div className="rounded-md border border-border/60 bg-card p-4 text-sm text-muted-foreground">
           {pageError || grantsError || 'Saved scope not found.'}
         </div>
@@ -709,24 +721,21 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
   const isAsset = setInfo.module_key === 'assets';
 
   return (
-    <SettingsSecondLevelPage page="sets" backLink={backLink}>
+    <SettingsSecondLevelPage page="sets">
       <div className="space-y-6">
 
-        {/* Header */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <h2 className="text-2xl font-semibold text-foreground truncate">{setInfo.name}</h2>
-              <Badge variant={isAsset ? 'info' : 'purple'}>
-                {isAsset ? 'Brand Library Scope' : 'Product Scope'}
-              </Badge>
-            </div>
-                        <Link href={`/${tenantSlug}/syndication`}>
-              <Button variant="outline" size="sm" className="shrink-0">
-                Open Publishing
-              </Button>
+        <SettingsDetailHeader
+          backHref={`/${tenantSlug}/settings/sets`}
+          backLabel="Scopes"
+          title={setInfo.name}
+          onRename={handleRenameSet}
+          meta={[{ label: isAsset ? 'Brand Library Scope' : 'Product Scope' }]}
+          actions={
+            <Link href={`/${tenantSlug}/syndication`}>
+              <Button variant="outline" size="sm">Open Publishing</Button>
             </Link>
-          </div>
+          }
+        />
 
                     {/* Saved scope workflow guidance - product saved scopes only */}
           {!isAsset && (
@@ -761,7 +770,6 @@ export default function SetDetailSettings({ tenantSlug, setId }: SetDetailSettin
               </p>
             </div>
           )}
-        </div>
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'items' | 'grants' | 'rules' | 'readiness')}>

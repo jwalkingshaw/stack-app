@@ -1,6 +1,7 @@
 'use client';
 
-import { MoreVertical } from 'lucide-react';
+import { Fragment } from 'react';
+import { MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -40,18 +41,17 @@ export function SettingsActionsDropdown({
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
-          size="sm"
-          className={cn('gap-1.5', className)}
+          size="icon"
+          className={cn(className)}
           disabled={disabled || !hasItems}
           aria-label={label}
         >
-          <MoreVertical className="h-4 w-4" />
-          {label}
+          <MoreHorizontal className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         {items.map((item) => (
-          <div key={item.id}>
+          <Fragment key={item.id}>
             {item.separatorBefore ? <DropdownMenuSeparator /> : null}
             <DropdownMenuItem
               disabled={item.disabled}
@@ -68,7 +68,7 @@ export function SettingsActionsDropdown({
             >
               {item.label}
             </DropdownMenuItem>
-          </div>
+          </Fragment>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>

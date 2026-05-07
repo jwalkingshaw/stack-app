@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageContentContainer } from '@/components/ui/page-content-container';
 
 interface LoadingSkeletonProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -63,11 +64,13 @@ export function LoadingTextSkeleton({
 export function PageSkeleton({
   text = 'Loading...',
   size = 'lg',
-  className
+  className,
+  variant = 'default',
 }: {
   text?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
+  variant?: 'default' | 'settings-page' | 'settings-detail' | 'product-detail' | 'variant-detail';
 }) {
   const rowCountBySize = {
     sm: 3,
@@ -77,6 +80,114 @@ export function PageSkeleton({
   };
 
   const rowCount = rowCountBySize[size];
+
+  if (variant === 'settings-page') {
+    return (
+      <div role="status" aria-live="polite">
+        <PageContentContainer
+          mode="content"
+          padding="page"
+          className={cn('space-y-6', className)}
+        >
+          <div className="space-y-3">
+            <Skeleton className="h-8 w-40 max-w-[60%]" />
+            <Skeleton className="h-4 w-[32rem] max-w-[90%]" />
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Skeleton className="h-10 w-64 max-w-full rounded-md" />
+            <Skeleton className="h-10 w-28 rounded-md" />
+          </div>
+          <div className="rounded-xl border border-border/50 bg-card p-4">
+            <div className="space-y-3">
+              {Array.from({ length: Math.max(3, rowCount - 1) }).map((_, index) => (
+                <Skeleton
+                  key={index}
+                  className={cn('h-14 rounded-lg', index === 0 ? 'w-full' : 'w-[96%]')}
+                />
+              ))}
+            </div>
+          </div>
+        </PageContentContainer>
+        <span className="sr-only">{text}</span>
+      </div>
+    );
+  }
+
+  if (variant === 'settings-detail') {
+    return (
+      <div role="status" aria-live="polite">
+        <PageContentContainer
+          mode="content"
+          padding="page"
+          className={cn('space-y-5', className)}
+        >
+          <Skeleton className="h-4 w-32 max-w-[50%]" />
+          <div className="space-y-3">
+            <Skeleton className="h-8 w-56 max-w-[70%]" />
+            <Skeleton className="h-4 w-[28rem] max-w-[85%]" />
+          </div>
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border/50 bg-card p-5">
+              <div className="space-y-3">
+                <Skeleton className="h-5 w-32" />
+                <Skeleton className="h-10 w-full rounded-md" />
+                <Skeleton className="h-10 w-[88%] rounded-md" />
+              </div>
+            </div>
+            <div className="rounded-xl border border-border/50 bg-card p-5">
+              <div className="space-y-3">
+                <Skeleton className="h-5 w-40" />
+                <Skeleton className="h-24 w-full rounded-xl" />
+              </div>
+            </div>
+          </div>
+        </PageContentContainer>
+        <span className="sr-only">{text}</span>
+      </div>
+    );
+  }
+
+  if (variant === 'product-detail' || variant === 'variant-detail') {
+    return (
+      <div className={cn('h-full min-h-0 overflow-hidden bg-background', className)} role="status" aria-live="polite">
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="border-b border-border/60 bg-background px-6 py-4">
+            <div className="flex items-center gap-3">
+              <Skeleton className="h-10 w-10 rounded-md" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-6 w-56 max-w-[45%]" />
+                <Skeleton className="h-4 w-40 max-w-[30%]" />
+              </div>
+              <Skeleton className="h-9 w-24 rounded-md" />
+            </div>
+          </div>
+          <div className="border-b border-border/60 bg-background px-6 py-3">
+            <div className="flex flex-wrap gap-2">
+              {Array.from({ length: variant === 'product-detail' ? 6 : 5 }).map((_, index) => (
+                <Skeleton key={index} className="h-8 w-24 rounded-full" />
+              ))}
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <PageContentContainer mode="form" padding="page" className="space-y-6">
+              <div className="space-y-2">
+                <Skeleton className="h-7 w-52 max-w-[55%]" />
+                <Skeleton className="h-4 w-72 max-w-[75%]" />
+              </div>
+              <div className="rounded-xl border border-border/50 bg-card p-5">
+                <div className="space-y-4">
+                  <Skeleton className="h-10 w-full rounded-md" />
+                  <Skeleton className="h-10 w-full rounded-md" />
+                  <Skeleton className="h-24 w-full rounded-xl" />
+                </div>
+              </div>
+            </PageContentContainer>
+          </div>
+        </div>
+        <span className="sr-only">{text}</span>
+      </div>
+    );
+  }
 
   return (
     <div className={cn('w-full space-y-6 py-6', className)} role="status" aria-live="polite">

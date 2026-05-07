@@ -460,7 +460,7 @@ export default function LocalizationGlossariesSettings({ tenantSlug }: Localizat
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading glossaries..." size="lg" />
+        <PageSkeleton text="Loading glossaries..." size="lg" variant="settings-detail" />
       </div>
     );
   }

@@ -1041,7 +1041,7 @@ export default function LocalizationSettings({
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading localization..." size="lg" />
+        <PageSkeleton text="Loading localization..." size="lg" variant="settings-detail" />
       </div>
     );
   }

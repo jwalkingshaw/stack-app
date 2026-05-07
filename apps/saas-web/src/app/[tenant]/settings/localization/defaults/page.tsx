@@ -10,7 +10,7 @@ export default async function LocalizationDefaultsPage({ params }: LocalizationD
   const { tenant } = await params;
 
   return (
-    <Suspense fallback={<PageSkeleton text="Loading localization defaults..." size="lg" />}>
+    <Suspense fallback={<PageSkeleton text="Loading localization defaults..." size="lg" variant="settings-detail" />}>
       <LocalizationSettings tenantSlug={tenant} />
     </Suspense>
   );

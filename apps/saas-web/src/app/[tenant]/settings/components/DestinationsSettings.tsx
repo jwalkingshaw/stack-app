@@ -297,7 +297,7 @@ export default function DestinationsSettings({ tenantSlug }: DestinationsSetting
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading destinations..." size="lg" />
+        <PageSkeleton text="Loading destinations..." size="lg" variant="settings-page" />
       </div>
     );
   }

@@ -1428,7 +1428,7 @@ export function VariantDetailClient({
 
   // Show loading state
   if (loading) {
-    return <PageSkeleton />;
+    return <PageSkeleton text="Loading variant..." variant="variant-detail" />;
   }
 
   // Show error state

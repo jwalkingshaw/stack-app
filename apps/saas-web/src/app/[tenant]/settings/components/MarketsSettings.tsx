@@ -84,7 +84,7 @@ export default function MarketsSettings({ tenantSlug }: MarketsSettingsProps) {
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading markets..." size="lg" />
+        <PageSkeleton text="Loading markets..." size="lg" variant="settings-page" />
       </div>
     );
   }

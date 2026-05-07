@@ -11,7 +11,7 @@ export default async function SetsPage({ params }: SetsPageProps) {
 
   return (
     <Suspense
-      fallback={<PageSkeleton text="Loading sets..." size="lg" />}
+      fallback={<PageSkeleton text="Loading sets..." size="lg" variant="settings-page" />}
     >
       <SetsSettings tenantSlug={tenant} />
     </Suspense>

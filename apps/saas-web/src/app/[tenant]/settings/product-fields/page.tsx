@@ -11,7 +11,7 @@ export default async function ProductFieldsPage({ params }: ProductFieldsPagePro
 
   return (
     <Suspense fallback={
-      <PageSkeleton text="Loading attributes..." size="lg" />
+      <PageSkeleton text="Loading attributes..." size="lg" variant="settings-page" />
     }>
       <ProductFieldsSettings tenantSlug={tenant} />
     </Suspense>

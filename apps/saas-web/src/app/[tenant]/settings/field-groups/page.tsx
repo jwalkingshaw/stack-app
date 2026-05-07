@@ -11,7 +11,7 @@ export default async function FieldGroupsPage({ params }: FieldGroupsPageProps) 
 
   return (
     <Suspense fallback={
-      <PageSkeleton text="Loading groups..." size="lg" />
+      <PageSkeleton text="Loading groups..." size="lg" variant="settings-page" />
     }>
       <FieldGroupsSettings tenantSlug={tenant} />
     </Suspense>

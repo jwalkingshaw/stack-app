@@ -1,7 +1,6 @@
 'use client';
 
 import { use, useState, useEffect, useCallback, useRef } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -9,13 +8,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { DeleteConfirmDialog } from '@/components/ui/modal-shells';
 import { Switch } from '@/components/ui/switch';
 import { ItemList } from '@/components/ui/item-list';
-import {
-  ChevronLeft,
-  Plus,
-  Trash2
-} from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { SettingsSecondLevelPage } from '../../components/settings-page-content';
+import { SettingsDetailHeader } from '../../components/settings-detail-header';
 
 interface FieldGroup {
   id: string;
@@ -127,8 +123,6 @@ export default function ProductFamilyDetailPage({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [activeDraft, setActiveDraft] = useState(true);
-  const [activeSaving, setActiveSaving] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, string[]>>(new Map());
   const [, setSaveStatus] = useState<'saved' | 'saving' | 'pending'>('saved');
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -341,7 +335,6 @@ export default function ProductFamilyDetailPage({
         is_active: result.data.is_active !== false,
       };
       setFamily(normalizedFamily);
-      setActiveDraft(normalizedFamily.is_active);
       return normalizedFamily;
     } catch (err) {
       console.error('Error fetching family:', err);
@@ -663,44 +656,48 @@ export default function ProductFamilyDetailPage({
     }
   };
 
-  const handleSaveFamilyStatus = async () => {
+  const putFamily = async (patch: Partial<ProductFamily>, rollback: () => void) => {
     if (!family?.id) return;
     try {
-      setActiveSaving(true);
-      setError(null);
-
-      const response = await fetch(`/api/${tenant}/product-families/${family.id}`, {
+      const res = await fetch(`/api/${tenant}/product-families/${family.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_active: activeDraft })
+        body: JSON.stringify({ name: family.name, description: family.description, is_active: family.is_active, ...patch }),
       });
-      const result = await parseJsonSafely<DataResponse<ProductFamily>>(response);
-
-      if (!response.ok || !result?.data) {
-        throw new Error(result?.error || 'Failed to update model status');
-      }
-
-      const nextFamily = {
-        ...result.data,
-        is_active: result.data.is_active !== false,
-      };
-      setFamily(nextFamily);
-      setActiveDraft(nextFamily.is_active);
-      if (typeof window !== 'undefined') {
+      if (!res.ok) rollback();
+      else if ('is_active' in patch && typeof window !== 'undefined') {
         window.dispatchEvent(new Event('market-context:refresh'));
       }
-    } catch (statusError) {
-      console.error('Error updating product model status:', statusError);
-      setError(statusError instanceof Error ? statusError.message : 'Failed to update model status');
-    } finally {
-      setActiveSaving(false);
+    } catch {
+      rollback();
     }
+  };
+
+  const handleRenameFamily = async (newName: string) => {
+    if (!family) return;
+    const prev = family.name;
+    setFamily((f) => f ? { ...f, name: newName } : f);
+    await putFamily({ name: newName }, () => setFamily((f) => f ? { ...f, name: prev } : f));
+  };
+
+  const handleEditFamilyDescription = async (newDescription: string) => {
+    if (!family) return;
+    const prev = family.description;
+    setFamily((f) => f ? { ...f, description: newDescription } : f);
+    await putFamily({ description: newDescription }, () => setFamily((f) => f ? { ...f, description: prev } : f));
+  };
+
+  const handleToggleActive = async (checked: boolean) => {
+    if (!family) return;
+    const prev = family.is_active;
+    setFamily((f) => f ? { ...f, is_active: checked } : f);
+    await putFamily({ is_active: checked }, () => setFamily((f) => f ? { ...f, is_active: prev } : f));
   };
 
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading family..." size="lg" />
+        <PageSkeleton text="Loading family..." size="lg" variant="settings-detail" />
       </div>
     );
   }
@@ -723,64 +720,40 @@ export default function ProductFamilyDetailPage({
   }
 
   const hasFamilyAttributes = familyAttributes.length > 0;
-  const isStatusDirty = activeDraft !== (family.is_active !== false);
 
   return (
     <>
-      <SettingsSecondLevelPage
-        page="product-family-detail"
-        backLink={
-          <Link
-            href={`/${tenant}/settings/product-models`}
-            className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            <span>Product Models</span>
-          </Link>
-        }
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-foreground">{family.name}</h2>
-            {family.description ? (
-              <p className="mt-1 text-sm text-muted-foreground">{family.description}</p>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 rounded-md border border-border/60 px-3 py-2">
-              <span className="text-sm text-muted-foreground">Active</span>
+      <SettingsSecondLevelPage page="product-family-detail">
+        <SettingsDetailHeader
+          backHref={`/${tenant}/settings/product-models`}
+          backLabel="Product Models"
+          title={family.name}
+          onRename={handleRenameFamily}
+          description={family.description}
+          onEditDescription={handleEditFamilyDescription}
+          descriptionPlaceholder="Add a description..."
+          meta={[{ label: family.is_active ? 'Active' : 'Inactive' }]}
+          actions={
+            <div className="flex items-center gap-2">
               <Switch
-                checked={activeDraft}
-                onCheckedChange={(checked) => setActiveDraft(Boolean(checked))}
-                disabled={activeSaving}
+                checked={family.is_active}
+                onCheckedChange={(checked) => void handleToggleActive(checked)}
               />
+              <Button
+                variant="outline"
+                className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                onClick={() => {
+                  setDeleteError(null);
+                  setShowDeleteDialog(true);
+                }}
+              >
+                Delete model
+              </Button>
             </div>
-            <Button
-              variant="outline"
-              disabled={!isStatusDirty || activeSaving}
-              onClick={() => void handleSaveFamilyStatus()}
-            >
-              {activeSaving ? 'Saving...' : 'Save'}
-            </Button>
-            <Button
-              variant="outline"
-              className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
-              onClick={() => {
-                setDeleteError(null);
-                setShowDeleteDialog(true);
-              }}
-            >
-              Delete model
-            </Button>
-          </div>
-        </div>
+          }
+        />
         <section id="groups-section" className="space-y-3">
-          <div>
-            <h3 className="text-lg font-medium">Groups & Attribute Visibility</h3>
-            <p className="text-sm text-muted-foreground">
-              Assign groups to this family and control which attributes are visible.
-            </p>
-          </div>
+          <h3 className="text-lg font-medium">Groups & Attribute Visibility</h3>
 
           <div className="overflow-hidden rounded-lg border border-gray-200">
             <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
@@ -882,12 +855,7 @@ export default function ProductFamilyDetailPage({
         </section>
 
         <section className="space-y-3">
-          <div>
-            <h3 className="text-lg font-medium">Variant Axes</h3>
-            <p className="text-sm text-muted-foreground">
-              Select the attributes that define variant combinations for this product model.
-            </p>
-          </div>
+          <h3 className="text-lg font-medium">Variant Axes</h3>
 
           {!hasFamilyAttributes && (
             <div className="rounded-lg border border-border/60 bg-muted/30 p-4 text-sm text-muted-foreground">

@@ -102,13 +102,13 @@
     "loadingRedirecting": "Redirigiendo a autenticacion...",
     "loadingPreparing": "Preparando tu espacio...",
     "title": "Bienvenido de nuevo",
-    "subtitle": "Inicia sesion para gestionar productos, activos y distribucion con partners.",
+    "subtitle": "Inicia sesion para gestionar contenido de producto, activos, localizacion y distribucion a partners.",
     "actions": {
       "signIn": "Iniciar sesion",
       "createFreeAccount": "Crear cuenta gratis",
       "joinAsPartner": "Unirse como partner (retailer / distribuidor)"
     },
-    "helper": "Nuevo en Stackcess? Crea una cuenta gratis en menos de un minuto. No se requiere tarjeta. Retailers y distribuidores pueden usar un espacio partner gratis para recibir contenido de todas sus marcas en un solo lugar."
+    "helper": "Nuevo en Stackcess? Crea una cuenta gratis para explorar un PIM y DAM unificados, adaptar contenido para cada mercado con IA y compartir contenido aprobado con retailers, distribuidores y agencias. No se requiere tarjeta."
   },
   "Shell": {
     "Header": {

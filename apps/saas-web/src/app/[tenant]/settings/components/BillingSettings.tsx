@@ -245,7 +245,7 @@ export default function BillingSettings({ tenantSlug, source, planIntent, checko
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading billing..." size="lg" />
+        <PageSkeleton text="Loading billing..." size="lg" variant="settings-page" />
       </div>
     );
   }

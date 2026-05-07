@@ -43,7 +43,15 @@ export async function PATCH(
 
     const updates: Record<string, unknown> = {};
 
-    // output_profile_id / destination_profile_id � validate if provided (not null)
+    if ("name" in body) {
+      const nextName = typeof body.name === "string" ? body.name.trim() : "";
+      if (!nextName) {
+        return NextResponse.json({ error: "Scope name cannot be empty." }, { status: 400 });
+      }
+      updates.name = nextName;
+    }
+
+    // output_profile_id / destination_profile_id� validate if provided (not null)
     if ("output_profile_id" in body || "destination_profile_id" in body) {
       const profileId = body.output_profile_id ?? body.destination_profile_id;
       if (profileId === null || profileId === "") {

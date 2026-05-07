@@ -1,260 +1,397 @@
-# Billing Policy V1 Spec
+# Billing Policy V1 Source of Truth
 
-Status: Draft for review  
-Last updated: 2026-02-26  
-Owner: Product + Engineering
+Status: Reviewed against code on 2026-05-04  
+Owner: Product + Engineering  
+Purpose: document the billing limits the app actually enforces today, and the gaps between runtime enforcement and the database billing catalog.
 
-## 1) Goals
-- Keep pricing accessible for supplement and health/wellbeing brands.
-- Protect gross margin with hard caps on high-cost usage.
-- Support partner organizations that can be invited by many brands.
-- Keep authorization/billing coherent: invite permissions and billing limits must both pass.
+## 1) Executive Summary
 
-## 1.1) Current build status
-- Billing foundation tables are in place (`billing_plans`, `billing_addons`, subscriptions, daily usage, monthly usage snapshots, billing events).
-- Billing webhook receipt table is in place for durable idempotency (`billing_webhook_receipts`).
-- Product create/update/status and variant bulk operations enforce active SKU caps.
-- Invite create enforces:
-  - internal seat cap (`team_member`),
-  - external partner invite cap (`partner`).
-- Invite accept now re-checks internal seat cap before activating team membership.
-- Brand orgs can send `team_member` and `partner` invites.
-- Partner orgs can send `team_member` invites for their own workspace, but cannot send `partner` invites.
-- Partner invite acceptance supports three onboarding outcomes:
-  - auto-link when invitee has exactly one active partner workspace,
-  - explicit workspace selection when invitee has multiple partner workspaces,
-  - create-new partner workspace onboarding when invitee has none (or chooses to create new).
-- Self-serve partner signup is supported via onboarding (`/onboarding?type=partner&create=1`) and can convert to paid plan without changing workspace identity.
-- Kinde billing webhook endpoint implemented at `/api/webhooks/kinde/billing`.
-- Local fallback subscription update endpoint persists subscription + billing audit events when provider setup is pending.
+The app currently has two billing catalogs:
 
-## 2) Plan Catalog (Locked)
-### Free (Sandbox)
-- Price: $0 / month
-- Ideal for: Product discovery
-- 10 active SKUs
-- 2 GB storage
-- 4 GB monthly delivery bandwidth
-- 1 internal user
-- 2 external partner invites
-- DeepL usage not included
-- Max file upload size: 50MB per file
-- Public share links: disabled (authenticated org access required)
+1. Runtime enforcement catalog in `apps/saas-web/src/lib/billing-policy.ts`
+2. Seeded database catalog in `billing_plans` and `billing_addons` migrations
 
-### Starter
-- Price: $49 / month
-- Ideal for: Single-brand founders
-- 50 active SKUs
-- 15 GB storage
-- 25 GB monthly delivery bandwidth
-- 2 internal users
-- 10 external partner invites
-- 750,000 DeepL characters / month (combined translate + write)
+These are not the same.
 
-### Growth
-- Price: $129 / month
-- Ideal for: Established teams
-- 500 active SKUs
-- 100 GB storage
-- 200 GB monthly delivery bandwidth
-- 8 internal users
-- 100 external partner invites
-- 3,000,000 DeepL characters / month (combined translate + write)
+The runtime catalog is the current source of truth for app behavior because all active limit checks resolve limits from `BILLING_PLAN_CATALOG` and `ADDON_DELTAS` in code, not from `billing_plans` or `billing_addons`.
 
-### Scale
-- Price: $299 / month
-- Ideal for: Global brands and retailers
-- 2,500 active SKUs
-- 500 GB storage
-- 1 TB monthly delivery bandwidth
-- Unlimited internal users
-- Unlimited external partner invites
-- 12,000,000 DeepL characters / month (combined translate + write)
+The database catalog is partially in place, but it is not currently used by the app to enforce plan limits.
 
-### Enterprise
-- Custom contract
+## 2) Source-of-Truth Precedence
 
+Until the app is changed, billing truth should be read in this order:
 
-## 3) Commercial Rules (Locked)
-- Billing model: per organization subscription (not per user subscription).
-- Caps: hard caps (no usage overage billing in V1).
-- Trial/onboarding: free sandbox tier plus optional 14-day paid-plan trial.
-- Annual billing: not offered at launch.
-- Add-ons: prorated when purchased mid-cycle; removal applies end of cycle by default.
-- Partner conversion: invited partner access is free, but partner org can convert to paid plan for own workspace features.
+1. `apps/saas-web/src/lib/billing-policy.ts`
+   - Effective plan limits
+   - Effective add-on increments
+   - Feature flags tied to plans
+2. Enforcement routes and metering helpers
+   - What is actually blocked
+   - What is actually counted
+3. Database migrations
+   - Intended billing schema and seeded catalog
+   - Not authoritative for enforcement today
 
-## 4) Meter Definitions (Authoritative)
-Track and bill separately:
-- `active_sku_count`
-- `storage_gb`
-- `delivery_bandwidth_gb`
-- `internal_user_count`
-- `partner_invite_count`
-- `deepl_total_char_count`
+## 3) Current Findings
 
-### 4.1 active_sku_count
-- Count only products where `type IN ('variant', 'standalone')`.
-- Do not count `parent` products.
-- Included statuses: `Draft`, `Enrichment`, `Review`, `Active`.
-- Excluded statuses: `Discontinued`, `Archived`.
-- Billing measurement: monthly peak active SKU count (or daily max rolled up monthly).
+### 3.1 Runtime catalog is authoritative today
 
-### 4.2 discontinued SKU policy
-- `Discontinued` SKUs are excluded from active count for 12 months from discontinuation timestamp.
-- After 12 months, discontinued records move to a low-cost archive meter in V2, or count against a total-record guardrail in V1.
-- Any reactivation from `Discontinued` back to active statuses immediately re-enters `active_sku_count`.
+`getOrganizationBillingLimits()` resolves the org plan from `organization_subscriptions`, but it does not read `billing_plans`. It applies limits from the hardcoded runtime catalog and add-on constants.
 
-### 4.3 total SKU guardrail (anti-gaming)
-- Add non-billable but enforceable guardrail: `total_sku_count` across `variant + standalone` all statuses.
-- Suggested default cap: `3x` active SKU entitlement.
+### 3.2 SQL catalog and runtime catalog drift
 
-### 4.4 storage_gb
-- Derived from `organizations.storage_used` (bytes to GB conversion).
-- Includes current assets and version history storage.
-- Hard cap behavior: block uploads and version creates when cap would be exceeded.
+The SQL seed and runtime catalog disagree on monthly prices:
 
-### 4.5 delivery_bandwidth_gb
-- Sum outbound asset bytes in billing month:
-  - authenticated download endpoints,
-  - public/share-link downloads,
-  - asset previews/derivative delivery where externally served.
-- Hard cap behavior:
-  - block new external downloads/share-link deliveries,
-  - keep admin/settings/billing access available for remediation.
+- `Starter`: runtime `$59`, SQL `$49`
+- `Growth`: runtime `$149`, SQL `$129`
+- `Scale`: runtime `$349`, SQL `$299`
 
-### 4.6 internal_user_count
-- Count active organization members for the subscriber org.
-- Suggested counted statuses: `active`.
-- Hard cap behavior: block new internal member invites/acceptance once at cap.
+All other reviewed hard caps for SKU/storage/delivery/internal users/partner invites/DeepL match between runtime and SQL.
 
-### 4.7 partner_invite_count
-- Brand-side meter only.
-- Count partner access units owned by the brand org.
-- A partner invited to multiple brands consumes 1 unit in each brand independently.
-- No cross-brand invite credit sharing.
+### 3.3 Runtime-only limits exist
 
-### 4.8 deepl_total_char_count
-- Combined monthly cap for DeepL Translate + DeepL Write usage.
-- Source of truth usage values:
-  - `organization_usage_monthly_snapshots.translation_chars`
-  - `organization_usage_monthly_snapshots.write_chars`
-- Enforcement uses `translation_chars + write_chars` against plan limit.
-- Free plan limit is `0` (feature unavailable in sandbox).
+The following limits or plan flags are enforced in runtime code but are not represented in the seeded SQL plan catalog:
 
-## 5) Multi-Brand Partner Rules (Critical)
-- A partner organization can have relationships with many brands.
-- Billing ownership for external access always remains with the brand granting access.
-- If Brand A and Brand B both invite Partner X, each brand uses its own invite capacity.
-- If Partner X invites downstream external users for Brand A content:
-  - action must be allowed by Brand A permissions,
-  - consumption is charged to Brand A invite capacity.
+- `agentRunsCount`
+- `maxUploadBytes`
+- `publicShareLinksEnabled`
 
-## 6) Invite and Permission Integration (Required in this build)
-Invite/permission authorization and billing limits are separate gates. Both must pass.
+### 3.4 Agent metering is incomplete at schema level
 
-### 6.0 Kinde billing permission sync
-- App role remains the source of truth in Supabase.
-- Billing portal access requires Kinde org permission `org:write:billing`.
-- On membership assignment:
-  - `owner` and `admin` should be synced to Kinde billing-admin role.
-  - `editor`, `viewer`, and `partner` should not hold billing-admin role.
-- Sync is organization-scoped and idempotent.
+The runtime code reads and writes `ai_agent_runs_count` on:
 
-### 6.1 Gate order
-1. Authorization gate:
-   - user has permission to invite/manage access for the brand.
-2. Billing gate:
-   - brand has remaining `partner_invite_count` capacity.
-3. Domain gate:
-   - invitation type and target org rules are valid.
+- `organization_usage_daily`
+- `organization_usage_monthly_snapshots`
 
-Org-type rule:
-- Brand organization:
-  - can invite internal team members,
-  - can invite partner organizations.
-- Partner organization:
-  - can invite internal team members only (for its own workspace),
-  - cannot create partner invitations.
+No reviewed migration adds those columns. That means agent billing exists in runtime code, but the database foundation for it is not present in the reviewed migration set.
 
-### 6.2 Counting invite consumption
-- Count invite usage by brand organization with dedup logic:
-  - unique by `(brand_org_id, external_identity, invitation_type='partner')`.
-- `external_identity` priority:
-  1. accepted `kinde_user_id` when available,
-  2. otherwise normalized email for pending records.
-- Count statuses:
-  - include `accepted`,
-  - include `pending` (not expired/revoked/declined),
-  - exclude `revoked`, `declined`, `expired`.
+### 3.5 Some spec items were aspirational, not implemented
 
-### 6.3 Reclaiming invite units
-- Reclaim capacity when:
-  - invite is revoked before acceptance,
-  - active partner relationship is revoked and no active external identities remain for that brand.
+The following ideas existed in the prior draft but are not fully enforced in reviewed code:
 
-## 7) Partner Free Access vs Paid Conversion
-- Invited partner access remains free and scoped to each brand's grants.
-- Partner paid subscription unlocks partner org's own create/manage limits and modules.
-- Partner conversion to paid keeps the same partner workspace tenancy, so invited brand content and partner-owned content remain visible in one workspace.
-- If partner paid plan is canceled:
-  - partner loses paid capabilities in their own org,
-  - partner still retains free invited access to brand content where relationships/grants remain active.
+- `total_sku_count` guardrail is defined in schema, but not enforced in reviewed product routes
+- 12-month discontinued archive behavior is not enforced
+- delivery bandwidth enforcement is conditional, not always-on
+- database `billing_plans` / `billing_addons` are not used as live entitlement sources
 
-## 8) Enforcement Points (API/App)
-- Product create/variant create/reactivation:
-  - enforce `active_sku_count` and total guardrail.
-- Asset upload/version create:
-  - enforce `storage_gb` cap.
-- Team/partner invite create + accept:
-  - enforce internal seat and external invite caps.
-- Asset delivery endpoints:
-  - enforce `delivery_bandwidth_gb` cap for external delivery.
+## 4) Effective Plan Catalog
 
-## 9) Data Model Additions (V1)
-Add billing source-of-truth tables:
+This section is the current source of truth for app behavior.
+
+### 4.1 Free (Sandbox)
+
+- Price: `$0/month`
+- Active SKUs: `10`
+- Storage: `2 GB`
+- Monthly delivery bandwidth: `4 GB`
+- Internal users: `1`
+- Partner invites: `2`
+- DeepL chars/month: `0`
+- Agent runs/month: `0`
+- Max upload size: `25 MB`
+- Public share links: `disabled`
+
+### 4.2 Starter
+
+- Price: `$59/month`
+- Active SKUs: `50`
+- Storage: `15 GB`
+- Monthly delivery bandwidth: `25 GB`
+- Internal users: `2`
+- Partner invites: `10`
+- DeepL chars/month: `50,000`
+- Agent runs/month: `25`
+- Max upload size: `250 MB`
+- Public share links: `enabled`
+
+### 4.3 Growth
+
+- Price: `$149/month`
+- Active SKUs: `500`
+- Storage: `100 GB`
+- Monthly delivery bandwidth: `200 GB`
+- Internal users: `8`
+- Partner invites: `100`
+- DeepL chars/month: `250,000`
+- Agent runs/month: `100`
+- Max upload size: `1 GB`
+- Public share links: `enabled`
+
+### 4.4 Scale
+
+- Price: `$349/month`
+- Active SKUs: `2,500`
+- Storage: `500 GB`
+- Monthly delivery bandwidth: `1,000 GB`
+- Internal users: `unlimited`
+- Partner invites: `unlimited`
+- DeepL chars/month: `500,000`
+- Agent runs/month: `500`
+- Max upload size: `2 GB`
+- Public share links: `enabled`
+
+### 4.5 Enterprise
+
+- Price: custom
+- Active SKUs: `unlimited`
+- Storage: `unlimited`
+- Monthly delivery bandwidth: `unlimited`
+- Internal users: `unlimited`
+- Partner invites: `unlimited`
+- DeepL chars/month: `unlimited`
+- Agent runs/month: `unlimited`
+- Max upload size: `unlimited`
+- Public share links: `enabled`
+
+## 5) Effective Add-On Catalog
+
+This is the current runtime add-on behavior:
+
+- `sku_pack_3000`: `+3,000 active SKUs`
+- `storage_pack_100gb`: `+100 GB storage`
+- `delivery_pack_500gb`: `+500 GB monthly delivery bandwidth`
+- `seat_pack_5`: `+5 internal users`
+- `partner_invite_pack_100`: `+100 partner invites`
+
+No reviewed runtime add-on exists for:
+
+- DeepL characters
+- Agent runs
+- Max upload size
+- Public share links
+
+## 6) Effective Meter Definitions
+
+### 6.1 `activeSkuCount`
+
+Counted from `products` where:
+
+- `type IN ('variant', 'standalone')`
+- `status IN ('Draft', 'Enrichment', 'Review', 'Active')`
+
+Not counted:
+
+- `parent` products
+- `Discontinued`
+- `Archived`
+
+Current enforcement behavior:
+
+- checked on product create
+- checked on variant create
+- checked on reactivation/status changes that move a record back into a counted state
+
+Current implementation behavior:
+
+- enforced as current count, not monthly peak
+
+### 6.2 `storageGb`
+
+Source:
+
+- `organizations.storage_used`
+
+Current enforcement behavior:
+
+- upload blocked if file exceeds plan max upload size
+- upload/version blocked if resulting storage exceeds storage limit
+
+### 6.3 `deliveryBandwidthGb`
+
+Source:
+
+- `organization_usage_monthly_snapshots.delivery_bandwidth_gb_total`
+
+Metering behavior:
+
+- metered only through current delivery metering helpers
+- bytes converted to billing GB with 3 decimal precision
+
+Enforcement behavior:
+
+- public download route checks bandwidth only when `BANDWIDTH_LIMIT_ENFORCEMENT=true`
+- metering increments only when `BANDWIDTH_METERING_MODE=estimate`
+
+Implication:
+
+- delivery bandwidth is not universally enforced or universally metered in all environments today
+
+### 6.4 `internalUserCount`
+
+Source:
+
+- active `organization_members` rows for the subscriber org
+
+Current enforcement behavior:
+
+- checked on team invite create
+- checked again on team invite accept
+- pending team invites are included in create-time projection
+
+### 6.5 `partnerInviteCount`
+
+Current runtime behavior counts unique external access units for a brand using:
+
+- pending actionable partner invites
+- accepted partner invites
+- active brand-partner relationships
+
+Dedup behavior today is effectively:
+
+- by `partner_organization_id` when present
+- otherwise by normalized email
+
+Current enforcement behavior:
+
+- checked on partner invite create
+- partner orgs cannot create partner invites
+
+### 6.6 `deeplTotalCharCount`
+
+Source:
+
+- `organization_usage_monthly_snapshots.translation_chars`
+- `organization_usage_monthly_snapshots.write_chars`
+
+Effective limit check:
+
+- `translation_chars + write_chars`
+
+Current enforcement behavior:
+
+- checked before localization job execution
+- Free plan is blocked from translation entirely
+
+Current intended commercial limits:
+
+- Starter: `50,000`
+- Growth: `250,000`
+- Scale: `500,000`
+
+### 6.7 `agentRunsCount`
+
+Runtime source:
+
+- `organization_usage_monthly_snapshots.ai_agent_runs_count`
+
+Current enforcement behavior:
+
+- checked before AI agent run
+- incremented after successful agent completion
+
+Important limitation:
+
+- no reviewed migration adds `ai_agent_runs_count`, so this meter is not yet fully backed by the reviewed schema
+
+## 7) Effective Plan-Gated Features
+
+### 7.1 Public share links
+
+Plan gate:
+
+- Free: disabled
+- Starter and above: enabled
+
+Actual behavior:
+
+- public asset download route forces authenticated access when plan does not allow public share links
+
+### 7.2 Max upload size
+
+Plan gate:
+
+- Free: `25 MB`
+- Starter: `250 MB`
+- Growth: `1 GB`
+- Scale: `2 GB`
+- Enterprise: unlimited
+
+Actual behavior:
+
+- enforced on asset upload
+- enforced on asset version upload
+
+### 7.3 DeepL access
+
+Plan gate:
+
+- Free: unavailable
+- Starter/Growth/Scale/Enterprise: available
+
+Actual behavior:
+
+- translate jobs blocked on Free before usage check
+
+### 7.4 AI Agent access
+
+Plan gate by quota:
+
+- Free: `0`
+- Starter: `25`
+- Growth: `100`
+- Scale: `500`
+- Enterprise: unlimited
+
+Actual behavior:
+
+- partners cannot use the agent
+- users are also subject to separate per-user rate limits
+
+## 8) Enforcement Map
+
+Reviewed enforcement points:
+
+- Product create: `activeSkuCount`
+- Product reactivation/status changes: `activeSkuCount`
+- Variant bulk create/update: `activeSkuCount`
+- Team invite create: `internalUserCount`
+- Team invite accept: `internalUserCount`
+- Partner invite create: `partnerInviteCount`
+- Asset upload: `maxUploadBytes`, `storageGb`
+- Asset version upload: `maxUploadBytes`, `storageGb`
+- Public asset download: `publicShareLinksEnabled`, optional `deliveryBandwidthGb`
+- Localization jobs: `deeplTotalCharCount`
+- AI agent run: `agentRunsCount`
+
+## 9) Database Catalog Status
+
+The following database billing structures exist and are useful foundations:
+
 - `billing_plans`
 - `billing_addons`
 - `organization_subscriptions`
 - `organization_subscription_addons`
 - `organization_usage_daily`
 - `organization_usage_monthly_snapshots`
-- `organization_billing_events` (audit trail)
+- `organization_billing_events`
+- `billing_webhook_receipts`
 
-Recommended new columns:
-- `products.discontinued_at TIMESTAMPTZ NULL` (for 12-month rule)
-- subscription period markers on organization-level billing state
+However, for plan limits specifically:
 
-## 10) Lifecycle and UX Rules
-- Warn at 80%, 90%, 100% for each capped meter.
-- At 100%:
-  - block action with explicit reason and suggested remediation.
-- Upgrade path:
-  - immediate entitlement increase after successful payment.
-- Downgrade path:
-  - scheduled to period end unless user is already below new limits.
+- `billing_plans.limits` is not the live entitlement source for reviewed enforcement code
+- `billing_addons.increments` is not the live add-on source for reviewed enforcement code
 
-## 11) Payment and Reliability
-- Require idempotent webhook processing for subscription/add-on updates.
-- Maintain immutable billing event log for:
-  - plan changes,
-  - add-on purchases/removals,
-  - trial start/end,
-  - cap-block events.
-- Add dunning and grace-period behavior in V1.1 if not in launch scope.
+## 10) Required Follow-Up
 
-## 12) Acceptance Test Matrix (minimum)
-- Brand at invite cap cannot create new partner invite.
-- Same partner invited by two brands consumes capacity in both brands.
-- Invitee with multiple partner workspaces can select which partner workspace to link during invite acceptance.
-- Partner conversion to paid does not alter existing brand-granted free access.
-- Storage cap blocks new upload and version insert.
-- Delivery cap blocks share-link/public downloads, but allows billing/settings access.
-- Reactivating discontinued SKU immediately re-enters active count.
-- Discontinued SKU older than 12 months follows configured archive/guardrail behavior.
-- Add-on purchased mid-cycle updates caps immediately and invoices prorated amount.
+To make billing truly single-source-of-truth, the next implementation step should be:
 
-## 13) Open Items for next review
-- Exact handling for delivery cap in internal authenticated download flows.
-- Whether inactive/suspended members should count toward `internal_user_count`.
-- Whether invite capacity is best represented as identities, partner orgs, or both meters.
-- V2 decision: charge low-cost archive meter for long-discontinued SKUs vs guardrail-only.
+1. choose one canonical catalog source
+2. make runtime enforcement read from that source
+3. remove drift between SQL seeds and runtime constants
+4. update both runtime and SQL DeepL limits to:
+   - Starter: `50,000`
+   - Growth: `250,000`
+   - Scale: `500,000`
+5. add missing schema for `ai_agent_runs_count` if agent billing remains in scope
+6. decide whether delivery bandwidth enforcement should be always-on or explicitly environment-gated
+7. either implement or remove the undocumented V1 aspirations:
+   - total SKU guardrail
+   - discontinued-after-12-month behavior
+
+## 11) Decision
+
+For the current build, this document defines the source of truth as:
+
+- runtime billing catalog for effective limits
+- reviewed route enforcement for actual behavior
+- database billing tables as supporting infrastructure, not canonical commercial truth

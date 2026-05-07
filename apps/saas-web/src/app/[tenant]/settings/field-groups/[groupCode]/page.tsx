@@ -9,10 +9,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { DeleteConfirmDialog } from '@/components/ui/modal-shells';
 import { Input } from '@/components/ui/input';
 import { ItemList } from '@/components/ui/item-list';
-import { ChevronLeft, Lock, Plus, Search, Trash2 } from 'lucide-react';
+import { Lock, Plus, Search, Trash2 } from 'lucide-react';
 import { PageSkeleton } from '@/components/ui/loading-skeleton';
 import { isLockedFieldGroupCode } from '@/lib/field-group-codes';
 import { SettingsSecondLevelPage } from '../../components/settings-page-content';
+import { SettingsDetailHeader } from '../../components/settings-detail-header';
 
 const LOCKED_CORE_FIELD_CODES = new Set([
   'title',
@@ -365,7 +366,7 @@ export default function FieldGroupDetailPage({
   if (loading) {
     return (
       <div className="h-full bg-background">
-        <PageSkeleton text="Loading attribute group..." size="lg" />
+        <PageSkeleton text="Loading attribute group..." size="lg" variant="settings-detail" />
       </div>
     );
   }
@@ -385,95 +386,41 @@ export default function FieldGroupDetailPage({
 
   return (
     <>
-      <SettingsSecondLevelPage
-        page="field-group-detail"
-        backLink={
-          <Link
-            href={`/${tenant}/settings/field-groups`}
-            className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            <span>Attribute Groups</span>
-          </Link>
-        }
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div className="w-full max-w-2xl space-y-2">
-            {isLockedGroup ? (
-              <>
-                <h2 className="text-2xl font-semibold text-foreground">{fieldGroup.name}</h2>
-                {fieldGroup.description ? (
-                  <p className="mt-1 text-sm text-muted-foreground">{fieldGroup.description}</p>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <input
-                  type="text"
-                  value={detailsName}
-                  onChange={(e) => setDetailsName(e.target.value)}
-                  onBlur={(e) => {
-                    void handleSaveDetails(e.target.value, detailsDescription);
-                  }}
-                  placeholder="Untitled attribute group"
-                  className="inline-edit-plain m-0 block w-full appearance-none border-0 bg-transparent p-0 text-2xl font-semibold text-foreground shadow-none outline-none ring-0 placeholder:text-muted-foreground focus:outline-none focus:ring-0 focus:border-0"
-                  aria-label="Attribute group name"
-                />
-
-                <textarea
-                  value={detailsDescription}
-                  onChange={(e) => setDetailsDescription(e.target.value)}
-                  onBlur={(e) => {
-                    void handleSaveDetails(detailsName, e.target.value);
-                  }}
-                  placeholder="Add a short description..."
-                  rows={1}
-                  className="inline-edit-plain m-0 block w-full appearance-none resize-none border-0 bg-transparent p-0 text-sm text-muted-foreground shadow-none outline-none ring-0 placeholder:text-muted-foreground focus:outline-none focus:ring-0 focus:border-0"
-                  aria-label="Attribute group description"
-                />
-                <p className="text-sm text-muted-foreground">
-                  {sortedAssignedFields.length} attributes
-                </p>
-                {detailsError ? (
-                  <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded">
-                    {detailsError}
-                  </div>
-                ) : null}
-              </>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {isLockedGroup ? (
+      <SettingsSecondLevelPage page="field-group-detail">
+        <SettingsDetailHeader
+          backHref={`/${tenant}/settings/field-groups`}
+          backLabel="Attribute Groups"
+          title={fieldGroup.name}
+          onRename={isLockedGroup ? undefined : async (name) => handleSaveDetails(name, fieldGroup.description ?? '')}
+          description={fieldGroup.description}
+          onEditDescription={isLockedGroup ? undefined : async (desc) => handleSaveDetails(fieldGroup.name, desc)}
+          descriptionPlaceholder="Add a short description..."
+          meta={[{ label: `${sortedAssignedFields.length} attributes` }]}
+          actions={
+            isLockedGroup ? (
               <Badge variant="neutral" className="gap-1">
                 <Lock className="h-3 w-3" />
                 Locked
               </Badge>
             ) : (
-              <>
-                <Button
-                  variant="outline"
-                  className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
-                  disabled={detailsSaving}
-                  onClick={() => {
-                    setDeleteError(null);
-                    setShowDeleteDialog(true);
-                  }}
-                >
-                  Delete group
-                </Button>
-              </>
-            )}
+              <Button
+                variant="outline"
+                className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                disabled={detailsSaving}
+                onClick={() => { setDeleteError(null); setShowDeleteDialog(true); }}
+              >
+                Delete group
+              </Button>
+            )
+          }
+        />
+        {detailsError && (
+          <div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {detailsError}
           </div>
-        </div>
+        )}
 
-        <section className="space-y-3">
-          <div>
-            <h3 className="text-lg font-medium">Attributes</h3>
-            <p className="text-sm text-muted-foreground">
-              Assign attributes to this group. Visibility is controlled at the product model level.
-            </p>
-          </div>
-
+        <section>
           <ItemList
             items={sortedAssignedFields}
             getKey={(field) => field.id}

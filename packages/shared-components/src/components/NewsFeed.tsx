@@ -84,7 +84,11 @@ export default function NewsFeed({
       // Get total count and posts in parallel
       const [postsResult, countResult] = await Promise.all([
         client.fetch(`
-          *[_type == "blogPost"] | order(publishedAt desc) [${offset}...${offset + postsPerPage}] {
+          *[
+            _type == "blogPost" &&
+            defined(publishedAt) &&
+            dateTime(publishedAt) <= dateTime(now())
+          ] | order(publishedAt desc) [${offset}...${offset + postsPerPage}] {
             _id,
             title,
             slug,
@@ -105,7 +109,13 @@ export default function NewsFeed({
             estimatedReadingTime
           }
         `),
-        client.fetch(`count(*[_type == "blogPost"])`)
+        client.fetch(`
+          count(*[
+            _type == "blogPost" &&
+            defined(publishedAt) &&
+            dateTime(publishedAt) <= dateTime(now())
+          ])
+        `)
       ])
 
       setPosts(postsResult || [])
